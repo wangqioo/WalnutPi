@@ -204,24 +204,20 @@ def load() -> dict:
     _load_dotenv()
     cfg = _yaml_config()
 
-    if "stt" not in cfg:
-        env_stt = _env_stt()
-        if env_stt:
-            cfg["stt"] = env_stt
+    env_stt = _env_stt()
+    if env_stt:
+        cfg["stt"] = {**cfg.get("stt", {}), **env_stt}
 
-    if "llm" not in cfg:
-        env_llm = _env_llm()
-        if env_llm:
-            cfg["llm"] = env_llm
+    env_llm = _env_llm()
+    if env_llm:
+        cfg["llm"] = {**cfg.get("llm", {}), **env_llm}
 
-    if "audio" not in cfg:
-        env_audio = _env_audio()
-        if env_audio:
-            cfg["audio"] = env_audio
+    env_audio = _env_audio()
+    if env_audio:
+        cfg["audio"] = {**cfg.get("audio", {}), **env_audio}
 
-    if "ai_stt" not in cfg:
-        env_ai_stt = _env_ai_stt()
-        if env_ai_stt:
-            cfg["ai_stt"] = env_ai_stt
+    env_ai_stt = _env_ai_stt()
+    if env_ai_stt:
+        cfg["ai_stt"] = {**cfg.get("ai_stt", {}), **env_ai_stt}
 
     return cfg
