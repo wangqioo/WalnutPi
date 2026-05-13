@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games"
+export TERM="${TERM:-linux}"
+
+music_dir="/root/music-library"
+music_link="/root/Music/WalnutMusic"
+cmus_playlist="/root/.config/cmus/walnut-library.pls"
+
+prepare_music() {
+  mkdir -p /root/Music /root/.config/cmus
+  if [ -d "$music_dir" ]; then
+    ln -sfn "$music_dir" "$music_link"
+    find "$music_dir" -type f \( -iname "*.mp3" -o -iname "*.ogg" -o -iname "*.oga" -o -iname "*.flac" -o -iname "*.wav" \) | sort > "$cmus_playlist"
+  fi
+}
+
+pause() {
+  printf "\nPress Enter to return to Walnut Fun..."
+  read -r _ || true
+}
+
+run_cmd() {
+  clear
+  echo "==> $*"
+  echo
+  "$@" || true
+  pause
+}
+
+music_help() {
+  cat <<HELP
+cmus quick keys:
+  2        library view
+  3        playlist view
+  5        file browser view
+  Enter    add/play selected file
+  c        pause/resume
+  b        next track
+  z        previous track
+  + / -    volume
+  q        quit
+
+Music folder:
+  $music_link -> $music_dir
+HELP
+}
+
+launch_cmus() {
+  prepare_music
+  clear
+  music_help
+  printf "\nLaunching cmus with WalnutMusic loaded. Use q to quit cmus.\n\n"
+  sleep 2
+  if [ -s "$cmus_playlist" ]; then
+    cmus "$cmus_playlist" || cmus "$music_link" || cmus || true
+  elif [ -d "$music_link" ]; then
+    cmus "$music_link" || cmus || true
+  else
+    cmus || true
+  fi
+}
+
+while true; do
+  prepare_music
+  clear
+  cat <<MENU
+Walnut Fun - terminal apps only
+
+  1. Music Player: cmus, WalnutMusic preloaded
+  2. Music Visualizer: cava
+  3. Web Browser: w3m
+  4. Web Browser: lynx
+  5. Small-screen Monitor: htop
+  6. Large-screen Monitor: btop
+  7. Disk Usage: ncdu /
+  8. Game: NetHack
+  9. Game: Moon Buggy
+ 10. Terminal Clock
+ 11. List local music
+ 12. AirPods music mode
+
+  q. Quit
+MENU
+  printf "\nSelect> "
+  read -r choice || exit 0
+  case "$choice" in
+    1)
+      launch_cmus
+      ;;
+    2)
+      clear
+      echo "Launching cava. Tip: play music in another terminal first. Press q or Ctrl+C to quit."
+      sleep 2
+      cava || true
+      ;;
+    3)
+      run_cmd w3m https://lite.duckduckgo.com/lite/
+      ;;
+    4)
+      run_cmd lynx https://lite.duckduckgo.com/lite/
+      ;;
+    5)
+      htop || true
+      ;;
+    6)
+      clear
+      echo "btop needs a larger terminal. If the local screen is too small, use SSH from a bigger terminal."
+      sleep 2
+      btop || true
+      pause
+      ;;
+    7)
+      ncdu / || true
+      ;;
+    8)
+      /usr/games/nethack || true
+      ;;
+    9)
+      /usr/games/moon-buggy || true
+      ;;
+    10)
+      tty-clock -c -s || true
+      ;;
+    11)
+      clear
+      echo "Music folder: $music_link"
+      echo
+      if [ -x /root/music ]; then
+        /root/music list || true
+      else
+        find "$music_dir" -type f 2>/dev/null | sort || true
+      fi
+      pause
+      ;;
+    12)
+      run_cmd vk-airpods-audio
+      ;;
+    q|Q|exit|quit)
+      clear
+      exit 0
+      ;;
+    *)
+      echo "Unknown choice: $choice"
+      sleep 1
+      ;;
+  esac
+done
