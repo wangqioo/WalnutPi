@@ -40,23 +40,30 @@ echo 中文测试
 
 ## Default Local Console
 
-The local login shell for both `root` and `pi` includes this guarded startup block in `.bashrc`:
+The local login shell for both `root` and `pi` calls `/usr/local/bin/walnut-login-choice` from `.bashrc` and shows a small choice menu on the built-in screen:
 
 ```bash
-# WalnutPi local Chinese console
-if [ -z "${SSH_TTY:-}" ] && [ -z "${WALNUT_FBTERM:-}" ] && [ -t 0 ] && [ "$(tty)" = "/dev/tty1" ] && command -v fbterm >/dev/null 2>&1; then
-  export WALNUT_FBTERM=1
-  export LANG=C.UTF-8
-  export LC_ALL=C.UTF-8
-  exec fbterm -n "WenQuanYi Zen Hei Mono,Noto Sans Mono,Droid Sans Fallback" -s 16
+# WalnutPi local login choice
+if [ -z "${SSH_TTY:-}" ] && [ -t 0 ] && [ "$(tty)" = "/dev/tty1" ] && command -v walnut-login-choice >/dev/null 2>&1; then
+  . /usr/local/bin/walnut-login-choice
 fi
 ```
+
+Menu shown on local login:
+
+```text
+1. Chinese console: fbterm
+2. Normal Linux tty
+3. Walnut Assistant
+```
+
+If no key is pressed for 8 seconds, it stays in the normal Linux tty.
 
 The guard is intentionally narrow:
 
 - Only local `tty1` triggers it.
 - SSH sessions are not affected.
-- `WALNUT_FBTERM` prevents recursive relaunch.
+- `WALNUT_LOGIN_CHOICE` prevents recursive relaunch.
 - If `fbterm` is missing, it stays in the normal shell.
 
 ## Config Files
@@ -66,6 +73,7 @@ Reference config stored in this repo:
 ```bash
 console-chinese/fbtermrc
 console-chinese/walnut-cn
+console-chinese/walnut-login-choice
 ```
 
 Installed locations on the device:
@@ -74,6 +82,7 @@ Installed locations on the device:
 /root/.fbtermrc
 /home/pi/.fbtermrc
 /usr/local/bin/walnut-cn
+/usr/local/bin/walnut-login-choice
 ```
 
 ## Limitation
