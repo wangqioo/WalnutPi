@@ -146,11 +146,21 @@ For WalnutPi/server-style Linux use, the important direction is:
 
 - USB microphone input instead of onboard Bluetooth headset microphone capture
 - CLI/service-friendly execution on Debian
+- `walnut-voice-cli` as the practical terminal interaction path
 - cloud STT providers such as ZhipuAI, OpenAI-compatible APIs, Aliyun, Volcengine, or Xunfei
 - server-side AI routing for dictation, memo save/recall, polish, writing, and short chat
 - future integration with WalnutAI Terminal as a voice input path
 
 See `voice-keyboard/README.md`, `voice-keyboard/config.yaml.example`, and `voice-keyboard/packaging/linux/README.md`.
+
+Current recommended CLI mode on the device:
+
+```bash
+walnut-voice-cli --push-key space
+```
+
+This keeps capture boundaries explicit in a headless terminal and avoids the
+desktop-input assumptions of the original project.
 
 ### AirPods Linux Audio Notes
 

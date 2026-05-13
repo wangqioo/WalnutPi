@@ -188,6 +188,30 @@ walnut-voice-cli --yes
 
 Use fast mode only after the microphone and STT are reliable.
 
+## Bring-Up Notes
+
+These points were confirmed on a real WalnutPi Debian 12 server setup:
+
+- Prefer a USB microphone. Bluetooth headset microphones were not reliable on
+  the current board/controller path.
+- For CLI usage, a voice-command shell is more practical than desktop-style
+  keyboard injection. Use `walnut-voice-cli` instead of trying to type into a
+  non-existent GUI session.
+- Keep secrets and machine-local overrides in `~/.voice-keyboard/.env`. The
+  runtime now lets `.env` override `config.yaml`, which is important for
+  per-device `AUDIO_DEVICE`, STT credentials, and model selection.
+- Do not assume the microphone can capture at 16 kHz directly. The current
+  runtime opens the device at its default rate and resamples to 16 kHz for
+  VAD/STT. This matters for USB microphones that expose 44.1 kHz or 48 kHz
+  only.
+- `AUDIO_DEVICE=auto` is fine for first boot, but a fixed device id or name
+  fragment is more stable after the target microphone is known.
+- `walnut-voice-cli --push-key space` is the best default for terminal use when
+  you want explicit capture boundaries. VAD mode remains useful for hands-free
+  service workflows.
+- On the device, redeploy with `git pull` and rerun the installer. Avoid ad hoc
+  runtime file copies into `/opt/walnut-voice-keyboard`.
+
 ## Manual Debug Run
 
 ```bash
