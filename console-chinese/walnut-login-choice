@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ -n "${SSH_TTY:-}" ] || [ -n "${WALNUT_LOGIN_CHOICE:-}" ] || [ ! -t 0 ] || [ "$(tty)" != "/dev/tty1" ]; then
+  exit 0
+fi
+
+export WALNUT_LOGIN_CHOICE=1
+
+printf '\nWalnutPi local console\n'
+printf '  1. Chinese console: fbterm\n'
+printf '  2. Normal Linux tty\n'
+printf '  3. Walnut Assistant\n'
+printf '\nSelect [1/2/3, default 2 in 8s]> '
+
+choice=""
+if read -r -t 8 choice; then
+  :
+else
+  choice="2"
+  printf '\n'
+fi
+
+case "${choice:-2}" in
+  1)
+    if command -v fbterm >/dev/null 2>&1; then
+      export WALNUT_FBTERM=1
+      export LANG=C.UTF-8
+      export LC_ALL=C.UTF-8
+      exec fbterm -n "WenQuanYi Zen Hei Mono,Noto Sans Mono,Droid Sans Fallback" -s 16
+    else
+      echo "fbterm not installed; staying in normal tty."
+    fi
+    ;;
+  3)
+    if command -v walnut >/dev/null 2>&1; then
+      exec walnut
+    else
+      echo "walnut not installed; staying in normal tty."
+    fi
+    ;;
+  *)
+    ;;
+esac
