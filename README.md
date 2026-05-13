@@ -96,6 +96,9 @@ WalnutPi/
 ├── hardware/                # Observed hardware and screen notes
 ├── walnut-ai-terminal/      # WalnutAI Terminal V0
 ├── voice-keyboard/          # Speech-to-text keyboard agent experiments
+├── ai_video/                # Terminal AI video tools and demos
+├── terminal-toys/           # Small terminal fun/demo launchers
+├── investor-brief/          # Product/investor presentation assets
 ├── audio/
 │   └── airpods-linux/       # AirPods/Linux playback and microphone investigation
 ├── scripts/                 # Install and helper scripts
@@ -161,6 +164,21 @@ walnut-voice-cli --push-key space
 
 This keeps capture boundaries explicit in a headless terminal and avoids the
 desktop-input assumptions of the original project.
+
+### ASCII Video Terminal Tools
+
+Path: `ai_video/`
+
+Offline encode images/videos into terminal-friendly character frames, then play them on a headless CLI system.
+
+Quick demo:
+
+```bash
+PYTHONPATH=. python3 -m ai_video.ascii_video.player ai_video/examples/assets/demo_gray.avtx
+PYTHONPATH=. python3 -m ai_video.ascii_video_color.player ai_video/examples/assets/demo_color.avtc
+```
+
+The current hardware notes record a 480x320 SPI framebuffer screen. See `hardware/README.md`.
 
 ### AirPods Linux Audio Notes
 

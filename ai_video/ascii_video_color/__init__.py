@@ -1,0 +1,2 @@
+"""Colored ASCII video toolkit."""
+
