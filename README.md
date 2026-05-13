@@ -52,6 +52,7 @@ The cloud handles:
 
 The current WalnutPi can already:
 
+- run `walnut`, the Walnut Assistant command hub
 - run `walnut-ai`, a small AI terminal prototype
 - call cloud AI through an OpenAI-compatible API
 - save notes locally as Markdown
@@ -61,6 +62,7 @@ The current WalnutPi can already:
 - host Uptime Kuma on port `3001`
 - expose services through frpc
 - play audio through AirPods/A2DP
+- display Chinese on the local framebuffer console through `fbterm`
 - keep normal CLI boot behavior without forcing a custom shell on startup
 
 ## What It Is Good For
@@ -94,11 +96,10 @@ AirPods playback works, but AirPods microphone capture failed because SCO microp
 ```text
 WalnutPi/
 ├── hardware/                # Observed hardware and screen notes
+├── walnut-assistant/        # Walnut Assistant command hub
 ├── walnut-ai-terminal/      # WalnutAI Terminal V0
-├── voice-keyboard/          # Speech-to-text keyboard agent experiments
-├── ai_video/                # Terminal AI video tools and demos
-├── terminal-toys/           # Small terminal fun/demo launchers
-├── investor-brief/          # Product/investor presentation assets
+├── terminal-toys/           # Terminal-only tools and launcher
+├── console-chinese/         # Local framebuffer Chinese display notes
 ├── audio/
 │   └── airpods-linux/       # AirPods/Linux playback and microphone investigation
 ├── scripts/                 # Install and helper scripts
@@ -108,6 +109,35 @@ WalnutPi/
 Future modules should be added as separate folders under this repository. The root should stay as an index and overview.
 
 ## Projects
+
+### Walnut Assistant V0
+
+Path: `walnut-assistant/`
+
+Main command hub for this portable AI terminal.
+
+Run:
+
+```bash
+walnut
+```
+
+### Chinese Local Console
+
+Path: `console-chinese/`
+
+Documents the local Chinese display setup for the built-in screen:
+
+- Linux TTY itself cannot render Chinese glyphs well.
+- `fbterm` is used with WenQuanYi/Noto/Droid fallback fonts.
+- `walnut-cn` opens the Chinese-capable framebuffer terminal manually.
+- Local `tty1` login auto-enters `fbterm`; SSH sessions are not affected.
+
+### Terminal Toys
+
+Path: `terminal-toys/`
+
+Pure terminal apps and the `walnut-fun` launcher for music, browser, monitoring, disk usage, games, clock, and AirPods playback mode.
 
 ### Hardware Notes
 
@@ -139,47 +169,6 @@ Current commands:
 /exit                Exit
 ```
 
-### Voice Keyboard
-
-Path: `voice-keyboard/`
-
-Speech-to-text keyboard agent code from the earlier `voice-keyboard` project. This is kept as an independent experiment folder because it contains platform-specific desktop integrations, firmware sketches, and packaging notes.
-
-For WalnutPi/server-style Linux use, the important direction is:
-
-- USB microphone input instead of onboard Bluetooth headset microphone capture
-- CLI/service-friendly execution on Debian
-- `walnut-voice-cli` as the practical terminal interaction path
-- cloud STT providers such as ZhipuAI, OpenAI-compatible APIs, Aliyun, Volcengine, or Xunfei
-- server-side AI routing for dictation, memo save/recall, polish, writing, and short chat
-- future integration with WalnutAI Terminal as a voice input path
-
-See `voice-keyboard/README.md`, `voice-keyboard/config.yaml.example`, and `voice-keyboard/packaging/linux/README.md`.
-
-Current recommended CLI mode on the device:
-
-```bash
-walnut-voice-cli --push-key space
-```
-
-This keeps capture boundaries explicit in a headless terminal and avoids the
-desktop-input assumptions of the original project.
-
-### ASCII Video Terminal Tools
-
-Path: `ai_video/`
-
-Offline encode images/videos into terminal-friendly character frames, then play them on a headless CLI system.
-
-Quick demo:
-
-```bash
-PYTHONPATH=. python3 -m ai_video.ascii_video.player ai_video/examples/assets/demo_gray.avtx
-PYTHONPATH=. python3 -m ai_video.ascii_video_color.player ai_video/examples/assets/demo_color.avtc
-```
-
-The current hardware notes record a 480x320 SPI framebuffer screen. See `hardware/README.md`.
-
 ### AirPods Linux Audio Notes
 
 Path: `audio/airpods-linux/`
@@ -197,16 +186,17 @@ Documents the Bluetooth audio investigation:
 - `frpc.service`: enabled
 - `uptime-kuma` Docker container: healthy
 - Uptime Kuma local URL: `http://192.168.1.30:3001`
+- Walnut Assistant launcher: `/usr/local/bin/walnut`
 - WalnutAI launcher: `/usr/local/bin/walnut-ai`
 - WalnutAI code: `/opt/walnut-ai/walnut_ai.py`
-- Voice Keyboard headless installer: `scripts/install-voice-keyboard-walnutpi.sh`
+- Chinese console helper: `/usr/local/bin/walnut-cn`
 
 ## Development Rules
 
 - Keep every new experiment in its own subfolder.
 - Do not put device-local secrets in this repo.
 - Keep boot behavior normal: the device should still boot into a standard CLI.
-- Custom interaction systems should be entered manually, for example with `walnut-ai`.
+- Custom interaction systems should be entered manually, for example with `walnut` or `walnut-ai`.
 - Prefer simple, inspectable Linux services and scripts before building heavy UI stacks.
 
 ## Near-Term Roadmap
@@ -216,6 +206,5 @@ Documents the Bluetooth audio investigation:
 - Add commands for Uptime Kuma and frpc status
 - Add Bluetooth/music control command
 - Add a small local web UI for phone access
-- Connect `voice-keyboard/` transcripts directly into WalnutAI Terminal
-- Add a short default alias such as `wvc` for `walnut-voice-cli --push-key space`
+- Add voice input after connecting a reliable USB microphone
 - Add service deployment folders for Uptime Kuma and frp configs
