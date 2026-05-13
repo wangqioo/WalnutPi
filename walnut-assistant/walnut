@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""Walnut Assistant V0: command hub for a headless WalnutPi AI terminal."""
+
+from __future__ import annotations
+
+import argparse
+import getpass
+import os
+import shutil
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+
+PROJECT_ROOT = Path("/home/pi/projects/WalnutPi")
+CURRENT_USER = getpass.getuser()
+HOME = Path.home()
+MEMORY_ROOT = Path(os.getenv("WALNUT_MEMORY_DIR", str(HOME / "walnut-memory")))
+NOTES_DIR = MEMORY_ROOT / "daily"
+MUSIC_DIR = Path("/root/music-library")
+AIRPODS_MAC = "34:0E:22:C0:C7:CC"
+
+
+def run(cmd: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=check)
+
+
+def stream(cmd: list[str]) -> int:
+    try:
+        return subprocess.call(cmd)
+    except FileNotFoundError:
+        print(f"missing command: {cmd[0]}")
+        return 127
+
+
+def exists(cmd: str) -> bool:
+    return shutil.which(cmd) is not None
+
+
+def root_cmd(cmd: list[str]) -> list[str]:
+    if os.geteuid() == 0:
+        return cmd
+    if exists("sudo"):
+        return ["sudo", "-n", *cmd]
+    return cmd
+
+
+def require_root(action: str) -> bool:
+    if os.geteuid() == 0:
+        return True
+    print(f"{action} needs administrator permission.")
+    print(f"Run: sudo walnut {action}")
+    return False
+
+
+def section(title: str) -> None:
+    print(f"\n== {title} ==")
+
+
+def one_line(cmd: list[str], fallback: str = "-") -> str:
+    try:
+        out = run(cmd).stdout.strip()
+        return out if out else fallback
+    except Exception:
+        return fallback
+
+
+def status(_: argparse.Namespace | None = None) -> int:
+    section("WalnutPi")
+    print(one_line(["hostnamectl"], "hostnamectl unavailable"))
+
+    section("Network")
+    print(one_line(["ip", "-br", "addr"]))
+    print(one_line(["ip", "route", "show", "default"]))
+    if exists("nmcli"):
+        print(one_line(["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL", "dev", "wifi"]))
+
+    section("Storage")
+    print(one_line(["df", "-h", "/", "/boot"]))
+    print(one_line(["findmnt", "-n", "-o", "SOURCE,FSTYPE,OPTIONS,TARGET", "/"]))
+
+    section("Memory")
+    print(one_line(["free", "-h"]))
+
+    section("Services")
+    for service in ["ssh", "NetworkManager", "docker", "frpc", "voice-keyboard-walnutpi", "bluealsa-aplay", "bluetooth"]:
+        state = one_line(root_cmd(["systemctl", "is-active", service]), "unknown")
+        enabled = one_line(root_cmd(["systemctl", "is-enabled", service]), "unknown")
+        print(f"{service:26} active={state:10} enabled={enabled}")
+
+    section("Docker")
+    if exists("docker"):
+        if os.geteuid() == 0:
+            print(one_line(["docker", "ps", "--format", "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"]))
+        else:
+            print("Docker is installed. Run `sudo walnut status` to inspect containers.")
+    else:
+        print("docker not installed")
+
+    section("Audio")
+    print(one_line(["bluetoothctl", "info", AIRPODS_MAC], "AirPods not known"))
+    return 0
+
+
+def clean(_: argparse.Namespace | None = None) -> int:
+    if not require_root("clean"):
+        return 1
+    print("Walnut clean keeps projects, music, Codex config, GitHub login, Docker data, and Uptime Kuma data.")
+    print("Cleaning apt cache, old journals, and old temp files...")
+    commands = [
+        root_cmd(["apt-get", "clean"]),
+        root_cmd(["journalctl", "--vacuum-size=50M"]),
+        ["find", "/tmp", "-mindepth", "1", "-maxdepth", "1", "-mtime", "+1", "-delete"],
+        ["find", "/var/tmp", "-mindepth", "1", "-maxdepth", "1", "-mtime", "+7", "-delete"],
+    ]
+    for cmd in commands:
+        print(f"$ {' '.join(cmd)}")
+        subprocess.call(cmd)
+    section("After Clean")
+    print(one_line(["df", "-h", "/"]))
+    return 0
+
+
+def fix_audio(_: argparse.Namespace | None = None) -> int:
+    if not require_root("fix-audio"):
+        return 1
+    print("Switching Bluetooth audio back to PulseAudio A2DP playback mode.")
+    subprocess.call(root_cmd(["systemctl", "disable", "--now", "bluealsa-aplay"]))
+    subprocess.call(root_cmd(["systemctl", "disable", "--now", "bluealsa"]))
+    subprocess.call(root_cmd(["pkill", "-f", "^/usr/bin/bluealsa-aplay"]))
+    if exists("vk-airpods-audio"):
+        return stream(["vk-airpods-audio"])
+    print("vk-airpods-audio is missing")
+    return 1
+
+
+def projects(_: argparse.Namespace | None = None) -> int:
+    section("Projects")
+    for path in [PROJECT_ROOT, Path("/home/pi/projects/voice-keyboard"), Path("/opt/walnut-ai"), Path("/opt/uptime-kuma"), Path("/opt/frp")]:
+        if path.exists():
+            print(path)
+    section("Git")
+    if PROJECT_ROOT.exists():
+        subprocess.call(["git", "config", "--global", "--add", "safe.directory", str(PROJECT_ROOT)])
+        subprocess.call(["git", "-C", str(PROJECT_ROOT), "status", "--short"])
+    return 0
+
+
+def sync(_: argparse.Namespace | None = None) -> int:
+    if not PROJECT_ROOT.exists():
+        print(f"missing project root: {PROJECT_ROOT}")
+        return 1
+    print("GitHub sync for WalnutPi repository.")
+    subprocess.call(["git", "-C", str(PROJECT_ROOT), "status", "--short"])
+    print("\nNote: if git push hangs on this board, use Codex to sync via gh api as a fallback.")
+    return subprocess.call(["git", "-C", str(PROJECT_ROOT), "push", "origin", "main"])
+
+
+def note(args: argparse.Namespace) -> int:
+    NOTES_DIR.mkdir(parents=True, exist_ok=True)
+    text = " ".join(args.text).strip()
+    if not text:
+        print("Usage: walnut note your text")
+        return 2
+    path = NOTES_DIR / f"{datetime.now().date().isoformat()}.md"
+    with path.open("a", encoding="utf-8") as f:
+        f.write(f"\n- {datetime.now().strftime('%H:%M')} {text}\n")
+    print(f"saved: {path}")
+    return 0
+
+
+def today(_: argparse.Namespace | None = None) -> int:
+    path = NOTES_DIR / f"{datetime.now().date().isoformat()}.md"
+    if path.exists():
+        print(path.read_text(encoding="utf-8"))
+    else:
+        print("No notes today.")
+    return 0
+
+
+def open_ai(_: argparse.Namespace | None = None) -> int:
+    if exists("walnut-ai"):
+        return stream(["walnut-ai"])
+    print("walnut-ai is missing")
+    return 1
+
+
+def fun(_: argparse.Namespace | None = None) -> int:
+    if exists("walnut-fun"):
+        return stream(["walnut-fun"])
+    print("walnut-fun is missing")
+    return 1
+
+
+def voice(_: argparse.Namespace | None = None) -> int:
+    if exists("walnut-voice-cli"):
+        return stream(["walnut-voice-cli"])
+    print("walnut-voice-cli is missing")
+    return 1
+
+
+def menu(_: argparse.Namespace | None = None) -> int:
+    while True:
+        os.system("clear")
+        print("Walnut Assistant V0")
+        print()
+        print("  1. AI Chat")
+        print("  2. Status")
+        print("  3. Notes: add")
+        print("  4. Notes: today")
+        print("  5. Music / Tools")
+        print("  6. Fix AirPods audio")
+        print("  7. Projects")
+        print("  8. Clean")
+        print("  9. Voice")
+        print()
+        print("  q. Quit")
+        choice = input("\nSelect> ").strip().lower()
+        if choice == "1":
+            open_ai(None)
+        elif choice == "2":
+            status(None)
+            input("\nPress Enter...")
+        elif choice == "3":
+            text = input("Note> ").strip()
+            if text:
+                note(argparse.Namespace(text=[text]))
+                input("\nPress Enter...")
+        elif choice == "4":
+            today(None)
+            input("\nPress Enter...")
+        elif choice == "5":
+            fun(None)
+        elif choice == "6":
+            fix_audio(None)
+            input("\nPress Enter...")
+        elif choice == "7":
+            projects(None)
+            input("\nPress Enter...")
+        elif choice == "8":
+            clean(None)
+            input("\nPress Enter...")
+        elif choice == "9":
+            voice(None)
+            input("\nPress Enter...")
+        elif choice in {"q", "quit", "exit"}:
+            return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Walnut Assistant V0")
+    sub = parser.add_subparsers(dest="cmd")
+
+    commands = {
+        "status": status,
+        "clean": clean,
+        "fix-audio": fix_audio,
+        "projects": projects,
+        "sync": sync,
+        "ai": open_ai,
+        "fun": fun,
+        "voice": voice,
+        "today": today,
+    }
+    for name, func in commands.items():
+        p = sub.add_parser(name)
+        p.set_defaults(func=func)
+
+    p_note = sub.add_parser("note")
+    p_note.add_argument("text", nargs="*")
+    p_note.set_defaults(func=note)
+
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
+    args = parser.parse_args()
+    if not args.cmd:
+        return menu(args)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
