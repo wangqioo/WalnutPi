@@ -1,0 +1,38 @@
+# WalnutPi headless Voice Keyboard config.
+#
+# This file intentionally leaves STT credentials out. Put secrets in:
+#
+#   ~/.voice-keyboard/.env
+#
+# Minimal ZhipuAI .env:
+#
+#   GLM_API_KEY=your_key_here
+#   STT_PROVIDER=zhipuai
+#   STT_MODEL=glm-4-voice
+#
+# Minimal OpenAI .env:
+#
+#   STT_PROVIDER=openai
+#   STT_API_KEY=sk-...
+#   STT_MODEL=whisper-1
+#   STT_LANGUAGE=zh
+#
+# Minimal Xunfei .env:
+#
+#   STT_PROVIDER=xunfei
+#   STT_APP_ID=your_app_id
+#   STT_API_KEY=your_api_key
+#   STT_API_SECRET=your_api_secret
+#   STT_LANGUAGE=zh_cn
+
+audio:
+  mode: vad
+  device: auto
+  vad_aggressiveness: 2
+
+# Optional. If omitted, the service runs in dictation-only mode.
+# For ZhipuAI, use GLM_API_KEY / LLM_PROVIDER in ~/.voice-keyboard/.env instead.
+# llm:
+#   provider: zhipuai
+#   api_key: "..."
+#   model: glm-4-flash

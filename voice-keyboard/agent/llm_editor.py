@@ -1,0 +1,165 @@
+"""
+LLM 文字编辑器。
+
+接收原文 + 语音修改指令，调用 LLM 返回修改后的文字。
+
+支持的 provider：
+  openai      — GPT-4o-mini（快、便宜）
+  aliyun      — 通义千问 Qwen（中文优化）
+  volcengine  — 豆包 Doubao（字节跳动）
+  zhipuai     — 智谱 AI GLM（参考 transmission_assistant 项目的集成方式）
+
+扩展新 provider：
+  在 __init__ 的 elif 链中添加分支，或参照 openai / zhipuai 分支实现。
+"""
+
+import ssl
+
+import certifi
+import httpx
+
+_SYSTEM_PROMPT = """你是一个专业的文字编辑助手。
+用户会给你一段原文和一条修改指令。
+请严格按照指令修改原文，只返回修改后的结果，不要添加任何解释或标点以外的内容。
+如果指令不清晰，尽量按最合理的方式理解并修改。"""
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    """统一构造显式使用 certifi 的 SSLContext，避免 .app 中默认 CA 路径失效。"""
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    ctx.check_hostname = True
+    ctx.load_verify_locations(cafile=certifi.where())
+    return ctx
+
+
+def _build_httpx_client() -> httpx.Client:
+    return httpx.Client(verify=_build_ssl_context(), timeout=30.0)
+
+
+class LLMEditor:
+    def __init__(self, cfg: dict):
+        provider = cfg.get("provider", "openai")
+
+        if provider == "openai":
+            from openai import OpenAI
+            self._client = OpenAI(api_key=cfg["api_key"], http_client=_build_httpx_client())
+            self._model  = cfg.get("model", "gpt-4o-mini")
+            self._edit   = self._openai_edit
+
+        elif provider == "aliyun":
+            # 通义千问，兼容 OpenAI SDK
+            from openai import OpenAI
+            self._client = OpenAI(
+                api_key=cfg["api_key"],
+                base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+                http_client=_build_httpx_client(),
+            )
+            self._model = cfg.get("model", "qwen-turbo")
+            self._edit  = self._openai_edit
+
+        elif provider == "volcengine":
+            # 豆包，兼容 OpenAI SDK
+            from openai import OpenAI
+            self._client = OpenAI(
+                api_key=cfg["api_key"],
+                base_url="https://ark.cn-beijing.volces.com/api/v3",
+                http_client=_build_httpx_client(),
+            )
+            self._model = cfg.get("model", "doubao-lite-4k")
+            self._edit  = self._openai_edit
+
+        elif provider == "zhipuai":
+            # 智谱 AI GLM，使用原生 zhipuai SDK，但显式注入带 certifi 的 httpx client，
+            # 避免打包成 .app 后默认 CA 路径失效。
+            try:
+                from zhipuai import ZhipuAI
+            except ImportError:
+                raise ImportError(
+                    "使用 zhipuai provider 需要安装 zhipuai：pip install zhipuai"
+                )
+            self._zhipu_client = ZhipuAI(
+                api_key=cfg["api_key"],
+                http_client=_build_httpx_client(),
+            )
+            self._model        = cfg.get("model", "glm-4-flash")
+            self._edit         = self._zhipu_edit
+
+        else:
+            raise ValueError(
+                f"未知 LLM provider: {provider!r}，"
+                f"支持: openai / aliyun / volcengine / zhipuai"
+            )
+
+    def edit(self, original: str, instruction: str) -> str:
+        """用 instruction 修改 original，返回修改后的文字。"""
+        return self._edit(original, instruction)
+
+    def chat_stream(self, system_prompt: str, user_message: str):
+        """流式调用，逐 token yield 文字片段。"""
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_message},
+        ]
+        if hasattr(self, "_zhipu_client"):
+            stream = self._zhipu_client.chat.completions.create(
+                model=self._model, messages=messages,
+                stream=True, temperature=0.7, max_tokens=1000,
+            )
+        else:
+            stream = self._client.chat.completions.create(
+                model=self._model, messages=messages,
+                stream=True, temperature=0.7, max_tokens=1000,
+            )
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
+    def chat(self, system_prompt: str, user_message: str) -> str:
+        """通用 LLM 调用，返回模型回复文字。"""
+        if hasattr(self, "_zhipu_client"):
+            resp = self._zhipu_client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_message},
+                ],
+                temperature=0.1,
+                max_tokens=200,
+            )
+        else:
+            resp = self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_message},
+                ],
+                temperature=0.1,
+                max_tokens=200,
+            )
+        return resp.choices[0].message.content.strip()
+
+    def _openai_edit(self, original: str, instruction: str) -> str:
+        resp = self._client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user",   "content": f"原文：{original}\n\n修改指令：{instruction}"},
+            ],
+            temperature=0.1,
+            max_tokens=2000,
+        )
+        return resp.choices[0].message.content.strip()
+
+    def _zhipu_edit(self, original: str, instruction: str) -> str:
+        resp = self._zhipu_client.chat.completions.create(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user",   "content": f"原文：{original}\n\n修改指令：{instruction}"},
+            ],
+            temperature=0.1,
+            max_tokens=2000,
+        )
+        return resp.choices[0].message.content.strip()

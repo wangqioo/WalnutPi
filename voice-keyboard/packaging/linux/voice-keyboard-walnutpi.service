@@ -1,0 +1,16 @@
+[Unit]
+Description=WalnutPi headless voice keyboard service
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/walnut-voice-keyboard
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/walnut-voice-keyboard/.venv/bin/python -m agent.walnut_service
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

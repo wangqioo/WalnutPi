@@ -1,0 +1,575 @@
+# Voice Keyboard
+
+语音直接打字，无需手动输入。说话即可在任意输入框输出文字，支持中文、英文、混排，支持语音触发快捷键，支持语音修改刚打出的内容。
+
+---
+
+## 两种使用方式
+
+### 纯软件模式（今天就能用）
+
+安装 Agent，接上任何麦克风，说话打字。适合已有麦克风的用户快速体验。
+
+- 按住热键说话，松开自动识别并打字（Push-to-Talk）
+- 兼容内置麦克风 / USB 麦克风 / Insta360 / 大疆 DJI Mic / 蓝牙耳机等
+- 按 API 用量计费（自填 API Key，或订阅本服务）
+
+### 硬件模式（完整体验）
+
+购买 Voice Keyboard 无线设备，**API 费用全免**，包含在硬件售价中。
+
+- **全程不碰键盘**：佩戴发射端，开口即唤醒，停顿自动结束，文字打进输入框
+- **低声细语也能用**：近讲麦克风贴近嘴巴（3–5cm），在会议室、图书馆、公共场所正常工作
+- 一键切换普通 USB 麦克风模式，Zoom / 微信 / 录音软件直接使用
+
+**为什么硬件能做到全程免按键，软件不行？**
+
+普通麦克风离嘴 30cm+，背景噪音和人声混在一起，语音活动检测（VAD）容易误触发，所以软件模式必须用 PTT 手动控制。近讲麦克风信噪比极高，VAD 可以精准区分你的声音和环境声，实现真正的自动唤醒。
+
+---
+
+## 功能列表
+
+| 功能 | 软件模式 | 硬件模式 |
+|------|---------|---------|
+| 语音打字（中英文混排） | ✅ PTT 按键触发 | ✅ 自动唤醒，免手动 |
+| 低声细语 | ❌ 麦克风太远 | ✅ 近讲麦克风 |
+| 语音触发快捷键（截图/保存/复制…） | ✅ | ✅ |
+| 语音编辑/润色上一句或选中内容 | ✅ | ✅ |
+| 语音写作（逐句流式打入） | ✅ | ✅ |
+| 语音撤回上一次 AI 操作 | ✅ | ✅ |
+| 语音删除当前段落或选中内容 | ✅ | ✅ |
+| AI 聊天（回复自动显示并删除） | ✅ | ✅ |
+| 作为普通 USB 麦克风使用 | ❌ | ✅ 一键切换 |
+| 需要安装软件 | ✅ 必须 | ✅ 必须（中文输入） |
+| API 费用 | 按量计费 | 全免 |
+
+---
+
+## 整体架构
+
+```
+┌─────────────────────────────┐
+│  发射端（佩戴，挂在身上）      │
+│                             │
+│  PDM 麦克风（近讲）          │
+│       │                     │
+│  nRF52840                   │
+│  ├─ PDM 采集（16kHz mono）  │
+│  └─ BLE GATT 发送 PCM 数据  │
+└─────────────┬───────────────┘
+              │ BLE 5.0
+┌─────────────▼───────────────┐
+│  接收端（插在电脑 USB 口上）   │
+│                             │
+│  ESP32-S3                   │
+│  ├─ BLE Central 收音频      │
+│  ├─ [按键] 切换模式          │
+│  │                          │
+│  │  Voice Keyboard 模式     │
+│  │  ├─ HID → 快捷键 / 英文  │
+│  │  ├─ CDC → 中文 → Agent   │
+│  │  └─ UAC → 音频 → Agent   │
+│  │                          │
+│  │  麦克风模式               │
+│  │  └─ UAC → 电脑当普通麦克风│
+└─────────────┬───────────────┘
+              │ USB-C
+┌─────────────▼───────────────┐
+│  PC / Mac / Linux           │
+│                             │
+│  Agent（后台常驻）           │
+│  ├─ VAD 检测语音边界         │
+│  ├─ STT API 转录文字         │
+│  ├─ 逐字打入当前输入框        │
+│  └─ LLM 语音编辑上一句       │
+└─────────────────────────────┘
+```
+
+---
+
+## 核心技术说明
+
+### 为什么 STT 由 Agent 做，而不是设备联网
+
+设备本身**不连 WiFi，不做语音识别**。音频通过 USB 传到电脑，由 Agent 调用云端 STT API，结果打字输入。
+
+这样设计的原因：
+- 设备无需 WiFi 配置，换办公室 / 换热点对设备零感知
+- STT 提供商和 API Key 在配置文件里随时切换，无需刷固件
+- 电脑本身就有网络，是最可靠的网络来源
+
+### 为什么中文不能用 HID 直接打
+
+USB HID 键盘只能发按键码，汉字没有 keycode。解决方案：ESP32-S3 同时呈现两个 USB 接口：
+
+| 接口 | 用途 |
+|------|------|
+| HID Keyboard | 英文打字 + 快捷键（无需 Agent） |
+| CDC 串口 | 中文文字传给 Agent |
+
+### Agent 打字如何绕过输入法
+
+Agent 支持两种打字方式，可在 `config.yaml` 中通过 `typing.method` 切换：
+
+| 方式 | 配置值 | 原理 | 适用场景 |
+|------|--------|------|---------|
+| Unicode 逐字 | `unicode`（默认） | 各平台系统级 API 直接写入 Unicode 字符，完全不经过 IME | 记事本、Word、VS Code 等标准应用 |
+| 剪贴板粘贴 | `clip` | 文字写入剪贴板后模拟 Ctrl+V | 微信、钉钉等 Electron 应用 |
+
+各平台 Unicode 逐字 API：
+
+| 平台 | API |
+|------|-----|
+| macOS | Quartz `CGEventKeyboardSetUnicodeString` |
+| Windows | Win32 `SendInput` + `KEYEVENTF_UNICODE` |
+| Linux | pynput + X11 XTest |
+
+> **微信 / 钉钉用户**：这类 Electron 应用会过滤 `SendInput` 注入的 Unicode 事件，导致字符乱码。请在 `config.yaml` 中设置 `typing.method: clip` 使用剪贴板粘贴模式。
+
+> macOS 用 pynput 打字会被输入法拦截导致中英文乱码，这是换 Quartz API 的原因。
+
+### BLE 音频传输
+
+nRF52840 不支持 LE Audio（需要 nRF5340），采用自定义 GATT Service 传 PCM 裸数据：
+- 格式：16kHz，单声道，16bit → 码率 256kbps
+- BLE 5.0 有效带宽约 1.4Mbps，占用率仅 18%
+- nRF52840 与 ESP32-S3 均支持 BLE 5.0，完全互通
+
+### STT 提供商
+
+| provider | 延迟 | 中文 | 数字/英文 | 控制台 |
+|----------|------|------|-----------|--------|
+| `xunfei` | 200–400ms | ★★★★ 逐字原文 | ★★★★ 自动转阿拉伯数字 | [讯飞开放平台](https://www.xfyun.cn/) |
+| `aliyun` | 200–400ms | ★★★★ 支持方言 | ★★★★ | [阿里云 NLS](https://nls-portal.console.aliyun.com/) |
+| `volcengine` | 200–400ms | ★★★ 中文优化 | ★★★ | [火山引擎](https://console.volcengine.com/speech/service/16) |
+| `zhipuai` | 500–800ms | ★★ 对话式改写 | ★★ | [智谱 AI](https://open.bigmodel.cn/) |
+| `openai` | 500–1000ms | ★★ 多语言 | ★★★ | [OpenAI](https://platform.openai.com/api-keys) |
+
+> **推荐使用 `xunfei` 或 `aliyun`**：这两者是专业 ASR 引擎，返回原话逐字转写。
+> `zhipuai`（GLM-4-Voice）是对话模型，会用自己的措辞回复而非原样转写，**不推荐用于语音键盘**。
+
+`xunfei` 所需配置（[控制台](https://www.xfyun.cn/) → 语音听写 → 创建应用）：
+```yaml
+stt:
+  provider: xunfei
+  app_id: "your_appid"
+  api_key: "your_apikey"
+  api_secret: "your_apisecret"
+  language: zh_cn
+```
+
+### LLM 编辑提供商
+
+| provider | 模型 | 控制台 |
+|----------|------|--------|
+| `zhipuai` | glm-4-flash（推荐，快且便宜） | [智谱 AI](https://open.bigmodel.cn/) |
+| `openai` | gpt-4o-mini | [OpenAI](https://platform.openai.com/api-keys) |
+| `aliyun` | qwen-turbo | [DashScope](https://dashscope.console.aliyun.com/) |
+| `volcengine` | doubao-lite-4k | [火山引擎](https://console.volcengine.com/ark) |
+
+---
+
+## 硬件选型
+
+### 发射端（佩戴）
+
+| 组件 | 型号 | 说明 |
+|------|------|------|
+| 主控 | nRF52840 | BLE 5.0，工作电流 12–18mA，500mAh 电池可用 50h+ |
+| 麦克风 | MSM261D3526H1CPM | PDM 数字 MEMS，2 根线直连，nRF52840 内置 PDM 控制器 |
+| 电池 | 500mAh LiPo | 约 50 小时续航 |
+
+电路参考 [Seeed XIAO nRF52840 Sense](https://wiki.seeedstudio.com/XIAO-BLE-Sense-PDM-Usage/)（已集成两者，有现成 PDM 示例）。
+
+> 为什么不用 ESP32 做发射端：ESP32 工作电流 80–150mA，同等电池只能用 3–4 小时。
+
+### 接收端（插电脑）
+
+| 组件 | 型号 | 说明 |
+|------|------|------|
+| 主控 | ESP32-S3 | 原生 USB OTG，BLE 5.0，USB 复合设备支持 |
+| 接口 | USB-C | 电脑供电，无需电池 |
+| 按键 | GPIO0（板载 BOOT） | 切换 Voice Keyboard / 麦克风模式 |
+
+---
+
+## 开发进度
+
+### Agent（已完成）
+
+- [x] 三平台打字（macOS Quartz / Windows SendInput / Linux XTest）
+- [x] 串口自动识别 + 断线重连
+- [x] TEXT / CMD 协议路由
+- [x] 语音指令 → 快捷键映射（三平台各自的修饰键）
+- [x] 开机自启动（macOS LaunchAgent / Windows 注册表 / Linux .desktop）
+- [x] Push-to-Talk 录音（ptt_key 按住说话）
+- [x] 常开 VAD 模式（webrtcvad 检测语音边界）
+- [x] PTT 实时分句（说话中检测停顿，提前触发 STT，无需等到松键）
+- [x] STT 接入（讯飞 xunfei / 阿里云 NLS / 火山引擎 / 智谱 GLM-4-Voice / OpenAI Whisper）
+- [x] AI 键（ai_key）：STT + LLM 意图分类，自动执行以下操作：
+  - 快捷键：说出操作名称直接触发系统快捷键
+  - 编辑：修改/润色当前段落或鼠标选中内容
+  - 写作：逐句流式生成内容打入输入框
+  - 删除：删除当前段落或选中内容
+  - 撤回：撤销上一次 AI 操作（最多 5 步历史）
+  - 聊天：AI 回复显示在输入框，按阅读时间自动消失
+- [x] 多麦克风支持（任意 USB / 内置 / 蓝牙设备）
+- [x] `--no-serial` 纯软件模式
+- [x] `--list-devices` 枚举麦克风
+- [x] 全局 Backspace 监听，实时同步文字账本（30s 窗口，避免其他 App 误扣）
+- [x] 鼠标点击检测，光标移动后自动切换行选择纠错模式
+- [x] 行选择纠错（Home→Shift+End→剪贴板）：鼠标乱点后仍能准确拿到当前行原文
+- [x] .env 文件配置支持（与 python-dotenv 兼容）
+
+### 性能优化
+
+- **讯飞发包间隔**：PTT 录音结束后音频已完整，发包间隔从 40ms 压缩至 5ms，3 秒录音节省约 2.6 秒等待
+- **剪贴板粘贴延迟**：粘贴前后等待时间从各 50ms 压缩至 30ms，每次打字节省 40ms
+
+### 已知 Bug 修复（Windows 调试记录）
+
+- **`audio_monitor.py`**：`find_device()` 不支持整数 hint（YAML `device: 1` 解析为 int），已修复
+- **`main.py`**：volcengine / aliyun provider 无 `api_key` 字段，被误判为未配置而跳过，已修复
+- **`config.yaml`**：Windows 中文键盘右 Alt 对应 pynput 名称为 `alt_gr`，右 Ctrl 为 `ctrl_r`
+- **`stt.py`**：Volcengine 请求改用 `data=json.dumps()` 方式；新增讯飞语音听写 `xunfei` provider（WebSocket 流式，原话转写，数字自动阿拉伯数字）
+- **GLM-4-Voice 不适合做 STT**：该模型是对话模型，会用自己的措辞回复（如"好的，明天早上10点我会去……"）而非原样转写，提示词无法根治；已添加 `_strip_glm_preamble()` 做有限缓解，但推荐改用 `xunfei` 或 `aliyun`
+- **`typer.py`**：Windows 64 位系统 `GlobalAlloc`/`GlobalLock` 返回 64 位指针，ctypes 默认按 32 位处理导致剪贴板写入失败，已通过显式声明 `restype`/`argtypes` 修复
+- **Volcengine 大模型语音识别**：`/api/v1/asr` HTTP 端点不支持 `volcengine_input_common` 集群，该集群需要 WebSocket（v2）或异步提交查询（v3）协议，实现复杂；建议使用 GLM-4-Voice 或阿里云 NLS 替代
+
+### ESP32-S3 固件（进行中）
+
+- [x] USB HID + CDC 复合设备
+- [x] 文字路由（ASCII→HID，中文→CDC，CMD→HID）
+- [x] 模式切换（Voice Keyboard / 麦克风，按键 + LED）
+- [x] USB UAC 麦克风接口框架
+- [ ] BLE Central：扫描连接 nRF52840
+- [ ] BLE GATT Client：接收 PCM 数据
+- [ ] UAC 音频直通（BLE PCM → USB 音频端点）
+
+### nRF52840 固件（待开发）
+
+- [ ] PDM 麦克风采集（16kHz mono）
+- [ ] BLE GATT Server + 自定义 Service
+- [ ] PCM 分包发送（MTU 128–250 字节）
+- [ ] 低功耗优化
+
+### 待开发
+
+- [ ] 快捷键自定义配置文件
+- [ ] 系统托盘 UI
+- [ ] PyInstaller 打包（单文件 exe / app）
+- [ ] PCB 设计与打样
+
+---
+
+## 安装与使用
+
+### 环境要求
+
+| 平台 | Python | 备注 |
+|------|--------|------|
+| macOS | 3.11+ | 需授权辅助功能权限 |
+| Windows | 3.11+ | 首次运行需通过 UAC；建议用 venv 避免权限问题 |
+| Linux | 3.11+ | 需 X11 会话（非 Wayland） |
+
+> **VAD 模式（常开自动检测）** 依赖 `webrtcvad`，目前仅有 Python 3.12 及以下的预编译包。Python 3.13+ 请使用 PTT 模式（`audio.mode: ptt`），VAD 模式暂不可用。
+
+### 安装
+
+```bash
+git clone https://github.com/wangqioo/voice-keyboard.git
+cd voice-keyboard
+```
+
+**macOS / Linux：**
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+```
+
+**Windows：**
+```bat
+python -m venv .venv
+.venv\Scripts\pip install -r requirements.txt
+```
+
+> `pyobjc-framework-Quartz` 是 macOS 专属依赖，Windows / Linux 安装时自动跳过。
+
+### 配置
+
+**方式一：config.yaml（推荐）**
+
+```bash
+cp config.yaml.example config.yaml
+# 编辑 config.yaml，填入 STT / LLM 的 API Key
+```
+
+**方式二：.env 文件（适合部署 / 不想维护 YAML 的场景）**
+
+```bash
+cp .env.example .env
+# 只需填一行，STT 和 LLM 共用同一个 Key
+# GLM_API_KEY=你的智谱AI_API_Key
+```
+
+智谱 AI 一个 Key 即可同时启用 STT（GLM-4-Voice）和 LLM（GLM-4-Flash）。
+
+查看可用麦克风：
+
+```bash
+.venv/bin/python -m agent.main --list-devices  # macOS / Linux
+.venv\Scripts\python -m agent.main --list-devices  # Windows
+```
+
+### 启动
+
+**macOS（需指定 SSL 证书，Python 官方包不读系统证书）：**
+```bash
+SSL_CERT_FILE=$(.venv/bin/python -c "import certifi; print(certifi.where())") \
+  .venv/bin/python -m agent.main --no-serial
+```
+
+**Windows / Linux（纯软件模式）：**
+```bash
+.venv/bin/python -m agent.main --no-serial   # Linux
+.venv\Scripts\python -m agent.main --no-serial  # Windows
+```
+
+**有 ESP32 硬件（所有平台去掉 --no-serial）：**
+```bash
+.venv/bin/python -m agent.main
+```
+
+### 热键说明
+
+两个热键，分工明确：
+
+| 热键 | 默认按键 | 功能 |
+|------|---------|------|
+| `ptt_key` | macOS: Option / Windows/Linux: Alt | 按住说话，松开原样转文字打入 |
+| `ai_key` | macOS: Command / Windows/Linux: 右Ctrl | 按住说话，松开走 AI 智能处理 |
+
+热键支持**单个键或多个键**，多个键效果相同（左右手都能触发）：
+
+```yaml
+audio:
+  ptt_key: [alt, alt_r]    # 左右 Option/Alt 都能触发
+  ai_key: [cmd, cmd_r]     # 左右 Command 都能触发（Windows/Linux 改为 ctrl_r）
+```
+
+不确定按键名称时，运行以下命令，按目标键后查看打印的名称：
+
+```bash
+# macOS / Linux
+.venv/bin/python -c "from pynput import keyboard; l = keyboard.Listener(on_press=lambda k: print(k)); l.start(); input()"
+# Windows
+.venv\Scripts\python -c "from pynput import keyboard; l = keyboard.Listener(on_press=lambda k: print(k)); l.start(); input()"
+```
+
+### AI 键功能详解
+
+按住 `ai_key` 说话，松开后根据你说的内容**自动判断意图**，执行对应操作：
+
+#### 1. 快捷键
+
+说出操作名称，直接执行系统快捷键：
+
+| 说的词 | macOS | Windows / Linux |
+|--------|-------|----------------|
+| 截图 | Cmd+Shift+4 | Win+Shift+S / PrtSc |
+| 保存 | Cmd+S | Ctrl+S |
+| 复制 | Cmd+C | Ctrl+C |
+| 粘贴 | Cmd+V | Ctrl+V |
+| 撤销 | Cmd+Z | Ctrl+Z |
+| 全选 | Cmd+A | Ctrl+A |
+| 新标签 | Cmd+T | Ctrl+T |
+| 关闭标签 | Cmd+W | Ctrl+W |
+| 回车 | Enter | Enter |
+| 删除 | Backspace | Backspace |
+| 空格 | Space | Space |
+
+#### 2. 编辑 / 润色
+
+明确要求修改已有文字，AI 会修改当前段落或选中内容：
+
+| 你说的 | 效果 |
+|--------|------|
+| "把会议改成会谈" | 替换关键词 |
+| "去掉最后一句" | 删除末尾内容 |
+| "改成更正式的表达" | LLM 润色重写 |
+| "帮我翻译成英文" | 翻译当前段落 |
+
+> 用鼠标选中文字后再按 AI 键，优先修改选中内容。
+
+#### 3. 写作
+
+给出主题或要求，AI 逐句流式生成并打入输入框：
+
+| 你说的 | 效果 |
+|--------|------|
+| "帮我写一段单片机的介绍" | 生成介绍文字，逐句打入 |
+| "写一封请假邮件" | 生成邮件正文 |
+| "给这个功能写一段产品描述" | 生成描述文字 |
+
+#### 4. 删除
+
+明确要求删除，直接删掉选中内容或当前段落：
+
+| 你说的 | 效果 |
+|--------|------|
+| "删除这段话" | 删掉当前段落 |
+| "清除选中内容" | 删掉鼠标选中的文字 |
+
+#### 5. 撤回
+
+撤销上一次 AI 操作，恢复原文：
+
+| 你说的 | 效果 |
+|--------|------|
+| "撤回" / "撤销" | 恢复被编辑/删除的原文，或删掉写作生成的内容 |
+
+最多记录 5 步历史。
+
+#### 6. 聊天
+
+其他问题或不确定意图，AI 在输入框末尾显示回复，**按阅读时间自动删除**，不影响正文：
+
+| 你说的 | 效果 |
+|--------|------|
+| "你能做什么" | AI 介绍本软件功能 |
+| "这句话有没有语法错误" | AI 回复，自动消失 |
+| "帮我想个标题" | AI 建议，自动消失 |
+
+### 注册开机自启动
+
+```bash
+.venv/bin/python -m agent.main --install    # 注册
+.venv/bin/python -m agent.main --uninstall  # 撤销
+```
+
+---
+
+## 测试
+
+### macOS
+
+> **首次运行前：** 系统设置 → 隐私与安全性 → 辅助功能 → 添加终端并打开开关。
+
+**验证打字：** 光标点进任意输入框，运行：
+```bash
+.venv/bin/python test/test_typing.py
+```
+等 3 秒，输入框内逐字打出中英文混排测试文本。
+
+**模拟 ESP32 串口联调：**
+```bash
+# 终端 1
+.venv/bin/python test/simulate_device.py
+# 输出：[sim] 虚拟串口: /dev/ttys009
+
+# 终端 2（填入终端 1 打印的实际路径）
+.venv/bin/python -m agent.main --port /dev/ttys009
+```
+
+### Windows
+
+> **首次运行：** UAC 弹窗点「是」即可。
+
+```bat
+.venv\Scripts\python test\test_typing.py
+```
+
+Windows 无虚拟串口，串口联调请直接接 ESP32-S3 硬件，或用 [com0com](https://com0com.sourceforge.net/) 创建虚拟 COM 口对。
+
+### Linux
+
+> 需要 X11 会话，Wayland 下 XTest 不可用。
+
+```bash
+.venv/bin/python test/test_typing.py
+
+# 模拟串口联调
+.venv/bin/python test/simulate_device.py   # 终端 1
+.venv/bin/python -m agent.main --port /dev/pts/3  # 终端 2
+```
+
+---
+
+## 构建打包
+
+各平台打包脚本和说明放在 `packaging/<平台>/` 目录下，源码 `agent/` 三平台共用。
+
+| 平台 | 工具 | 说明 |
+|------|------|------|
+| macOS | py2app → `.app` | 已实现，见 [`packaging/macos/`](packaging/macos/) |
+| Windows | PyInstaller → `.exe`（待实现） | 见 [`packaging/windows/`](packaging/windows/) |
+| Linux | AppImage（待实现） | 见 [`packaging/linux/`](packaging/linux/) |
+
+发布产物（`.dmg` / `.exe` / `.AppImage`）通过 GitHub Releases 分发，源码主线只保留构建脚本。
+
+---
+
+## ESP32-S3 固件烧录
+
+Arduino IDE 配置：
+
+| 选项 | 值 |
+|------|-----|
+| Board | ESP32S3 Dev Module |
+| USB Mode | USB-OTG (TinyUSB) |
+| USB CDC On Boot | Disabled |
+| Upload Mode | UART0 / Hardware CDC |
+
+烧录后通过硬件 UART（TX=GPIO43, RX=GPIO44）发送测试数据：
+
+```
+TEXT:Hello World   → HID 直接打出
+TEXT:你好世界      → CDC 串口转发给 Agent
+CMD:保存           → HID 触发 Ctrl+S（或 Cmd+S）
+```
+
+---
+
+## 串口协议
+
+| 格式 | 含义 | 示例 |
+|------|------|------|
+| `TEXT:<内容>` | 打字输出 | `TEXT:今天天气真不错` |
+| `CMD:<指令>` | 触发快捷键 | `CMD:保存` |
+
+路由规则：
+- `CMD:` → 始终走 HID
+- `TEXT:` 纯 ASCII → 走 HID
+- `TEXT:` 含中文 → 走 CDC 串口发给 Agent
+
+### 内置指令
+
+| 指令 | macOS | Windows / Linux |
+|------|-------|----------------|
+| 截图 | Cmd+Shift+4 | Win+Shift+S |
+| 保存 | Cmd+S | Ctrl+S |
+| 复制 | Cmd+C | Ctrl+C |
+| 粘贴 | Cmd+V | Ctrl+V |
+| 撤销 | Cmd+Z | Ctrl+Z |
+| 全选 | Cmd+A | Ctrl+A |
+| 新标签 | Cmd+T | Ctrl+T |
+| 关闭标签 | Cmd+W | Ctrl+W |
+| 回车 | Enter | Enter |
+| 删除 | Backspace | Backspace |
+| 空格 | Space | Space |
+
+---
+
+## nRF52840 固件参考
+
+- 开发工具链：nRF Connect SDK + VS Code（nRF5 SDK 已停止维护）
+- 原型开发板：Seeed XIAO nRF52840 Sense（集成 PDM 麦克风，有现成示例）
+- BLE 音频参考：[BLE_Audio_Stream_NRF52840](https://github.com/aapatni/BLE_Audio_Stream_NRF52840)
+- PDM 采集参考：[Seeed XIAO PDM Usage](https://wiki.seeedstudio.com/XIAO-BLE-Sense-PDM-Usage/)
+
+---
+
+## License
+
+MIT

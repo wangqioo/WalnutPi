@@ -1,0 +1,627 @@
+"""
+Voice Keyboard 主窗口：单 NSWindow + NSTabView，4 个标签：
+  设置 / 历史 / 备忘录 / 权限自检
+所有 UI 操作必须在主线程；从其他线程调用通过 PyObjCTools.AppHelper.callAfter 入队。
+"""
+
+import json
+import threading
+import time
+from pathlib import Path
+from typing import Callable, Optional
+
+import objc
+from AppKit import (
+    NSAlert, NSAlertFirstButtonReturn, NSApplication,
+    NSBackingStoreBuffered, NSButton, NSBezelStyleRounded,
+    NSColor, NSComboBox, NSFont,
+    NSMakeRect, NSObject, NSPopUpButton, NSScrollView, NSSecureTextField,
+    NSTabView, NSTabViewItem, NSTableColumn, NSTableView,
+    NSTextField, NSView, NSWindow,
+    NSWindowStyleMaskTitled, NSWindowStyleMaskClosable,
+    NSWindowStyleMaskMiniaturizable, NSWindowStyleMaskResizable,
+)
+
+
+class _FlippedView(NSView):
+    """y=0 在顶部的 NSView，配合 NSScrollView 让滚动行为符合直觉（从上往下排版）。"""
+    def isFlipped(self):
+        return True
+from Foundation import NSIndexSet, NSMutableArray
+from PyObjCTools import AppHelper
+
+import sounddevice as sd
+import yaml
+
+from agent import permissions as _perm
+from agent.history import History
+from agent.memo_store import MemoStore
+
+
+_USER_DIR = Path.home() / ".voice-keyboard"
+_USER_CONFIG = _USER_DIR / "config.yaml"
+
+
+# ── 通用控件辅助 ─────────────────────────────────────────────────
+
+def _label(text: str, frame) -> NSTextField:
+    f = NSTextField.alloc().initWithFrame_(frame)
+    f.setStringValue_(text)
+    f.setEditable_(False)
+    f.setBordered_(False)
+    f.setDrawsBackground_(False)
+    f.setSelectable_(False)
+    f.setFont_(NSFont.systemFontOfSize_(12))
+    f.setTextColor_(NSColor.labelColor())
+    return f
+
+
+def _input(value: str, frame, secure: bool = False) -> NSTextField:
+    cls = NSSecureTextField if secure else NSTextField
+    f = cls.alloc().initWithFrame_(frame)
+    f.setStringValue_(value or "")
+    f.setFont_(NSFont.systemFontOfSize_(12))
+    return f
+
+
+def _button(title: str, frame, action_target, action_sel: bytes) -> NSButton:
+    b = NSButton.alloc().initWithFrame_(frame)
+    b.setTitle_(title)
+    b.setBezelStyle_(NSBezelStyleRounded)
+    b.setTarget_(action_target)
+    b.setAction_(action_sel)
+    return b
+
+
+# ── 设置 tab ─────────────────────────────────────────────────────
+
+class _SettingsTab(NSObject):
+    def initWithApp_(self, app):
+        self = objc.super(_SettingsTab, self).init()
+        if self is None:
+            return None
+        self._app = app
+        self._fields = {}
+        self.view = self._build()
+        self._load()
+        return self
+
+    @objc.python_method
+    def _build(self) -> NSView:
+        # 容器：占满 tab 区域
+        container = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 600, 480))
+        scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(0, 0, 600, 480))
+        scroll.setHasVerticalScroller_(True)
+        scroll.setHasHorizontalScroller_(False)
+        scroll.setBorderType_(0)  # NSNoBorder
+        scroll.setAutohidesScrollers_(False)
+        scroll.setAutoresizingMask_(2 | 16)  # NSViewWidthSizable | NSViewHeightSizable
+        container.addSubview_(scroll)
+
+        # 滚动内容视图（flipped：y=0 在顶部）
+        # 高度先给个大值，最后根据实际内容裁剪
+        doc = _FlippedView.alloc().initWithFrame_(NSMakeRect(0, 0, 600, 1000))
+        scroll.setDocumentView_(doc)
+
+        y = 16  # flipped 坐标系，y 从顶部开始递增
+
+        def row(label_text: str, key: str, value: str = "", secure: bool = False, w: int = 380):
+            nonlocal y
+            doc.addSubview_(_label(label_text, NSMakeRect(20, y, 160, 20)))
+            inp = _input(value, NSMakeRect(180, y - 4, w, 24), secure=secure)
+            doc.addSubview_(inp)
+            self._fields[key] = inp
+            y += 32
+
+        def section(title: str):
+            nonlocal y
+            y += 8
+            doc.addSubview_(_label(title, NSMakeRect(20, y, 240, 20)))
+            y += 28
+
+        section("【语音识别 STT】")
+        row("provider", "stt.provider", "xunfei", w=200)
+        row("app_id", "stt.app_id")
+        row("api_key", "stt.api_key", secure=True)
+        row("api_secret", "stt.api_secret", secure=True)
+        row("language", "stt.language", "zh_cn", w=160)
+
+        section("【LLM】")
+        row("provider", "llm.provider", "zhipuai", w=200)
+        row("api_key", "llm.api_key", secure=True)
+        row("model", "llm.model", "glm-4-flash", w=240)
+
+        section("【热键 / 音频 / 打字】")
+        row("ptt_key", "audio.ptt_key", "alt,alt_r", w=200)
+        row("ai_key",  "audio.ai_key",  "cmd,cmd_r", w=200)
+
+        # 麦克风 popup
+        doc.addSubview_(_label("device", NSMakeRect(20, y, 160, 20)))
+        pop = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(180, y - 4, 380, 26))
+        pop.addItemWithTitle_("auto")
+        try:
+            for i, d in enumerate(sd.query_devices()):
+                if d["max_input_channels"] > 0:
+                    pop.addItemWithTitle_(f"{i}: {d['name']}")
+        except Exception:
+            pass
+        doc.addSubview_(pop)
+        self._fields["audio.device"] = pop
+        y += 32
+
+        # typing.method popup
+        doc.addSubview_(_label("typing.method", NSMakeRect(20, y, 160, 20)))
+        tm = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(180, y - 4, 200, 26))
+        tm.addItemWithTitle_("unicode")
+        tm.addItemWithTitle_("clip")
+        doc.addSubview_(tm)
+        self._fields["typing.method"] = tm
+        y += 44
+
+        # 保存按钮
+        save = _button("保存并热重载", NSMakeRect(180, y, 180, 32), self, b"save:")
+        save.setKeyEquivalent_("\r")
+        doc.addSubview_(save)
+        doc.addSubview_(_label("热重载会重启 STT/LLM/PTT，热键继续可用", NSMakeRect(370, y + 6, 280, 20)))
+        y += 48
+
+        # 把 doc 高度精确收紧到内容总高，让滚动条对齐
+        doc.setFrame_(NSMakeRect(0, 0, 600, max(y, 480)))
+        return container
+
+    @objc.python_method
+    def _load(self):
+        cfg = {}
+        if _USER_CONFIG.exists():
+            try:
+                cfg = yaml.safe_load(_USER_CONFIG.read_text(encoding="utf-8")) or {}
+            except Exception as e:
+                print(f"[ui] 读取 config 失败: {e}")
+        for path, ctrl in self._fields.items():
+            head, key = path.split(".", 1)
+            val = (cfg.get(head) or {}).get(key, "")
+            if isinstance(val, list):
+                val = ",".join(str(x) for x in val)
+            if isinstance(ctrl, NSPopUpButton):
+                if val and ctrl.indexOfItemWithTitle_(str(val)) >= 0:
+                    ctrl.selectItemWithTitle_(str(val))
+                elif path == "audio.device" and isinstance(val, int):
+                    # device 可能是数字，匹配 "{i}: ..." 项
+                    for i in range(ctrl.numberOfItems()):
+                        if ctrl.itemTitleAtIndex_(i).startswith(f"{val}:"):
+                            ctrl.selectItemAtIndex_(i)
+                            break
+            else:
+                ctrl.setStringValue_(str(val) if val is not None else "")
+
+    @objc.python_method
+    def _gather(self) -> dict:
+        cfg: dict = {}
+        for path, ctrl in self._fields.items():
+            head, key = path.split(".", 1)
+            cfg.setdefault(head, {})
+            if isinstance(ctrl, NSPopUpButton):
+                val = ctrl.titleOfSelectedItem() or ""
+                if path == "audio.device" and val and val != "auto" and ":" in val:
+                    val = val.split(":", 1)[0].strip()
+            else:
+                val = ctrl.stringValue() or ""
+            # 列表字段
+            if path in ("audio.ptt_key", "audio.ai_key") and "," in val:
+                val = [s.strip() for s in val.split(",") if s.strip()]
+            cfg[head][key] = val
+        # 清掉空字段，避免覆盖原 yaml 的有效值
+        for h in list(cfg.keys()):
+            cfg[h] = {k: v for k, v in cfg[h].items() if v not in (None, "", [])}
+            if not cfg[h]:
+                del cfg[h]
+        return cfg
+
+    def save_(self, sender):
+        new_cfg = self._gather()
+        try:
+            existing = {}
+            if _USER_CONFIG.exists():
+                existing = yaml.safe_load(_USER_CONFIG.read_text(encoding="utf-8")) or {}
+            # 合并，保留 existing 中本表单不涉及的子字段
+            for h, sub in new_cfg.items():
+                existing.setdefault(h, {})
+                existing[h].update(sub)
+            _USER_DIR.mkdir(parents=True, exist_ok=True)
+            _USER_CONFIG.write_text(
+                yaml.safe_dump(existing, allow_unicode=True, sort_keys=False),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            self._alert("保存失败", str(e))
+            return
+        try:
+            self._app.reload()
+            self._alert("保存成功", f"配置已写入 {_USER_CONFIG}\n后台已热重载。")
+        except Exception as e:
+            self._alert("保存成功，热重载失败", str(e))
+
+    @objc.python_method
+    def _alert(self, title: str, msg: str):
+        a = NSAlert.alloc().init()
+        a.setMessageText_(title)
+        a.setInformativeText_(msg)
+        a.runModal()
+
+
+# ── 历史 tab ─────────────────────────────────────────────────────
+
+_MODE_LABEL = {
+    "dictate": "听写", "polish": "润色", "ai": "AI", "edit": "编辑",
+    "ai_chat": "AI 聊天", "ai_write": "AI 写作", "ai_edit": "AI 编辑",
+    "ai_delete": "AI 删除", "ai_undo": "AI 撤回", "ai_shortcut": "AI 快捷键",
+}
+
+
+class _HistoryTab(NSObject):
+    def initWithApp_(self, app):
+        self = objc.super(_HistoryTab, self).init()
+        if self is None:
+            return None
+        self._app = app
+        self._rows: list[dict] = []
+        self.view = self._build()
+        app.history.add_listener(self._on_new_entry)
+        self.reload_(None)
+        return self
+
+    @objc.python_method
+    def _build(self) -> NSView:
+        v = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 600, 480))
+        # 顶部按钮条
+        v.addSubview_(_button("刷新", NSMakeRect(20, 440, 80, 26), self, b"reload:"))
+        v.addSubview_(_button("打开日志", NSMakeRect(110, 440, 100, 26), self, b"openLog:"))
+        v.addSubview_(_button("再次打字", NSMakeRect(220, 440, 100, 26), self, b"retype:"))
+        v.addSubview_(_label("双击或选中后点「再次打字」把历史记录打到当前输入框", NSMakeRect(330, 444, 320, 20)))
+
+        # 表格
+        scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(20, 20, 560, 410))
+        scroll.setHasVerticalScroller_(True)
+        scroll.setBorderType_(1)  # NSBezelBorder
+        table = NSTableView.alloc().initWithFrame_(scroll.bounds())
+        table.setUsesAlternatingRowBackgroundColors_(True)
+
+        for ident, title, w in (
+            ("ts", "时间", 130), ("mode", "类型", 70), ("status", "状态", 60),
+            ("text", "文本", 290),
+        ):
+            col = NSTableColumn.alloc().initWithIdentifier_(ident)
+            col.headerCell().setStringValue_(title)
+            col.setWidth_(w)
+            table.addTableColumn_(col)
+
+        table.setDelegate_(self)
+        table.setDataSource_(self)
+        table.setDoubleAction_(b"retype:")
+        table.setTarget_(self)
+        scroll.setDocumentView_(table)
+        v.addSubview_(scroll)
+        self._table = table
+        return v
+
+    # NSTableViewDataSource
+    def numberOfRowsInTableView_(self, t):
+        return len(self._rows)
+
+    def tableView_objectValueForTableColumn_row_(self, t, col, row):
+        if row < 0 or row >= len(self._rows):
+            return ""
+        e = self._rows[row]
+        ident = col.identifier()
+        if ident == "ts":
+            return time.strftime("%m-%d %H:%M:%S", time.localtime(e.get("ts", 0)))
+        if ident == "mode":
+            return _MODE_LABEL.get(e.get("mode", ""), e.get("mode", ""))
+        if ident == "status":
+            s = e.get("status", "")
+            return {"ok": "✓", "empty": "空", "error": "✗"}.get(s, s)
+        if ident == "text":
+            t = e.get("text", "") or e.get("detail", "")
+            return t.replace("\n", " ⏎ ")
+        return ""
+
+    def reload_(self, sender):
+        self._rows = list(reversed(self._app.history.load(limit=300)))
+        self._table.reloadData()
+
+    @objc.python_method
+    def _on_new_entry(self, entry: dict):
+        # listener 来自 STT 线程，UI 操作必须切回主线程
+        AppHelper.callAfter(self._refresh_main)
+
+    def _refresh_main(self):
+        self.reload_(None)
+
+    def openLog_(self, sender):
+        from agent import log_setup
+        from AppKit import NSWorkspace
+        p = log_setup.log_path()
+        if p.exists():
+            NSWorkspace.sharedWorkspace().openFile_(str(p))
+        else:
+            self._alert("日志文件未创建", "开发模式下日志输出在终端，仅打包应用会写文件。")
+
+    def retype_(self, sender):
+        idx = self._table.selectedRow()
+        if idx < 0 or idx >= len(self._rows):
+            return
+        text = self._rows[idx].get("text", "")
+        if not text:
+            return
+        self._app.retype_after_delay(text)
+
+    @objc.python_method
+    def _alert(self, title, msg):
+        a = NSAlert.alloc().init()
+        a.setMessageText_(title); a.setInformativeText_(msg); a.runModal()
+
+
+# ── 备忘录 tab ───────────────────────────────────────────────────
+
+class _MemosTab(NSObject):
+    def initWithApp_(self, app):
+        self = objc.super(_MemosTab, self).init()
+        if self is None:
+            return None
+        self._app = app
+        self._keys: list[str] = []
+        self.view = self._build()
+        self.reload_(None)
+        return self
+
+    @objc.python_method
+    def _build(self) -> NSView:
+        v = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 600, 480))
+
+        # 左侧：列表
+        scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(20, 60, 220, 400))
+        scroll.setHasVerticalScroller_(True)
+        scroll.setBorderType_(1)
+        table = NSTableView.alloc().initWithFrame_(scroll.bounds())
+        col = NSTableColumn.alloc().initWithIdentifier_("key")
+        col.headerCell().setStringValue_("名称")
+        col.setWidth_(200)
+        table.addTableColumn_(col)
+        table.setDataSource_(self)
+        table.setDelegate_(self)
+        scroll.setDocumentView_(table)
+        v.addSubview_(scroll)
+        self._table = table
+
+        # 右侧：键名 + 内容
+        v.addSubview_(_label("键名", NSMakeRect(260, 430, 60, 20)))
+        self._key_input = _input("", NSMakeRect(260, 400, 320, 24))
+        v.addSubview_(self._key_input)
+
+        v.addSubview_(_label("内容", NSMakeRect(260, 370, 60, 20)))
+        # 多行输入：用 NSScrollView 包 NSTextView
+        from AppKit import NSTextView
+        val_scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(260, 60, 320, 300))
+        val_scroll.setHasVerticalScroller_(True)
+        val_scroll.setBorderType_(1)
+        tv = NSTextView.alloc().initWithFrame_(val_scroll.bounds())
+        tv.setEditable_(True)
+        tv.setRichText_(False)
+        tv.setFont_(NSFont.systemFontOfSize_(12))
+        val_scroll.setDocumentView_(tv)
+        v.addSubview_(val_scroll)
+        self._val_input = tv
+
+        # 操作按钮
+        v.addSubview_(_button("新建", NSMakeRect(20, 20, 70, 28), self, b"addNew:"))
+        v.addSubview_(_button("保存", NSMakeRect(95, 20, 70, 28), self, b"saveMemo:"))
+        v.addSubview_(_button("删除", NSMakeRect(170, 20, 70, 28), self, b"deleteMemo:"))
+        v.addSubview_(_button("刷新", NSMakeRect(245, 20, 70, 28), self, b"reload:"))
+        return v
+
+    def reload_(self, sender):
+        try:
+            self._keys = sorted(self._app.memos.keys())
+        except Exception as e:
+            print(f"[ui] memos load 失败: {e}")
+            self._keys = []
+        self._table.reloadData()
+
+    # NSTableViewDataSource
+    def numberOfRowsInTableView_(self, t):
+        return len(self._keys)
+
+    def tableView_objectValueForTableColumn_row_(self, t, col, row):
+        if row < 0 or row >= len(self._keys):
+            return ""
+        return self._keys[row]
+
+    # NSTableViewDelegate
+    def tableViewSelectionDidChange_(self, note):
+        idx = self._table.selectedRow()
+        if idx < 0 or idx >= len(self._keys):
+            return
+        k = self._keys[idx]
+        v = self._app.memos.get(k) or ""
+        self._key_input.setStringValue_(k)
+        self._val_input.setString_(v)
+
+    def addNew_(self, sender):
+        self._key_input.setStringValue_("")
+        self._val_input.setString_("")
+        self._table.deselectAll_(None)
+        self._key_input.becomeFirstResponder()
+
+    def saveMemo_(self, sender):
+        k = self._key_input.stringValue().strip()
+        v = self._val_input.string()
+        if not k:
+            self._alert("键名不能为空", "")
+            return
+        self._app.memos.save(k, v)
+        self.reload_(None)
+        # 选中刚保存的
+        if k in self._keys:
+            i = self._keys.index(k)
+            self._table.selectRowIndexes_byExtendingSelection_(NSIndexSet.indexSetWithIndex_(i), False)
+
+    def deleteMemo_(self, sender):
+        k = self._key_input.stringValue().strip()
+        if not k:
+            return
+        a = NSAlert.alloc().init()
+        a.setMessageText_(f"删除备忘录「{k}」？")
+        a.addButtonWithTitle_("删除")
+        a.addButtonWithTitle_("取消")
+        if a.runModal() != NSAlertFirstButtonReturn:
+            return
+        self._app.memos.delete(k)
+        self._key_input.setStringValue_("")
+        self._val_input.setString_("")
+        self.reload_(None)
+
+    @objc.python_method
+    def _alert(self, title, msg):
+        a = NSAlert.alloc().init()
+        a.setMessageText_(title); a.setInformativeText_(msg); a.runModal()
+
+
+# ── 权限 tab ─────────────────────────────────────────────────────
+
+class _PermsTab(NSObject):
+    def initWithApp_(self, app):
+        self = objc.super(_PermsTab, self).init()
+        if self is None:
+            return None
+        self._app = app
+        self.view = self._build()
+        self.reload_(None)
+        return self
+
+    @objc.python_method
+    def _build(self) -> NSView:
+        v = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 600, 480))
+        v.addSubview_(_label("macOS 权限自检（adhoc 签名每次重新打包都会失效）",
+                             NSMakeRect(20, 440, 560, 20)))
+
+        self._rows = {}
+        items = [
+            ("accessibility",    "辅助功能（打字）",    "agent 通过 Quartz 发送 Unicode 按键需要此权限"),
+            ("input_monitoring", "输入监听（热键）",   "pynput 监听全局 PTT/AI 键需要此权限"),
+            ("microphone",       "麦克风",           "录音必须；首次会主动弹窗请求"),
+        ]
+        y = 380
+        for key, title, hint in items:
+            v.addSubview_(_label(title, NSMakeRect(20, y, 180, 20)))
+            status = _label("…", NSMakeRect(200, y, 120, 20))
+            status.setFont_(NSFont.boldSystemFontOfSize_(13))
+            v.addSubview_(status)
+            v.addSubview_(_label(hint, NSMakeRect(20, y - 22, 480, 18)))
+            btn = NSButton.alloc().initWithFrame_(NSMakeRect(420, y - 4, 140, 28))
+            btn.setBezelStyle_(NSBezelStyleRounded)
+            btn.setTitle_("打开系统设置")
+            btn.setTarget_(self)
+            btn.setAction_(b"openSettings:")
+            btn.setTag_({"accessibility": 1, "input_monitoring": 2, "microphone": 3}[key])
+            v.addSubview_(btn)
+            self._rows[key] = status
+            y -= 60
+
+        v.addSubview_(_button("重新检查", NSMakeRect(20, y, 120, 28), self, b"reload:"))
+        v.addSubview_(_button("请求麦克风", NSMakeRect(150, y, 140, 28), self, b"reqMic:"))
+        v.addSubview_(_label("授权后请重启 Voice Keyboard", NSMakeRect(300, y + 4, 280, 20)))
+        return v
+
+    def reload_(self, sender):
+        s = _perm.all_status()
+        text_color = {
+            "granted": NSColor.systemGreenColor(),
+            "denied":  NSColor.systemRedColor(),
+            "not_determined": NSColor.systemOrangeColor(),
+            "unknown": NSColor.secondaryLabelColor(),
+        }
+        text_label = {
+            "granted": "✓ 已授权",
+            "denied":  "✗ 已拒绝",
+            "not_determined": "? 未决定",
+            "unknown": "? 未知",
+        }
+        for k, lbl in self._rows.items():
+            v = s.get(k, "unknown")
+            lbl.setStringValue_(text_label.get(v, v))
+            lbl.setTextColor_(text_color.get(v, NSColor.labelColor()))
+
+    def openSettings_(self, sender):
+        tag = sender.tag()
+        name = {1: "accessibility", 2: "input_monitoring", 3: "microphone"}.get(tag)
+        if name:
+            _perm.open_settings(name)
+
+    def reqMic_(self, sender):
+        _perm.request_microphone(lambda granted: print(f"[perm] 麦克风授权回调: {granted}"))
+
+
+# ── 主窗口控制器 ─────────────────────────────────────────────────
+
+class MainWindow(NSObject):
+    def initWithApp_(self, app):
+        self = objc.super(MainWindow, self).init()
+        if self is None:
+            return None
+        self._app = app
+        self._win = None
+        self._tab_view = None
+        self._tabs = {}  # name -> tab obj
+        self._build()
+        return self
+
+    @objc.python_method
+    def _build(self):
+        style = (NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+                 | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable)
+        win = NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(200, 200, 600, 520), style, NSBackingStoreBuffered, False,
+        )
+        win.setTitle_("Voice Keyboard")
+        win.setReleasedWhenClosed_(False)
+
+        tv = NSTabView.alloc().initWithFrame_(NSMakeRect(0, 0, 600, 520))
+
+        for ident, title, cls in (
+            ("settings", "设置",   _SettingsTab),
+            ("history",  "历史",   _HistoryTab),
+            ("memos",    "备忘录", _MemosTab),
+            ("perms",    "权限",   _PermsTab),
+        ):
+            tab = cls.alloc().initWithApp_(self._app)
+            self._tabs[ident] = tab
+            item = NSTabViewItem.alloc().initWithIdentifier_(ident)
+            item.setLabel_(title)
+            item.setView_(tab.view)
+            tv.addTabViewItem_(item)
+
+        win.setContentView_(tv)
+        self._win = win
+        self._tab_view = tv
+
+    def show_(self, sender):
+        # 主线程入口
+        if self._win is None:
+            return
+        # 切到 perms tab 时刷新
+        for name, tab in self._tabs.items():
+            if hasattr(tab, "reload_"):
+                try:
+                    tab.reload_(None)
+                except Exception:
+                    pass
+        self._win.makeKeyAndOrderFront_(None)
+        NSApplication.sharedApplication().activateIgnoringOtherApps_(True)
+
+    def show_tab(self, ident: str):
+        if self._tab_view is None:
+            return
+        idx = self._tab_view.indexOfTabViewItemWithIdentifier_(ident)
+        if idx >= 0:
+            self._tab_view.selectTabViewItemAtIndex_(idx)
+        self.show_(None)

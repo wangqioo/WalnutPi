@@ -1,0 +1,3 @@
+#!/bin/sh
+cd /opt/walnut-voice-keyboard
+exec /opt/walnut-voice-keyboard/.venv/bin/python -m agent.walnut_voice_cli "$@"

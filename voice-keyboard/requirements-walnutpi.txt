@@ -1,0 +1,10 @@
+sounddevice
+requests
+pyyaml
+python-dotenv
+openai
+zhipuai
+websocket-client
+webrtcvad
+certifi
+httpx

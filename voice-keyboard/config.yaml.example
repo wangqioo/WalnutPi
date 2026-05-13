@@ -1,0 +1,138 @@
+# Voice Keyboard Agent 配置文件
+# 复制为 config.yaml 并填入你的配置（config.yaml 不会被提交到 git）
+#
+# 快速开始（无需任何硬件）：
+#   1. cp config.yaml.example config.yaml
+#   2. 选择下方任意一个 stt provider，填写对应凭据
+#   3. python -m agent.main --no-serial
+#
+# 也可以用 .env 文件代替 config.yaml（参考 .env.example），
+# 适合部署、Docker、CI/CD 等不便管理 YAML 的场景。
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 方案一：智谱 AI GLM-4-Voice（推荐，一个 Key 搞定 STT + LLM）
+# 参考：transmission_assistant 项目的智谱 AI 集成方式
+# 控制台：https://open.bigmodel.cn/
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# stt:
+#   provider: zhipuai
+#   api_key: "..."                       # 智谱 AI API Key
+#   model: glm-4-voice                   # 默认值，可省略
+#   language: zh                         # zh（中文）/ en（英文）
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 方案二：阿里云 NLS（中文最优，支持方言）
+# 控制台：https://nls-portal.console.aliyun.com/
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+stt:
+  provider: aliyun
+  access_key_id: "LTAI5t..."          # 阿里云 AccessKey ID
+  access_key_secret: "..."             # 阿里云 AccessKey Secret
+  app_key: "..."                       # NLS 项目的 Appkey
+  region: cn-shanghai                  # cn-shanghai 或 cn-beijing
+  language: zh                         # zh（中文）/ en（英文）
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 方案三：火山引擎 ASR（字节跳动，中文优化）
+# 控制台：https://console.volcengine.com/speech/service/16
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# stt:
+#   provider: volcengine
+#   app_id: "..."                      # 应用 ID
+#   token: "..."                       # 访问令牌（控制台生成）
+#   cluster: volcengine_streaming_common
+#   language: zh-CN
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 方案四：OpenAI Whisper（多语言，国际场景）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# stt:
+#   provider: openai
+#   api_key: "sk-..."                  # https://platform.openai.com/api-keys
+#   model: whisper-1
+#   language: zh
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 音频设置
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+audio:
+  # 推荐：
+  #   购买了 Voice Keyboard 硬件 → mode: vad（全程免手动，开口即唤醒）
+  #   使用普通麦克风 / 内置麦克风 → mode: ptt（按住说话，避免背景噪音误触发）
+  mode: ptt                 # ptt（按住说话）或 vad（常开，自动检测语音）
+
+  # 听写热键（按住说话，原样转文字）
+  # macOS:   shift_r              右 Shift（无系统冲突；避开 Ctrl+Space 输入法切换）
+  # Windows: [alt_r]               右 Alt（或 alt_gr，中文键盘）
+  # Linux:   [alt_r]               右 Alt
+  # 不推荐 ctrl：会和 Ctrl+Space（macOS 切换输入法）、Ctrl+A/E/K（编辑光标）冲突
+  ptt_key: shift_r
+
+  # AI 键（快捷键/编辑/写作/撤回/聊天）
+  # macOS:   alt_r                 右 Option（不和系统 Cmd 快捷键冲突）
+  # Windows: [ctrl_r]               右 Ctrl（左 Ctrl 占用太多系统快捷键）
+  # Linux:   [ctrl_r]               右 Ctrl
+  # 不推荐 cmd / cmd_r：按住的瞬间所有 Cmd+X 系统快捷键都会被劫持
+  ai_key: alt_r
+
+  device: auto              # auto = 自动查找 ESP32 UAC 麦克风，找不到用系统默认
+                            # 其他示例：
+                            #   device: "MacBook"        # 内置麦克风
+                            #   device: "Insta360"       # Insta360 麦克风
+                            #   device: "DJI"            # 大疆麦克风
+                            #   device: "Yeti"           # Blue Yeti USB 麦克风
+                            #   device: 2                # 直接填序号（用 --list-devices 查）
+  vad_aggressiveness: 2     # VAD 灵敏度 0~3（仅 mode: vad 时生效）
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# LLM 文字编辑（语音修改上一句话）
+# 与 stt 可以用同一个 provider，也可以分开配置
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+llm:
+  provider: openai          # openai | aliyun（通义千问）| volcengine（豆包）| zhipuai（智谱 GLM）
+  api_key: "sk-..."         # 与 stt 用同一个 key 即可（OpenAI 通用）
+  model: gpt-4o-mini        # 推荐 gpt-4o-mini（快且便宜）
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# AI 键专用 STT（可选）
+# 普通听写可继续使用上面的 stt provider；按住 ai_key 时单独用 GLM-ASR-2512。
+# 这样 AI 键无需先走讯飞/阿里云，直接用智谱语音转文本后交给 LLM 意图处理。
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ai_stt:
+#   provider: glm_asr_2512
+#   api_key: "..."           # 智谱 AI API Key，也可用 .env 的 GLM_API_KEY
+#   model: glm-asr-2512
+#   hotwords: ["Voice Keyboard", "备忘录", "撤回"]
+
+# 智谱 AI GLM 示例（与 stt.zhipuai 搭配，只需一个 API Key）：
+# llm:
+#   provider: zhipuai
+#   api_key: "..."          # 智谱 AI API Key（同上方 stt 的 key）
+#   model: glm-4-flash      # 推荐 glm-4-flash（快且便宜）
+
+# 阿里云通义千问示例：
+# llm:
+#   provider: aliyun
+#   api_key: "sk-..."       # DashScope API Key
+#   model: qwen-turbo
+
+# 火山引擎豆包示例：
+# llm:
+#   provider: volcengine
+#   api_key: "..."          # ARK API Key
+#   model: doubao-lite-4k
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Claude Code AI 编程模式（可选）
+# 按住 ai_key 说出编程指令，松开后直接驱动 Claude Code 修改代码
+#
+# 前提：已安装 Claude Code CLI
+#   npm install -g @anthropic-ai/claude-code
+#   claude  （首次运行完成登录）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# claude_session:
+#   enabled: true
+#   working_dir: "/path/to/your/project"  # Claude Code 工作目录（你的代码仓库路径）
+#   ai_key: right_shift                   # AI 编程热键（按住说指令，松开执行）
+#   allowed_tools: "Read,Edit,Write,Bash,Glob,Grep"  # 允许 Claude 使用的工具
+#   max_turns: 10                         # 单次指令最多执行几轮

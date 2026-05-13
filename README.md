@@ -95,6 +95,7 @@ AirPods playback works, but AirPods microphone capture failed because SCO microp
 WalnutPi/
 ├── hardware/                # Observed hardware and screen notes
 ├── walnut-ai-terminal/      # WalnutAI Terminal V0
+├── voice-keyboard/          # Speech-to-text keyboard agent experiments
 ├── audio/
 │   └── airpods-linux/       # AirPods/Linux playback and microphone investigation
 ├── scripts/                 # Install and helper scripts
@@ -135,6 +136,22 @@ Current commands:
 /exit                Exit
 ```
 
+### Voice Keyboard
+
+Path: `voice-keyboard/`
+
+Speech-to-text keyboard agent code from the earlier `voice-keyboard` project. This is kept as an independent experiment folder because it contains platform-specific desktop integrations, firmware sketches, and packaging notes.
+
+For WalnutPi/server-style Linux use, the important direction is:
+
+- USB microphone input instead of onboard Bluetooth headset microphone capture
+- CLI/service-friendly execution on Debian
+- cloud STT providers such as ZhipuAI, OpenAI-compatible APIs, Aliyun, Volcengine, or Xunfei
+- server-side AI routing for dictation, memo save/recall, polish, writing, and short chat
+- future integration with WalnutAI Terminal as a voice input path
+
+See `voice-keyboard/README.md`, `voice-keyboard/config.yaml.example`, and `voice-keyboard/packaging/linux/README.md`.
+
 ### AirPods Linux Audio Notes
 
 Path: `audio/airpods-linux/`
@@ -154,6 +171,7 @@ Documents the Bluetooth audio investigation:
 - Uptime Kuma local URL: `http://192.168.1.30:3001`
 - WalnutAI launcher: `/usr/local/bin/walnut-ai`
 - WalnutAI code: `/opt/walnut-ai/walnut_ai.py`
+- Voice Keyboard headless installer: `scripts/install-voice-keyboard-walnutpi.sh`
 
 ## Development Rules
 
@@ -170,5 +188,5 @@ Documents the Bluetooth audio investigation:
 - Add commands for Uptime Kuma and frpc status
 - Add Bluetooth/music control command
 - Add a small local web UI for phone access
-- Add voice input after connecting a reliable USB microphone
+- Connect `voice-keyboard/` transcripts directly into WalnutAI Terminal
 - Add service deployment folders for Uptime Kuma and frp configs
