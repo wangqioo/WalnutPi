@@ -199,4 +199,5 @@ Documents the Bluetooth audio investigation:
 - Add Bluetooth/music control command
 - Add a small local web UI for phone access
 - Connect `voice-keyboard/` transcripts directly into WalnutAI Terminal
+- Add a short default alias such as `wvc` for `walnut-voice-cli --push-key space`
 - Add service deployment folders for Uptime Kuma and frp configs

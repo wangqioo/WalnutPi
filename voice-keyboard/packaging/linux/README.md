@@ -204,6 +204,9 @@ These points were confirmed on a real WalnutPi Debian 12 server setup:
   runtime opens the device at its default rate and resamples to 16 kHz for
   VAD/STT. This matters for USB microphones that expose 44.1 kHz or 48 kHz
   only.
+- The terminal-local push-to-talk path uses the same default-rate capture and
+  resampling flow, so microphones such as `Insta360 Mic Air RX` at 48 kHz work
+  in both VAD mode and `--push-key` mode.
 - `AUDIO_DEVICE=auto` is fine for first boot, but a fixed device id or name
   fragment is more stable after the target microphone is known.
 - `walnut-voice-cli --push-key space` is the best default for terminal use when
