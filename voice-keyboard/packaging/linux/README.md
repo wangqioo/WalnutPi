@@ -139,6 +139,14 @@ For hands-light terminal work, start the interactive voice shell:
 walnut-voice-cli
 ```
 
+To use terminal-local push-to-talk instead of automatic VAD:
+
+```bash
+walnut-voice-cli --push-key space
+```
+
+Press space once to start recording and press space again to stop and transcribe.
+
 Speak a command in Chinese or English. The CLI shows:
 
 ```text

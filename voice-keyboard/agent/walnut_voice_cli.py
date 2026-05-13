@@ -14,6 +14,7 @@ import shlex
 import signal
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from agent.audio_monitor import AudioMonitor
@@ -73,13 +74,22 @@ def _is_dangerous(command: str) -> bool:
 
 
 class VoiceCLI:
-    def __init__(self, device: str | None, vad: int | None, raw: bool, yes: bool, print_only: bool):
+    def __init__(
+        self,
+        device: str | None,
+        vad: int | None,
+        raw: bool,
+        yes: bool,
+        print_only: bool,
+        push_key: str | None,
+    ):
         ensure_user_config()
         cfg = load_config()
         self._cfg = cfg
         self._raw = raw
         self._yes = yes
         self._print_only = print_only
+        self._push_key = push_key
         self._queue: queue.Queue[tuple[str, str]] = queue.Queue()
         self._stop = threading.Event()
 
@@ -96,19 +106,30 @@ class VoiceCLI:
         audio_cfg = cfg.get("audio", {})
         self._device = device if device is not None else audio_cfg.get("device", "auto")
         self._vad = vad if vad is not None else int(audio_cfg.get("vad_aggressiveness", 2))
-        self._monitor = AudioMonitor(self._on_utterance, device=self._device, vad_level=self._vad)
+        self._monitor = None
+        self._capture_thread = None
+        if self._push_key is None:
+            self._monitor = AudioMonitor(self._on_utterance, device=self._device, vad_level=self._vad)
 
     def start(self) -> None:
-        print(f"[voice-cli] listening, device={self._device}, vad={self._vad}")
+        mode = "push-to-talk" if self._push_key else "vad"
+        print(f"[voice-cli] listening, device={self._device}, mode={mode}, vad={self._vad}")
         if self._llm is None:
             print("[voice-cli] raw transcript mode")
         else:
             print("[voice-cli] natural language -> shell command mode")
-        print("[voice-cli] speak a command. Ctrl+C exits.\n")
-        self._monitor.start()
+        if self._push_key:
+            label = "space" if self._push_key == " " else self._push_key
+            print(f"[voice-cli] press '{label}' to start/stop recording. Ctrl+C exits.\n")
+            self._capture_thread = threading.Thread(target=self._push_loop, daemon=True, name="VoiceCLIPush")
+            self._capture_thread.start()
+        else:
+            print("[voice-cli] speak a command. Ctrl+C exits.\n")
+            self._monitor.start()
 
     def stop(self) -> None:
-        self._monitor.stop()
+        if self._monitor is not None:
+            self._monitor.stop()
         self._stop.set()
 
     def loop(self) -> int:
@@ -195,6 +216,68 @@ class VoiceCLI:
         except Exception as e:
             print(f"[voice-cli] command failed: {e}")
 
+    def _push_loop(self) -> None:
+        import select
+        import sys
+        import termios
+        import tty
+        import sounddevice as sd
+
+        key = self._push_key or " "
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        recording = False
+        chunks: list[bytes] = []
+        stream = None
+
+        def callback(indata, frames, time_info, status):
+            chunks.append(bytes(indata))
+
+        try:
+            tty.setcbreak(fd)
+            while not self._stop.is_set():
+                ready, _, _ = select.select([sys.stdin], [], [], 0.2)
+                if not ready:
+                    continue
+                ch = sys.stdin.read(1)
+                if ch == "\x03":
+                    self.stop()
+                    break
+                if ch != key:
+                    continue
+                if not recording:
+                    chunks.clear()
+                    stream = sd.RawInputStream(
+                        samplerate=16000,
+                        channels=1,
+                        dtype="int16",
+                        device=self._device if self._device != "auto" else None,
+                        callback=callback,
+                    )
+                    stream.start()
+                    recording = True
+                    print("\n[voice-cli] recording...")
+                else:
+                    if stream is not None:
+                        stream.stop()
+                        stream.close()
+                    recording = False
+                    pcm = b"".join(chunks)
+                    print("[voice-cli] transcribing...")
+                    if pcm:
+                        self._on_utterance(pcm)
+                    else:
+                        print("[voice-cli] empty recording")
+                time.sleep(0.05)
+        finally:
+            if stream is not None:
+                try:
+                    stream.stop()
+                    stream.close()
+                except Exception:
+                    pass
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="WalnutPi voice CLI")
@@ -203,9 +286,23 @@ def main() -> int:
     parser.add_argument("--raw", action="store_true", help="use STT text directly as the command")
     parser.add_argument("-y", "--yes", action="store_true", help="run recognized commands without confirmation")
     parser.add_argument("--print-only", action="store_true", help="print the recognized command once, then exit")
+    parser.add_argument("--push-key", default=None, help="terminal-local push-to-talk key, e.g. space or r")
     args = parser.parse_args()
 
-    cli = VoiceCLI(device=args.device, vad=args.vad, raw=args.raw, yes=args.yes, print_only=args.print_only)
+    push_key = args.push_key
+    if push_key == "space":
+        push_key = " "
+    if push_key and len(push_key) != 1:
+        raise SystemExit("--push-key must be one character or 'space'")
+
+    cli = VoiceCLI(
+        device=args.device,
+        vad=args.vad,
+        raw=args.raw,
+        yes=args.yes,
+        print_only=args.print_only,
+        push_key=push_key,
+    )
 
     def shutdown(signum, frame) -> None:
         print("\n[voice-cli] stopping")
