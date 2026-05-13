@@ -93,9 +93,8 @@ AirPods playback works, but AirPods microphone capture failed because SCO microp
 
 ```text
 WalnutPi/
+├── hardware/                # Observed hardware and screen notes
 ├── walnut-ai-terminal/      # WalnutAI Terminal V0
-├── ascii_video/             # Gray-scale ASCII video encoder/player
-├── ascii_video_color/       # Color ASCII video encoder/player
 ├── audio/
 │   └── airpods-linux/       # AirPods/Linux playback and microphone investigation
 ├── scripts/                 # Install and helper scripts
@@ -105,6 +104,12 @@ WalnutPi/
 Future modules should be added as separate folders under this repository. The root should stay as an index and overview.
 
 ## Projects
+
+### Hardware Notes
+
+Path: `hardware/`
+
+Observed device details: OS, CPU class, memory, storage, framebuffer screen, touch controller, GPU/display notes, Bluetooth/audio constraints, and useful inspection commands.
 
 ### WalnutAI Terminal V0
 
@@ -128,24 +133,6 @@ Current commands:
 /clear               Clear current chat context
 /help                Show help
 /exit                Exit
-```
-
-### ASCII Video Terminal Tools
-
-Paths:
-
-- `ascii_video/`
-- `ascii_video_color/`
-
-Offline encode images/videos into terminal-friendly character frames, then play them on a headless CLI system.
-
-Examples:
-
-```bash
-python3 -m ascii_video.codec input.mp4 output.avtx --cols 120 --rows 40
-python3 -m ascii_video.player output.avtx
-python3 -m ascii_video_color.codec input.mp4 output.avtc --cols 120 --rows 40
-python3 -m ascii_video_color.player output.avtc
 ```
 
 ### AirPods Linux Audio Notes
