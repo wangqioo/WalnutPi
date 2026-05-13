@@ -8,6 +8,7 @@ shell command with the configured LLM, then lets the user press Enter to run it.
 from __future__ import annotations
 
 import argparse
+import audioop
 import os
 import queue
 import shlex
@@ -17,7 +18,7 @@ import threading
 import time
 from pathlib import Path
 
-from agent.audio_monitor import AudioMonitor
+from agent.audio_monitor import AudioMonitor, SAMPLE_RATE, find_device
 from agent.config import ensure_user_config, load as load_config
 from agent.llm_editor import LLMEditor
 from agent.stt import STTClient
@@ -229,9 +230,30 @@ class VoiceCLI:
         recording = False
         chunks: list[bytes] = []
         stream = None
+        stream_state = None
+        device = find_device(self._device)
+        info = None
+        if device is None:
+            default_device = sd.default.device[0]
+            if default_device is not None and default_device >= 0:
+                info = sd.query_devices(default_device)
+        else:
+            info = sd.query_devices(device)
+
+        if info is not None:
+            stream_rate = int(round(float(info.get("default_samplerate") or SAMPLE_RATE)))
+        else:
+            stream_rate = SAMPLE_RATE
+        blocksize = max(1, int(stream_rate * 30 / 1000))
 
         def callback(indata, frames, time_info, status):
-            chunks.append(bytes(indata))
+            nonlocal stream_state
+            chunk = bytes(indata)
+            if stream_rate != SAMPLE_RATE:
+                chunk, stream_state = audioop.ratecv(
+                    chunk, 2, 1, stream_rate, SAMPLE_RATE, stream_state
+                )
+            chunks.append(chunk)
 
         try:
             tty.setcbreak(fd)
@@ -247,16 +269,18 @@ class VoiceCLI:
                     continue
                 if not recording:
                     chunks.clear()
+                    stream_state = None
                     stream = sd.RawInputStream(
-                        samplerate=16000,
+                        samplerate=stream_rate,
                         channels=1,
                         dtype="int16",
-                        device=self._device if self._device != "auto" else None,
+                        device=device,
+                        blocksize=blocksize,
                         callback=callback,
                     )
                     stream.start()
                     recording = True
-                    print("\n[voice-cli] recording...")
+                    print(f"\n[voice-cli] recording... ({stream_rate} Hz -> {SAMPLE_RATE} Hz)")
                 else:
                     if stream is not None:
                         stream.stop()
