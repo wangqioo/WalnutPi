@@ -465,9 +465,9 @@ def menu(_: argparse.Namespace | None = None) -> int:
         print("  6. Maintenance")
         print("  7. Voice")
         if os.getenv("WALNUT_SESSION_MODE") == "local":
-            print("  8. Exit to login")
+            print("  8. Return to login")
         print()
-        print("  q. Quit")
+        print("  q. Back to Walnut menu")
         choice = input("\nSelect> ").strip().lower()
         if choice == "1":
             open_ai(None)

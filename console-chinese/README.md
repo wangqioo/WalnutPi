@@ -57,7 +57,7 @@ Menu shown on local login:
 3. Walnut Home
 ```
 
-Option `3` now launches Walnut Home through `fbterm` when available, so the main device UI uses the same framebuffer font path as the Chinese console. In this mode, `q` returns to the Walnut menu, and menu item `8` exits back to login.
+Option `3` now launches the Walnut local console path when available, so the main device UI uses the same framebuffer font path as the Chinese console. In this mode, `q` returns to the Walnut menu, and menu item `8` exits back to login.
 
 If no key is pressed for 8 seconds, it stays in the normal Linux tty.
 
