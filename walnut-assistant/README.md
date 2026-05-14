@@ -14,7 +14,7 @@ walnut
 walnut                 # 交互式菜单
 walnut ai              # 打开 WalnutAI 聊天
 walnut notes           # 笔记子菜单
-walnut play            # 打开音乐、Matrix 雨、时钟和视频演示
+walnut play            # 打开音乐、数字雨、时钟和视频演示
 walnut console         # 打开中文 framebuffer 控制台子菜单
 walnut status          # 系统、网络、服务、Docker、蓝牙状态
 walnut maintenance     # 打开修复 / 项目 / 清理 / 浏览器 / 监控子菜单

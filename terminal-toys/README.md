@@ -10,13 +10,13 @@
 walnut
 ```
 
-主启动器已经统一到 `walnut`。这里面的工具通过 `walnut play` 打开，包含音乐、Matrix 雨、时钟和 ASCII 视频演示，底层主要依赖 `cmatrix` 和 `tty-clock`。
+主启动器已经统一到 `walnut`。这里面的工具通过 `walnut play` 打开，包含音乐、数字雨、时钟和 ASCII 视频演示，底层主要依赖 `cmatrix` 和 `tty-clock`。
 
 推荐先试：
 
 - `1` 音乐播放器
 - `2` 音乐可视化
-- `3` Matrix 雨
+- `3` 数字雨
 - `4` ASCII 视频
 - `5` 时钟
 
@@ -49,7 +49,7 @@ terminal-toys/walnut-fun
 | 工具 | 用途 | 命令 |
 | --- | --- | --- |
 | cmus | 终端音乐播放器 | `cmus` |
-| cmatrix | Matrix 风格终端雨效果 | `cmatrix -ab` |
+| cmatrix | 数字雨终端效果 | `cmatrix -ab` |
 | cava | 音乐可视化 | `cava` |
 | w3m | 终端网页浏览器 | `w3m` |
 | lynx | 终端网页浏览器备用 | `lynx` |
