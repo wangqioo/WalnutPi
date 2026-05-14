@@ -14,10 +14,10 @@ walnut
 walnut                 # interactive menu
 walnut ai              # open WalnutAI chat
 walnut notes           # notes submenu
-walnut play            # open music, browser, monitor, matrix rain, clock, and video demos
+walnut play            # open music, matrix rain, clock, and video demos
 walnut console         # open the Chinese framebuffer console submenu
 walnut status          # system, network, services, Docker, Bluetooth
-walnut maintenance     # open fix-audio / projects / clean submenu
+walnut maintenance     # open fix-audio / projects / clean / browser / monitor submenu
 walnut video [mode]    # play ASCII video demo: color or gray
 walnut voice           # open voice keyboard CLI
 walnut note TEXT       # append a daily note
@@ -27,6 +27,7 @@ walnut today           # show today's notes
 Less common:
 
 - `walnut status` for device, network, and service checks
+- `walnut maintenance` for browser, monitor, fix-audio, projects, and clean
 - `walnut video color|gray` for direct ASCII video playback
 - `walnut note TEXT` and `walnut today` for quick notes
 - `walnut voice` for the voice keyboard CLI

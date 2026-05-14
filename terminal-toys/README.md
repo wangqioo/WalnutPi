@@ -10,7 +10,7 @@ Run:
 walnut
 ```
 
-The main launcher now lives in `walnut`. The tools in this folder are opened through `walnut play`, which provides music, browser, monitoring, clock, ASCII video demos, and a Matrix-style digital rain effect through `cmatrix`.
+The main launcher now lives in `walnut`. The tools in this folder are opened through `walnut play`, which provides music, Matrix rain, clock, and ASCII video demos through `cmatrix` and `tty-clock`.
 
 Best quick picks:
 
@@ -75,7 +75,7 @@ Current local library: 14 public-domain test tracks under `$HOME/music-library`.
 
 ## Small Screen Notes
 
-The built-in WalnutPi screen is only 480x320. `walnut play` uses `htop` as the small-screen monitor and keeps `btop` as the large-terminal option for SSH sessions.
+The built-in WalnutPi screen is only 480x320. `walnut maintenance` uses `htop` as the small-screen monitor and keeps `btop` as the large-terminal option for SSH sessions.
 
 `cmatrix` is a good fit for the built-in screen because it runs directly in the terminal without needing X11 or Wayland. On the local device, it works best from the framebuffer terminal path already used elsewhere in this repo.
 

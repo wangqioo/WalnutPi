@@ -242,11 +242,9 @@ def play_menu(_: argparse.Namespace | None = None) -> int:
         print()
         print("  1. Music Player")
         print("  2. Music Visualizer")
-        print("  3. Web Browser")
-        print("  4. Monitor")
-        print("  5. Matrix Rain")
-        print("  6. ASCII Video")
-        print("  7. Clock")
+        print("  3. Matrix Rain")
+        print("  4. ASCII Video")
+        print("  5. Clock")
         print()
         print("  b. Back")
         choice = input("\nSelect> ").strip().lower()
@@ -257,14 +255,10 @@ def play_menu(_: argparse.Namespace | None = None) -> int:
             print("Launching cava. Tip: play music in another terminal first. Press q or Ctrl+C to quit.")
             launch_music_visualizer()
         elif choice == "3":
-            launch_browser()
-        elif choice == "4":
-            launch_monitor()
-        elif choice == "5":
             launch_matrix()
-        elif choice == "6":
+        elif choice == "4":
             play_video_menu(None)
-        elif choice == "7":
+        elif choice == "5":
             launch_clock()
         elif choice in {"b", "back", "q", "quit", "exit"}:
             return 0
@@ -293,6 +287,8 @@ def maintenance_menu(_: argparse.Namespace | None = None) -> int:
         print("  1. Fix AirPods audio")
         print("  2. Projects")
         print("  3. Clean")
+        print("  4. Web Browser")
+        print("  5. Monitor")
         print()
         print("  b. Back")
         choice = input("\nSelect> ").strip().lower()
@@ -305,6 +301,10 @@ def maintenance_menu(_: argparse.Namespace | None = None) -> int:
         elif choice == "3":
             clean(None)
             pause()
+        elif choice == "4":
+            launch_browser()
+        elif choice == "5":
+            launch_monitor()
         elif choice in {"b", "back", "q", "quit", "exit"}:
             return 0
 

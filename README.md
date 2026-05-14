@@ -69,8 +69,9 @@ The current WalnutPi can already:
 
 - `walnut` as the main entry point
 - `walnut ai` for direct cloud-AI terminal access
-- `walnut play` for music, browser, monitor, Matrix rain, clock, and ASCII video
+- `walnut play` for music, Matrix rain, clock, and ASCII video
 - `walnut console` for the Chinese framebuffer console
+- `walnut maintenance` for browser, monitor, and fixes
 
 ## What It Is Good For
 
@@ -144,7 +145,7 @@ Documents the local Chinese display setup for the built-in screen:
 
 Path: `terminal-toys/`
 
-Pure terminal apps used by Walnut Play for music, browser, monitoring, clock, Matrix rain, and ASCII video. `walnut-fun` remains as a compatibility wrapper to `walnut play`.
+Pure terminal apps used by Walnut Play for music, Matrix rain, clock, and ASCII video. `walnut-fun` remains as a compatibility wrapper to `walnut play`.
 
 ### Hardware Notes
 
