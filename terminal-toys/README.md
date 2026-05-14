@@ -7,10 +7,10 @@ This folder records pure terminal/TUI tools installed on the WalnutPi. The devic
 Run:
 
 ```bash
-walnut-fun
+walnut
 ```
 
-The launcher opens a simple menu for music, browser, monitoring, disk usage, games, clock, AirPods playback mode, and a Matrix-style digital rain effect through `cmatrix`. It also prepares the local music library before opening `cmus`.
+The main launcher now lives in `walnut`. The tools in this folder are opened through `walnut toys`, which provides music, browser, monitoring, disk usage, games, clock, AirPods playback mode, Chinese console access, ASCII video demos, and a Matrix-style digital rain effect through `cmatrix`.
 
 Best quick picks:
 
@@ -18,6 +18,18 @@ Best quick picks:
 - `2` music visualizer
 - `8` / `9` terminal games
 - `10` terminal clock
+
+Compatibility entrypoint:
+
+```bash
+walnut-fun
+```
+
+This now forwards to:
+
+```bash
+walnut toys
+```
 
 Source copy:
 

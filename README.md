@@ -67,11 +67,11 @@ The current WalnutPi can already:
 
 ## What To Try First
 
-- `walnut-fun` then `13` for `cmatrix`
-- `walnut-fun` then `2` for `cava`
-- `walnut-fun` then `8` or `9` for terminal games
-- `walnut-cn` for the Chinese framebuffer console
-- `walnut-ai` for the cloud-AI terminal
+- `walnut` as the main entry point
+- `walnut` then `5` for tools, games, and Matrix rain
+- `walnut` then `6` for the Chinese framebuffer console
+- `walnut` then `7` for the ASCII video demo
+- `walnut-ai` for direct cloud-AI terminal access
 
 ## What It Is Good For
 
@@ -122,7 +122,7 @@ Future modules should be added as separate folders under this repository. The ro
 
 Path: `walnut-assistant/`
 
-Main command hub for this portable AI terminal.
+Main command hub for this portable AI terminal. This is now the primary launcher for the board.
 
 Run:
 
@@ -145,7 +145,7 @@ Documents the local Chinese display setup for the built-in screen:
 
 Path: `terminal-toys/`
 
-Pure terminal apps and the `walnut-fun` launcher for music, browser, monitoring, disk usage, games, clock, and AirPods playback mode.
+Pure terminal apps used by Walnut Assistant for music, browser, monitoring, disk usage, games, clock, Matrix rain, and AirPods playback mode. `walnut-fun` remains as a compatibility wrapper to `walnut toys`.
 
 ### Hardware Notes
 
@@ -205,6 +205,7 @@ Documents the Bluetooth audio investigation:
 - Do not put device-local secrets in this repo.
 - Keep boot behavior normal: the device should still boot into a standard CLI.
 - Custom interaction systems should be entered manually, for example with `walnut` or `walnut-ai`.
+- Prefer extending `walnut` instead of adding more top-level launchers when features overlap.
 - Prefer simple, inspectable Linux services and scripts before building heavy UI stacks.
 
 ## Near-Term Roadmap

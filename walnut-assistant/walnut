@@ -4,22 +4,24 @@
 from __future__ import annotations
 
 import argparse
-import getpass
 import os
 import shutil
 import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 
 
 PROJECT_ROOT = Path("/home/pi/projects/WalnutPi")
-CURRENT_USER = getpass.getuser()
 HOME = Path.home()
 MEMORY_ROOT = Path(os.getenv("WALNUT_MEMORY_DIR", str(HOME / "walnut-memory")))
 NOTES_DIR = MEMORY_ROOT / "daily"
-MUSIC_DIR = Path("/root/music-library")
+MUSIC_LINK = HOME / "Music" / "WalnutMusic"
+CMUS_PLAYLIST = HOME / ".config" / "cmus" / "walnut-library.pls"
+MUSIC_DIR_CANDIDATES = [HOME / "music-library", Path("/root/music-library")]
+MUSIC_CLI = HOME / "music"
 AIRPODS_MAC = "34:0E:22:C0:C7:CC"
+BROWSER_URL = "https://lite.duckduckgo.com/lite/"
+MUSIC_EXTENSIONS = {".mp3", ".ogg", ".oga", ".flac", ".wav"}
 
 
 def run(cmd: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
@@ -58,12 +60,121 @@ def section(title: str) -> None:
     print(f"\n== {title} ==")
 
 
+def pause(prompt: str = "Press Enter...") -> None:
+    input(f"\n{prompt}")
+
+
+def clear_screen() -> None:
+    os.system("clear")
+
+
 def one_line(cmd: list[str], fallback: str = "-") -> str:
     try:
         out = run(cmd).stdout.strip()
         return out if out else fallback
     except Exception:
         return fallback
+
+
+def music_dir() -> Path:
+    for path in MUSIC_DIR_CANDIDATES:
+        if path.exists():
+            return path
+    return MUSIC_DIR_CANDIDATES[0]
+
+
+def prepare_music() -> tuple[Path, Path, Path]:
+    current_music_dir = music_dir()
+    MUSIC_LINK.parent.mkdir(parents=True, exist_ok=True)
+    CMUS_PLAYLIST.parent.mkdir(parents=True, exist_ok=True)
+
+    if current_music_dir.exists():
+        try:
+            if MUSIC_LINK.is_symlink() or MUSIC_LINK.is_file():
+                MUSIC_LINK.unlink()
+            if not MUSIC_LINK.exists():
+                MUSIC_LINK.symlink_to(current_music_dir, target_is_directory=True)
+        except OSError:
+            pass
+
+        tracks = sorted(
+            str(path)
+            for path in current_music_dir.rglob("*")
+            if path.is_file() and path.suffix.lower() in MUSIC_EXTENSIONS
+        )
+        CMUS_PLAYLIST.write_text(
+            "\n".join(tracks) + ("\n" if tracks else ""),
+            encoding="utf-8",
+        )
+
+    return current_music_dir, MUSIC_LINK, CMUS_PLAYLIST
+
+
+def launch_cmus() -> int:
+    current_music_dir, current_music_link, current_playlist = prepare_music()
+    clear_screen()
+    print("cmus quick keys:")
+    print("  2        library view")
+    print("  3        playlist view")
+    print("  5        file browser view")
+    print("  Enter    add/play selected file")
+    print("  c        pause/resume")
+    print("  b        next track")
+    print("  z        previous track")
+    print("  + / -    volume")
+    print("  q        quit")
+    print()
+    print("Music folder:")
+    print(f"  {current_music_link} -> {current_music_dir}")
+    print("\nLaunching cmus with WalnutMusic loaded. Use q to quit cmus.\n")
+
+    if current_playlist.exists() and current_playlist.stat().st_size > 0:
+        return stream(["cmus", str(current_playlist)])
+    if current_music_link.exists():
+        return stream(["cmus", str(current_music_link)])
+    return stream(["cmus"])
+
+
+def list_music(_: argparse.Namespace | None = None) -> int:
+    current_music_dir, current_music_link, _ = prepare_music()
+    clear_screen()
+    print(f"Music folder: {current_music_link}\n")
+    if MUSIC_CLI.exists() and os.access(MUSIC_CLI, os.X_OK):
+        subprocess.call([str(MUSIC_CLI), "list"])
+    else:
+        for path in sorted(current_music_dir.rglob("*")) if current_music_dir.exists() else []:
+            if path.is_file():
+                print(path)
+    pause()
+    return 0
+
+
+def launch_matrix() -> int:
+    clear_screen()
+    print("cmatrix quick keys:")
+    print("  Ctrl+C    quit and return to Walnut")
+    print()
+    print("Recommended options:")
+    print("  -a        asynchronous scroll")
+    print("  -b        bold characters")
+    print("  -u 2      Unicode character set")
+    print("\nLaunching cmatrix. Press Ctrl+C to quit.\n")
+    return stream(["cmatrix", "-ab", "-u", "2"])
+
+
+def open_cn(_: argparse.Namespace | None = None) -> int:
+    if exists("walnut-cn"):
+        return stream(["walnut-cn"])
+    print("walnut-cn is missing")
+    return 1
+
+
+def open_video(args: argparse.Namespace | None = None) -> int:
+    mode = getattr(args, "mode", "color")
+    if exists("walnut-ai-video-demo-play"):
+        return stream(["walnut-ai-video-demo-play", mode])
+    print("walnut-ai-video-demo-play is missing")
+    return 1
 
 
 def status(_: argparse.Namespace | None = None) -> int:
@@ -186,11 +297,75 @@ def open_ai(_: argparse.Namespace | None = None) -> int:
     return 1
 
 
+def tools_menu(_: argparse.Namespace | None = None) -> int:
+    while True:
+        clear_screen()
+        print("Walnut Tools / Fun")
+        print()
+        print("  1. Music Player")
+        print("  2. Music Visualizer")
+        print("  3. Web Browser: w3m")
+        print("  4. Web Browser: lynx")
+        print("  5. Small-screen Monitor")
+        print("  6. Large-screen Monitor")
+        print("  7. Disk Usage")
+        print("  8. Game: NetHack")
+        print("  9. Game: Moon Buggy")
+        print(" 10. Terminal Clock")
+        print(" 11. List local music")
+        print(" 12. AirPods music mode")
+        print(" 13. Matrix Rain")
+        print(" 14. Chinese console")
+        print(" 15. ASCII video demo: color")
+        print(" 16. ASCII video demo: gray")
+        print()
+        print("  b. Back")
+        choice = input("\nSelect> ").strip().lower()
+        if choice == "1":
+            launch_cmus()
+        elif choice == "2":
+            clear_screen()
+            print("Launching cava. Tip: play music in another terminal first. Press q or Ctrl+C to quit.")
+            stream(["cava"])
+        elif choice == "3":
+            stream(["w3m", BROWSER_URL])
+        elif choice == "4":
+            stream(["lynx", BROWSER_URL])
+        elif choice == "5":
+            stream(["htop"])
+        elif choice == "6":
+            clear_screen()
+            print("btop needs a larger terminal. If the local screen is too small, use SSH from a bigger terminal.\n")
+            stream(["btop"])
+        elif choice == "7":
+            stream(["ncdu", "/"])
+        elif choice == "8":
+            stream(["/usr/games/nethack"])
+        elif choice == "9":
+            stream(["/usr/games/moon-buggy"])
+        elif choice == "10":
+            stream(["tty-clock", "-c", "-s"])
+        elif choice == "11":
+            list_music(None)
+        elif choice == "12":
+            fix_audio(None)
+        elif choice == "13":
+            launch_matrix()
+        elif choice == "14":
+            open_cn(None)
+        elif choice == "15":
+            open_video(argparse.Namespace(mode="color"))
+        elif choice == "16":
+            open_video(argparse.Namespace(mode="gray"))
+        elif choice in {"b", "back", "q", "quit", "exit"}:
+            return 0
+        else:
+            print(f"Unknown choice: {choice}")
+            pause()
+
+
 def fun(_: argparse.Namespace | None = None) -> int:
-    if exists("walnut-fun"):
-        return stream(["walnut-fun"])
-    print("walnut-fun is missing")
-    return 1
+    return tools_menu(None)
 
 
 def voice(_: argparse.Namespace | None = None) -> int:
@@ -202,18 +377,20 @@ def voice(_: argparse.Namespace | None = None) -> int:
 
 def menu(_: argparse.Namespace | None = None) -> int:
     while True:
-        os.system("clear")
+        clear_screen()
         print("Walnut Assistant V0")
         print()
         print("  1. AI Chat")
         print("  2. Status")
         print("  3. Notes: add")
         print("  4. Notes: today")
-        print("  5. Music / Tools")
-        print("  6. Fix AirPods audio")
-        print("  7. Projects")
-        print("  8. Clean")
-        print("  9. Voice")
+        print("  5. Tools / Fun")
+        print("  6. Chinese Console")
+        print("  7. ASCII Video Demo")
+        print("  8. Fix AirPods audio")
+        print("  9. Projects")
+        print(" 10. Clean")
+        print(" 11. Voice")
         print()
         print("  q. Quit")
         choice = input("\nSelect> ").strip().lower()
@@ -229,21 +406,24 @@ def menu(_: argparse.Namespace | None = None) -> int:
                 input("\nPress Enter...")
         elif choice == "4":
             today(None)
-            input("\nPress Enter...")
+            pause()
         elif choice == "5":
-            fun(None)
+            tools_menu(None)
         elif choice == "6":
-            fix_audio(None)
-            input("\nPress Enter...")
+            open_cn(None)
         elif choice == "7":
-            projects(None)
-            input("\nPress Enter...")
+            open_video(argparse.Namespace(mode="color"))
         elif choice == "8":
-            clean(None)
-            input("\nPress Enter...")
+            fix_audio(None)
+            pause()
         elif choice == "9":
+            projects(None)
+            pause()
+        elif choice == "10":
+            clean(None)
+            pause()
+        elif choice == "11":
             voice(None)
-            input("\nPress Enter...")
         elif choice in {"q", "quit", "exit"}:
             return 0
 
@@ -259,12 +439,18 @@ def build_parser() -> argparse.ArgumentParser:
         "projects": projects,
         "sync": sync,
         "ai": open_ai,
+        "cn": open_cn,
+        "video": open_video,
+        "toys": tools_menu,
         "fun": fun,
         "voice": voice,
         "today": today,
+        "music-list": list_music,
     }
     for name, func in commands.items():
         p = sub.add_parser(name)
+        if name == "video":
+            p.add_argument("mode", nargs="?", choices=["color", "gray", "still-color", "still-gray"], default="color")
         p.set_defaults(func=func)
 
     p_note = sub.add_parser("note")

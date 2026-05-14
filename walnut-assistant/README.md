@@ -15,10 +15,13 @@ walnut                 # interactive menu
 walnut ai              # open WalnutAI chat
 walnut status          # system, network, services, Docker, Bluetooth
 walnut clean           # safe cache/log cleanup
+walnut cn              # open Chinese framebuffer console helper
 walnut fix-audio       # restore AirPods/PulseAudio playback path
 walnut projects        # list project directories and Git status
 walnut sync            # push WalnutPi repository
-walnut fun             # open terminal tools menu
+walnut toys            # open tools, games, music, matrix rain, and video demos
+walnut fun             # compatibility alias for walnut toys
+walnut video [mode]    # play ASCII video demo: color or gray
 walnut voice           # open voice keyboard CLI
 walnut note TEXT       # append a daily note
 walnut today           # show today's notes
@@ -38,7 +41,7 @@ This is intentionally small and boring:
 
 - Pure CLI, no desktop dependency.
 - Uses Python standard library only.
-- Keeps existing tools as separate commands.
+- Keeps the main entrypoint unified in `walnut`.
 - Does not delete projects, music, Codex config, GitHub login, Docker data, or Uptime Kuma data.
 
 ## Memory
