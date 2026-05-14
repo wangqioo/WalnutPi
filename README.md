@@ -65,6 +65,14 @@ The current WalnutPi can already:
 - display Chinese on the local framebuffer console through `fbterm`
 - keep normal CLI boot behavior without forcing a custom shell on startup
 
+## What To Try First
+
+- `walnut-fun` then `13` for `cmatrix`
+- `walnut-fun` then `2` for `cava`
+- `walnut-fun` then `8` or `9` for terminal games
+- `walnut-cn` for the Chinese framebuffer console
+- `walnut-ai` for the cloud-AI terminal
+
 ## What It Is Good For
 
 This device is a good fit for:

@@ -10,7 +10,14 @@ Run:
 walnut-fun
 ```
 
-The launcher opens a simple menu for music, browser, monitoring, disk usage, games, clock, and AirPods playback mode. It also prepares the local music library before opening `cmus`.
+The launcher opens a simple menu for music, browser, monitoring, disk usage, games, clock, AirPods playback mode, and a Matrix-style digital rain effect through `cmatrix`. It also prepares the local music library before opening `cmus`.
+
+Best quick picks:
+
+- `13` Matrix rain
+- `2` music visualizer
+- `8` / `9` terminal games
+- `10` terminal clock
 
 Source copy:
 
@@ -29,6 +36,7 @@ Installed system path:
 | Tool | Purpose | Command |
 | --- | --- | --- |
 | cmus | terminal music player | `cmus` |
+| cmatrix | Matrix-style terminal rain effect | `cmatrix -ab -u 2` |
 | moc | terminal music player daemon/client | `mocp` |
 | cava | music visualizer | `cava` |
 | w3m | terminal web browser | `w3m` |
@@ -45,20 +53,22 @@ Installed system path:
 The launcher creates this symlink so terminal music players can find songs easily:
 
 ```bash
-/root/Music/WalnutMusic -> /root/music-library
+$HOME/Music/WalnutMusic -> $HOME/music-library
 ```
 
 It also writes a `cmus` playlist:
 
 ```bash
-/root/.config/cmus/walnut-library.pls
+$HOME/.config/cmus/walnut-library.pls
 ```
 
-Current local library: 14 public-domain test tracks under `/root/music-library`.
+Current local library: 14 public-domain test tracks under `$HOME/music-library`.
 
 ## Small Screen Notes
 
 The built-in WalnutPi screen is only 480x320. `btop` may refuse to run or look cramped on that screen, so `walnut-fun` uses `htop` as the small-screen monitor and keeps `btop` as the large-terminal option for SSH sessions.
+
+`cmatrix` is a good fit for the built-in screen because it runs directly in the terminal without needing X11 or Wayland. On the local device, it works best from the framebuffer terminal path already used elsewhere in this repo.
 
 The games are installed under `/usr/games`, so the launcher calls them with absolute paths:
 

@@ -4,12 +4,14 @@ set -euo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games"
 export TERM="${TERM:-linux}"
 
-music_dir="/root/music-library"
-music_link="/root/Music/WalnutMusic"
-cmus_playlist="/root/.config/cmus/walnut-library.pls"
+home_dir="${HOME:-/home/pi}"
+music_dir="$home_dir/music-library"
+music_link="$home_dir/Music/WalnutMusic"
+cmus_playlist="$home_dir/.config/cmus/walnut-library.pls"
+music_cli="$home_dir/music"
 
 prepare_music() {
-  mkdir -p /root/Music /root/.config/cmus
+  mkdir -p "$home_dir/Music" "$home_dir/.config/cmus"
   if [ -d "$music_dir" ]; then
     ln -sfn "$music_dir" "$music_link"
     find "$music_dir" -type f \( -iname "*.mp3" -o -iname "*.ogg" -o -iname "*.oga" -o -iname "*.flac" -o -iname "*.wav" \) | sort > "$cmus_playlist"
@@ -27,6 +29,22 @@ run_cmd() {
   echo
   "$@" || true
   pause
+}
+
+launch_cmatrix() {
+  clear
+  cat <<HELP
+cmatrix quick keys:
+  Ctrl+C    quit and return to Walnut Fun
+
+Recommended options:
+  -a        asynchronous scroll
+  -b        bold characters
+  -u 2      Unicode character set
+HELP
+  printf "\nLaunching cmatrix. Press Ctrl+C to quit.\n\n"
+  sleep 2
+  cmatrix -ab -u 2 || true
 }
 
 music_help() {
@@ -80,6 +98,7 @@ Walnut Fun - terminal apps only
  10. Terminal Clock
  11. List local music
  12. AirPods music mode
+ 13. Matrix Rain: cmatrix
 
   q. Quit
 MENU
@@ -127,8 +146,8 @@ MENU
       clear
       echo "Music folder: $music_link"
       echo
-      if [ -x /root/music ]; then
-        /root/music list || true
+      if [ -x "$music_cli" ]; then
+        "$music_cli" list || true
       else
         find "$music_dir" -type f 2>/dev/null | sort || true
       fi
@@ -136,6 +155,9 @@ MENU
       ;;
     12)
       run_cmd vk-airpods-audio
+      ;;
+    13)
+      launch_cmatrix
       ;;
     q|Q|exit|quit)
       clear
