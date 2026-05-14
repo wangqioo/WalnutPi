@@ -1,93 +1,93 @@
-# Terminal Toys
+# 终端玩具
 
-This folder records pure terminal/TUI tools installed on the WalnutPi. The device has no desktop environment, so these apps are chosen to run directly in SSH, serial console, or the local terminal screen.
+这个目录记录 WalnutPi 上安装的纯终端 / TUI 工具。设备没有桌面环境，所以这些应用都优先选择可以直接在 SSH、串口控制台或本地终端屏幕里运行的版本。
 
-## Launcher
+## 启动入口
 
-Run:
+先运行：
 
 ```bash
 walnut
 ```
 
-The main launcher now lives in `walnut`. The tools in this folder are opened through `walnut play`, which provides music, Matrix rain, clock, and ASCII video demos through `cmatrix` and `tty-clock`.
+主启动器已经统一到 `walnut`。这里面的工具通过 `walnut play` 打开，包含音乐、Matrix 雨、时钟和 ASCII 视频演示，底层主要依赖 `cmatrix` 和 `tty-clock`。
 
-Best quick picks:
+推荐先试：
 
-- `1` Music player
-- `2` Music visualizer
-- `3` Matrix rain
-- `4` ASCII video
-- `5` Clock
+- `1` 音乐播放器
+- `2` 音乐可视化
+- `3` Matrix 雨
+- `4` ASCII 视频
+- `5` 时钟
 
-Compatibility entrypoint:
+兼容入口：
 
 ```bash
 walnut-fun
 ```
 
-This now forwards to:
+它现在会转发到：
 
 ```bash
 walnut play
 ```
 
-Source copy:
+源码对应：
 
 ```bash
 terminal-toys/walnut-fun
 ```
 
-Installed system path:
+安装后的系统路径：
 
 ```bash
 /usr/local/bin/walnut-fun
 ```
 
-## Installed Tools
+## 已安装工具
 
-| Tool | Purpose | Command |
+| 工具 | 用途 | 命令 |
 | --- | --- | --- |
-| cmus | terminal music player | `cmus` |
-| cmatrix | Matrix-style terminal rain effect | `cmatrix -ab` |
-| cava | music visualizer | `cava` |
-| w3m | terminal web browser | `w3m` |
-| lynx | terminal web browser fallback | `lynx` |
-| btop | large-terminal system monitor | `btop` |
-| htop | compact system monitor | `htop` |
-| tty-clock | terminal clock | `tty-clock` |
+| cmus | 终端音乐播放器 | `cmus` |
+| cmatrix | Matrix 风格终端雨效果 | `cmatrix -ab` |
+| cava | 音乐可视化 | `cava` |
+| w3m | 终端网页浏览器 | `w3m` |
+| lynx | 终端网页浏览器备用 | `lynx` |
+| btop | 大屏系统监控 | `btop` |
+| htop | 紧凑型系统监控 | `htop` |
+| tty-clock | 终端时钟 | `tty-clock` |
 
-## Music Library
+## 音乐库
 
-The launcher creates this symlink so terminal music players can find songs easily:
+启动器会创建这个软链接，方便终端音乐播放器找到歌曲：
 
 ```bash
 $HOME/Music/WalnutMusic -> $HOME/music-library
 ```
 
-It also writes a `cmus` playlist:
+同时会生成 `cmus` 播放列表：
 
 ```bash
 $HOME/.config/cmus/walnut-library.pls
 ```
 
-Current local library: 14 public-domain test tracks under `$HOME/music-library`.
+当前本地音乐库里放了 14 首 public-domain 测试曲目，目录在 `$HOME/music-library`。
 
-## Small Screen Notes
+## 小屏幕说明
 
-The built-in WalnutPi screen is only 480x320. `walnut maintenance` uses `htop` as the small-screen monitor and keeps `btop` as the large-terminal option for SSH sessions.
+板载 WalnutPi 屏幕只有 480x320。`walnut maintenance` 里用 `htop` 作为小屏系统监控，`btop` 保留给 SSH 里的大终端场景。
 
-`cmatrix` is a good fit for the built-in screen because it runs directly in the terminal without needing X11 or Wayland. On the local device, it works best from the framebuffer terminal path already used elsewhere in this repo.
+`cmatrix` 很适合这块内屏，因为它直接跑在终端里，不需要 X11 或 Wayland。在本地设备上，它最适合从这个仓库里已经使用的 framebuffer 终端路径启动。
 
-## AirPods Playback Note
+## AirPods 播放说明
 
-For AirPods playback, keep Bluetooth in A2DP music mode:
+如果要用 AirPods 播放，请保持蓝牙处于 A2DP 音乐模式：
 
 ```bash
 vk-airpods-audio
 ```
 
-If audio only plays for a moment and then goes silent, BlueALSA may have grabbed the Bluetooth device. Keep PulseAudio as the playback path:
+如果声音只能播放一小会儿就消失，可能是 BlueALSA 抢占了蓝牙设备。正常播放时请继续使用 PulseAudio 作为播放路径：
 
 ```bash
 systemctl disable --now bluealsa

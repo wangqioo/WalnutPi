@@ -1,75 +1,75 @@
 # Walnut Home
 
-Walnut Home is the command hub for this headless WalnutPi AI terminal.
+Walnut Home 是这台无桌面 WalnutPi 终端的命令中心。
 
-It turns the board from a collection of Linux commands into one portable entry point:
+它把原本分散的 Linux 命令收拢成一个入口：
 
 ```bash
 walnut
 ```
 
-## Commands
+## 命令
 
 ```bash
-walnut                 # interactive menu
-walnut ai              # open WalnutAI chat
-walnut notes           # notes submenu
-walnut play            # open music, matrix rain, clock, and video demos
-walnut console         # open the Chinese framebuffer console submenu
-walnut status          # system, network, services, Docker, Bluetooth
-walnut maintenance     # open fix-audio / projects / clean / browser / monitor submenu
-walnut video [mode]    # play ASCII video demo: color or gray
-walnut voice           # open voice keyboard CLI
-walnut note TEXT       # append a daily note
-walnut today           # show today's notes
+walnut                 # 交互式菜单
+walnut ai              # 打开 WalnutAI 聊天
+walnut notes           # 笔记子菜单
+walnut play            # 打开音乐、Matrix 雨、时钟和视频演示
+walnut console         # 打开中文 framebuffer 控制台子菜单
+walnut status          # 系统、网络、服务、Docker、蓝牙状态
+walnut maintenance     # 打开修复 / 项目 / 清理 / 浏览器 / 监控子菜单
+walnut video [mode]    # 播放 ASCII 视频演示：color 或 gray
+walnut voice           # 打开语音键盘 CLI
+walnut note TEXT       # 追加一条日记笔记
+walnut today           # 显示今天的笔记
 ```
 
-Less common:
+较少直接使用的命令：
 
-- `walnut status` for device, network, and service checks
-- `walnut maintenance` for browser, monitor, fix-audio, projects, and clean
-- `walnut video color|gray` for direct ASCII video playback
-- `walnut note TEXT` and `walnut today` for quick notes
-- `walnut voice` for the voice keyboard CLI
+- `walnut status`：设备、网络和服务检查
+- `walnut maintenance`：浏览器、监控、修复、项目和清理
+- `walnut video color|gray`：直接播放 ASCII 视频
+- `walnut note TEXT` 和 `walnut today`：快速记笔记
+- `walnut voice`：语音键盘 CLI
 
-## Design
+## 设计
 
-This is intentionally small and boring:
+这个入口故意做得小而稳定：
 
-- Pure CLI, no desktop dependency.
-- Uses Python standard library only.
-- Keeps the main entrypoint unified in `walnut`.
-- Keeps maintenance actions inside the menu instead of exposing extra top-level commands.
+- 纯 CLI，不依赖桌面环境
+- 只使用 Python 标准库
+- 所有主要入口统一在 `walnut`
+- 维护类操作收进菜单里，不再外露太多顶层命令
 
-## Memory
+## 笔记
 
-Daily notes are written to the current user's home directory:
+日记笔记会写到当前用户的 home 目录：
 
 ```bash
 ~/walnut-memory/daily/YYYY-MM-DD.md
 ```
 
-This is the first step toward a local personal memory layer for the WalnutPi AI terminal.
+这是 WalnutPi 本地记忆层的第一步。
 
-## Install
+## 安装
 
 ```bash
 cp walnut /usr/local/bin/walnut
 chmod +x /usr/local/bin/walnut
 ```
 
-## Runtime Layout
+## 运行时布局
 
-- Source repo: `~/projects/WalnutPi` by default, or the path from `WALNUT_PROJECT_ROOT`
-- Main launcher: `/usr/local/bin/walnut`
-- Compatibility launcher: `/usr/local/bin/walnut-fun` -> `walnut play`
-- Installed WalnutAI runtime: `/opt/walnut-ai`
-- Installed voice runtime: `/opt/walnut-voice-keyboard`
+- 源码仓库：`~/projects/WalnutPi`，或者 `WALNUT_PROJECT_ROOT` 指向的位置
+- 主启动器：`/usr/local/bin/walnut`
+- 兼容启动器：`/usr/local/bin/walnut-fun` -> `walnut play`
+- 已安装的 WalnutAI 运行时：`/opt/walnut-ai`
+- 已安装的语音运行时：`/opt/walnut-voice-keyboard`
 
-Path resolution is now flexible:
+路径解析是可覆盖的：
 
-- `WALNUT_PROJECT_ROOT` can override the source repo location
-- `WALNUT_MEMORY_DIR` can override the notes location
-- `WALNUT_MUSIC_DIR` can override the local music library path
+- `WALNUT_PROJECT_ROOT` 可覆盖源码仓库位置
+- `WALNUT_MEMORY_DIR` 可覆盖笔记位置
+- `WALNUT_MUSIC_DIR` 可覆盖本地音乐库位置
 
-Keep source edits in the Git repo, then install or copy launchers into `/usr/local/bin` as needed.
+源码修改请保留在 Git 仓库里，安装时再把启动器复制到 `/usr/local/bin`。

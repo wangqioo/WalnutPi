@@ -1,222 +1,221 @@
 # WalnutPi
 
-WalnutPi is an experiment repo for turning a small headless Linux board into a portable cloud-AI terminal.
+WalnutPi 是一个把小型无桌面 Linux 板子做成便携式云端 AI 终端的实验仓库。
 
-This repository is not only one app. It is the top-level workspace for everything developed on this WalnutPi device: terminal UI experiments, audio notes, deployment configs, system scripts, and future AI-native hardware/software prototypes.
+这个仓库不是单一应用，而是这块 WalnutPi 设备的总工作区：终端界面实验、音频笔记、部署配置、系统脚本，以及后续的 AI 原生软硬件原型。
 
-## What This Device Is
+## 这台设备是什么
 
-The current prototype device is a WalnutPi running a headless Debian Linux system.
+当前原型是一台运行无桌面 Debian Linux 的 WalnutPi。
 
-Current observed environment:
+已观察到的环境如下：
 
-- OS: Debian GNU/Linux 12 bookworm
-- Architecture: arm64/aarch64
-- Kernel: Linux 6.1.31
-- Default access: CLI/SSH, no desktop environment
-- Network: Wi-Fi through NetworkManager
-- Runtime: Python 3.11, Docker, systemd
-- AI access: cloud AI through an OpenAI-compatible API endpoint
-- Audio: Bluetooth playback through PulseAudio A2DP
-- Monitoring: Uptime Kuma running in Docker
-- Remote access: frpc connected to an existing frps server
+- 系统：Debian GNU/Linux 12 bookworm
+- 架构：arm64 / aarch64
+- 内核：Linux 6.1.31
+- 默认访问方式：CLI / SSH，没有桌面环境
+- 网络：通过 NetworkManager 管理 Wi-Fi
+- 运行时：Python 3.11、Docker、systemd
+- AI 访问：通过 OpenAI-compatible API 调用云端 AI
+- 音频：通过 PulseAudio A2DP 播放蓝牙音频
+- 监控：Docker 中运行 Uptime Kuma
+- 远程访问：frpc 连接到已有 frps 服务
 
-The device is intentionally treated as a lightweight local interaction carrier, not as a machine for local large-model inference.
+这台设备被刻意当作轻量本地交互载体，而不是本地大模型推理机器。
 
-## Core Idea
+## 核心思路
 
-The project direction is an AI-native terminal system:
+项目方向是一个 AI-native terminal 系统：
 
-> Headless Linux + command-line interaction + structured cards + cloud AI API + lightweight local hardware control.
+> 无桌面 Linux + 命令行交互 + 结构化卡片 + 云端 AI API + 轻量本地硬件控制。
 
-The local device handles:
+本地设备负责：
 
-- input and output
-- network connection
-- terminal UI rendering
-- system status collection
-- small scripts and local automation
-- audio playback
-- service hosting
+- 输入和输出
+- 网络连接
+- 终端界面渲染
+- 系统状态采集
+- 小脚本和本地自动化
+- 音频播放
+- 服务托管
 
-The cloud handles:
+云端负责：
 
-- language reasoning
-- text generation
-- translation
-- summarization
-- planning
-- future multimodal AI tasks
+- 语言推理
+- 文本生成
+- 翻译
+- 总结
+- 规划
+- 未来的多模态 AI 任务
 
-## What It Can Do Today
+## 现在能做什么
 
-The current WalnutPi can already:
+这台 WalnutPi 目前已经可以：
 
-- run `walnut`, the Walnut Home command hub
-- run `walnut-ai`, a small AI terminal prototype
-- call cloud AI through an OpenAI-compatible API
-- save notes locally as Markdown
-- translate and polish text
-- show system status from a terminal UI
-- run Docker services
-- host Uptime Kuma on port `3001`
-- expose services through frpc
-- play audio through AirPods/A2DP
-- display Chinese on the local framebuffer console through `fbterm`
-- keep normal CLI boot behavior without forcing a custom shell on startup
+- 运行 `walnut`，也就是 Walnut Home 命令中心
+- 运行 `walnut-ai`，一个轻量 AI 终端原型
+- 通过 OpenAI-compatible API 调用云端 AI
+- 把笔记保存为 Markdown
+- 翻译和润色文本
+- 在终端里显示系统状态
+- 运行 Docker 服务
+- 在 `3001` 端口托管 Uptime Kuma
+- 通过 frpc 暴露服务
+- 通过 AirPods / A2DP 播放音频
+- 通过 `fbterm` 在本地 framebuffer 控制台显示中文
+- 保持正常 CLI 启动，不强制接管系统启动 shell
 
-## What To Try First
+## 先试什么
 
-- `walnut` as the main entry point
-- `walnut ai` for direct cloud-AI terminal access
-- `walnut play` for music, Matrix rain, clock, and ASCII video
-- `walnut console` for the Chinese framebuffer console
-- `walnut maintenance` for browser, monitor, and fixes
+- `walnut` 作为主入口
+- `walnut ai` 直接进入云端 AI 终端
+- `walnut play` 体验音乐、Matrix 雨、时钟和 ASCII 视频
+- `walnut console` 进入中文 framebuffer 控制台
+- `walnut maintenance` 进入浏览器、监控和修复菜单
 
-## What It Is Good For
+## 适合做什么
 
-This device is a good fit for:
+这台设备比较适合：
 
-- portable AI terminal experiments
-- cloud-AI interaction shells
-- headless Linux UI prototypes
-- AI note-taking tools
-- lightweight terminal dashboards
-- personal automation scripts
-- service monitoring
-- remote-access experiments
-- voice-input prototypes after adding a reliable USB microphone
+- 便携式 AI 终端实验
+- 云端 AI 交互外壳
+- 无桌面 Linux UI 原型
+- AI 笔记工具
+- 轻量终端仪表盘
+- 个人自动化脚本
+- 服务监控
+- 远程访问实验
+- 后续加入可靠 USB 麦克风后的语音输入原型
 
-## What It Is Not Good For
+## 不适合做什么
 
-The current prototype is not suitable for:
+当前原型不适合：
 
-- running large local LLMs
-- replacing a desktop Linux workstation
-- Android-style multi-app interaction
-- heavy GPU/3D UI
-- reliable Bluetooth headset microphone input through the onboard controller
+- 运行大型本地 LLM
+- 代替桌面 Linux 工作站
+- 做 Android 风格的多应用交互
+- 承载重型 GPU / 3D UI
+- 依赖板载蓝牙控制器稳定采集 AirPods 麦克风
 
-AirPods playback works, but AirPods microphone capture failed because SCO microphone packets did not arrive in Linux over HCI on this board's onboard Bluetooth controller. See `audio/airpods-linux/`.
+AirPods 播放是可用的，但 AirPods 麦克风捕获在这块板子的板载蓝牙控制器上失败了，因为 Linux 下 SCO 麦克风数据没有正常通过 HCI 到达。详细记录见 `audio/airpods-linux/`。
 
-## Repository Layout
+## 仓库结构
 
 ```text
 WalnutPi/
-├── hardware/                # Observed hardware and screen notes
-├── walnut-assistant/        # Walnut Home command hub
+├── hardware/                # 观察到的硬件和屏幕记录
+├── walnut-assistant/        # Walnut Home 命令中心
 ├── walnut-ai-terminal/      # WalnutAI Terminal V0
-├── terminal-toys/           # Terminal-only tools used by Walnut Play
-├── console-chinese/         # Local framebuffer Chinese display notes
+├── terminal-toys/           # Walnut Play 使用的纯终端工具
+├── console-chinese/         # 本地 framebuffer 中文显示说明
 ├── audio/
-│   └── airpods-linux/       # AirPods/Linux playback and microphone investigation
-├── scripts/                 # Install and helper scripts
-└── README.md                # Project overview
+│   └── airpods-linux/       # AirPods / Linux 播放与麦克风调查
+├── scripts/                 # 安装和辅助脚本
+└── README.md                # 项目总览
 ```
 
-Future modules should be added as separate folders under this repository. The root should stay as an index and overview.
+未来的模块都应该作为独立子目录加入这个仓库，根目录只保留索引和总览。
 
-## Projects
+## 项目分区
 
 ### Walnut Home
 
-Path: `walnut-assistant/`
+路径：`walnut-assistant/`
 
-Main command hub for this portable AI terminal. This is now the primary launcher for the board.
+这是一台便携式 AI 终端的主命令中心，也是板子的主要启动入口。
 
-Run:
+运行：
 
 ```bash
 walnut
 ```
 
-### Chinese Local Console
+### 中文本地控制台
 
-Path: `console-chinese/`
+路径：`console-chinese/`
 
-Documents the local Chinese display setup for the built-in screen:
+这里记录本地屏幕上的中文显示方案：
 
-- Linux TTY itself cannot render Chinese glyphs well.
-- `fbterm` is used with WenQuanYi/Noto/Droid fallback fonts.
-- `walnut-cn` opens the Chinese-capable framebuffer terminal manually.
-- Local `tty1` login auto-enters `fbterm`; SSH sessions are not affected.
+- Linux TTY 本身不适合稳定显示中文
+- 使用 `fbterm` 配合 WenQuanYi / Noto / Droid 回退字体
+- `walnut-cn` 会手动打开支持中文的 framebuffer 终端
+- 本地 `tty1` 登录会自动进入 `fbterm`，SSH 会话不受影响
 
-### Terminal Toys
+### 终端玩具
 
-Path: `terminal-toys/`
+路径：`terminal-toys/`
 
-Pure terminal apps used by Walnut Play for music, Matrix rain, clock, and ASCII video. `walnut-fun` remains as a compatibility wrapper to `walnut play`.
+这里放的是 Walnut Play 使用的纯终端工具，例如音乐、Matrix 雨、时钟和 ASCII 视频。
+`walnut-fun` 现在只是兼容包装器，内部转发到 `walnut play`。
 
-### Hardware Notes
+### 硬件说明
 
-Path: `hardware/`
+路径：`hardware/`
 
-Observed device details: OS, CPU class, memory, storage, framebuffer screen, touch controller, GPU/display notes, Bluetooth/audio constraints, and useful inspection commands.
+这里记录观察到的设备信息：系统、CPU、内存、存储、framebuffer 屏幕、触摸控制器、GPU / 显示说明、蓝牙 / 音频限制，以及有用的检查命令。
 
 ### WalnutAI Terminal V0
 
-Path: `walnut-ai-terminal/`
+路径：`walnut-ai-terminal/`
 
-A tiny cloud-AI terminal for headless Linux.
+一个面向无桌面 Linux 的轻量云端 AI 终端。
 
-Run on the WalnutPi:
+在 WalnutPi 上运行：
 
 ```bash
 walnut-ai
 ```
 
-Current commands:
+当前命令：
 
 ```text
-/status              Show device, service, Docker, memory, and disk status
-/note text           Save a note to Markdown
-/polish text         Lightly polish text using cloud AI
-/translate text      Translate between Chinese and English
-/clear               Clear current chat context
-/help                Show help
-/exit                Exit
+/status              显示设备、服务、Docker、内存和磁盘状态
+/note text           保存一条 Markdown 笔记
+/polish text         用云端 AI 轻度润色文本
+/translate text      中英互译
+/clear               清空当前会话上下文
+/help                显示帮助
+/exit                退出
 ```
 
-### AirPods Linux Audio Notes
+### AirPods Linux 音频说明
 
-Path: `audio/airpods-linux/`
+路径：`audio/airpods-linux/`
 
-Documents the Bluetooth audio investigation:
+这里记录蓝牙音频调查结果：
 
-- A2DP playback works through PulseAudio
-- BlueALSA should stay disabled for normal playback
-- AirPods microphone capture failed on the onboard Bluetooth controller
-- USB microphone is recommended for future voice input
+- A2DP 播放通过 PulseAudio 可用
+- 正常播放时应保持 BlueALSA 关闭
+- 在板载蓝牙控制器上，AirPods 麦克风采集失败
+- 后续语音输入更适合使用 USB 麦克风
 
-## Current Services on the Prototype Device
+## 原型机当前服务
 
-- `docker.service`: enabled
-- `frpc.service`: enabled
-- `uptime-kuma` Docker container: healthy
-- Uptime Kuma local URL: `http://192.168.1.30:3001`
-- Walnut Home launcher: `/usr/local/bin/walnut`
-- WalnutAI launcher: `/usr/local/bin/walnut-ai`
-- WalnutAI code: `/opt/walnut-ai/walnut_ai.py`
-- Chinese console helper: `/usr/local/bin/walnut-cn`
+- `docker.service`：已启用
+- `frpc.service`：已启用
+- `uptime-kuma` Docker 容器：健康
+- Uptime Kuma 本地地址：`http://192.168.1.30:3001`
+- Walnut Home 启动器：`/usr/local/bin/walnut`
+- WalnutAI 启动器：`/usr/local/bin/walnut-ai`
+- WalnutAI 代码：`/opt/walnut-ai/walnut_ai.py`
+- 中文控制台助手：`/usr/local/bin/walnut-cn`
 
-## Development Rules
+## 开发规则
 
-- Keep every new experiment in its own subfolder.
-- Do not put device-local secrets in this repo.
-- Keep boot behavior normal: the device should still boot into a standard CLI.
-- Custom interaction systems should be entered manually, for example with `walnut` or `walnut-ai`.
-- Prefer extending `walnut` instead of adding more top-level launchers when features overlap.
-- Prefer simple, inspectable Linux services and scripts before building heavy UI stacks.
-- Keep `/home/pi/projects` owned by `pi:pi` so local Git operations stay healthy.
-- Treat `/usr/local/bin` as the public command surface and avoid adding overlapping launchers without a clear reason.
-- Treat `/opt` as installed runtime state and keep source-of-truth edits in the Git repo under the active user's `~/projects/WalnutPi` path or `WALNUT_PROJECT_ROOT`.
+- 每个新实验都放在独立子目录里。
+- 不要把设备本地秘密信息提交进仓库。
+- 保持正常启动行为：设备仍然应该先进入标准 CLI。
+- 自定义交互系统应该手动进入，例如 `walnut` 或 `walnut-ai`。
+- 功能有重叠时优先扩展 `walnut`，不要继续增加顶层启动器。
+- 优先使用简单、可审计的 Linux 服务和脚本，不要轻易上重型 UI 栈。
+- 保持 `/home/pi/projects` 归 `pi:pi` 所有，避免本地 Git 权限问题。
+- 把 `/usr/local/bin` 当作公开命令面，避免无理由添加重复入口。
+- 把 `/opt` 当作已安装运行态，源码真相保留在当前用户的 `~/projects/WalnutPi` 路径或 `WALNUT_PROJECT_ROOT` 指向的位置。
 
-## Near-Term Roadmap
+## 近期路线
 
-- Add persistent conversation history to WalnutAI Terminal
-- Add richer terminal card rendering
-- Add commands for Uptime Kuma and frpc status
-- Add Bluetooth/music control command
-- Add a small local web UI for phone access
-- Add voice input after connecting a reliable USB microphone
-- Add service deployment folders for Uptime Kuma and frp configs
+- 给 WalnutAI Terminal 增加持久会话历史
+- 增加更丰富的终端卡片渲染
+- 给 Uptime Kuma 和 frpc 增加状态命令
+- 增加蓝牙 / 音乐控制命令
+- 增加一个能在手机上访问的小型本地 Web UI
