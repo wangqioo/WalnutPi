@@ -16,9 +16,9 @@ Best quick picks:
 
 - `1` Music player
 - `2` Music visualizer
-- `5` Matrix rain
-- `6` ASCII video
-- `7` Clock
+- `3` Matrix rain
+- `4` ASCII video
+- `5` Clock
 
 Compatibility entrypoint:
 

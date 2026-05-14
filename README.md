@@ -209,7 +209,7 @@ Documents the Bluetooth audio investigation:
 - Prefer simple, inspectable Linux services and scripts before building heavy UI stacks.
 - Keep `/home/pi/projects` owned by `pi:pi` so local Git operations stay healthy.
 - Treat `/usr/local/bin` as the public command surface and avoid adding overlapping launchers without a clear reason.
-- Treat `/opt` as installed runtime state and keep source-of-truth edits in the Git repo under `/home/pi/projects/WalnutPi`.
+- Treat `/opt` as installed runtime state and keep source-of-truth edits in the Git repo under the active user's `~/projects/WalnutPi` path or `WALNUT_PROJECT_ROOT`.
 
 ## Near-Term Roadmap
 

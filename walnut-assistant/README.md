@@ -60,10 +60,16 @@ chmod +x /usr/local/bin/walnut
 
 ## Runtime Layout
 
-- Source repo: `/home/pi/projects/WalnutPi`
+- Source repo: `~/projects/WalnutPi` by default, or the path from `WALNUT_PROJECT_ROOT`
 - Main launcher: `/usr/local/bin/walnut`
 - Compatibility launcher: `/usr/local/bin/walnut-fun` -> `walnut play`
 - Installed WalnutAI runtime: `/opt/walnut-ai`
 - Installed voice runtime: `/opt/walnut-voice-keyboard`
+
+Path resolution is now flexible:
+
+- `WALNUT_PROJECT_ROOT` can override the source repo location
+- `WALNUT_MEMORY_DIR` can override the notes location
+- `WALNUT_MUSIC_DIR` can override the local music library path
 
 Keep source edits in the Git repo, then install or copy launchers into `/usr/local/bin` as needed.

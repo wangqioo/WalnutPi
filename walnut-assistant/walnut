@@ -5,19 +5,36 @@ from __future__ import annotations
 
 import argparse
 import os
+import pwd
 import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
+def user_home() -> Path:
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user:
+        try:
+            return Path(pwd.getpwnam(sudo_user).pw_dir)
+        except KeyError:
+            pass
+    return Path.home()
 
-PROJECT_ROOT = Path("/home/pi/projects/WalnutPi")
-HOME = Path.home()
+
+HOME = user_home()
 MEMORY_ROOT = Path(os.getenv("WALNUT_MEMORY_DIR", str(HOME / "walnut-memory")))
 NOTES_DIR = MEMORY_ROOT / "daily"
 MUSIC_LINK = HOME / "Music" / "WalnutMusic"
 CMUS_PLAYLIST = HOME / ".config" / "cmus" / "walnut-library.pls"
-MUSIC_DIR_CANDIDATES = [HOME / "music-library", Path("/root/music-library")]
+PROJECT_ROOT_CANDIDATES = [
+    Path(os.environ["WALNUT_PROJECT_ROOT"]) if "WALNUT_PROJECT_ROOT" in os.environ else None,
+    HOME / "projects" / "WalnutPi",
+]
+MUSIC_DIR_CANDIDATES = [
+    Path(os.environ["WALNUT_MUSIC_DIR"]) if "WALNUT_MUSIC_DIR" in os.environ else None,
+    HOME / "music-library",
+    HOME / "Music" / "music-library",
+]
 AIRPODS_MAC = "34:0E:22:C0:C7:CC"
 BROWSER_URL = "https://lite.duckduckgo.com/lite/"
 MUSIC_EXTENSIONS = {".mp3", ".ogg", ".oga", ".flac", ".wav"}
@@ -37,6 +54,13 @@ def stream(cmd: list[str]) -> int:
 
 def exists(cmd: str) -> bool:
     return shutil.which(cmd) is not None
+
+
+def first_existing_path(candidates: list[Path | None], fallback: Path) -> Path:
+    for path in candidates:
+        if path is not None and path.exists():
+            return path
+    return fallback
 
 
 def root_cmd(cmd: list[str]) -> list[str]:
@@ -76,10 +100,11 @@ def one_line(cmd: list[str], fallback: str = "-") -> str:
 
 
 def music_dir() -> Path:
-    for path in MUSIC_DIR_CANDIDATES:
-        if path.exists():
-            return path
-    return MUSIC_DIR_CANDIDATES[0]
+    return first_existing_path(MUSIC_DIR_CANDIDATES, HOME / "music-library")
+
+
+def project_root() -> Path:
+    return first_existing_path(PROJECT_ROOT_CANDIDATES, HOME / "projects" / "WalnutPi")
 
 
 def prepare_music() -> tuple[Path, Path, Path]:
@@ -191,7 +216,7 @@ def open_video(args: argparse.Namespace | None = None) -> int:
     if exists("walnut-ai-video-demo-play"):
         return stream(["walnut-ai-video-demo-play", mode])
     print("walnut-ai-video-demo-play is missing")
-    print(f"Run: sudo {PROJECT_ROOT}/scripts/install-walnut-ai.sh")
+    print(f"Run: sudo {project_root()}/scripts/install-walnut-ai.sh")
     return 1
 
 
@@ -380,13 +405,14 @@ def fix_audio(_: argparse.Namespace | None = None) -> int:
 
 def projects(_: argparse.Namespace | None = None) -> int:
     section("Projects")
-    for path in [PROJECT_ROOT, Path("/home/pi/projects/voice-keyboard"), Path("/opt/walnut-ai"), Path("/opt/uptime-kuma"), Path("/opt/frp")]:
+    for path in [project_root(), HOME / "projects" / "voice-keyboard", Path("/opt/walnut-ai"), Path("/opt/uptime-kuma"), Path("/opt/frp")]:
         if path.exists():
             print(path)
     section("Git")
-    if PROJECT_ROOT.exists():
-        subprocess.call(["git", "config", "--global", "--add", "safe.directory", str(PROJECT_ROOT)])
-        subprocess.call(["git", "-C", str(PROJECT_ROOT), "status", "--short"])
+    current_root = project_root()
+    if current_root.exists():
+        subprocess.call(["git", "config", "--global", "--add", "safe.directory", str(current_root)])
+        subprocess.call(["git", "-C", str(current_root), "status", "--short"])
     return 0
 
 

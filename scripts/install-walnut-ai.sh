@@ -26,7 +26,8 @@ cp -r "$ROOT_DIR/ai_video" /opt/walnut-ai-video/
 cat > /usr/local/bin/walnut-ai <<'SH'
 #!/bin/sh
 set -a
-[ -f /root/.profile ] && . /root/.profile
+profile="${HOME:-/root}/.profile"
+[ -f "$profile" ] && . "$profile"
 set +a
 exec /opt/walnut-ai/walnut_ai.py "$@"
 SH
