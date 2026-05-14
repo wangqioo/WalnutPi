@@ -54,10 +54,10 @@ Menu shown on local login:
 ```text
 1. Chinese console: fbterm
 2. Normal Linux tty
-3. Walnut Assistant
+3. Walnut Home
 ```
 
-Option `3` now launches Walnut Assistant through `fbterm` when available, so the main device UI uses the same framebuffer font path as the Chinese console.
+Option `3` now launches Walnut Home through `fbterm` when available, so the main device UI uses the same framebuffer font path as the Chinese console.
 
 If no key is pressed for 8 seconds, it stays in the normal Linux tty.
 

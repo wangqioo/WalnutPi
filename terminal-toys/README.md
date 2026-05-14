@@ -10,14 +10,15 @@ Run:
 walnut
 ```
 
-The main launcher now lives in `walnut`. The tools in this folder are opened through `walnut toys`, which provides music, browser, monitoring, disk usage, games, clock, AirPods playback mode, Chinese console access, ASCII video demos, and a Matrix-style digital rain effect through `cmatrix`.
+The main launcher now lives in `walnut`. The tools in this folder are opened through `walnut play`, which provides music, browser, monitoring, clock, ASCII video demos, and a Matrix-style digital rain effect through `cmatrix`.
 
 Best quick picks:
 
-- `13` Matrix rain
-- `2` music visualizer
-- `8` / `9` terminal games
-- `10` terminal clock
+- `1` Music player
+- `2` Music visualizer
+- `5` Matrix rain
+- `6` ASCII video
+- `7` Clock
 
 Compatibility entrypoint:
 
@@ -28,7 +29,7 @@ walnut-fun
 This now forwards to:
 
 ```bash
-walnut toys
+walnut play
 ```
 
 Source copy:
@@ -48,16 +49,12 @@ Installed system path:
 | Tool | Purpose | Command |
 | --- | --- | --- |
 | cmus | terminal music player | `cmus` |
-| cmatrix | Matrix-style terminal rain effect | `cmatrix -ab -u 2` |
-| moc | terminal music player daemon/client | `mocp` |
+| cmatrix | Matrix-style terminal rain effect | `cmatrix -ab` |
 | cava | music visualizer | `cava` |
 | w3m | terminal web browser | `w3m` |
-| lynx | terminal web browser | `lynx` |
-| btop | system monitor | `btop` |
-| htop | process monitor | `htop` |
-| ncdu | disk usage browser | `ncdu /` |
-| NetHack | terminal game | `nethack` |
-| Moon Buggy | terminal game | `moon-buggy` |
+| lynx | terminal web browser fallback | `lynx` |
+| btop | large-terminal system monitor | `btop` |
+| htop | compact system monitor | `htop` |
 | tty-clock | terminal clock | `tty-clock` |
 
 ## Music Library
@@ -78,16 +75,9 @@ Current local library: 14 public-domain test tracks under `$HOME/music-library`.
 
 ## Small Screen Notes
 
-The built-in WalnutPi screen is only 480x320. `btop` may refuse to run or look cramped on that screen, so `walnut-fun` uses `htop` as the small-screen monitor and keeps `btop` as the large-terminal option for SSH sessions.
+The built-in WalnutPi screen is only 480x320. `walnut play` uses `htop` as the small-screen monitor and keeps `btop` as the large-terminal option for SSH sessions.
 
 `cmatrix` is a good fit for the built-in screen because it runs directly in the terminal without needing X11 or Wayland. On the local device, it works best from the framebuffer terminal path already used elsewhere in this repo.
-
-The games are installed under `/usr/games`, so the launcher calls them with absolute paths:
-
-```bash
-/usr/games/nethack
-/usr/games/moon-buggy
-```
 
 ## AirPods Playback Note
 

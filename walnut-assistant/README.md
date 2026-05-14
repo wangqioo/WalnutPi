@@ -1,6 +1,6 @@
-# Walnut Assistant V0
+# Walnut Home
 
-Walnut Assistant is the command hub for this headless WalnutPi AI terminal.
+Walnut Home is the command hub for this headless WalnutPi AI terminal.
 
 It turns the board from a collection of Linux commands into one portable entry point:
 
@@ -13,23 +13,25 @@ walnut
 ```bash
 walnut                 # interactive menu
 walnut ai              # open WalnutAI chat
+walnut notes           # notes submenu
+walnut play            # open music, browser, monitor, matrix rain, clock, and video demos
+walnut console         # open the Chinese framebuffer console submenu
 walnut status          # system, network, services, Docker, Bluetooth
-walnut clean           # safe cache/log cleanup
-walnut cn              # open Chinese framebuffer console helper
-walnut fix-audio       # restore AirPods/PulseAudio playback path
-walnut projects        # list project directories and Git status
-walnut sync            # push WalnutPi repository
-walnut toys            # open tools, games, music, matrix rain, and video demos
-walnut fun             # compatibility alias for walnut toys
+walnut maintenance     # open fix-audio / projects / clean submenu
 walnut video [mode]    # play ASCII video demo: color or gray
 walnut voice           # open voice keyboard CLI
 walnut note TEXT       # append a daily note
 walnut today           # show today's notes
 ```
 
-Admin actions:
+Power-user actions:
 
 ```bash
+walnut cn              # open Chinese framebuffer console helper
+walnut clean           # safe cache/log cleanup
+walnut fix-audio       # restore AirPods/PulseAudio playback path
+walnut projects        # list project directories and Git status
+walnut sync            # push WalnutPi repository
 sudo walnut clean
 sudo walnut fix-audio
 sudo walnut status     # includes Docker container details
@@ -65,7 +67,7 @@ chmod +x /usr/local/bin/walnut
 
 - Source repo: `/home/pi/projects/WalnutPi`
 - Main launcher: `/usr/local/bin/walnut`
-- Compatibility launcher: `/usr/local/bin/walnut-fun` -> `walnut toys`
+- Compatibility launcher: `/usr/local/bin/walnut-fun` -> `walnut play`
 - Installed WalnutAI runtime: `/opt/walnut-ai`
 - Installed voice runtime: `/opt/walnut-voice-keyboard`
 

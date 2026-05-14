@@ -52,7 +52,7 @@ The cloud handles:
 
 The current WalnutPi can already:
 
-- run `walnut`, the Walnut Assistant command hub
+- run `walnut`, the Walnut Home command hub
 - run `walnut-ai`, a small AI terminal prototype
 - call cloud AI through an OpenAI-compatible API
 - save notes locally as Markdown
@@ -68,9 +68,10 @@ The current WalnutPi can already:
 ## What To Try First
 
 - `walnut` as the main entry point
-- `walnut` then `5` for tools, games, and Matrix rain
-- `walnut` then `6` for the Chinese framebuffer console
-- `walnut` then `7` for the ASCII video demo
+- `walnut` then `3` for Play
+- `walnut` then `4` for the Chinese console
+- `walnut` then `5` for status
+- `walnut` then `6` for maintenance
 - `walnut-ai` for direct cloud-AI terminal access
 
 ## What It Is Good For
@@ -104,9 +105,9 @@ AirPods playback works, but AirPods microphone capture failed because SCO microp
 ```text
 WalnutPi/
 ├── hardware/                # Observed hardware and screen notes
-├── walnut-assistant/        # Walnut Assistant command hub
+├── walnut-assistant/        # Walnut Home command hub
 ├── walnut-ai-terminal/      # WalnutAI Terminal V0
-├── terminal-toys/           # Terminal-only tools and launcher
+├── terminal-toys/           # Terminal-only tools used by Walnut Play
 ├── console-chinese/         # Local framebuffer Chinese display notes
 ├── audio/
 │   └── airpods-linux/       # AirPods/Linux playback and microphone investigation
@@ -118,7 +119,7 @@ Future modules should be added as separate folders under this repository. The ro
 
 ## Projects
 
-### Walnut Assistant V0
+### Walnut Home
 
 Path: `walnut-assistant/`
 
@@ -145,7 +146,7 @@ Documents the local Chinese display setup for the built-in screen:
 
 Path: `terminal-toys/`
 
-Pure terminal apps used by Walnut Assistant for music, browser, monitoring, disk usage, games, clock, Matrix rain, and AirPods playback mode. `walnut-fun` remains as a compatibility wrapper to `walnut toys`.
+Pure terminal apps used by Walnut Play for music, browser, monitoring, clock, Matrix rain, and ASCII video. `walnut-fun` remains as a compatibility wrapper to `walnut play`.
 
 ### Hardware Notes
 
@@ -194,7 +195,7 @@ Documents the Bluetooth audio investigation:
 - `frpc.service`: enabled
 - `uptime-kuma` Docker container: healthy
 - Uptime Kuma local URL: `http://192.168.1.30:3001`
-- Walnut Assistant launcher: `/usr/local/bin/walnut`
+- Walnut Home launcher: `/usr/local/bin/walnut`
 - WalnutAI launcher: `/usr/local/bin/walnut-ai`
 - WalnutAI code: `/opt/walnut-ai/walnut_ai.py`
 - Chinese console helper: `/usr/local/bin/walnut-cn`

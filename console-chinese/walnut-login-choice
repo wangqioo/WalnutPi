@@ -10,7 +10,7 @@ export WALNUT_LOGIN_CHOICE=1
 printf '\nWalnutPi local console\n'
 printf '  1. Chinese console: fbterm\n'
 printf '  2. Normal Linux tty\n'
-printf '  3. Walnut Assistant\n'
+printf '  3. Walnut Home\n'
 printf '\nSelect [1/2/3, default 2 in 8s]> '
 
 choice=""

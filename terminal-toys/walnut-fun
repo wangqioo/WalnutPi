@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if command -v walnut >/dev/null 2>&1; then
-  exec walnut toys
+  exec walnut play
 fi
 
 echo "walnut is missing"
