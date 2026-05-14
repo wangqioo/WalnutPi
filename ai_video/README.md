@@ -29,6 +29,20 @@ PYTHONPATH=/path/to/WalnutPi python3 -m ai_video.ascii_video.player ai_video/exa
 PYTHONPATH=/path/to/WalnutPi python3 -m ai_video.ascii_video_color.player ai_video/examples/assets/demo_color.avtc
 ```
 
+## WalnutPi install
+
+On the board itself, install the runtime with:
+
+```bash
+sudo /home/pi/projects/WalnutPi/scripts/install-walnut-ai.sh
+```
+
+That installer now:
+
+- installs `python3-opencv` when needed
+- copies the demo assets into `/opt/walnut-ai-video`
+- uses `ai_video/run_module.py` to avoid `/usr/local` NumPy conflicts with Debian's `python3-opencv`
+
 ## Regenerate demos
 
 ```bash

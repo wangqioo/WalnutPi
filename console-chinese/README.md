@@ -57,6 +57,8 @@ Menu shown on local login:
 3. Walnut Assistant
 ```
 
+Option `3` now launches Walnut Assistant through `fbterm` when available, so the main device UI uses the same framebuffer font path as the Chinese console.
+
 If no key is pressed for 8 seconds, it stays in the normal Linux tty.
 
 The guard is intentionally narrow:

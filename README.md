@@ -207,6 +207,9 @@ Documents the Bluetooth audio investigation:
 - Custom interaction systems should be entered manually, for example with `walnut` or `walnut-ai`.
 - Prefer extending `walnut` instead of adding more top-level launchers when features overlap.
 - Prefer simple, inspectable Linux services and scripts before building heavy UI stacks.
+- Keep `/home/pi/projects` owned by `pi:pi` so local Git operations stay healthy.
+- Treat `/usr/local/bin` as the public command surface and avoid adding overlapping launchers without a clear reason.
+- Treat `/opt` as installed runtime state and keep source-of-truth edits in the Git repo under `/home/pi/projects/WalnutPi`.
 
 ## Near-Term Roadmap
 

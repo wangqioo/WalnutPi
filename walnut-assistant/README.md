@@ -60,3 +60,13 @@ This is the first step toward a local personal memory layer for the WalnutPi AI 
 cp walnut /usr/local/bin/walnut
 chmod +x /usr/local/bin/walnut
 ```
+
+## Runtime Layout
+
+- Source repo: `/home/pi/projects/WalnutPi`
+- Main launcher: `/usr/local/bin/walnut`
+- Compatibility launcher: `/usr/local/bin/walnut-fun` -> `walnut toys`
+- Installed WalnutAI runtime: `/opt/walnut-ai`
+- Installed voice runtime: `/opt/walnut-voice-keyboard`
+
+Keep source edits in the Git repo, then install or copy launchers into `/usr/local/bin` as needed.
