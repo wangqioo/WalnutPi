@@ -34,14 +34,7 @@ case "${choice:-2}" in
     ;;
   3)
     if command -v walnut >/dev/null 2>&1; then
-      if command -v fbterm >/dev/null 2>&1; then
-        export WALNUT_FBTERM=1
-        export LANG=C.UTF-8
-        export LC_ALL=C.UTF-8
-        exec fbterm -n "WenQuanYi Zen Hei Mono,Noto Sans Mono,Droid Sans Fallback" -s 16 -- walnut
-      else
-        exec walnut
-      fi
+      exec walnut-cn
     else
       echo "walnut not installed; staying in normal tty."
     fi

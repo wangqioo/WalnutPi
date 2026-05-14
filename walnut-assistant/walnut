@@ -464,6 +464,8 @@ def menu(_: argparse.Namespace | None = None) -> int:
         print("  5. Status")
         print("  6. Maintenance")
         print("  7. Voice")
+        if os.getenv("WALNUT_SESSION_MODE") == "local":
+            print("  8. Exit to login")
         print()
         print("  q. Quit")
         choice = input("\nSelect> ").strip().lower()
@@ -482,6 +484,8 @@ def menu(_: argparse.Namespace | None = None) -> int:
             maintenance_menu(None)
         elif choice == "7":
             voice(None)
+        elif choice == "8" and os.getenv("WALNUT_SESSION_MODE") == "local":
+            return 2
         elif choice in {"q", "quit", "exit"}:
             return 0
 

@@ -3,9 +3,16 @@ set -euo pipefail
 
 export LANG=zh_CN.UTF-8
 export LC_ALL=C.UTF-8
+export WALNUT_SESSION_MODE=local
 
 if [ -z "${SSH_TTY:-}" ] && [ -t 0 ] && command -v fbterm >/dev/null 2>&1; then
-  exec fbterm -n "WenQuanYi Zen Hei Mono,Noto Sans Mono,Droid Sans Fallback" -s 16 -- walnut "$@"
+  exec fbterm -n "WenQuanYi Zen Hei Mono,Noto Sans Mono,Droid Sans Fallback" -s 16 -- bash -lc '
+while true; do
+  walnut "$@"
+  rc=$?
+  [ "$rc" -eq 2 ] && break
+done
+' _ "$@"
 fi
 
 exec walnut "$@"
