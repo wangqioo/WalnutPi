@@ -94,14 +94,3 @@ systemctl disable --now bluealsa
 pkill -f '^/usr/bin/bluealsa-aplay' || true
 vk-airpods-audio
 ```
-
-## Filesystem Safety
-
-The WalnutPi previously had a read-only filesystem incident after network music download tests. Before heavy installs or downloads, check that root is mounted read-write and has enough free space:
-
-```bash
-mount | grep ' on / '
-df -h /
-```
-
-If `/` is mounted read-only or commands report input/output errors, stop writing files and inspect storage before continuing.

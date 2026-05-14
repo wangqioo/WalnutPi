@@ -390,16 +390,6 @@ def projects(_: argparse.Namespace | None = None) -> int:
     return 0
 
 
-def sync(_: argparse.Namespace | None = None) -> int:
-    if not PROJECT_ROOT.exists():
-        print(f"missing project root: {PROJECT_ROOT}")
-        return 1
-    print("GitHub sync for WalnutPi repository.")
-    subprocess.call(["git", "-C", str(PROJECT_ROOT), "status", "--short"])
-    print("\nNote: if git push hangs on this board, use Codex to sync via gh api as a fallback.")
-    return subprocess.call(["git", "-C", str(PROJECT_ROOT), "push", "origin", "main"])
-
-
 def note(args: argparse.Namespace) -> int:
     NOTES_DIR.mkdir(parents=True, exist_ok=True)
     text = " ".join(args.text).strip()
@@ -476,16 +466,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     commands = {
         "status": status,
-        "clean": clean,
-        "fix-audio": fix_audio,
-        "projects": projects,
-        "sync": sync,
         "ai": open_ai,
         "notes": notes_menu,
         "play": play_menu,
         "console": console_menu,
         "maintenance": maintenance_menu,
-        "cn": open_cn,
         "video": open_video,
         "voice": voice,
         "today": today,

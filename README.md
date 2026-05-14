@@ -68,11 +68,9 @@ The current WalnutPi can already:
 ## What To Try First
 
 - `walnut` as the main entry point
-- `walnut` then `3` for Play
-- `walnut` then `4` for the Chinese console
-- `walnut` then `5` for status
-- `walnut` then `6` for maintenance
-- `walnut-ai` for direct cloud-AI terminal access
+- `walnut ai` for direct cloud-AI terminal access
+- `walnut play` for music, browser, monitor, Matrix rain, clock, and ASCII video
+- `walnut console` for the Chinese framebuffer console
 
 ## What It Is Good For
 

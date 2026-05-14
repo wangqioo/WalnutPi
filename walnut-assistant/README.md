@@ -24,18 +24,12 @@ walnut note TEXT       # append a daily note
 walnut today           # show today's notes
 ```
 
-Power-user actions:
+Less common:
 
-```bash
-walnut cn              # open Chinese framebuffer console helper
-walnut clean           # safe cache/log cleanup
-walnut fix-audio       # restore AirPods/PulseAudio playback path
-walnut projects        # list project directories and Git status
-walnut sync            # push WalnutPi repository
-sudo walnut clean
-sudo walnut fix-audio
-sudo walnut status     # includes Docker container details
-```
+- `walnut status` for device, network, and service checks
+- `walnut video color|gray` for direct ASCII video playback
+- `walnut note TEXT` and `walnut today` for quick notes
+- `walnut voice` for the voice keyboard CLI
 
 ## Design
 
@@ -44,7 +38,7 @@ This is intentionally small and boring:
 - Pure CLI, no desktop dependency.
 - Uses Python standard library only.
 - Keeps the main entrypoint unified in `walnut`.
-- Does not delete projects, music, Codex config, GitHub login, Docker data, or Uptime Kuma data.
+- Keeps maintenance actions inside the menu instead of exposing extra top-level commands.
 
 ## Memory
 
