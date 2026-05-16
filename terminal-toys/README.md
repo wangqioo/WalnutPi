@@ -79,6 +79,14 @@ $HOME/.config/cmus/walnut-library.pls
 
 `cmatrix` 很适合这块内屏，因为它直接跑在终端里，不需要 X11 或 Wayland。在本地设备上，它最适合从这个仓库里已经使用的 framebuffer 终端路径启动。
 
+Debian bookworm 的原版 `dosbox` 包不适合直接跑在这块内屏上。实测 `dosbox 0.74-3` 启动时需要至少 640x400 的视频模式，而 WalnutPi 内屏只有 480x320，会退出并显示：
+
+```text
+Could not initialize video: No video mode large enough for 640x400
+```
+
+因此不要把 DOSBox 作为 Walnut Play 的默认本地小屏工具。若要运行 DOSBox，应使用外接更高分辨率显示、远程图形环境，或选择能明确适配 480x320 framebuffer 的替代方案。
+
 ## AirPods 播放说明
 
 如果要用 AirPods 播放，请保持蓝牙处于 A2DP 音乐模式：

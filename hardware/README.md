@@ -80,6 +80,7 @@ Practical interpretation:
 - It runs around 30 FPS.
 - It is suitable for simple terminal UI, static cards, status panels, and lightweight framebuffer rendering.
 - It is not suitable for heavy desktop compositing or complex animation.
+- It is too small for unmodified DOSBox 0.74 on Debian bookworm. That DOSBox build tries to initialize a 640x400 video mode during startup, and exits on this panel with `Could not initialize video: No video mode large enough for 640x400`.
 
 This screen fits the WalnutAI Terminal direction well: command-line-first input and lightweight card-like output.
 
