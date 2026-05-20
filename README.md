@@ -60,9 +60,7 @@ WalnutPi 是一个把小型无桌面 Linux 板子做成便携式云端 AI 终端
 - 把笔记保存为 Markdown
 - 翻译和润色文本
 - 在终端里显示系统状态
-- 运行 Docker 服务
-- 在 `3001` 端口托管 Uptime Kuma
-- 通过 frpc 暴露服务
+- 通过 frpc 暴露 SSH 远程访问
 - 通过 AirPods / A2DP 播放音频
 - 通过 `fbterm` 在本地 framebuffer 控制台显示中文
 - 保持正常 CLI 启动，不强制接管系统启动 shell
@@ -193,10 +191,10 @@ walnut-ai
 
 ## 原型机当前服务
 
-- `docker.service`：已启用
+系统重置后，当前只恢复了基础 SSH 隧道：
+
 - `frpc.service`：已启用
-- `uptime-kuma` Docker 容器：健康
-- Uptime Kuma 本地地址：`http://192.168.1.30:3001`
+- FRP SSH 隧道：`walnutpi-ssh`，`150.158.146.192:6230 -> 127.0.0.1:22`
 - Walnut Home 启动器：`/usr/local/bin/walnut`
 - WalnutAI 启动器：`/usr/local/bin/walnut-ai`
 - WalnutAI 代码：`/opt/walnut-ai/walnut_ai.py`
@@ -218,6 +216,6 @@ walnut-ai
 
 - 给 WalnutAI Terminal 增加持久会话历史
 - 增加更丰富的终端卡片渲染
-- 给 Uptime Kuma 和 frpc 增加状态命令
+- 给 frpc 增加状态命令
 - 增加蓝牙 / 音乐控制命令
 - 增加一个能在手机上访问的小型本地 Web UI
