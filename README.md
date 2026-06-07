@@ -104,6 +104,8 @@ AirPods 播放是可用的，但 AirPods 麦克风捕获在这块板子的板载
 ```text
 WalnutPi/
 ├── hardware/                # 观察到的硬件和屏幕记录
+├── framebuffer_ui/          # 直接写 /dev/fb0 的无桌面屏幕 UI 实验
+├── lvgl_app/                # LVGL + Linux fbdev 的嵌入式屏幕 UI 原型
 ├── walnut-assistant/        # Walnut Home 命令中心
 ├── walnut-ai-terminal/      # WalnutAI Terminal V0
 ├── terminal-toys/           # Walnut Play 使用的纯终端工具
@@ -153,6 +155,137 @@ walnut
 路径：`hardware/`
 
 这里记录观察到的设备信息：系统、CPU、内存、存储、framebuffer 屏幕、触摸控制器、GPU / 显示说明、蓝牙 / 音频限制，以及有用的检查命令。
+
+### Framebuffer UI
+
+路径：`framebuffer_ui/`
+
+这是无桌面系统直接写 `/dev/fb0` 的屏幕 UI 实验。它不依赖 X11、Wayland、Chromium 或桌面环境。
+
+在 WalnutPi 小电脑本地或 SSH 进入项目：
+
+```bash
+cd /home/pi/projects/WalnutPi
+```
+
+手动绘制一次真实状态屏：
+
+```bash
+walnut screen test
+walnut screen demo
+walnut screen off
+```
+
+显示一张 JPG/PNG 图片：
+
+```bash
+walnut screen image /path/to/image.jpg
+```
+
+显示本地健康摘要或 AI 回复卡片：
+
+```bash
+walnut screen ai
+walnut screen ai "WalnutPi OK FRP online Disk 36%"
+```
+
+进入可操作的小屏菜单：
+
+```bash
+walnut screen app
+```
+
+按键：
+
+```text
+j/k 或方向键  移动选择
+Enter          打开页面
+b              返回菜单
+q              退出
+```
+
+作为独占小屏幕服务运行：
+
+```bash
+sudo walnut screen status
+```
+
+恢复本地登录屏：
+
+```bash
+sudo walnut screen restore
+```
+
+### LVGL 屏幕 UI
+
+路径：`lvgl_app/`
+
+这是无桌面系统上的 LVGL 原型。它不启动桌面，不需要 X11/Wayland，直接通过 LVGL 的 Linux fbdev 驱动写 `/dev/fb0`。
+
+第一次构建会自动使用 `third_party/lvgl/`。如果源码不存在，脚本会拉取 LVGL v9.2.2：
+
+```bash
+cd /home/pi/projects/WalnutPi
+scripts/build-lvgl-app.sh
+```
+
+运行 LVGL 小屏界面：
+
+```bash
+walnut screen lvgl
+```
+
+安装正式小屏服务：
+
+```bash
+sudo scripts/install-walnut-screen.sh
+```
+
+启动持续运行的 LVGL 小屏系统：
+
+```bash
+sudo systemctl start walnut-screen.service
+# 或
+sudo walnut screen lvgl-demo
+```
+
+恢复本地登录终端：
+
+```bash
+sudo walnut screen restore
+```
+
+当前 LVGL 页面包含旋转圆环、呼吸核心、滑入状态卡片、循环进度条和日志刷新，并会读取真实设备状态：
+
+- IP 地址
+- 内存使用率
+- 磁盘使用率
+- FRP 状态
+- load average
+- uptime
+
+小屏系统会自动轮播 4 个页面：
+
+- `HOME`：动画核心、IP、内存、磁盘、FRP/load/uptime
+- `SYS`：系统状态摘要
+- `AI`：本地 agent 状态和后续任务
+- `NET`：IP、FRP、SSH、显示后端
+
+USB 键盘可控制页面：
+
+```text
+方向键 / Enter   手动切页
+空格             暂停或继续自动轮播
+q / Esc          退出 LVGL 进程，systemd 会按策略重启
+```
+
+更新 AI 页面文本：
+
+```bash
+sudo walnut screen ai "WalnutPi screen AI page is live"
+```
+
+它用来验证“Server 无桌面系统也可以跑真正的嵌入式 UI 框架”。后续可以继续接入触摸坐标、真实 AI 总结和更完整的设置页。
 
 ### WalnutAI 终端 V0
 

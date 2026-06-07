@@ -29,6 +29,7 @@ CMUS_PLAYLIST = HOME / ".config" / "cmus" / "walnut-library.pls"
 PROJECT_ROOT_CANDIDATES = [
     Path(os.environ["WALNUT_PROJECT_ROOT"]) if "WALNUT_PROJECT_ROOT" in os.environ else None,
     HOME / "projects" / "WalnutPi",
+    Path("/home/pi/projects/WalnutPi"),
 ]
 MUSIC_DIR_CANDIDATES = [
     Path(os.environ["WALNUT_MUSIC_DIR"]) if "WALNUT_MUSIC_DIR" in os.environ else None,
@@ -304,6 +305,34 @@ def console_menu(_: argparse.Namespace | None = None) -> int:
             return 0
 
 
+def screen_menu(_: argparse.Namespace | None = None) -> int:
+    while True:
+        clear_screen()
+        print("Walnut Screen")
+        print()
+        print("  1. Status screen")
+        print("  2. Test pattern")
+        print("  3. LVGL screen")
+        print("  4. Restore local login")
+        print()
+        print("  b. Back")
+        choice = input("\nSelect> ").strip().lower()
+        if choice == "1":
+            screen(argparse.Namespace(screen_cmd="status"))
+            pause()
+        elif choice == "2":
+            screen(argparse.Namespace(screen_cmd="test"))
+            pause()
+        elif choice == "3":
+            screen(argparse.Namespace(screen_cmd="lvgl"))
+            pause()
+        elif choice == "4":
+            screen(argparse.Namespace(screen_cmd="restore"))
+            pause()
+        elif choice in {"b", "back", "q", "quit", "exit"}:
+            return 0
+
+
 def maintenance_menu(_: argparse.Namespace | None = None) -> int:
     while True:
         clear_screen()
@@ -369,6 +398,90 @@ def status(_: argparse.Namespace | None = None) -> int:
     section("Audio")
     print(one_line(["bluetoothctl", "info", AIRPODS_MAC], "AirPods not known"))
     return 0
+
+
+def screen(args: argparse.Namespace) -> int:
+    command = getattr(args, "screen_cmd", "menu")
+    if command == "menu":
+        return screen_menu(args)
+    if command == "status":
+        if not require_root("screen status"):
+            return 1
+        return subprocess.call(root_cmd(["systemctl", "start", "walnut-framebuffer-status.service"]))
+    if command == "restore":
+        if not require_root("screen restore"):
+            return 1
+        subprocess.call(root_cmd(["systemctl", "stop", "walnut-screen.service"]))
+        code = subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
+        subprocess.call(["/bin/sh", "-c", "echo 1 > /sys/class/vtconsole/vtcon1/bind"])
+        subprocess.call(root_cmd(["systemctl", "start", "getty@tty1.service"]))
+        return code
+    if command in {"test", "demo", "off"}:
+        current_root = project_root()
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(current_root)
+        subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
+        demo = {"test": "test", "demo": "card", "off": "off"}[command]
+        return subprocess.call(
+            ["python3", "-m", "framebuffer_ui.draw_demo", demo],
+            cwd=str(current_root),
+            env=env,
+        )
+    if command == "image":
+        current_root = project_root()
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(current_root)
+        subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
+        return subprocess.call(
+            ["python3", "-m", "framebuffer_ui.draw_image", args.path],
+            cwd=str(current_root),
+            env=env,
+        )
+    if command == "ai":
+        current_root = project_root()
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(current_root)
+        text = getattr(args, "text", []) or []
+        if text:
+            ai_text = " ".join(text).strip()
+            try:
+                Path("/run/walnut-screen-ai.txt").write_text(ai_text + "\n", encoding="utf-8")
+            except OSError:
+                pass
+            if run(root_cmd(["systemctl", "is-active", "walnut-screen.service"])).stdout.strip() == "active":
+                print("updated LVGL AI page")
+                return 0
+        subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
+        return subprocess.call(
+            ["python3", "-m", "framebuffer_ui.draw_ai", *text],
+            cwd=str(current_root),
+            env=env,
+        )
+    if command == "app":
+        current_root = project_root()
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(current_root)
+        subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
+        return subprocess.call(
+            ["python3", "-m", "framebuffer_ui.screen_app"],
+            cwd=str(current_root),
+            env=env,
+        )
+    if command == "lvgl-demo":
+        if not require_root("screen lvgl-demo"):
+            return 1
+        return subprocess.call(root_cmd(["systemctl", "start", "walnut-screen.service"]))
+    if command == "lvgl":
+        current_root = project_root()
+        binary = current_root / "build" / "lvgl_app" / "walnut-lvgl-screen"
+        if not binary.exists():
+            print(f"LVGL binary is missing: {binary}")
+            print(f"Run: cd {current_root} && scripts/build-lvgl-app.sh")
+            return 1
+        subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
+        return subprocess.call([str(binary), "/dev/fb0"], cwd=str(current_root))
+    print("Usage: walnut screen [status|test|demo|off|image|ai|app|lvgl|lvgl-demo|restore]")
+    return 2
 
 
 def clean(_: argparse.Namespace | None = None) -> int:
@@ -462,10 +575,11 @@ def menu(_: argparse.Namespace | None = None) -> int:
         print("  3. Play")
         print("  4. Console")
         print("  5. Status")
-        print("  6. Maintenance")
-        print("  7. Voice")
+        print("  6. Screen")
+        print("  7. Maintenance")
+        print("  8. Voice")
         if os.getenv("WALNUT_SESSION_MODE") == "local":
-            print("  8. Return to login")
+            print("  9. Return to login")
         print()
         print("  q. Back to Walnut menu")
         choice = input("\nSelect> ").strip().lower()
@@ -481,10 +595,12 @@ def menu(_: argparse.Namespace | None = None) -> int:
             status(None)
             input("\nPress Enter...")
         elif choice == "6":
-            maintenance_menu(None)
+            screen_menu(None)
         elif choice == "7":
+            maintenance_menu(None)
+        elif choice == "8":
             voice(None)
-        elif choice == "8" and os.getenv("WALNUT_SESSION_MODE") == "local":
+        elif choice == "9" and os.getenv("WALNUT_SESSION_MODE") == "local":
             return 2
         elif choice in {"q", "quit", "exit"}:
             return 0
@@ -510,6 +626,16 @@ def build_parser() -> argparse.ArgumentParser:
         if name == "video":
             p.add_argument("mode", nargs="?", choices=["color", "gray", "still-color", "still-gray"], default="color")
         p.set_defaults(func=func)
+
+    p_screen = sub.add_parser("screen")
+    screen_sub = p_screen.add_subparsers(dest="screen_cmd")
+    for name in ["status", "test", "demo", "off", "restore", "app", "lvgl", "lvgl-demo"]:
+        screen_sub.add_parser(name)
+    p_image = screen_sub.add_parser("image")
+    p_image.add_argument("path")
+    p_ai = screen_sub.add_parser("ai")
+    p_ai.add_argument("text", nargs="*")
+    p_screen.set_defaults(func=screen, screen_cmd="menu")
 
     p_note = sub.add_parser("note")
     p_note.add_argument("text", nargs="*")

@@ -5,3 +5,5 @@ __pycache__/
 !.env.example
 *.log
 !*.spec
+build/
+third_party/lvgl/
