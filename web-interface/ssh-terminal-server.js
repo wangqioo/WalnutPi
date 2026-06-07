@@ -24,23 +24,27 @@ function contentType(pathname) {
 
 function startSsh(ws) {
   const target = `${SSH_USER}@${SSH_HOST}`;
-  const sshCommand = [
-    "sshpass -e",
-    "ssh",
-    "-tt",
-    "-o StrictHostKeyChecking=no",
-    "-o UserKnownHostsFile=/dev/null",
-    target,
-  ].join(" ");
-
-  const child = spawn("script", ["-qfec", sshCommand, "/dev/null"], {
-    env: {
-      ...process.env,
-      SSHPASS: SSH_PASSWORD,
-      TERM: "xterm-256color",
+  const child = spawn(
+    "sshpass",
+    [
+      "-e",
+      "ssh",
+      "-tt",
+      "-o",
+      "StrictHostKeyChecking=no",
+      "-o",
+      "UserKnownHostsFile=/dev/null",
+      target,
+    ],
+    {
+      env: {
+        ...process.env,
+        SSHPASS: SSH_PASSWORD,
+        TERM: "xterm-256color",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
     },
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  );
 
   ws.data.child = child;
 
