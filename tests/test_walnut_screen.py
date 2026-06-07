@@ -34,6 +34,10 @@ class WalnutScreenTest(unittest.TestCase):
         self.assertEqual(parser.parse_args(["screen", "app"]).screen_cmd, "app")
         self.assertEqual(parser.parse_args(["screen", "lvgl"]).screen_cmd, "lvgl")
         self.assertEqual(parser.parse_args(["screen", "lvgl-demo"]).screen_cmd, "lvgl-demo")
+        self.assertEqual(parser.parse_args(["screen", "start"]).screen_cmd, "start")
+        self.assertEqual(parser.parse_args(["screen", "stop"]).screen_cmd, "stop")
+        self.assertEqual(parser.parse_args(["screen", "toggle"]).screen_cmd, "toggle")
+        self.assertEqual(parser.parse_args(["screen", "state"]).screen_cmd, "state")
         image_args = parser.parse_args(["screen", "image", "/tmp/demo.jpg"])
         self.assertEqual(image_args.screen_cmd, "image")
         self.assertEqual(image_args.path, "/tmp/demo.jpg")
@@ -96,6 +100,58 @@ class WalnutScreenTest(unittest.TestCase):
         args = walnut.build_parser().parse_args(["screen", "lvgl-demo"])
 
         with mock.patch.object(walnut, "require_root", return_value=True), mock.patch.object(walnut, "subprocess") as subprocess_mock:
+            subprocess_mock.call.return_value = 0
+            self.assertEqual(walnut.screen(args), 0)
+
+        self.assertEqual(
+            subprocess_mock.call.call_args_list[-1].args[0],
+            walnut.root_cmd(["systemctl", "start", "walnut-screen.service"]),
+        )
+
+    def test_screen_start_starts_walnut_screen_service(self):
+        walnut = load_walnut()
+        args = walnut.build_parser().parse_args(["screen", "start"])
+
+        with mock.patch.object(walnut, "require_root", return_value=True), mock.patch.object(walnut, "subprocess") as subprocess_mock:
+            subprocess_mock.call.return_value = 0
+            self.assertEqual(walnut.screen(args), 0)
+
+        self.assertEqual(
+            subprocess_mock.call.call_args_list[-1].args[0],
+            walnut.root_cmd(["systemctl", "start", "walnut-screen.service"]),
+        )
+
+    def test_screen_stop_restores_local_login(self):
+        walnut = load_walnut()
+        args = walnut.build_parser().parse_args(["screen", "stop"])
+
+        with mock.patch.object(walnut, "require_root", return_value=True), mock.patch.object(walnut, "subprocess") as subprocess_mock:
+            subprocess_mock.call.return_value = 0
+            self.assertEqual(walnut.screen(args), 0)
+
+        commands = [call.args[0] for call in subprocess_mock.call.call_args_list]
+        self.assertIn(walnut.root_cmd(["systemctl", "stop", "walnut-screen.service"]), commands)
+        self.assertIn(walnut.root_cmd(["systemctl", "start", "getty@tty1.service"]), commands)
+
+    def test_screen_toggle_stops_when_lvgl_is_active(self):
+        walnut = load_walnut()
+        args = walnut.build_parser().parse_args(["screen", "toggle"])
+
+        with mock.patch.object(walnut, "require_root", return_value=True), mock.patch.object(walnut, "run") as run_mock, mock.patch.object(walnut, "subprocess") as subprocess_mock:
+            run_mock.return_value.stdout = "active\n"
+            subprocess_mock.call.return_value = 0
+            self.assertEqual(walnut.screen(args), 0)
+
+        commands = [call.args[0] for call in subprocess_mock.call.call_args_list]
+        self.assertIn(walnut.root_cmd(["systemctl", "stop", "walnut-screen.service"]), commands)
+        self.assertIn(walnut.root_cmd(["systemctl", "start", "getty@tty1.service"]), commands)
+
+    def test_screen_toggle_starts_when_lvgl_is_inactive(self):
+        walnut = load_walnut()
+        args = walnut.build_parser().parse_args(["screen", "toggle"])
+
+        with mock.patch.object(walnut, "require_root", return_value=True), mock.patch.object(walnut, "run") as run_mock, mock.patch.object(walnut, "subprocess") as subprocess_mock:
+            run_mock.return_value.stdout = "inactive\n"
             subprocess_mock.call.return_value = 0
             self.assertEqual(walnut.screen(args), 0)
 

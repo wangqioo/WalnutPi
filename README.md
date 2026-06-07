@@ -244,15 +244,25 @@ sudo scripts/install-walnut-screen.sh
 启动持续运行的 LVGL 小屏系统：
 
 ```bash
-sudo systemctl start walnut-screen.service
-# 或
-sudo walnut screen lvgl-demo
+sudo walnut screen start
 ```
 
 恢复本地登录终端：
 
 ```bash
-sudo walnut screen restore
+sudo walnut screen stop
+```
+
+一键切换 LVGL 小屏 / 本地登录终端：
+
+```bash
+sudo walnut screen toggle
+```
+
+查看当前屏幕状态：
+
+```bash
+walnut screen state
 ```
 
 当前 LVGL 页面包含旋转圆环、呼吸核心、滑入状态卡片、循环进度条和日志刷新，并会读取真实设备状态：
