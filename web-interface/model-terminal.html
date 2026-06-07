@@ -1,0 +1,1257 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WalnutPi AI Console</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@xterm/xterm/css/xterm.css"
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        background: #0c0d0e;
+        color: #f0efe7;
+        --paper: #f0efe7;
+        --muted: #aeb8b0;
+        --line: rgba(240, 239, 231, 0.15);
+        --panel: rgba(15, 17, 16, 0.9);
+        --panel-soft: rgba(25, 29, 27, 0.74);
+        --gold: #d0a044;
+        --green: #75c486;
+        --red: #d66b65;
+        --cyan: #78c8c1;
+        --blue: #7aa8d8;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #0c0d0e;
+      }
+
+      body,
+      button,
+      input {
+        font: inherit;
+      }
+
+      button,
+      input {
+        color: inherit;
+      }
+
+      button {
+        border: 0;
+        cursor: pointer;
+      }
+
+      .app {
+        display: grid;
+        grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+        width: 100%;
+        height: 100%;
+        background:
+          radial-gradient(circle at 11% 12%, rgba(120, 200, 193, 0.16), transparent 25%),
+          radial-gradient(circle at 88% 18%, rgba(208, 160, 68, 0.13), transparent 28%),
+          linear-gradient(145deg, #101214 0%, #171b1a 50%, #0c0d0e 100%);
+      }
+
+      .assistant-pane {
+        display: grid;
+        min-width: 0;
+        min-height: 0;
+        grid-template-rows: auto minmax(0, 1fr) auto auto;
+        border-right: 1px solid var(--line);
+        background: rgba(11, 13, 12, 0.86);
+        box-shadow: 18px 0 48px rgba(0, 0, 0, 0.18);
+      }
+
+      .assistant-head {
+        display: grid;
+        gap: 12px;
+        padding: 18px 18px 14px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand-row,
+      .connection {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .brand {
+        min-width: 0;
+      }
+
+      .eyebrow {
+        margin: 0 0 4px;
+        color: var(--cyan);
+        font-size: 12px;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+
+      .title {
+        margin: 0;
+        overflow: hidden;
+        color: var(--paper);
+        font-size: 22px;
+        font-weight: 760;
+        letter-spacing: 0;
+        line-height: 1.12;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .signal {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 7px;
+        min-height: 30px;
+        border: 1px solid rgba(240, 239, 231, 0.13);
+        border-radius: 999px;
+        padding: 0 10px;
+        background: rgba(240, 239, 231, 0.06);
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0;
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--gold);
+      }
+
+      .dot.is-open {
+        background: var(--green);
+      }
+
+      .dot.is-closed {
+        background: var(--red);
+      }
+
+      .target {
+        display: grid;
+        min-width: 0;
+        gap: 3px;
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0;
+      }
+
+      .target strong {
+        overflow: hidden;
+        color: var(--paper);
+        font-size: 13px;
+        font-weight: 650;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .chat-log {
+        display: flex;
+        min-height: 0;
+        flex-direction: column;
+        gap: 10px;
+        overflow-y: auto;
+        padding: 16px 16px 14px;
+      }
+
+      .message {
+        display: grid;
+        gap: 6px;
+        max-width: 92%;
+        border: 1px solid rgba(240, 239, 231, 0.12);
+        border-radius: 8px;
+        padding: 10px 11px;
+        background: rgba(240, 239, 231, 0.055);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, 0.16);
+      }
+
+      .message.user {
+        align-self: flex-end;
+        border-color: rgba(122, 168, 216, 0.25);
+        background: rgba(40, 72, 95, 0.56);
+      }
+
+      .message.assistant {
+        align-self: flex-start;
+      }
+
+      .message-meta {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0;
+      }
+
+      .message-body {
+        color: var(--paper);
+        font-size: 13px;
+        letter-spacing: 0;
+        line-height: 1.46;
+        overflow-wrap: anywhere;
+      }
+
+      .command-pill {
+        width: fit-content;
+        max-width: 100%;
+        overflow: hidden;
+        border-radius: 6px;
+        padding: 5px 7px;
+        background: rgba(0, 0, 0, 0.24);
+        color: #d8e7dc;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .output-block {
+        max-height: 180px;
+        overflow: auto;
+        border-radius: 6px;
+        padding: 8px;
+        background: rgba(0, 0, 0, 0.26);
+        color: #d8e7dc;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 11px;
+        line-height: 1.38;
+        white-space: pre-wrap;
+      }
+
+      .message.is-error {
+        border-color: rgba(214, 107, 101, 0.36);
+      }
+
+      .quick-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        border-top: 1px solid var(--line);
+        padding: 12px 16px;
+      }
+
+      .quick-action {
+        display: grid;
+        min-width: 0;
+        min-height: 48px;
+        grid-template-columns: 28px minmax(0, 1fr);
+        align-items: center;
+        gap: 8px;
+        border: 1px solid rgba(240, 239, 231, 0.13);
+        border-radius: 8px;
+        padding: 8px;
+        background: rgba(240, 239, 231, 0.055);
+        text-align: left;
+      }
+
+      .quick-action:hover,
+      .quick-action:focus-visible {
+        border-color: rgba(208, 160, 68, 0.72);
+        background: rgba(208, 160, 68, 0.11);
+        outline: none;
+      }
+
+      .quick-icon {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border-radius: 6px;
+        background: rgba(120, 200, 193, 0.12);
+        color: var(--cyan);
+      }
+
+      .quick-action:nth-child(2n) .quick-icon {
+        background: rgba(208, 160, 68, 0.13);
+        color: var(--gold);
+      }
+
+      .quick-icon svg,
+      .icon-button svg,
+      .send-button svg {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2;
+      }
+
+      .quick-title {
+        overflow: hidden;
+        color: var(--paper);
+        font-size: 12px;
+        font-weight: 650;
+        letter-spacing: 0;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .composer {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 42px;
+        gap: 8px;
+        border-top: 1px solid var(--line);
+        padding: 12px 16px 16px;
+      }
+
+      .composer input {
+        min-width: 0;
+        height: 42px;
+        border: 1px solid rgba(240, 239, 231, 0.15);
+        border-radius: 8px;
+        padding: 0 12px;
+        background: rgba(240, 239, 231, 0.065);
+        color: var(--paper);
+        font-size: 13px;
+        outline: none;
+      }
+
+      .composer input:focus {
+        border-color: rgba(120, 200, 193, 0.76);
+      }
+
+      .send-button {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--gold);
+        color: #17140f;
+      }
+
+      .send-button:hover,
+      .send-button:focus-visible {
+        background: #e0b65a;
+        outline: none;
+      }
+
+      .showcase-pane {
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+      }
+
+      #stage {
+        position: absolute;
+        inset: 0;
+      }
+
+      #stage > canvas,
+      #stage > div {
+        position: absolute;
+        inset: 0;
+      }
+
+      #stage > canvas {
+        pointer-events: none;
+      }
+
+      .screen {
+        width: 640px;
+        height: 400px;
+        overflow: hidden;
+        border: 8px solid #111413;
+        border-radius: 8px;
+        background: #0c0d0e;
+        box-shadow:
+          0 0 0 1px rgba(224, 182, 90, 0.34),
+          0 22px 60px rgba(0, 0, 0, 0.42),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        backface-visibility: hidden;
+        visibility: hidden;
+      }
+
+      .screen-bar {
+        display: flex;
+        height: 28px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border-bottom: 1px solid #26302a;
+        padding: 0 9px;
+        background: #171b19;
+        color: #cbd3c8;
+        font-size: 12px;
+        letter-spacing: 0;
+      }
+
+      .screen-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .screen-status {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 6px;
+      }
+
+      #terminal {
+        width: 100%;
+        height: calc(100% - 28px);
+        padding: 5px;
+      }
+
+      .xterm {
+        height: 100%;
+      }
+
+      .visual-hud {
+        position: absolute;
+        top: 14px;
+        left: 14px;
+        right: 14px;
+        z-index: 5;
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        pointer-events: none;
+      }
+
+      .visual-label,
+      .panel,
+      .buttons {
+        border: 1px solid rgba(240, 239, 231, 0.16);
+        border-radius: 8px;
+        background: rgba(13, 15, 14, 0.76);
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
+        backdrop-filter: blur(14px);
+        pointer-events: auto;
+      }
+
+      .visual-label {
+        min-width: 0;
+        padding: 9px 11px;
+      }
+
+      .visual-label p {
+        margin: 0;
+      }
+
+      .visual-title {
+        overflow: hidden;
+        color: var(--paper);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .visual-subtitle {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0;
+      }
+
+      .tools {
+        display: grid;
+        justify-items: end;
+        gap: 8px;
+      }
+
+      .buttons {
+        display: flex;
+        gap: 6px;
+        padding: 6px;
+      }
+
+      .icon-button {
+        display: grid;
+        width: 36px;
+        height: 36px;
+        place-items: center;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--paper);
+      }
+
+      .icon-button:hover,
+      .icon-button:focus-visible,
+      .icon-button.is-active {
+        background: rgba(240, 239, 231, 0.12);
+        outline: none;
+      }
+
+      .panel {
+        display: none;
+        width: min(300px, calc(100vw - 96px));
+        padding: 10px;
+      }
+
+      .panel.is-open {
+        display: grid;
+        gap: 9px;
+      }
+
+      .control {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr) 54px;
+        align-items: center;
+        gap: 8px;
+        color: #cbd3c8;
+        font-size: 12px;
+      }
+
+      .control output {
+        color: var(--paper);
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      input[type="range"] {
+        width: 100%;
+        accent-color: var(--gold);
+      }
+
+      @media (max-width: 980px) {
+        .app {
+          grid-template-columns: 1fr;
+          grid-template-rows: minmax(320px, 43vh) minmax(0, 1fr);
+        }
+
+        .assistant-pane {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          grid-template-rows: auto minmax(0, 1fr) auto auto;
+        }
+
+        .assistant-head {
+          padding: 12px 12px 10px;
+        }
+
+        .title {
+          font-size: 18px;
+        }
+
+        .chat-log {
+          padding: 10px 12px;
+        }
+
+        .quick-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          padding: 10px 12px;
+        }
+
+        .composer {
+          padding: 10px 12px 12px;
+        }
+      }
+
+      @media (max-width: 620px) {
+        .app {
+          grid-template-rows: minmax(330px, 46vh) minmax(0, 1fr);
+        }
+
+        .brand-row {
+          align-items: flex-start;
+        }
+
+        .signal {
+          min-height: 28px;
+          padding: 0 8px;
+          font-size: 11px;
+        }
+
+        .target {
+          display: none;
+        }
+
+        .quick-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .quick-action {
+          min-height: 42px;
+        }
+
+        .message {
+          max-width: 96%;
+        }
+
+        .visual-hud {
+          top: 9px;
+          left: 9px;
+          right: 9px;
+        }
+
+        .visual-label {
+          max-width: calc(100vw - 160px);
+          padding: 8px 9px;
+        }
+
+        .visual-title {
+          font-size: 12px;
+        }
+
+        .screen {
+          width: 520px;
+          height: 325px;
+        }
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.179.1/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main class="app">
+      <section class="assistant-pane" aria-label="WalnutAI 对话">
+        <header class="assistant-head">
+          <div class="brand-row">
+            <div class="brand">
+              <p class="eyebrow">WalnutAI</p>
+              <h1 class="title">核桃派操作台</h1>
+            </div>
+            <div class="signal">
+              <span class="dot" id="chatDot"></span>
+              <span id="chatStatus">Connecting</span>
+            </div>
+          </div>
+          <div class="connection">
+            <div class="target">
+              <span>Target</span>
+              <strong>root@192.168.1.30</strong>
+            </div>
+          </div>
+        </header>
+
+        <div class="chat-log" id="chatLog" role="log" aria-live="polite">
+          <article class="message assistant">
+            <span class="message-meta">WalnutAI</span>
+            <div class="message-body">你想现在让核桃派做什么？</div>
+          </article>
+        </div>
+
+        <div class="quick-grid" aria-label="示例请求">
+          <button class="quick-action" type="button" data-prompt="我想知道核桃派现在还好吗">
+            <span class="quick-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 19V5" /><path d="M4 19h16" /><path d="M8 16v-5" /><path d="M12 16V8" /><path d="M16 16v-3" /></svg>
+            </span>
+            <span class="quick-title">核桃派状态</span>
+          </button>
+          <button class="quick-action" type="button" data-prompt="帮我看一下网络">
+            <span class="quick-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M5 13a10 10 0 0 1 14 0" /><path d="M8.5 16.5a5 5 0 0 1 7 0" /><path d="M12 20h.01" /><path d="M2 9a15 15 0 0 1 20 0" /></svg>
+            </span>
+            <span class="quick-title">网络检查</span>
+          </button>
+          <button class="quick-action" type="button" data-prompt="我想接一个 I2C 传感器">
+            <span class="quick-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M9 3v18" /><path d="M15 3v18" /><path d="M3 9h18" /><path d="M3 15h18" /><circle cx="9" cy="9" r="1" /><circle cx="15" cy="15" r="1" /></svg>
+            </span>
+            <span class="quick-title">I2C 接线</span>
+          </button>
+          <button class="quick-action" type="button" data-prompt="今天记了什么">
+            <span class="quick-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v18H6z" /><path d="M14 3v5h5" /><path d="M9 13h6" /><path d="M9 17h6" /></svg>
+            </span>
+            <span class="quick-title">今天笔记</span>
+          </button>
+          <button class="quick-action" type="button" data-prompt="记一下今天调好了 Wi-Fi">
+            <span class="quick-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v18H6z" /><path d="M14 3v5h5" /><path d="M9 13h6" /><path d="M9 17h6" /></svg>
+            </span>
+            <span class="quick-title">记一下</span>
+          </button>
+          <button class="quick-action" type="button" data-prompt="上海天气怎么样">
+            <span class="quick-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M12 2v3" /><path d="M12 19v3" /><path d="m4.9 4.9 2.1 2.1" /><path d="m17 17 2.1 2.1" /><path d="M2 12h3" /><path d="M19 12h3" /><path d="m4.9 19.1 2.1-2.1" /><path d="m17 7 2.1-2.1" /><circle cx="12" cy="12" r="4" /></svg>
+            </span>
+            <span class="quick-title">上海天气</span>
+          </button>
+        </div>
+
+        <form class="composer" id="composer">
+          <input
+            id="assistantInput"
+            autocomplete="off"
+            placeholder="你想让核桃派做什么？"
+            type="text"
+          />
+          <button class="send-button" type="submit" aria-label="发送">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m22 2-7 20-4-9-9-4 20-7z" />
+              <path d="M22 2 11 13" />
+            </svg>
+          </button>
+        </form>
+      </section>
+
+      <section class="showcase-pane" aria-label="核桃派展示">
+        <div id="stage"></div>
+
+        <div class="screen" id="screen">
+          <div class="screen-bar">
+            <span class="screen-title">root@192.168.1.30</span>
+            <span class="screen-status">
+              <span class="dot" id="dot"></span>
+              <span id="statusText">Connecting</span>
+            </span>
+          </div>
+          <div id="terminal"></div>
+        </div>
+
+        <div class="visual-hud">
+          <div class="visual-label">
+            <p class="visual-title">WalnutPi Live</p>
+            <p class="visual-subtitle">SSH terminal + 3D shell</p>
+          </div>
+          <div class="tools">
+            <div class="buttons">
+              <button class="icon-button" id="resetView" type="button" aria-label="Reset view" title="Reset view">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 12a9 9 0 1 0 3-6.7" />
+                  <path d="M3 3v6h6" />
+                </svg>
+              </button>
+              <button class="icon-button" id="reconnect" type="button" aria-label="Reconnect SSH" title="Reconnect SSH">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M21 12a9 9 0 0 1-15.7 6" />
+                  <path d="M3 12a9 9 0 0 1 15.7-6" />
+                  <path d="M21 4v6h-6" />
+                  <path d="M3 20v-6h6" />
+                </svg>
+              </button>
+              <button class="icon-button" id="togglePanel" type="button" aria-label="Adjust screen" title="Adjust screen">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 21v-7" />
+                  <path d="M4 10V3" />
+                  <path d="M12 21v-9" />
+                  <path d="M12 8V3" />
+                  <path d="M20 21v-5" />
+                  <path d="M20 12V3" />
+                  <path d="M2 14h4" />
+                  <path d="M10 8h4" />
+                  <path d="M18 16h4" />
+                </svg>
+              </button>
+            </div>
+            <div class="panel" id="panel">
+              <label class="control">
+                <span>X</span>
+                <input id="screenX" type="range" min="-0.4" max="0.4" step="0.005" value="0" />
+                <output for="screenX">0.000</output>
+              </label>
+              <label class="control">
+                <span>Y</span>
+                <input id="screenY" type="range" min="-0.35" max="0.45" step="0.005" value="0.1" />
+                <output for="screenY">0.100</output>
+              </label>
+              <label class="control">
+                <span>Z</span>
+                <input id="screenZ" type="range" min="-0.2" max="0.2" step="0.005" value="0.085" />
+                <output for="screenZ">0.085</output>
+              </label>
+              <label class="control">
+                <span>Size</span>
+                <input id="screenScale" type="range" min="0.00035" max="0.0012" step="0.00001" value="0.00074" />
+                <output for="screenScale">0.00074</output>
+              </label>
+              <label class="control">
+                <span>Tilt</span>
+                <input id="screenTilt" type="range" min="-45" max="45" step="1" value="0" />
+                <output for="screenTilt">0</output>
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit/lib/addon-fit.js"></script>
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+      import { CSS3DObject, CSS3DRenderer } from "three/addons/renderers/CSS3DRenderer.js";
+
+      const MODEL_URL = "./0c6390ea8b1ccf186ec099456954fd42.glb";
+      const stage = document.querySelector("#stage");
+      const screen = document.querySelector("#screen");
+      const terminalElement = document.querySelector("#terminal");
+      const statusText = document.querySelector("#statusText");
+      const dot = document.querySelector("#dot");
+      const chatDot = document.querySelector("#chatDot");
+      const chatStatus = document.querySelector("#chatStatus");
+      const chatLog = document.querySelector("#chatLog");
+      const composer = document.querySelector("#composer");
+      const assistantInput = document.querySelector("#assistantInput");
+      const panel = document.querySelector("#panel");
+      const previewOnly = new URLSearchParams(window.location.search).has("nossh");
+
+      const controlsById = {
+        x: document.querySelector("#screenX"),
+        y: document.querySelector("#screenY"),
+        z: document.querySelector("#screenZ"),
+        scale: document.querySelector("#screenScale"),
+        tilt: document.querySelector("#screenTilt"),
+      };
+
+      const actions = {
+        status: {
+          id: "status",
+          reply: "我会通过白名单动作读取核桃派状态。",
+        },
+        snapshot: {
+          id: "snapshot",
+          reply: "我会先做只读设备快照，确认板子和 overlay。",
+        },
+        network: {
+          id: "network",
+          reply: "我会检查 IP、路由和 Wi-Fi 状态。",
+        },
+        gpio: {
+          id: "gpio",
+          reply: "我会只读检查 GPIO、总线和 overlay。",
+        },
+        ask: {
+          reply: "直接在下面输入问题，我会通过 CLI 调用 WalnutAI，由它判断是否需要先执行本地安全动作。",
+          run: () => assistantInput.focus(),
+        },
+        video: {
+          id: "video",
+          reply: "我会直接运行彩色 ASCII 视频命令，不打开 Walnut Play 菜单。",
+        },
+        notes: {
+          id: "notes",
+          reply: "我会读取今天保存的核桃派笔记。",
+        },
+        clear: {
+          reply: "我会清空右侧终端。",
+          run: () => term.clear(),
+        },
+        reconnect: {
+          reply: "我会重新连接核桃派。",
+          run: () => connectTerminal(),
+        },
+      };
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(42, 1, 0.01, 100);
+      camera.position.set(0.9, 0.42, 1.28);
+
+      const webglRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      webglRenderer.outputColorSpace = THREE.SRGBColorSpace;
+      webglRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+      webglRenderer.toneMappingExposure = 1.08;
+      stage.appendChild(webglRenderer.domElement);
+
+      const cssRenderer = new CSS3DRenderer();
+      stage.appendChild(cssRenderer.domElement);
+
+      const orbit = new OrbitControls(camera, cssRenderer.domElement);
+      orbit.enableDamping = true;
+      orbit.target.set(0, 0.03, 0);
+      orbit.minDistance = 0.42;
+      orbit.maxDistance = 3.4;
+
+      scene.add(new THREE.HemisphereLight(0xf6f1df, 0x425156, 2.35));
+
+      const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
+      keyLight.position.set(1.4, 2.1, 1.7);
+      scene.add(keyLight);
+
+      const fillLight = new THREE.DirectionalLight(0xaecfff, 1.25);
+      fillLight.position.set(-1.5, 0.7, -0.8);
+      scene.add(fillLight);
+
+      const floor = new THREE.Mesh(
+        new THREE.CircleGeometry(0.72, 96),
+        new THREE.MeshStandardMaterial({
+          color: 0x202522,
+          roughness: 0.9,
+          metalness: 0.04,
+        }),
+      );
+      floor.position.y = -0.5;
+      floor.rotation.x = -Math.PI / 2;
+      scene.add(floor);
+
+      const grid = new THREE.GridHelper(1.44, 18, 0x66706a, 0x313833);
+      grid.position.y = -0.497;
+      grid.material.opacity = 0.34;
+      grid.material.transparent = true;
+      scene.add(grid);
+
+      const screenObject = new CSS3DObject(screen);
+      scene.add(screenObject);
+      screen.style.visibility = "visible";
+
+      const term = new Terminal({
+        cursorBlink: true,
+        fontFamily: 'Menlo, Monaco, Consolas, "Liberation Mono", monospace',
+        fontSize: 12,
+        lineHeight: 1.1,
+        scrollback: 5000,
+        theme: {
+          background: "#0c0d0e",
+          foreground: "#f0efe7",
+          cursor: "#d0a044",
+          selectionBackground: "#4b5b51",
+        },
+      });
+
+      const fitAddon = new FitAddon.FitAddon();
+      let socket;
+      let connectionId = 0;
+      let pendingCommand = "";
+
+      term.loadAddon(fitAddon);
+      term.open(terminalElement);
+      fitAddon.fit();
+
+      function setStatus(text, state) {
+        statusText.textContent = text;
+        chatStatus.textContent = text;
+        dot.classList.toggle("is-open", state === "open");
+        dot.classList.toggle("is-closed", state === "closed");
+        chatDot.classList.toggle("is-open", state === "open");
+        chatDot.classList.toggle("is-closed", state === "closed");
+      }
+
+      function addMessage(role, text, options = {}) {
+        const message = document.createElement("article");
+        message.className = `message ${role}`;
+        message.classList.toggle("is-error", options.error === true);
+
+        const meta = document.createElement("span");
+        meta.className = "message-meta";
+        meta.textContent = role === "user" ? "你" : "WalnutAI";
+
+        const body = document.createElement("div");
+        body.className = "message-body";
+        body.textContent = text;
+
+        message.append(meta, body);
+
+        if (options.command) {
+          const commandView = document.createElement("div");
+          commandView.className = "command-pill";
+          commandView.textContent = options.command;
+          message.append(commandView);
+        }
+
+        if (options.output) {
+          const outputView = document.createElement("pre");
+          outputView.className = "output-block";
+          outputView.textContent = options.output;
+          message.append(outputView);
+        }
+
+        chatLog.append(message);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      function actionForText(text) {
+        const trimmed = text.trim();
+        const lower = trimmed.toLowerCase();
+        const aiQuestion = trimmed.match(/^(?:问一下|问ai|问 ai|ai[:：]?|聊天[:：]?)(.+)/i);
+
+        if (aiQuestion && aiQuestion[1].trim()) {
+          return {
+            id: "ai",
+            payload: { text: aiQuestion[1].trim() },
+            reply: "我会把这句话交给 WalnutAI，由它判断是否需要先执行本地安全动作。",
+          };
+        }
+
+        if (/清屏|clear/.test(trimmed)) return actions.clear;
+        if (/重连|断开|ssh|连接/.test(lower)) return actions.reconnect;
+        if (/视频|彩色|ascii|demo/.test(lower)) return actions.video;
+        if (/玩具|播放|演示|效果|动画|play/.test(lower)) return actions.video;
+
+        return {
+          id: "ai",
+          payload: { text: trimmed },
+          reply: "我会把这句话交给 WalnutAI，由它判断是否需要先执行本地安全动作。",
+        };
+      }
+
+      function writeTerminalBlock(result) {
+        const lines = [
+          "",
+          `[walnut action] ${result.title || result.id}`,
+          result.command ? `$ ${result.command}` : "",
+          result.output || "",
+          result.ok ? "[done]" : "[failed]",
+          "",
+        ].filter((line) => line !== "");
+
+        term.write(`\r\n${lines.join("\r\n")}\r\n`);
+      }
+
+      function sendTerminalCommand(command) {
+        if (previewOnly) {
+          term.writeln(`\\r\\n[preview] ${command}`);
+          return;
+        }
+
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          pendingCommand = command;
+          addMessage("assistant", "右侧还在连接，我连上后执行。", { command });
+          connectTerminal();
+          return;
+        }
+
+        socket.send(`${command}\r`);
+        term.focus();
+      }
+
+      async function runAction(action, userLabel = "") {
+        if (userLabel) addMessage("user", userLabel);
+        addMessage("assistant", action.reply);
+
+        if (action.run) {
+          action.run();
+          return;
+        }
+
+        const payload = {
+          action: action.id,
+          ...(action.payload || {}),
+        };
+
+        if (previewOnly) {
+          addMessage("assistant", "预览模式下不会连接核桃派。", {
+            command: action.id,
+          });
+          return;
+        }
+
+        let result;
+        try {
+          const response = await fetch("/api/action", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          result = await response.json();
+        } catch (error) {
+          addMessage("assistant", `动作请求失败：${error.message}`, { error: true });
+          return;
+        }
+
+        if (!result.ok && !result.output) {
+          addMessage("assistant", result.error || "动作执行失败。", { error: true });
+          return;
+        }
+
+        if (result.mode === "terminal") {
+          addMessage("assistant", result.reply, { command: result.command });
+          sendTerminalCommand(result.command);
+          return;
+        }
+
+        addMessage("assistant", result.ok ? "动作完成。" : "动作返回异常。", {
+          command: result.command,
+          output: result.output,
+          error: !result.ok,
+        });
+        writeTerminalBlock(result);
+      }
+
+      function connectTerminal() {
+        if (socket) socket.close();
+        const id = ++connectionId;
+
+        setStatus("Connecting", "pending");
+        term.reset();
+
+        if (previewOnly) {
+          setStatus("Preview", "pending");
+          term.writeln("[local] SSH disabled for preview");
+          return;
+        }
+
+        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+        socket = new WebSocket(`${protocol}://${window.location.host}/terminal`);
+        socket.binaryType = "arraybuffer";
+
+        socket.addEventListener("open", () => {
+          if (id !== connectionId) return;
+          setStatus("Connected", "open");
+          term.focus();
+
+          if (pendingCommand) {
+            const command = pendingCommand;
+            pendingCommand = "";
+            window.setTimeout(() => sendTerminalCommand(command), 220);
+          }
+        });
+
+        socket.addEventListener("message", (event) => {
+          if (id !== connectionId) return;
+
+          if (event.data instanceof ArrayBuffer) {
+            term.write(new Uint8Array(event.data));
+            return;
+          }
+          term.write(event.data);
+        });
+
+        socket.addEventListener("close", () => {
+          if (id !== connectionId) return;
+          setStatus("Closed", "closed");
+        });
+        socket.addEventListener("error", () => {
+          if (id !== connectionId) return;
+          setStatus("Error", "closed");
+        });
+      }
+
+      term.onData((data) => {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(data);
+        }
+      });
+
+      function updateScreenTransform() {
+        const x = Number(controlsById.x.value);
+        const y = Number(controlsById.y.value);
+        const z = Number(controlsById.z.value);
+        const scale = Number(controlsById.scale.value);
+        const tilt = THREE.MathUtils.degToRad(Number(controlsById.tilt.value));
+
+        screenObject.position.set(x, y, z);
+        screenObject.rotation.set(tilt, 0, 0);
+        screenObject.scale.setScalar(scale);
+
+        for (const input of Object.values(controlsById)) {
+          const output = input.parentElement.querySelector("output");
+          const value = Number(input.value);
+          output.value = input.id === "screenScale" ? value.toFixed(5) : value.toFixed(3);
+        }
+      }
+
+      for (const input of Object.values(controlsById)) {
+        input.addEventListener("input", updateScreenTransform);
+      }
+
+      screen.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+        orbit.enabled = false;
+      });
+      document.addEventListener("pointerup", () => {
+        orbit.enabled = true;
+      });
+
+      document.querySelector("#resetView").addEventListener("click", () => {
+        camera.position.set(0.9, 0.42, 1.28);
+        orbit.target.set(0, 0.03, 0);
+        orbit.update();
+      });
+
+      document.querySelector("#reconnect").addEventListener("click", () => {
+        runAction(actions.reconnect, "重连核桃派");
+      });
+      document.querySelector("#togglePanel").addEventListener("click", () => {
+        panel.classList.toggle("is-open");
+      });
+
+      function submitPrompt(text) {
+        text = text.trim();
+        if (!text) return;
+
+        assistantInput.value = "";
+        addMessage("user", text);
+
+        const action = actionForText(text);
+        if (!action) {
+          addMessage("assistant", "我还没把这句话识别成安全操作。可以换成：查状态、GPIO、网络、记一下。");
+          return;
+        }
+
+        runAction(action);
+      }
+
+      for (const button of document.querySelectorAll(".quick-action")) {
+        button.addEventListener("click", () => {
+          submitPrompt(button.dataset.prompt || "");
+        });
+      }
+
+      composer.addEventListener("submit", (event) => {
+        event.preventDefault();
+        submitPrompt(assistantInput.value);
+      });
+
+      new GLTFLoader().load(
+        MODEL_URL,
+        (gltf) => {
+          const root = gltf.scene;
+          const box = new THREE.Box3().setFromObject(root);
+          const center = box.getCenter(new THREE.Vector3());
+
+          root.position.sub(center);
+          scene.add(root);
+        },
+        undefined,
+        (error) => {
+          console.error(error);
+          term.writeln("\\r\\n[local] model load failed");
+        },
+      );
+
+      function resize() {
+        const width = stage.clientWidth;
+        const height = stage.clientHeight;
+
+        webglRenderer.setSize(width, height, false);
+        cssRenderer.setSize(width, height);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+        fitAddon.fit();
+      }
+
+      function animate() {
+        orbit.update();
+        webglRenderer.render(scene, camera);
+        cssRenderer.render(scene, camera);
+        requestAnimationFrame(animate);
+      }
+
+      updateScreenTransform();
+      connectTerminal();
+      resize();
+      animate();
+
+      window.addEventListener("resize", resize);
+    </script>
+  </body>
+</html>

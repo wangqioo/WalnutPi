@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import sys
 import textwrap
-import time
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -20,13 +19,50 @@ APP_NAME = "WalnutAI"
 MODEL = os.getenv("WALNUT_AI_MODEL", "gpt-5.5")
 BASE_URL = os.getenv("WALNUT_AI_BASE_URL", "https://rehdasu.cn/v1").rstrip("/")
 API_KEY = os.getenv("OPENAI_API_KEY", "")
-NOTES_DIR = Path(os.getenv("WALNUT_AI_NOTES_DIR", "/root/walnut-ai-notes"))
+NOTES_DIR = Path(
+    os.getenv("WALNUT_AI_NOTES_DIR")
+    or os.getenv("WALNUT_MEMORY_DIR")
+    or (Path.home() / "walnut-memory" / "daily")
+)
 HISTORY_LIMIT = 12
 
 SYSTEM_PROMPT = """你是 WalnutAI，一台无桌面 Linux 随身 AI 终端里的云端助手。
 你的回答要短、直接、可执行。默认使用中文。
 这台设备不是通用桌面电脑，而是云端 AI 的本地交互入口。你可以帮助用户记录想法、整理文本、翻译、检查设备状态、规划命令行工具。
-不要假装已经执行本地命令；只有 /status 等本地命令能读取系统状态。"""
+不要假装执行过没有发生的动作；如果本地动作输出已经提供给你，请基于这些真实输出总结。"""
+
+ROUTER_PROMPT = """你是 WalnutPi 端侧意图路由器。只输出 JSON，不要输出 Markdown。
+
+把用户请求分类到固定 action 之一：
+- chat: 普通知识问答、解释概念、写作、规划，不需要本机实时状态。
+- status: 查询核桃派状态、健康、内存、磁盘、服务、Docker。
+- network: 查询网络、Wi-Fi、IP、路由、联网状态。
+- time: 查询当前时间或日期。
+- weather: 查询实时天气。args.location 写用户提到的地点；没提到就留空字符串。
+- notes_today: 查询今天记了什么、今天笔记。
+- note_add: 记录一条笔记。args.text 写要保存的正文，不要包含“记一下”等触发词。
+- gpio_read: 只读检查 GPIO、引脚、排针、I2C/SPI/UART/PWM 接线或 overlay 状态。
+- snapshot: 查询板子型号、系统、内核、屏幕、boot/config 等设备快照。
+- risky: 任何会产生副作用或高风险的请求，包括 GPIO 输出、修改 overlay、安装/卸载包、启停服务、重启、关机、删除、刷写、固件、EMMC。
+
+输出 schema：
+{"action":"...","risk":"read|write-low|high|none","args":{},"reason":"一句话说明"}
+
+不要发明 action。不要输出 shell 命令。"""
+
+ROUTER_ACTIONS = {
+    "chat",
+    "status",
+    "network",
+    "time",
+    "weather",
+    "notes_today",
+    "note_add",
+    "gpio_read",
+    "snapshot",
+    "risky",
+    "router_error",
+}
 
 
 def term_width() -> int:
@@ -65,6 +101,25 @@ def run(cmd: list[str], timeout: int = 5) -> str:
         return data or "ok"
     except Exception as e:
         return f"ERR: {e}"
+
+
+def command_output(label: str, cmd: list[str], timeout: int = 5) -> str:
+    if shutil.which(cmd[0]) is None:
+        return f"{label}:\n  {cmd[0]} unavailable"
+    return f"{label}:\n{textwrap.indent(run(cmd, timeout=timeout), '  ')}"
+
+
+def file_preview(label: str, path: str, limit: int = 6000) -> str:
+    target = Path(path)
+    if not target.exists():
+        return f"{label}:\n  {path} missing"
+    try:
+        data = target.read_text(encoding="utf-8", errors="replace").strip()
+    except Exception as e:
+        return f"{label}:\n  ERR: {e}"
+    if len(data) > limit:
+        data = data[:limit] + "\n[truncated]"
+    return f"{label}:\n{textwrap.indent(data or 'empty', '  ')}"
 
 
 def service_state(name: str) -> str:
@@ -136,6 +191,46 @@ def call_ai(messages: list[dict[str, str]]) -> str:
     return "\n".join(chunks).strip() or json.dumps(data, ensure_ascii=False)[:1200]
 
 
+def parse_json_object(text: str) -> dict[str, object] | None:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.startswith("json"):
+            text = text[4:].strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return None
+    try:
+        data = json.loads(text[start:end + 1])
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def classify_intent(text: str) -> dict[str, object] | None:
+    if not API_KEY:
+        return None
+    answer = call_ai([
+        {"role": "system", "content": ROUTER_PROMPT},
+        {"role": "user", "content": text},
+    ])
+    if answer.startswith(("API ", "API 请求失败", "OPENAI_API_KEY")):
+        return {"action": "router_error", "risk": "none", "args": {"message": answer}, "reason": ""}
+    data = parse_json_object(answer)
+    if not data:
+        return None
+    action = str(data.get("action", "")).strip()
+    if action not in ROUTER_ACTIONS:
+        return None
+    args = data.get("args")
+    if not isinstance(args, dict):
+        args = {}
+    risk = str(data.get("risk", "none")).strip() or "none"
+    reason = str(data.get("reason", "")).strip()
+    return {"action": action, "risk": risk, "args": args, "reason": reason}
+
+
 def save_note(text: str) -> Path:
     NOTES_DIR.mkdir(parents=True, exist_ok=True)
     path = NOTES_DIR / (datetime.now().strftime("%Y-%m-%d") + ".md")
@@ -143,6 +238,148 @@ def save_note(text: str) -> Path:
     with path.open("a", encoding="utf-8") as f:
         f.write(f"\n## {now}\n\n{text.strip()}\n")
     return path
+
+
+def today_notes() -> str:
+    path = NOTES_DIR / (datetime.now().strftime("%Y-%m-%d") + ".md")
+    if not path.exists():
+        return "今天还没有 WalnutAI 笔记。"
+    return path.read_text(encoding="utf-8").strip() or "今天的笔记文件是空的。"
+
+
+def network_status() -> str:
+    return "\n".join([
+        command_output("IP", ["hostname", "-I"]),
+        "",
+        command_output("Interfaces", ["ip", "-br", "addr"]),
+        "",
+        command_output("Default route", ["ip", "route", "show", "default"]),
+        "",
+        command_output("Wi-Fi", ["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL", "dev", "wifi"], timeout=8),
+    ])
+
+
+def gpio_status() -> str:
+    parts: list[str] = []
+    if shutil.which("gpio") is None:
+        parts.append("gpio:\n  gpio unavailable")
+    else:
+        parts.extend([
+            command_output("gpio pins", ["gpio", "pins"], timeout=10),
+            command_output("gpio i2c", ["gpio", "pin", "i2c"], timeout=10),
+            command_output("gpio spi", ["gpio", "pin", "spi"], timeout=10),
+            command_output("gpio uart", ["gpio", "pin", "uart"], timeout=10),
+            command_output("gpio pwm", ["gpio", "pin", "pwm"], timeout=10),
+        ])
+    parts.append(command_output("set-device", ["set-device", "status"], timeout=10))
+    parts.append(file_preview("/boot/config.txt", "/boot/config.txt"))
+    return "\n\n".join(parts)
+
+
+def snapshot_status() -> str:
+    return "\n\n".join([
+        command_output("hostname", ["hostname"]),
+        command_output("kernel", ["uname", "-a"]),
+        file_preview("/etc/WalnutPi-release", "/etc/WalnutPi-release"),
+        file_preview("/etc/os-release", "/etc/os-release"),
+        file_preview("framebuffer size", "/sys/class/graphics/fb0/virtual_size"),
+        file_preview("framebuffer name", "/sys/class/graphics/fb0/name"),
+        file_preview("/boot/config.txt", "/boot/config.txt"),
+    ])
+
+
+def weather_status(location: str) -> str:
+    query = location.strip()
+    url = "https://wttr.in/"
+    if query:
+        url += urllib.request.pathname2url(query)
+    url += "?format=3"
+    try:
+        with urllib.request.urlopen(url, timeout=8) as resp:
+            return resp.read().decode("utf-8", errors="replace").strip()
+    except Exception as e:
+        return f"天气查询失败: {e}"
+
+
+def local_time_status() -> str:
+    now = datetime.now().astimezone()
+    return now.strftime("%Y-%m-%d %H:%M:%S %Z%z")
+
+
+def execute_local_action(route: dict[str, object]) -> tuple[str, str] | None:
+    action = str(route.get("action", "")).strip()
+    args = route.get("args")
+    if not isinstance(args, dict):
+        args = {}
+    if action == "note_add":
+        note = str(args.get("text", "")).strip()
+        if not note:
+            return "记录笔记", "缺少要记录的内容。"
+        path = save_note(note)
+        return "记录笔记", f"已保存到 {path}\n\n{note}"
+    if action == "weather":
+        return "天气查询", weather_status(str(args.get("location", "")))
+    if action == "time":
+        return "时间查询", local_time_status()
+    if action == "network":
+        return "网络检查", network_status()
+    if action == "gpio_read":
+        return "GPIO 只读检查", gpio_status()
+    if action == "snapshot":
+        return "设备快照", snapshot_status()
+    if action == "notes_today":
+        return "今天笔记", today_notes()
+    if action == "status":
+        return "设备状态", status()
+    return None
+
+
+def summarize_local_result(user_text: str, title: str, output: str) -> str:
+    if not API_KEY:
+        return f"我完成了「{title}」。\n\n{output}"
+
+    prompt = "\n".join([
+        "用户请求：",
+        user_text,
+        "",
+        f"WalnutPi 已执行本地动作：{title}",
+        "本地输出：",
+        output[:6000],
+        "",
+        "请用中文给普通用户总结结果。只基于本地输出，不要编造未出现的数据。必要时指出下一步建议。",
+    ])
+    answer = call_ai([
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ])
+    if answer.startswith(("API ", "API 请求失败", "OPENAI_API_KEY")):
+        return f"{answer}\n\n本地输出：\n{output}"
+    return answer
+
+
+def local_agent_answer(text: str) -> str | None:
+    route = classify_intent(text)
+    if not route or route.get("action") == "chat":
+        return None
+    if route.get("action") == "router_error":
+        args = route.get("args")
+        message = args.get("message") if isinstance(args, dict) else ""
+        return str(message or "意图识别失败。")
+
+    if route.get("action") == "risky" or route.get("risk") == "high":
+        reason = str(route.get("reason", "")).strip()
+        detail = f"\n模型判断：{reason}" if reason else ""
+        return (
+            "这个请求可能会改动系统或硬件状态，我不会直接执行。\n"
+            "请先说明你要改什么、为什么要改，以及是否已经备份；确认后再由高风险操作流程处理。"
+            f"{detail}"
+        )
+
+    action = execute_local_action(route)
+    if not action:
+        return None
+    title, output = action
+    return summarize_local_result(text, title, output)
 
 
 def help_text() -> str:
@@ -207,6 +444,11 @@ def main() -> int:
             card("AI", call_ai([{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}]))
             continue
 
+        local_answer = local_agent_answer(user)
+        if local_answer is not None:
+            card("Agent", local_answer)
+            continue
+
         history.append({"role": "user", "content": user})
         recent = [history[0]] + history[-HISTORY_LIMIT:]
         print("AI thinking...", flush=True)
@@ -215,5 +457,30 @@ def main() -> int:
         card("AI", answer)
 
 
+def one_shot(text: str) -> int:
+    text = text.strip()
+    if not text:
+        print("Usage: walnut-ai your question")
+        return 2
+
+    if text == "/status":
+        print(status())
+        return 0
+
+    local_answer = local_agent_answer(text)
+    if local_answer is not None:
+        print(local_answer)
+        return 0
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": text},
+    ]
+    print(call_ai(messages))
+    return 0
+
+
 if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        raise SystemExit(one_shot(" ".join(sys.argv[1:])))
     raise SystemExit(main())

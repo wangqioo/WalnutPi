@@ -31,6 +31,22 @@ WalnutPi 是一个把小型无桌面 Linux 板子做成便携式云端 AI 终端
 
 > 无桌面 Linux + 命令行交互 + 结构化卡片 + 云端 AI API + 轻量本地硬件控制。
 
+更准确地说，WalnutPi 不是一个“只能聊天的前端”，而是一台有本地执行能力的 AI 终端。
+它有 Linux shell、网络访问、Python / CLI 脚本、GPIO / I2C / SPI / UART、本地文件、长驻服务，以及可以展示执行现场的真实终端和小屏幕。
+
+自然语言入口的目标不是 MCP 风格的工具按钮面板，而是设备本地 agent：
+
+```text
+用户自然语言
+-> 意图分类
+-> 本地执行计划
+-> 安全检查
+-> 执行或确认
+-> AI 总结结果
+```
+
+例如用户问“上海天气怎么样”，设备应该先在本地执行受控天气查询，再把结果总结成人话，而不是回答“我不能实时读取”并要求用户自己运行 `curl`。
+
 本地设备负责：
 
 - 输入和输出
@@ -40,6 +56,8 @@ WalnutPi 是一个把小型无桌面 Linux 板子做成便携式云端 AI 终端
 - 小脚本和本地自动化
 - 音频播放
 - 服务托管
+- 受控实时查询，例如天气、时间、网络和本机状态
+- 低风险本地操作，例如读取笔记、保存笔记、运行只读检查
 
 云端负责：
 
@@ -50,6 +68,12 @@ WalnutPi 是一个把小型无桌面 Linux 板子做成便携式云端 AI 终端
 - 规划
 - 未来的多模态 AI 任务
 
+安全边界按动作风险分层：
+
+- 普通问答：直接交给云端 AI。
+- 本地可执行问答：天气、时间、网络状态、设备状态、文件 / 笔记查询、简单 HTTP 查询，由 WalnutPi 先执行，再让 AI 总结。
+- 高风险或有副作用操作：GPIO 输出、改 overlay、安装包、重启、关机、删文件、刷写和 EMMC 操作，必须先解释影响并等待明确确认。
+
 ## 现在能做什么
 
 这台 WalnutPi 目前已经可以：
@@ -59,6 +83,7 @@ WalnutPi 是一个把小型无桌面 Linux 板子做成便携式云端 AI 终端
 - 通过 OpenAI 兼容 API 调用云端 AI
 - 把笔记保存为 Markdown
 - 翻译和润色文本
+- 用自然语言触发受控本地查询和只读检查
 - 在终端里显示系统状态
 - 通过 frpc 暴露 SSH 远程访问
 - 通过 AirPods / A2DP 播放音频
@@ -69,6 +94,7 @@ WalnutPi 是一个把小型无桌面 Linux 板子做成便携式云端 AI 终端
 
 - `walnut` 作为主入口
 - `walnut ai` 直接进入云端 AI 终端
+- `walnut-ai "上海天气怎么样"` 运行一次性本地 agent 回合
 - `walnut play` 体验音乐、数字雨、时钟和 ASCII 视频
 - `walnut console` 进入中文 framebuffer 控制台
 - `walnut maintenance` 进入浏览器、监控和修复菜单
@@ -108,6 +134,7 @@ WalnutPi/
 ├── lvgl_app/                # LVGL + Linux fbdev 的嵌入式屏幕 UI 原型
 ├── walnut-assistant/        # Walnut Home 命令中心
 ├── walnut-ai-terminal/      # WalnutAI Terminal V0
+├── web-interface/           # 本地 Web agent 控制台和 3D/终端展示
 ├── terminal-toys/           # Walnut Play 使用的纯终端工具
 ├── console-chinese/         # 本地 framebuffer 中文显示说明
 ├── audio/
@@ -131,6 +158,22 @@ WalnutPi/
 ```bash
 walnut
 ```
+
+### Web Agent 控制台
+
+路径：`web-interface/`
+
+这是面向小白的浏览器入口。目标交互不是让用户点击一排工具按钮，也不是把用户推进右侧终端菜单，而是只提供一个自然语言输入框：
+
+```text
+我想知道核桃派现在还好吗
+帮我看一下网络
+上海天气怎么样
+我想接一个 I2C 传感器
+记一下今天调好了 Wi-Fi
+```
+
+左侧负责理解、计划、执行和总结；右侧负责展示 3D 设备、执行现场和高级交互终端。普通用户不需要知道 `walnut status`、`gpio pins`、`curl wttr.in` 这些命令。
 
 ### 中文本地控制台
 
@@ -301,12 +344,13 @@ sudo walnut screen ai "WalnutPi screen AI page is live"
 
 路径：`walnut-ai-terminal/`
 
-一个面向无桌面 Linux 的轻量云端 AI 终端。
+一个面向无桌面 Linux 的轻量本地 agent / 云端 AI 终端。
 
 在 WalnutPi 上运行：
 
 ```bash
 walnut-ai
+walnut-ai "上海天气怎么样"
 ```
 
 当前命令：
@@ -320,6 +364,8 @@ walnut-ai
 /help                显示帮助
 /exit                退出
 ```
+
+不带参数时进入交互式聊天；带参数时运行一次性 agent 回合。一次性回合会优先判断是否可以由 WalnutPi 本地执行，例如天气、状态、网络、笔记和硬件只读检查；不能本地执行的问题再交给云端 AI。
 
 ### AirPods Linux 音频说明
 
