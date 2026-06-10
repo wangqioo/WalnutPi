@@ -1,0 +1,21 @@
+* text=auto
+
+*.c text eol=lf
+*.h text eol=lf
+*.html text eol=lf
+*.js text eol=lf
+*.md text eol=lf
+*.py text eol=lf
+*.service text eol=lf
+*.sh text eol=lf
+*.txt text eol=lf
+CMakeLists.txt text eol=lf
+walnut-assistant/walnut text eol=lf
+scripts/walnut-voice-cli text eol=lf
+
+*.bat text eol=crlf
+*.glb binary
+*.jpg binary
+*.png binary
+*.avtc binary
+*.avtx binary
