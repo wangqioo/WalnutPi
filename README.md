@@ -211,8 +211,13 @@ http://127.0.0.1:4173/?nossh
 - `GET /api/screen/manifest`：返回当前小屏 manifest 和 hash。
 - `POST /api/screen/sync`：要求浏览器提交匹配且格式合法的 `manifestHash`；缺失、非法或过期 hash 会在构建 / SSH 前拒绝。
 - `GET /api/screen/frame/<buildId>`：开发者诊断专用，按需只读抓取设备 PNG 画面；默认同步 JSON 不内嵌图片字节或 `pngBase64`。LVGL 画面可能是动态帧，响应头会同时带当前 raw frame hash 和同步时 raw frame hash。
+- `GET /api/screen/records`：开发者诊断专用，读取最近同步历史。
+- `GET /api/screen/records/<buildId>`：读取一次同步的 manifest、artifact、delivery、命令结果、失败阶段和 screen evidence。
+- `GET /api/screen/records/<buildId>/frame.png`：读取已经缓存到本地诊断记录的 PNG；不会重新连接核桃派。
 
-普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks` 和按需设备截图只放在开发者诊断层。
+普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、历史记录和按需设备截图只放在开发者诊断层。
+
+同步记录默认保存在 `web-interface/screen-sync-records/`，该目录不进入 Git。每条记录保存 `record.json`、`summary.json`，开发者展开诊断截图后还会缓存 `frame.png`。默认保留最近 50 条，可用 `WALNUT_SCREEN_RECORD_LIMIT` 调整，也可用 `WALNUT_SCREEN_RECORDS_DIR` 改变保存目录。`?nossh` 模式仍然不会连接核桃派或触发构建 / 激活 / 设备写入；它只会在本地记录一次 preview 拒绝结果，方便确认同步路径被拦截。
 
 当前真机闭环已经通过一次验证：
 

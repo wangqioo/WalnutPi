@@ -1,6 +1,8 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PORT || 4173);
@@ -13,6 +15,11 @@ const MODEL_FILE = "0c6390ea8b1ccf186ec099456954fd42.glb";
 const ACTION_OUTPUT_LIMIT = 24_000;
 const CAPTURE_OUTPUT_LIMIT = 1_500_000;
 const SCREEN_FRAME_TICKET_TTL_MS = 10 * 60_000;
+const parsedScreenRecordLimit = Number(process.env.WALNUT_SCREEN_RECORD_LIMIT || 50);
+const SCREEN_RECORD_LIMIT = Number.isFinite(parsedScreenRecordLimit) && parsedScreenRecordLimit > 0
+  ? Math.floor(parsedScreenRecordLimit)
+  : 50;
+const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BASE_DIR, "screen-sync-records");
 const screenFrameTickets = new Map();
 
 const SCREEN_MANIFEST = {
@@ -99,6 +106,41 @@ function previewOnlyJson() {
   );
 }
 
+async function previewOnlyScreenSyncResult(req) {
+  const startedAt = new Date();
+  const buildId = `screen-${startedAt.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
+  const { manifest, manifestHash } = screenManifestEnvelope();
+  let clientManifestHash = null;
+  try {
+    const body = await req.json();
+    clientManifestHash = typeof body.manifestHash === "string" ? body.manifestHash : null;
+  } catch {
+    clientManifestHash = null;
+  }
+
+  return persistScreenSyncResult({
+    ok: false,
+    title: "同步到核桃派",
+    risk: "preview",
+    mode: "preview",
+    buildId,
+    startedAt: startedAt.toISOString(),
+    manifest,
+    manifestHash,
+    deliveryManifest: null,
+    deliveryHash: null,
+    artifactHash: null,
+    evidence: null,
+    screenEvidence: null,
+    screenFrameUrl: null,
+    command: null,
+    code: 1,
+    output: `preview mode disables SSH, build, delivery, activation, and device writes\nclient=${clientManifestHash || "(missing)"}\nserver=${manifestHash}`,
+    summary: "预览模式下不会连接核桃派。",
+    failedStage: "preview",
+  }, {}, 403);
+}
+
 function stableStringify(value) {
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(",")}]`;
@@ -123,6 +165,185 @@ function shellQuote(value) {
 function limitedOutput(value, limit = ACTION_OUTPUT_LIMIT) {
   if (value.length <= limit) return value;
   return `${value.slice(0, limit)}\n\n[local] output truncated`;
+}
+
+function safeRecordId(value) {
+  const text = String(value || "");
+  if (!/^[a-zA-Z0-9._-]+$/.test(text) || text.includes("..") || text === "." || text.startsWith(".")) return null;
+  return text;
+}
+
+function screenRecordDir(buildId) {
+  const id = safeRecordId(buildId);
+  if (!id) return null;
+  return path.join(SCREEN_RECORDS_DIR, id);
+}
+
+function screenRecordFrameUrl(buildId) {
+  return `/api/screen/records/${encodeURIComponent(buildId)}/frame.png`;
+}
+
+function compactCommandResult(result) {
+  return {
+    ok: Boolean(result?.ok),
+    code: result?.code ?? null,
+    output: limitedOutput(String(result?.output || ""), 12_000),
+  };
+}
+
+function screenRecordSummary(record) {
+  return {
+    schema: "walnutpi.screenSyncRecordSummary.v1",
+    buildId: record.buildId,
+    ok: record.ok,
+    title: record.title,
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
+    failedStage: record.failedStage,
+    summary: record.summary,
+    manifestHash: record.manifestHash,
+    artifactHash: record.artifactHash,
+    deliveryHash: record.deliveryHash,
+    visualMatch: record.screenEvidence?.visualMatch || "unknown",
+    frameHash: record.screenEvidence?.frame?.sha256 || null,
+    hasFramePng: Boolean(record.framePng),
+    frameUrl: record.framePng ? screenRecordFrameUrl(record.buildId) : null,
+  };
+}
+
+function buildScreenRecord(result, commandResults = {}) {
+  const finishedAt = new Date().toISOString();
+  return {
+    schema: "walnutpi.screenSyncRecord.v1",
+    buildId: result.buildId,
+    title: result.title || "同步到核桃派",
+    ok: Boolean(result.ok),
+    risk: result.risk || "write-low",
+    mode: result.mode || "remote",
+    startedAt: result.startedAt,
+    finishedAt,
+    failedStage: result.failedStage || null,
+    summary: result.summary,
+    manifest: result.manifest || null,
+    manifestHash: result.manifestHash || null,
+    deliveryManifest: result.deliveryManifest || null,
+    deliveryHash: result.deliveryHash || null,
+    artifactHash: result.artifactHash || null,
+    screenEvidence: result.screenEvidence || result.evidence || null,
+    command: result.command || null,
+    commandResults: Object.fromEntries(
+      Object.entries(commandResults).map(([name, value]) => [name, compactCommandResult(value)]),
+    ),
+    output: limitedOutput(String(result.output || ""), ACTION_OUTPUT_LIMIT),
+    framePng: null,
+  };
+}
+
+async function persistScreenSyncResult(result, commandResults = {}, status = 200) {
+  try {
+    await writeScreenRecord(buildScreenRecord(result, commandResults));
+  } catch (error) {
+    result.recordWarning = `screen sync record was not saved: ${error.message}`;
+  }
+  return json(result, status);
+}
+
+async function writeJsonFile(filePath, value) {
+  await writeFile(`${filePath}.tmp`, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  await rm(filePath, { force: true });
+  await rename(`${filePath}.tmp`, filePath);
+}
+
+async function writeScreenRecord(record) {
+  const dir = screenRecordDir(record.buildId);
+  if (!dir) return;
+
+  await mkdir(dir, { recursive: true });
+  const summary = screenRecordSummary(record);
+  await writeJsonFile(path.join(dir, "record.json"), record);
+  await writeJsonFile(path.join(dir, "summary.json"), summary);
+  await trimScreenRecords();
+}
+
+async function updateScreenRecord(buildId, updater) {
+  const dir = screenRecordDir(buildId);
+  if (!dir) return null;
+
+  const recordPath = path.join(dir, "record.json");
+  let record;
+  try {
+    record = JSON.parse(await readFile(recordPath, "utf8"));
+  } catch {
+    return null;
+  }
+
+  const nextRecord = updater(record) || record;
+  await writeJsonFile(recordPath, nextRecord);
+  await writeJsonFile(path.join(dir, "summary.json"), screenRecordSummary(nextRecord));
+  return nextRecord;
+}
+
+async function readScreenRecord(buildId) {
+  const dir = screenRecordDir(buildId);
+  if (!dir) return null;
+
+  try {
+    return JSON.parse(await readFile(path.join(dir, "record.json"), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function readScreenRecordSummary(dirent) {
+  const dir = path.join(SCREEN_RECORDS_DIR, dirent.name);
+  try {
+    const summary = JSON.parse(await readFile(path.join(dir, "summary.json"), "utf8"));
+    const hasFramePng = await fileExists(path.join(dir, "frame.png"));
+    return {
+      ...summary,
+      hasFramePng,
+      frameUrl: hasFramePng ? screenRecordFrameUrl(summary.buildId) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fileExists(filePath) {
+  try {
+    await stat(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function listScreenRecords() {
+  let entries = [];
+  try {
+    entries = await readdir(SCREEN_RECORDS_DIR, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const summaries = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (!safeRecordId(entry.name)) continue;
+    const summary = await readScreenRecordSummary(entry);
+    if (summary) summaries.push(summary);
+  }
+  summaries.sort((a, b) => String(b.startedAt || "").localeCompare(String(a.startedAt || "")));
+  return summaries;
+}
+
+async function trimScreenRecords() {
+  const summaries = await listScreenRecords();
+  const stale = summaries.slice(Math.max(SCREEN_RECORD_LIMIT, 1));
+  for (const summary of stale) {
+    const dir = screenRecordDir(summary.buildId);
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
 }
 
 function runRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
@@ -329,6 +550,13 @@ async function handleScreenFrame(buildId) {
     );
   }
 
+  let recordWarning = "";
+  try {
+    await cacheScreenFramePng(buildId, parsed);
+  } catch (error) {
+    recordWarning = `screen record frame was not cached: ${error.message}`;
+  }
+
   return new Response(parsed.bytes, {
     headers: {
       "content-type": "image/png",
@@ -338,7 +566,93 @@ async function handleScreenFrame(buildId) {
       "x-walnut-sync-raw-sha256": ticket.frameSha256 || "",
       "x-walnut-manifest-sha256": ticket.manifestHash,
       "x-walnut-artifact-sha256": ticket.artifactHash || "",
+      "x-walnut-record-warning": recordWarning,
     },
+  });
+}
+
+async function cacheScreenFramePng(buildId, parsed) {
+  const dir = screenRecordDir(buildId);
+  if (!dir) return;
+
+  await mkdir(dir, { recursive: true });
+  await writeFile(path.join(dir, "frame.png"), parsed.bytes);
+
+  const framePng = {
+    capturedAt: new Date().toISOString(),
+    pngSha256: parsed.capture.pngSha256,
+    pngByteLength: parsed.capture.pngByteLength,
+    rawSha256: parsed.capture.rawSha256,
+    rawByteLength: parsed.capture.rawByteLength,
+    width: parsed.capture.width,
+    height: parsed.capture.height,
+    pixelFormat: parsed.capture.pixelFormat,
+    url: screenRecordFrameUrl(buildId),
+  };
+
+  await updateScreenRecord(buildId, (record) => {
+    record.framePng = framePng;
+    if (record.screenEvidence?.frame && typeof record.screenEvidence.frame === "object") {
+      record.screenEvidence.frame.cachedUrl = framePng.url;
+    }
+    return record;
+  });
+}
+
+async function handleScreenRecordFrame(buildId) {
+  const id = safeRecordId(buildId);
+  const dir = screenRecordDir(id);
+  if (!id || !dir) return json({ ok: false, error: "Invalid screen record id" }, 400);
+
+  let bytes;
+  try {
+    bytes = await readFile(path.join(dir, "frame.png"));
+  } catch {
+    return json({ ok: false, error: "screen record frame not found" }, 404);
+  }
+
+  if (!validPngBytes(bytes)) {
+    return json({ ok: false, error: "screen record frame is not a valid PNG" }, 500);
+  }
+
+  const record = await readScreenRecord(id);
+  return new Response(bytes, {
+    headers: {
+      "content-type": "image/png",
+      "cache-control": "no-store",
+      "x-walnut-png-sha256": record?.framePng?.pngSha256 || sha256(bytes),
+      "x-walnut-raw-sha256": record?.framePng?.rawSha256 || record?.screenEvidence?.frame?.sha256 || "",
+      "x-walnut-manifest-sha256": record?.manifestHash || "",
+      "x-walnut-artifact-sha256": record?.artifactHash || "",
+    },
+  });
+}
+
+async function handleScreenRecord(buildId) {
+  const id = safeRecordId(buildId);
+  if (!id) return json({ ok: false, error: "Invalid screen record id" }, 400);
+
+  const record = await readScreenRecord(id);
+  if (!record) return json({ ok: false, error: "screen record not found" }, 404);
+
+  return json({
+    ok: true,
+    record: {
+      ...record,
+      framePng: record.framePng
+        ? {
+            ...record.framePng,
+            url: screenRecordFrameUrl(record.buildId),
+          }
+        : null,
+    },
+  });
+}
+
+async function handleScreenRecordList() {
+  return json({
+    ok: true,
+    records: await listScreenRecords(),
   });
 }
 
@@ -394,50 +708,87 @@ async function handleScreenSync(req) {
   const startedAt = new Date();
   const buildId = `screen-${startedAt.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
   const { manifest, manifestHash } = screenManifestEnvelope();
+  const baseResult = {
+    title: "同步到核桃派",
+    buildId,
+    startedAt: startedAt.toISOString(),
+    manifest,
+    manifestHash,
+  };
   let body = {};
   try {
     body = await req.json();
   } catch {
-    return json(
+    return persistScreenSyncResult(
       {
+        ...baseResult,
         ok: false,
-        title: "同步到核桃派",
+        risk: "write-low",
+        mode: "remote",
         failedStage: "manifest",
-        manifestHash,
+        deliveryManifest: null,
+        deliveryHash: null,
+        artifactHash: null,
+        evidence: null,
+        screenEvidence: null,
+        screenFrameUrl: null,
+        command: null,
+        code: 1,
         summary: "同步请求缺少有效的 screen manifest hash，请刷新页面后再同步。",
         output: "request body is not valid JSON",
       },
+      {},
       400,
     );
   }
   if (typeof body.manifestHash !== "string" || !validSha256(body.manifestHash)) {
-    return json(
+    return persistScreenSyncResult(
       {
+        ...baseResult,
         ok: false,
-        title: "同步到核桃派",
+        risk: "write-low",
+        mode: "remote",
         failedStage: "manifest",
-        manifestHash,
+        deliveryManifest: null,
+        deliveryHash: null,
+        artifactHash: null,
+        evidence: null,
+        screenEvidence: null,
+        screenFrameUrl: null,
+        command: null,
+        code: 1,
         summary: body.manifestHash
           ? "同步请求包含无效的 screen manifest hash，请刷新页面后再同步。"
           : "同步请求缺少 screen manifest hash，请刷新页面后再同步。",
         output: `client=${body.manifestHash || "(missing)"}\nserver=${manifestHash}`,
       },
+      {},
       400,
     );
   }
 
   if (body.manifestHash !== manifestHash) {
-    return json(
+    return persistScreenSyncResult(
       {
+        ...baseResult,
         ok: false,
-        title: "同步到核桃派",
+        risk: "write-low",
+        mode: "remote",
         failedStage: "manifest",
-        manifestHash,
+        deliveryManifest: null,
+        deliveryHash: null,
+        artifactHash: null,
+        evidence: null,
+        screenEvidence: null,
+        screenFrameUrl: null,
+        command: null,
+        code: 1,
         summary: body.manifestHash
           ? "Web 预览和服务器 screen manifest 不一致，请刷新后再同步。"
           : "同步请求缺少 screen manifest hash，请刷新页面后再同步。",
         output: `client=${body.manifestHash || "(missing)"}\nserver=${manifestHash}`,
       },
+      {},
       body.manifestHash ? 409 : 400,
     );
   }
@@ -562,14 +913,11 @@ async function handleScreenSync(req) {
     ].join("\n\n"),
   );
 
-  return json({
+  const result = {
+    ...baseResult,
     ok: failure === null,
-    title: "同步到核桃派",
     risk: "write-low",
     mode: "remote",
-    buildId,
-    manifest,
-    manifestHash,
     deliveryManifest,
     deliveryHash,
     artifactHash: artifactHashValid ? artifactHash : null,
@@ -583,6 +931,14 @@ async function handleScreenSync(req) {
       ? failure.summary
       : "已同步到核桃派。Web 预览和设备运行使用同一个 screen manifest。",
     failedStage: failure?.stage || null,
+  };
+
+  return persistScreenSyncResult(result, {
+    build: buildResult,
+    artifact: artifactResult,
+    activate: activateResult,
+    evidence: stateResult,
+    frame: frameResult,
   });
 }
 
@@ -820,8 +1176,37 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/screen/sync") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      if (previewOnly(url)) return previewOnlyJson();
+      if (previewOnly(url)) return previewOnlyScreenSyncResult(req);
       return handleScreenSync(req);
+    }
+
+    if (url.pathname === "/api/screen/records") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleScreenRecordList();
+    }
+
+    const screenRecordFrameMatch = url.pathname.match(/^\/api\/screen\/records\/([^/]+)\/frame\.png$/);
+    if (screenRecordFrameMatch) {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      let buildId;
+      try {
+        buildId = decodeURIComponent(screenRecordFrameMatch[1]);
+      } catch {
+        return json({ ok: false, error: "Invalid screen record id" }, 400);
+      }
+      return handleScreenRecordFrame(buildId);
+    }
+
+    const screenRecordMatch = url.pathname.match(/^\/api\/screen\/records\/([^/]+)$/);
+    if (screenRecordMatch) {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      let buildId;
+      try {
+        buildId = decodeURIComponent(screenRecordMatch[1]);
+      } catch {
+        return json({ ok: false, error: "Invalid screen record id" }, 400);
+      }
+      return handleScreenRecord(buildId);
     }
 
     const screenFrameMatch = url.pathname.match(/^\/api\/screen\/frame\/([^/]+)$/);

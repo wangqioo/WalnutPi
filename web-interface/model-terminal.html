@@ -440,6 +440,59 @@
         white-space: pre-wrap;
       }
 
+      .sync-history {
+        display: grid;
+        max-height: 142px;
+        gap: 5px;
+        overflow: auto;
+      }
+
+      .history-item {
+        display: grid;
+        min-width: 0;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 7px;
+        border: 1px solid rgba(240, 239, 231, 0.12);
+        border-radius: 6px;
+        padding: 7px;
+        background: rgba(240, 239, 231, 0.045);
+        color: var(--paper);
+        text-align: left;
+      }
+
+      .history-item:hover,
+      .history-item:focus-visible {
+        border-color: rgba(120, 200, 193, 0.52);
+        outline: none;
+      }
+
+      .history-item.is-failed {
+        border-color: rgba(214, 107, 101, 0.26);
+      }
+
+      .history-main,
+      .history-meta {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .history-main {
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .history-meta {
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .history-stage {
+        align-self: center;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
       .device-frame-box {
         display: grid;
         width: min(100%, 240px);
@@ -824,15 +877,26 @@
       }
 
       @media (max-width: 980px) {
+        html,
+        body {
+          overflow: auto;
+        }
+
         .app {
           grid-template-columns: 1fr;
-          grid-template-rows: minmax(320px, 43vh) minmax(0, 1fr);
+          grid-template-rows: auto minmax(420px, 58vh);
+          min-height: 100%;
+          height: auto;
         }
 
         .assistant-pane {
           border-right: 0;
           border-bottom: 1px solid var(--line);
-          grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+          grid-template-rows: auto auto minmax(140px, 24vh) auto auto;
+        }
+
+        .showcase-pane {
+          min-height: 420px;
         }
 
         .assistant-head {
@@ -867,7 +931,15 @@
 
       @media (max-width: 620px) {
         .app {
-          grid-template-rows: minmax(330px, 46vh) minmax(0, 1fr);
+          grid-template-rows: auto minmax(360px, 54vh);
+        }
+
+        .assistant-pane {
+          grid-template-rows: auto auto minmax(120px, 22vh) auto auto;
+        }
+
+        .showcase-pane {
+          min-height: 360px;
         }
 
         .brand-row {
@@ -981,6 +1053,10 @@
           <details class="diagnostics" id="diagnostics">
             <summary>开发者诊断</summary>
             <div class="diagnostic-grid">
+              <div class="diagnostic-section">
+                <span class="diagnostic-label">sync history</span>
+                <div class="sync-history" id="diagHistory">暂无同步记录。</div>
+              </div>
               <div class="diagnostic-row">
                 <span>buildId</span>
                 <code id="diagBuildId">-</code>
@@ -1196,9 +1272,11 @@
       const diagDeviceFrameSection = document.querySelector("#diagDeviceFrameSection");
       const diagDeviceFrame = document.querySelector("#diagDeviceFrame");
       const diagOutput = document.querySelector("#diagOutput");
+      const diagHistory = document.querySelector("#diagHistory");
       const previewOnly = new URLSearchParams(window.location.search).has("nossh");
       let currentScreenManifest = null;
       let currentManifestHash = "";
+      let lastHistoryLoadAt = 0;
 
       const controlsById = {
         x: document.querySelector("#screenX"),
@@ -1438,6 +1516,98 @@
         }
       }
 
+      function formatHistoryTime(value) {
+        if (!value) return "-";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return String(value);
+        return date.toLocaleString("zh-CN", {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+      }
+
+      function renderHistory(records) {
+        diagHistory.replaceChildren();
+        if (!records.length) {
+          diagHistory.textContent = "暂无同步记录。";
+          return;
+        }
+
+        for (const record of records.slice(0, 20)) {
+          const button = document.createElement("button");
+          button.className = "history-item";
+          button.classList.toggle("is-failed", !record.ok);
+          button.type = "button";
+          button.dataset.buildId = record.buildId || "";
+
+          const text = document.createElement("div");
+          text.className = "history-text";
+
+          const main = document.createElement("div");
+          main.className = "history-main";
+          main.textContent = record.ok ? "已同步到核桃派" : "同步失败";
+
+          const meta = document.createElement("div");
+          meta.className = "history-meta";
+          meta.textContent = `${formatHistoryTime(record.startedAt)} · ${shortHash(record.manifestHash)} · ${record.visualMatch || "unknown"}`;
+
+          const stage = document.createElement("span");
+          stage.className = "history-stage";
+          stage.textContent = record.failedStage || "ok";
+
+          text.append(main, meta);
+          button.append(text, stage);
+          button.addEventListener("click", () => loadScreenRecord(record.buildId));
+          diagHistory.append(button);
+        }
+      }
+
+      async function loadScreenHistory(force = false) {
+        const now = Date.now();
+        if (!force && now - lastHistoryLoadAt < 5000) return;
+        lastHistoryLoadAt = now;
+
+        try {
+          const response = await fetch(withCurrentSearch("/api/screen/records"));
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.error || "history load failed");
+          renderHistory(data.records || []);
+        } catch (error) {
+          diagHistory.textContent = `无法读取同步记录：${error.message}`;
+        }
+      }
+
+      async function loadScreenRecord(buildId) {
+        if (!buildId) return;
+        try {
+          const response = await fetch(withCurrentSearch(`/api/screen/records/${encodeURIComponent(buildId)}`));
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.error || "record load failed");
+          updateDiagnostics(recordToSyncResult(data.record), { refreshHistory: false });
+        } catch (error) {
+          diagOutput.textContent = `无法读取同步记录：${error.message}`;
+        }
+      }
+
+      function recordToSyncResult(record) {
+        return {
+          ok: record.ok,
+          buildId: record.buildId,
+          manifestHash: record.manifestHash,
+          artifactHash: record.artifactHash,
+          deliveryHash: record.deliveryHash,
+          deliveryManifest: record.deliveryManifest,
+          screenEvidence: record.screenEvidence,
+          evidence: record.screenEvidence,
+          screenFrameUrl: record.framePng?.url || record.screenEvidence?.frame?.cachedUrl || "",
+          output: record.output,
+          summary: record.summary,
+          failedStage: record.failedStage,
+        };
+      }
+
       function refreshDeviceFrame() {
         const frameUrl = diagDeviceFrame.dataset.frameUrl || "";
         if (!frameUrl || diagDeviceFrameSection.hidden || !diagnostics.open) {
@@ -1462,7 +1632,10 @@
         refreshDeviceFrame();
       }
 
-      diagnostics.addEventListener("toggle", refreshDeviceFrame);
+      diagnostics.addEventListener("toggle", () => {
+        refreshDeviceFrame();
+        if (diagnostics.open) loadScreenHistory();
+      });
 
       function renderScreenManifest(manifest) {
         currentScreenManifest = manifest;
@@ -1532,7 +1705,7 @@
         }
       }
 
-      function updateDiagnostics(result) {
+      function updateDiagnostics(result, options = {}) {
         diagBuildId.textContent = result.buildId || "-";
         diagManifestHash.textContent = shortHash(result.manifestHash || currentManifestHash);
         diagArtifactHash.textContent = shortHash(result.artifactHash);
@@ -1543,6 +1716,7 @@
         diagOutput.textContent = result.output || result.summary || "无输出。";
         diagnostics.open = !result.ok;
         refreshDeviceFrame();
+        if (options.refreshHistory !== false) loadScreenHistory(true);
       }
 
       async function syncScreenToDevice(options = {}) {
@@ -1821,6 +1995,7 @@
       }
 
       loadScreenManifest();
+      loadScreenHistory(true);
       updateScreenTransform();
       connectTerminal();
       resize();

@@ -107,13 +107,16 @@ The first delivery adapter is deliberately narrow:
 - activation: `sudo -n walnut screen start`
 - evidence: `walnut screen state` and `sudo -n walnut screen frame`
 - diagnostics image: `GET /api/screen/frame/<buildId>` calls read-only `walnut screen capture --png-base64` on demand; dynamic LVGL frames are allowed, and response headers include both current and sync-time raw frame hashes
+- sync history: `GET /api/screen/records` and `GET /api/screen/records/<buildId>` read local developer diagnostics records; cached `frame.png` is served from `GET /api/screen/records/<buildId>/frame.png` without reconnecting to the device
 
 Beginner UI only shows `未同步`, `同步中`, `已同步到核桃派`, or `同步失败`.
-`buildId`, screen manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, `visualMatch` / `visualChecks`, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.
+`buildId`, screen manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, `visualMatch` / `visualChecks`, history, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.
+
+Sync records are saved under `web-interface/screen-sync-records/` by default and are ignored by Git. Each record includes `record.json` and `summary.json`; opening the on-demand device frame caches `frame.png` into the same record. `WALNUT_SCREEN_RECORD_LIMIT` controls retention, defaulting to 50 records, and `WALNUT_SCREEN_RECORDS_DIR` can point records outside the repo.
 
 Current verification status:
 
-- `?nossh` is preview-only. Server routes reject screen sync, remote actions, and terminal connections before SSH/build/device-write paths.
+- `?nossh` is preview-only. Server routes reject remote actions and terminal connections before SSH/build/device-write paths. Screen sync records a local preview rejection for diagnostics, but still does not connect to WalnutPi or trigger build, delivery, activation, or device writes.
 - Activation is gated on a real artifact SHA-256 hash.
 - The delivery manifest/hash commits to the artifact hash and screen manifest hash.
 - A real-device sync run has completed through build, activation, and `walnut screen state`; evidence reported `walnut-screen.service active`. The current sync path also requires `sudo -n walnut screen frame` to return valid framebuffer metadata and a raw frame SHA-256 hash. The optional frame image route captures PNG evidence only when a developer opens diagnostics.

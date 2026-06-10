@@ -6,5 +6,6 @@ __pycache__/
 *.log
 !*.spec
 build/
+web-interface/screen-sync-records/
 third_party/lvgl/
 third/
