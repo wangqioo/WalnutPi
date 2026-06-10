@@ -416,6 +416,17 @@
         white-space: nowrap;
       }
 
+      .diagnostic-section {
+        display: grid;
+        gap: 4px;
+      }
+
+      .diagnostic-label {
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.3;
+      }
+
       .diagnostic-output {
         max-height: 120px;
         overflow: auto;
@@ -968,7 +979,18 @@
                 <span>delivery</span>
                 <code id="diagDeliveryHash">-</code>
               </div>
-              <pre class="diagnostic-output" id="diagOutput">等待同步。</pre>
+              <div class="diagnostic-section">
+                <span class="diagnostic-label">delivery manifest</span>
+                <pre class="diagnostic-output" id="diagDeliveryManifest">等待同步。</pre>
+              </div>
+              <div class="diagnostic-section">
+                <span class="diagnostic-label">screen evidence</span>
+                <pre class="diagnostic-output" id="diagEvidence">等待同步。</pre>
+              </div>
+              <div class="diagnostic-section">
+                <span class="diagnostic-label">command output</span>
+                <pre class="diagnostic-output" id="diagOutput">等待同步。</pre>
+              </div>
             </div>
           </details>
         </section>
@@ -1145,6 +1167,8 @@
       const diagManifestHash = document.querySelector("#diagManifestHash");
       const diagArtifactHash = document.querySelector("#diagArtifactHash");
       const diagDeliveryHash = document.querySelector("#diagDeliveryHash");
+      const diagDeliveryManifest = document.querySelector("#diagDeliveryManifest");
+      const diagEvidence = document.querySelector("#diagEvidence");
       const diagOutput = document.querySelector("#diagOutput");
       const previewOnly = new URLSearchParams(window.location.search).has("nossh");
       let currentScreenManifest = null;
@@ -1370,6 +1394,24 @@
         return String(value).slice(0, 12);
       }
 
+      function withCurrentSearch(path) {
+        const search = window.location.search || "";
+        if (!search) return path;
+
+        const [target, hash = ""] = String(path).split("#");
+        const separator = target.includes("?") ? "&" : "?";
+        return `${target}${separator}${search.slice(1)}${hash ? `#${hash}` : ""}`;
+      }
+
+      function formatDiagnosticJson(value) {
+        if (!value) return "等待同步。";
+        try {
+          return JSON.stringify(value, null, 2);
+        } catch {
+          return String(value);
+        }
+      }
+
       function renderScreenManifest(manifest) {
         currentScreenManifest = manifest;
         screenPreview.replaceChildren();
@@ -1422,7 +1464,7 @@
 
       async function loadScreenManifest() {
         try {
-          const response = await fetch("/api/screen/manifest");
+          const response = await fetch(withCurrentSearch("/api/screen/manifest"));
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || "manifest load failed");
 
@@ -1431,7 +1473,7 @@
           renderScreenManifest(data.manifest);
           syncScreen.disabled = false;
         } catch (error) {
-          setSyncState("预览失败", "failed");
+          setSyncState("同步失败", "failed");
           syncSummary.textContent = "无法读取 screen manifest。";
           diagOutput.textContent = error.message;
           syncScreen.disabled = true;
@@ -1443,6 +1485,8 @@
         diagManifestHash.textContent = shortHash(result.manifestHash || currentManifestHash);
         diagArtifactHash.textContent = shortHash(result.artifactHash);
         diagDeliveryHash.textContent = shortHash(result.deliveryHash);
+        diagDeliveryManifest.textContent = formatDiagnosticJson(result.deliveryManifest);
+        diagEvidence.textContent = formatDiagnosticJson(result.evidence);
         diagOutput.textContent = result.output || result.summary || "无输出。";
         diagnostics.open = !result.ok;
       }
@@ -1451,20 +1495,20 @@
         if (options.addUserMessage !== false) addMessage("user", "同步到核桃派");
 
         if (previewOnly) {
-          setSyncState("预览模式", "failed");
+          setSyncState("未同步", "pending");
           syncSummary.textContent = "预览模式下不会连接核桃派。";
-          addMessage("assistant", "预览模式下不会连接核桃派。", { command: "screen sync" });
+          addMessage("assistant", "预览模式下不会连接核桃派。");
           return;
         }
 
         setSyncState("同步中", "pending");
-        syncSummary.textContent = "正在构建、交付并等待设备回证。";
+        syncSummary.textContent = "正在同步到核桃派。";
         syncScreen.disabled = true;
-        addMessage("assistant", "我会构建 LVGL 程序、生成 delivery manifest，并激活核桃派屏幕。");
+        addMessage("assistant", "我会把当前小屏界面同步到核桃派。");
 
         let result;
         try {
-          const response = await fetch("/api/screen/sync", {
+          const response = await fetch(withCurrentSearch("/api/screen/sync"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ manifestHash: currentManifestHash }),
@@ -1482,13 +1526,11 @@
 
         updateDiagnostics(result);
         setSyncState(result.ok ? "已同步到核桃派" : "同步失败", result.ok ? "synced" : "failed");
-        syncSummary.textContent = result.summary || (result.ok ? "已同步。" : "同步失败。");
-        addMessage("assistant", result.summary || (result.ok ? "已同步到核桃派。" : "同步失败。"), {
-          command: result.command,
-          output: result.output,
+        const beginnerSummary = result.ok ? "已同步到核桃派。" : "同步失败。";
+        syncSummary.textContent = beginnerSummary;
+        addMessage("assistant", beginnerSummary, {
           error: !result.ok,
         });
-        writeTerminalBlock(result);
       }
 
       function sendTerminalCommand(command) {
@@ -1531,7 +1573,7 @@
 
         let result;
         try {
-          const response = await fetch("/api/action", {
+          const response = await fetch(withCurrentSearch("/api/action"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload),
@@ -1575,7 +1617,7 @@
         }
 
         const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-        socket = new WebSocket(`${protocol}://${window.location.host}/terminal`);
+        socket = new WebSocket(`${protocol}://${window.location.host}${withCurrentSearch("/terminal")}`);
         socket.binaryType = "arraybuffer";
 
         socket.addEventListener("open", () => {

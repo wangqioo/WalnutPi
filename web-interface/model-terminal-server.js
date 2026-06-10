@@ -77,6 +77,23 @@ function json(data, status = 200) {
   return Response.json(data, { status });
 }
 
+function previewOnly(url) {
+  return url.searchParams.has("nossh");
+}
+
+function previewOnlyJson() {
+  return json(
+    {
+      ok: false,
+      title: "预览模式",
+      failedStage: "preview",
+      summary: "预览模式下不会连接核桃派。",
+      output: "preview mode disables SSH, build, delivery, activation, and device writes",
+    },
+    403,
+  );
+}
+
 function stableStringify(value) {
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(",")}]`;
@@ -241,6 +258,22 @@ async function handleScreenSync(req) {
       400,
     );
   }
+  if (typeof body.manifestHash !== "string" || !validSha256(body.manifestHash)) {
+    return json(
+      {
+        ok: false,
+        title: "同步到核桃派",
+        failedStage: "manifest",
+        manifestHash,
+        summary: body.manifestHash
+          ? "同步请求包含无效的 screen manifest hash，请刷新页面后再同步。"
+          : "同步请求缺少 screen manifest hash，请刷新页面后再同步。",
+        output: `client=${body.manifestHash || "(missing)"}\nserver=${manifestHash}`,
+      },
+      400,
+    );
+  }
+
   if (body.manifestHash !== manifestHash) {
     return json(
       {
@@ -274,6 +307,7 @@ async function handleScreenSync(req) {
       )
     : { ok: false, code: null, output: "skipped because build failed" };
   const artifactHash = artifactResult.ok ? artifactResult.output.trim().split(/\s+/)[0] : null;
+  const artifactHashValid = validSha256(artifactHash);
   const deliveryManifest = {
     schema: "walnutpi.delivery.v1",
     buildId,
@@ -283,24 +317,36 @@ async function handleScreenSync(req) {
       name: "walnut-lvgl-screen",
       path: "build/lvgl_app/walnut-lvgl-screen",
       source: "lvgl_app/src/main.c",
-      sha256: validSha256(artifactHash) ? artifactHash : null,
+      sha256: artifactHashValid ? artifactHash : null,
     },
     target: {
       host: SSH_HOST,
       user: SSH_USER,
       display: manifest.target.display,
-      activate: "walnut screen start",
+      activate: activateCommand,
       evidence: "walnut screen state",
     },
     screenManifestHash: manifestHash,
   };
   const deliveryHash = sha256(stableStringify(deliveryManifest));
-  const activateResult = buildResult.ok
+  const activateResult = buildResult.ok && artifactHashValid
     ? await runRemote(activateCommand, 30_000)
-    : { ok: false, code: null, output: "skipped because build failed" };
-  const stateResult = buildResult.ok && activateResult.ok
+    : {
+        ok: false,
+        code: null,
+        output: buildResult.ok ? "skipped because artifact hash is invalid" : "skipped because build failed",
+      };
+  const stateResult = buildResult.ok && artifactHashValid && activateResult.ok
     ? await runRemote(stateCommand, 15_000)
-    : { ok: false, code: null, output: "skipped because activation failed" };
+    : {
+        ok: false,
+        code: null,
+        output: !buildResult.ok
+          ? "skipped because build failed"
+          : artifactHashValid
+            ? "skipped because activation failed"
+            : "skipped because artifact hash is invalid",
+      };
 
   const failure = firstFailure(buildResult, artifactHash, activateResult, stateResult);
   const output = limitedOutput(
@@ -322,7 +368,7 @@ async function handleScreenSync(req) {
     manifestHash,
     deliveryManifest,
     deliveryHash,
-    artifactHash: validSha256(artifactHash) ? artifactHash : null,
+    artifactHash: artifactHashValid ? artifactHash : null,
     evidence: {
       kind: "screen-state",
       command: stateCommand,
@@ -553,6 +599,9 @@ const server = Bun.serve({
     const url = new URL(req.url);
 
     if (url.pathname === "/terminal") {
+      if (previewOnly(url)) {
+        return new Response("SSH disabled for preview", { status: 403 });
+      }
       const upgraded = server.upgrade(req, { data: { child: null } });
       return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
     }
@@ -570,11 +619,13 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/screen/sync") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      if (previewOnly(url)) return previewOnlyJson();
       return handleScreenSync(req);
     }
 
     if (url.pathname === "/api/action") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      if (previewOnly(url)) return previewOnlyJson();
       return handleAction(req);
     }
 
