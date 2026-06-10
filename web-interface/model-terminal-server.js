@@ -420,6 +420,387 @@ function validSha256(value) {
   return /^[a-f0-9]{64}$/i.test(String(value || "").trim());
 }
 
+const SCREEN_PAGE_IDS = ["home", "system", "ai", "network"];
+const SCREEN_TEXT_LIMIT = 48;
+const SCREEN_LINE_LIMIT = 72;
+
+const SCREEN_TEMPLATES = [
+  {
+    id: "device-status",
+    label: "设备状态",
+    summary: "显示核桃派核心状态、系统、AI 和网络。",
+    manifest: {
+      title: "WalnutPi",
+      subtitle: "server screen",
+      pages: [
+        { id: "home", tab: "HOME", status: "OK CORE", metrics: ["IP loading", "MEM --", "DISK --"] },
+        { id: "system", tab: "SYS", title: "System", lines: ["CPU load", "Memory", "Disk", "Uptime"] },
+        { id: "ai", tab: "AI", title: "AI Agent", lines: ["Local shell online", "Cloud model ready", "Screen cards active"] },
+        { id: "network", tab: "NET", title: "Network", lines: ["IP", "FRP", "SSH", "Display fbdev"] },
+      ],
+    },
+  },
+  {
+    id: "ai-task-board",
+    label: "AI 任务板",
+    summary: "突出当前 AI 任务、运行状态和下一步。",
+    manifest: {
+      title: "WalnutAI",
+      subtitle: "task board",
+      pages: [
+        { id: "home", tab: "TASK", status: "AI READY", metrics: ["Plan ready", "Sync safe", "Logs open"] },
+        { id: "system", tab: "RUN", title: "Runtime", lines: ["Agent online", "Shell ready", "Screen active", "Evidence saved"] },
+        { id: "ai", tab: "AI", title: "Current Task", lines: ["Waiting for intent", "Will ask before risk", "Summaries use evidence"] },
+        { id: "network", tab: "NEXT", title: "Next Steps", lines: ["Preview first", "Sync after confirm", "Check frame evidence"] },
+      ],
+    },
+  },
+  {
+    id: "network-panel",
+    label: "网络面板",
+    summary: "突出 IP、SSH、FRP 和连接状态。",
+    manifest: {
+      title: "WalnutNet",
+      subtitle: "network panel",
+      pages: [
+        { id: "home", tab: "NET", status: "LINK OK", metrics: ["IP loading", "SSH ready", "FRP check"] },
+        { id: "system", tab: "SYS", title: "System Link", lines: ["Screen active", "Agent ready", "Logs available", "Safe sync"] },
+        { id: "ai", tab: "AI", title: "Remote Agent", lines: ["Local actions gated", "Evidence first", "No public root shell"] },
+        { id: "network", tab: "LAN", title: "Network", lines: ["IP", "Default route", "FRP", "SSH"] },
+      ],
+    },
+  },
+];
+
+function rejectControlText(value, field) {
+  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) {
+    throw new Error(`${field} contains control characters`);
+  }
+}
+
+function cleanText(value, field, limit = SCREEN_TEXT_LIMIT) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  rejectControlText(text, field);
+  if (!text) throw new Error(`${field} is required`);
+  if ([...text].length > limit) {
+    throw new Error(`${field} is too long`);
+  }
+  return text;
+}
+
+function cleanTextList(values, field, maxItems, limit = SCREEN_LINE_LIMIT) {
+  if (!Array.isArray(values)) throw new Error(`${field} must be an array`);
+  const items = values.map((value, index) => cleanText(value, `${field}[${index}]`, limit));
+  if (items.length === 0 || items.length > maxItems) {
+    throw new Error(`${field} must contain 1-${maxItems} items`);
+  }
+  return items;
+}
+
+function ensureFourScreenPages(manifest) {
+  if (!Array.isArray(manifest.pages) || manifest.pages.length !== SCREEN_PAGE_IDS.length) {
+    throw new Error(`screen manifest pages must contain exactly ${SCREEN_PAGE_IDS.length} pages`);
+  }
+  for (const [index, expectedId] of SCREEN_PAGE_IDS.entries()) {
+    if (manifest.pages[index]?.id !== expectedId) {
+      throw new Error(`screen manifest pages[${index}].id must be ${expectedId}`);
+    }
+  }
+}
+
+function normalizeScreenManifest(manifest) {
+  validateScreenManifest(manifest);
+  ensureFourScreenPages(manifest);
+
+  const pages = manifest.pages.map((page, index) => {
+    const next = {
+      id: SCREEN_PAGE_IDS[index],
+      tab: cleanText(page.tab || SCREEN_PAGE_IDS[index].toUpperCase(), `pages[${index}].tab`, 8),
+    };
+    if (index === 0) {
+      next.status = cleanText(page.status || "OK CORE", "pages[0].status", 24);
+      next.metrics = cleanTextList(page.metrics || ["IP loading", "MEM --", "DISK --"], "pages[0].metrics", 3, 24);
+    } else {
+      next.title = cleanText(page.title || next.tab, `pages[${index}].title`, 32);
+      next.lines = cleanTextList(page.lines || [next.title], `pages[${index}].lines`, 4, 48);
+    }
+    return next;
+  });
+
+  return {
+    ...manifest,
+    title: cleanText(manifest.title || "WalnutPi", "title", 32),
+    subtitle: cleanText(manifest.subtitle || "server screen", "subtitle", 40),
+    pages,
+  };
+}
+
+function mutableManifestView(manifest) {
+  return {
+    title: manifest.title,
+    subtitle: manifest.subtitle,
+    pages: manifest.pages,
+  };
+}
+
+function applyMutableManifest(baseManifest, mutable) {
+  const basePages = baseManifest.pages || [];
+  const mutablePages = mutable.pages || [];
+  return normalizeScreenManifest({
+    ...baseManifest,
+    title: mutable.title ?? baseManifest.title,
+    subtitle: mutable.subtitle ?? baseManifest.subtitle,
+    pages: SCREEN_PAGE_IDS.map((id, index) => ({
+      ...(basePages[index] || { id }),
+      ...(mutablePages[index] || {}),
+      id,
+    })),
+  });
+}
+
+function templatePreviewManifest(template) {
+  const base = {
+    schema: "walnutpi.screen.v1",
+    id: `preview-${template.id}`,
+    target: {
+      runtime: "lvgl-fbdev",
+      display: "/dev/fb0",
+      width: 480,
+      height: 320,
+      color: "RGB565",
+    },
+    source: {
+      lvglEntry: "lvgl_app/src/main.c",
+      command: "walnut screen start",
+    },
+    pages: SCREEN_PAGE_IDS.map((id) => ({ id })),
+  };
+  return applyMutableManifest(base, template.manifest);
+}
+
+function screenTemplateSummary(template) {
+  return {
+    id: template.id,
+    label: template.label,
+    summary: template.summary,
+    manifest: mutableManifestView(templatePreviewManifest(template)),
+  };
+}
+
+async function readJsonRequest(req) {
+  try {
+    return await req.json();
+  } catch {
+    throw new Error("请求不是有效 JSON。");
+  }
+}
+
+async function currentManifestForWrite(body) {
+  let envelope;
+  try {
+    envelope = await screenManifestEnvelope();
+  } catch (error) {
+    return {
+      error: json(
+        {
+          ok: false,
+          error: "screen manifest invalid",
+          summary: "screen manifest 无法读取或格式无效，请先修复小屏 contract。",
+          output: error.message,
+        },
+        500,
+      ),
+    };
+  }
+  const clientHash = typeof body.manifestHash === "string" ? body.manifestHash : "";
+  if (!validSha256(clientHash)) {
+    return {
+      error: json(
+        {
+          ok: false,
+          error: "invalid manifestHash",
+          summary: clientHash
+            ? "同步请求包含无效的 screen manifest hash，请刷新页面后再试。"
+            : "同步请求缺少 screen manifest hash，请刷新页面后再试。",
+          manifestHash: envelope.manifestHash,
+        },
+        400,
+      ),
+    };
+  }
+  if (clientHash !== envelope.manifestHash) {
+    return {
+      error: json(
+        {
+          ok: false,
+          error: "stale manifestHash",
+          summary: "Web 预览和服务器 screen manifest 不一致，请刷新后再试。",
+          manifestHash: envelope.manifestHash,
+        },
+        409,
+      ),
+    };
+  }
+  return envelope;
+}
+
+async function writeScreenManifest(manifest) {
+  const normalized = normalizeScreenManifest(manifest);
+  await writeJsonFile(SCREEN_MANIFEST_PATH, normalized);
+  return screenManifestEnvelope();
+}
+
+function splitIntentItems(value) {
+  return String(value || "")
+    .split(/[，,、\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
+function linePagePatch(pageIndex, title, lines, tab) {
+  const pages = SCREEN_PAGE_IDS.map((id) => ({ id }));
+  pages[pageIndex] = {
+    id: SCREEN_PAGE_IDS[pageIndex],
+    tab,
+    title,
+    lines,
+  };
+  return { pages };
+}
+
+function parseScreenIntent(text, currentManifest) {
+  const input = String(text || "").trim();
+  if (!input) return null;
+
+  let match = input.match(/(?:副标题|说明)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
+  if (match) return { subtitle: match[1].trim() };
+
+  match = input.match(/(?:标题|名字|名称)\s*(?:改成|改为|写成|叫|是|:|：)\s*(.+)$/);
+  if (match) return { title: match[1].trim() };
+
+  match = input.match(/(?:状态|核心状态)\s*(?:改成|改为|写成|写|是|:|：)\s*(.+)$/);
+  if (match) {
+    const pages = currentManifest.pages.map((page) => ({ id: page.id }));
+    pages[0] = { id: "home", status: match[1].trim() };
+    return { pages };
+  }
+
+  match = input.match(/(?:指标|显示)\s*(?:改成|改为|写成|写|:|：)?\s*(.+)$/);
+  if (match) {
+    const metrics = splitIntentItems(match[1]).slice(0, 3);
+    if (metrics.length > 0) {
+      const pages = currentManifest.pages.map((page) => ({ id: page.id }));
+      pages[0] = { id: "home", metrics };
+      return { pages };
+    }
+  }
+
+  match = input.match(/(?:系统页|系统)\s*(?:写|显示|:|：)\s*(.+)$/);
+  if (match) return linePagePatch(1, "System", splitIntentItems(match[1]), "SYS");
+
+  match = input.match(/(?:AI页|AI|ai)\s*(?:写|显示|:|：)\s*(.+)$/);
+  if (match) return linePagePatch(2, "AI Agent", splitIntentItems(match[1]), "AI");
+
+  match = input.match(/(?:网络页|网络)\s*(?:写|显示|:|：)\s*(.+)$/);
+  if (match) return linePagePatch(3, "Network", splitIntentItems(match[1]), "NET");
+
+  if (/网络|联网|IP|ip|ssh|frp/i.test(input)) {
+    return SCREEN_TEMPLATES.find((template) => template.id === "network-panel")?.manifest || null;
+  }
+
+  if (/AI|ai|任务|助手|agent/i.test(input)) {
+    return SCREEN_TEMPLATES.find((template) => template.id === "ai-task-board")?.manifest || null;
+  }
+
+  if (/系统|状态|健康|内存|磁盘/.test(input)) {
+    return SCREEN_TEMPLATES.find((template) => template.id === "device-status")?.manifest || null;
+  }
+
+  return null;
+}
+
+async function handleScreenTemplate(req) {
+  let body;
+  try {
+    body = await readJsonRequest(req);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 400);
+  }
+
+  const current = await currentManifestForWrite(body);
+  if (current.error) return current.error;
+
+  const templateId = String(body.templateId || "");
+  const template = SCREEN_TEMPLATES.find((item) => item.id === templateId);
+  if (!template) {
+    return json({ ok: false, error: "invalid templateId", summary: "未知的小屏模板。" }, 400);
+  }
+
+  try {
+    const next = applyMutableManifest(current.manifest, template.manifest);
+    const envelope = await writeScreenManifest(next);
+    return json({
+      ok: true,
+      summary: "已更新预览。",
+      template: screenTemplateSummary(template),
+      ...envelope,
+    });
+  } catch (error) {
+    return json(
+      {
+        ok: false,
+        error: "screen manifest update failed",
+        summary: "无法更新小屏预览。",
+        output: error.message,
+      },
+      500,
+    );
+  }
+}
+
+async function handleScreenIntent(req) {
+  let body;
+  try {
+    body = await readJsonRequest(req);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 400);
+  }
+
+  const current = await currentManifestForWrite(body);
+  if (current.error) return current.error;
+
+  const text = String(body.text || "").trim();
+  const patch = parseScreenIntent(text, current.manifest);
+  if (!patch) {
+    return json({
+      ok: false,
+      error: "unrecognized screen intent",
+      summary: "无法理解这次修改。",
+    }, 400);
+  }
+
+  try {
+    const next = applyMutableManifest(current.manifest, patch);
+    const envelope = await writeScreenManifest(next);
+    return json({
+      ok: true,
+      summary: "已更新预览。",
+      ...envelope,
+    });
+  } catch (error) {
+    return json(
+      {
+        ok: false,
+        error: "screen manifest update failed",
+        summary: "无法更新小屏预览。",
+        output: error.message,
+      },
+      500,
+    );
+  }
+}
+
 function parseFrameEvidence(result) {
   if (!result.ok) return null;
   try {
@@ -1262,6 +1643,26 @@ const server = Bun.serve({
           500,
         );
       }
+    }
+
+    if (url.pathname === "/api/screen/templates") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return json({
+        ok: true,
+        templates: SCREEN_TEMPLATES.map(screenTemplateSummary),
+      });
+    }
+
+    if (url.pathname === "/api/screen/template") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      if (previewOnly(url)) return previewOnlyJson();
+      return handleScreenTemplate(req);
+    }
+
+    if (url.pathname === "/api/screen/intent") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      if (previewOnly(url)) return previewOnlyJson();
+      return handleScreenIntent(req);
     }
 
     if (url.pathname === "/api/screen/sync") {

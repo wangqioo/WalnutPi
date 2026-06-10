@@ -66,13 +66,4 @@ On Windows, local developer tools may be installed by Scoop. Resolve tool paths 
 
 ## Tests And Review
 
-Use focused verification for the touched area. For screen/Web changes, useful checks include:
-
-```bash
-python -m unittest tests.test_walnut_screen tests.test_screen_app
-node --check web-interface/model-terminal-server.js
-```
-
-For meaningful Web/sync changes, request or perform an independent review before finalizing. Security-relevant review should check manifest drift prevention, command quoting, artifact evidence, delivery evidence, and accidental device writes.
-
 Do not add tests, fixtures, snapshots, or broad refactors unless the user asks for them.

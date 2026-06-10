@@ -207,28 +207,6 @@ Common failures:
 - LVGL visible text is sourced from the generated header, not duplicated manually in Web-only code.
 - Existing `walnut screen start`, `stop`, `toggle`, `state`, `lvgl`, `frame`, and `capture` behavior remains compatible.
 
-## Verification
-
-Focused checks:
-
-```text
-node --check web-interface/model-terminal-server.js
-node --check scripts/generate-lvgl-screen-config.js
-bash scripts/build-lvgl-app.sh
-```
-
-When Python tests are present in the checkout, run the existing screen tests:
-
-```text
-python -m unittest tests.test_walnut_screen tests.test_screen_app
-```
-
-For device verification, reuse:
-
-```text
-pwsh ./scripts/collect-screen-sync-evidence.ps1 -Sync -Port 4183
-```
-
 ## Tradeoffs
 
 This design deliberately favors constrained manifest editing over arbitrary generation. It gives users a visible customization loop now while preserving the existing manifest hash, artifact hash, delivery manifest, and device evidence boundaries.

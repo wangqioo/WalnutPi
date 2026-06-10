@@ -1,4 +1,5 @@
 #include "lvgl.h"
+#include "generated/screen_config.h"
 #include "src/drivers/display/fb/lv_linux_fbdev.h"
 
 #include <signal.h>
@@ -181,6 +182,26 @@ static bool service_active(const char * service)
     return system(cmd) == 0;
 }
 
+static bool text_contains_ci(const char * text, const char * needle)
+{
+    if(text == NULL || needle == NULL || needle[0] == '\0') return false;
+
+    size_t needle_len = strlen(needle);
+    for(const char * p = text; *p != '\0'; p++) {
+        size_t i = 0;
+        while(i < needle_len) {
+            char a = p[i];
+            char b = needle[i];
+            if(a >= 'A' && a <= 'Z') a = (char)(a + ('a' - 'A'));
+            if(b >= 'A' && b <= 'Z') b = (char)(b + ('a' - 'A'));
+            if(a == '\0' || a != b) break;
+            i++;
+        }
+        if(i == needle_len) return true;
+    }
+    return false;
+}
+
 static void read_uptime(char * out, size_t out_size)
 {
     FILE * f = fopen("/proc/uptime", "r");
@@ -206,13 +227,28 @@ static void update_demo_status_values(demo_status_ui_t * ui)
 
     read_ip(ip, sizeof(ip));
 
-    if(mem >= 0) lv_label_set_text_fmt(ui->mem_label, "MEM %d%%", mem);
-    else lv_label_set_text(ui->mem_label, "MEM --");
+    if(text_contains_ci(WALNUT_SCREEN_HOME_METRIC_2, "MEM")) {
+        if(mem >= 0) lv_label_set_text_fmt(ui->mem_label, "MEM %d%%", mem);
+        else lv_label_set_text(ui->mem_label, "MEM --");
+    }
+    else {
+        lv_label_set_text(ui->mem_label, WALNUT_SCREEN_HOME_METRIC_2);
+    }
 
-    if(disk >= 0) lv_label_set_text_fmt(ui->disk_label, "DISK %d%%", disk);
-    else lv_label_set_text(ui->disk_label, "DISK --");
+    if(text_contains_ci(WALNUT_SCREEN_HOME_METRIC_3, "DISK")) {
+        if(disk >= 0) lv_label_set_text_fmt(ui->disk_label, "DISK %d%%", disk);
+        else lv_label_set_text(ui->disk_label, "DISK --");
+    }
+    else {
+        lv_label_set_text(ui->disk_label, WALNUT_SCREEN_HOME_METRIC_3);
+    }
 
-    lv_label_set_text_fmt(ui->ip_label, "IP %s", ip);
+    if(text_contains_ci(WALNUT_SCREEN_HOME_METRIC_1, "IP")) {
+        lv_label_set_text_fmt(ui->ip_label, "IP %s", ip);
+    }
+    else {
+        lv_label_set_text(ui->ip_label, WALNUT_SCREEN_HOME_METRIC_1);
+    }
 
     if(mem >= 0) {
         lv_arc_set_value(ui->arc, mem);
@@ -306,8 +342,16 @@ static void update_screen_page_values(screen_ui_t * ui)
 
     if(ui->system_label != NULL) {
         lv_label_set_text_fmt(ui->system_label,
-                              "System\n\nCPU load  %.2f\nMemory    %d%%\nDisk      %d%%\nUptime    %s",
-                              loads[0], mem, disk, uptime);
+                              "%s\n\n%s  %.2f\n%s    %d%%\n%s      %d%%\n%s    %s",
+                              WALNUT_SCREEN_SYSTEM_TITLE,
+                              WALNUT_SCREEN_SYSTEM_LINE_1[0] ? WALNUT_SCREEN_SYSTEM_LINE_1 : "CPU load",
+                              loads[0],
+                              WALNUT_SCREEN_SYSTEM_LINE_2[0] ? WALNUT_SCREEN_SYSTEM_LINE_2 : "Memory",
+                              mem,
+                              WALNUT_SCREEN_SYSTEM_LINE_3[0] ? WALNUT_SCREEN_SYSTEM_LINE_3 : "Disk",
+                              disk,
+                              WALNUT_SCREEN_SYSTEM_LINE_4[0] ? WALNUT_SCREEN_SYSTEM_LINE_4 : "Uptime",
+                              uptime);
     }
 
     if(ui->ai_label != NULL) {
@@ -322,17 +366,21 @@ static void update_screen_page_values(screen_ui_t * ui)
             lv_label_set_text_fmt(ui->ai_label, "AI Agent\n\n%s", ai_text);
         }
         else {
-            lv_label_set_text_fmt(ui->ai_label,
-                                  "AI Agent\n\nLocal shell online\nCloud model ready\nScreen cards active\nHealth: %s",
-                                  mem >= 0 && disk >= 0 ? "OK" : "CHECK");
+            lv_label_set_text(ui->ai_label, WALNUT_SCREEN_AI_TEXT);
         }
     }
 
     if(ui->network_label != NULL) {
         bool frp = service_active("frpc.service") || service_active("frpc");
         lv_label_set_text_fmt(ui->network_label,
-                              "Network\n\nIP       %s\nFRP      %s\nSSH      ready\nDisplay  fbdev",
-                              ip, frp ? "online" : "offline");
+                              "%s\n\n%s       %s\n%s      %s\n%s      ready\n%s  fbdev",
+                              WALNUT_SCREEN_NETWORK_TITLE,
+                              WALNUT_SCREEN_NETWORK_LINE_1[0] ? WALNUT_SCREEN_NETWORK_LINE_1 : "IP",
+                              ip,
+                              WALNUT_SCREEN_NETWORK_LINE_2[0] ? WALNUT_SCREEN_NETWORK_LINE_2 : "FRP",
+                              frp ? "online" : "offline",
+                              WALNUT_SCREEN_NETWORK_LINE_3[0] ? WALNUT_SCREEN_NETWORK_LINE_3 : "SSH",
+                              WALNUT_SCREEN_NETWORK_LINE_4[0] ? WALNUT_SCREEN_NETWORK_LINE_4 : "Display");
     }
 }
 
@@ -600,7 +648,12 @@ static void add_scan_line(lv_obj_t * parent, int x, int y, lv_color_t color)
 
 static void build_tabs(screen_ui_t * ui, lv_obj_t * scr)
 {
-    static const char * names[] = {"HOME", "SYS", "AI", "NET"};
+    static const char * names[] = {
+        WALNUT_SCREEN_TAB_HOME,
+        WALNUT_SCREEN_TAB_SYSTEM,
+        WALNUT_SCREEN_TAB_AI,
+        WALNUT_SCREEN_TAB_NETWORK
+    };
     for(int i = 0; i < 4; i++) {
         lv_obj_t * tab = lv_obj_create(scr);
         lv_obj_set_size(tab, 78, 20);
@@ -645,13 +698,13 @@ static void build_demo_ui(void)
     lv_obj_set_style_bg_color(scr, lv_color_hex(C_BG), 0);
 
     lv_obj_t * title = lv_label_create(scr);
-    lv_label_set_text(title, "WalnutPi");
+    lv_label_set_text(title, WALNUT_SCREEN_TITLE);
     lv_obj_set_style_text_color(title, lv_color_hex(C_TEXT), 0);
     lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
     lv_obj_align(title, LV_ALIGN_TOP_LEFT, 16, 10);
 
     lv_obj_t * subtitle = lv_label_create(scr);
-    lv_label_set_text(subtitle, "server screen");
+    lv_label_set_text(subtitle, WALNUT_SCREEN_SUBTITLE);
     lv_obj_set_style_text_color(subtitle, lv_color_hex(C_MUTED), 0);
     lv_obj_set_style_text_font(subtitle, &lv_font_montserrat_14, 0);
     lv_obj_align(subtitle, LV_ALIGN_TOP_LEFT, 18, 36);
@@ -688,25 +741,25 @@ static void build_demo_ui(void)
     animate_pulse(core, 0);
 
     lv_obj_t * core_text = lv_label_create(core);
-    lv_label_set_text(core_text, "OK\nCORE");
+    lv_label_set_text(core_text, WALNUT_SCREEN_HOME_STATUS);
     lv_obj_set_style_text_align(core_text, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(core_text, lv_color_hex(C_TEXT), 0);
     lv_obj_set_style_text_font(core_text, &lv_font_montserrat_18, 0);
     lv_obj_center(core_text);
 
-    demo_metric(ui.pages[0], 82, "IP loading", lv_color_hex(C_GREEN), 120, &ui.status.ip_label);
-    demo_metric(ui.pages[0], 122, "MEM --", lv_color_hex(C_AMBER), 260, &ui.status.mem_label);
-    demo_metric(ui.pages[0], 162, "DISK --", lv_color_hex(C_RED), 400, &ui.status.disk_label);
+    demo_metric(ui.pages[0], 82, WALNUT_SCREEN_HOME_METRIC_1, lv_color_hex(C_GREEN), 120, &ui.status.ip_label);
+    demo_metric(ui.pages[0], 122, WALNUT_SCREEN_HOME_METRIC_2, lv_color_hex(C_AMBER), 260, &ui.status.mem_label);
+    demo_metric(ui.pages[0], 162, WALNUT_SCREEN_HOME_METRIC_3, lv_color_hex(C_RED), 400, &ui.status.disk_label);
 
-    ui.system_label = add_text_page(ui.pages[1], "System\n\nReading system state...", lv_color_hex(C_AMBER));
+    ui.system_label = add_text_page(ui.pages[1], WALNUT_SCREEN_SYSTEM_TEXT, lv_color_hex(C_AMBER));
     add_spinner_badge(ui.pages[1], 356, 82, lv_color_hex(C_AMBER));
     add_scan_line(ui.pages[1], 278, 182, lv_color_hex(C_AMBER));
 
-    ui.ai_label = add_text_page(ui.pages[2], "AI Agent\n\nWaiting for local tasks...", lv_color_hex(C_GREEN));
+    ui.ai_label = add_text_page(ui.pages[2], WALNUT_SCREEN_AI_TEXT, lv_color_hex(C_GREEN));
     add_pulse_dots(ui.pages[2], 318, 92, lv_color_hex(C_GREEN));
     add_scan_line(ui.pages[2], 278, 182, lv_color_hex(C_GREEN));
 
-    ui.network_label = add_text_page(ui.pages[3], "Network\n\nReading network state...", lv_color_hex(C_CYAN));
+    ui.network_label = add_text_page(ui.pages[3], WALNUT_SCREEN_NETWORK_TEXT, lv_color_hex(C_CYAN));
     add_spinner_badge(ui.pages[3], 356, 82, lv_color_hex(C_CYAN));
     add_pulse_dots(ui.pages[3], 304, 184, lv_color_hex(C_CYAN));
 
