@@ -202,6 +202,26 @@ function repairCommandOutput(record, commandName) {
   return record.commandResults?.[commandName]?.output || "";
 }
 
+function repairCandidateAction(kind, label, detail) {
+  return { kind, label, detail };
+}
+
+function repairCandidateBase(record) {
+  const stage = record.failedStage || (record.ok ? "ok" : "unknown");
+  return {
+    schema: "walnutpi.screenRepairCandidate.v1",
+    buildId: record.buildId,
+    stage,
+    confidence: "low",
+    beginnerSummary: record.summary || "同步记录需要人工检查。",
+    developerDiagnosis: firstDiagnosticLine(record.output) || record.output || "missing diagnostic output",
+    proposedActions: [],
+    requiresConfirmation: true,
+    canAutoApply: false,
+    autoApplyReason: "第一版只生成修复候选方案，不自动修改文件或触发设备动作。",
+  };
+}
+
 function buildScreenRepairHint(record) {
   const stage = record.failedStage || (record.ok ? "ok" : "unknown");
   const visualChecks = record.screenEvidence?.visualChecks || null;
@@ -317,6 +337,100 @@ function buildScreenRepairHint(record) {
     evidence: baseEvidence,
     autoRepairAvailable: false,
   };
+}
+
+function buildScreenRepairCandidate(record) {
+  const hint = record.repairHint || buildScreenRepairHint(record);
+  const candidate = {
+    ...repairCandidateBase(record),
+    stage: hint.stage,
+    beginnerSummary: hint.beginnerReason || hint.summary,
+    developerDiagnosis: hint.developerDiagnosis,
+  };
+  const action = repairCandidateAction;
+  const stagePlans = {
+    ok: {
+      confidence: "high",
+      actions: [
+        action("manual-check", "不需要修复", "这条同步记录已经成功，可以继续编辑小屏内容。"),
+      ],
+    },
+    preview: {
+      confidence: "high",
+      actions: [
+        action("refresh-and-retry", "退出预览模式", "去掉 URL 里的 ?nossh 后重新打开页面，再手动点击同步。"),
+      ],
+    },
+    manifest: {
+      confidence: "high",
+      actions: [
+        action("refresh-and-retry", "刷新小屏预览", "重新读取 /api/screen/manifest，确保同步请求携带最新 manifestHash。"),
+        action("local-edit-plan", "检查 manifest JSON", "检查 lvgl_app/screen-manifest.json 是否是合法 JSON，schema 是否仍是 walnutpi.screen.v1。"),
+      ],
+    },
+    build: {
+      confidence: "medium",
+      actions: [
+        action("manual-check", "查看 build 段第一处错误", "在开发者诊断 command output 的 build 段查找第一条 error、failed、fatal 或 permission 行。"),
+        action("local-edit-plan", "检查生成配置和 LVGL 源码", "如果是 C 或生成头文件错误，检查 lvgl_app/generated/screen_config.h 和 lvgl_app/src/main.c。"),
+      ],
+    },
+    artifact: {
+      confidence: "medium",
+      actions: [
+        action("device-check", "检查 LVGL 产物", "确认远端 build/lvgl_app/walnut-lvgl-screen 存在且可执行。"),
+        action("manual-check", "确认远端项目根", "确认 WALNUT_REMOTE_PROJECT_ROOT 指向 /home/pi/projects/WalnutPi 或真实 checkout。"),
+      ],
+    },
+    activate: {
+      confidence: "medium",
+      actions: [
+        action("device-check", "检查屏幕服务", "确认 walnut-screen.service 已安装，且 sudo -n walnut screen start 可以运行。"),
+        action("manual-check", "查看服务日志", "在设备上查看 walnut-screen.service 状态和最近日志，定位启动失败原因。"),
+      ],
+    },
+    evidence: {
+      confidence: "medium",
+      actions: [
+        action("device-check", "检查屏幕状态命令", "在设备上运行 walnut screen state，确认 walnut-screen.service 是 active。"),
+        action("refresh-and-retry", "等待后重新同步", "如果服务刚启动，等待几秒后手动重新同步。"),
+      ],
+    },
+    frame: {
+      confidence: "medium",
+      actions: [
+        action("device-check", "检查 framebuffer 证据命令", "在设备上运行 sudo -n walnut screen frame，确认返回 JSON 元数据。"),
+        action("manual-check", "检查 /dev/fb0 权限", "确认 /dev/fb0 可读，且没有其他 framebuffer 程序覆盖小屏。"),
+      ],
+    },
+    visual: {
+      confidence: "medium",
+      actions: [
+        action("manual-check", "检查画面结构字段", "查看 visualChecks，确认 480x320、RGB565、byteLength 和 nonblank 检查是否通过。"),
+        action("device-check", "检查是否空白帧", "如果 frameNonblank=false，确认 walnut-screen.service 是否真的在绘制当前 LVGL 程序。"),
+      ],
+    },
+    delivery: {
+      confidence: "medium",
+      actions: [
+        action("manual-check", "查看 adapter 异常", "查看 command output 里的异常堆栈或 adapter 参数错误。"),
+        action("manual-check", "检查 SSH 工具和参数", "确认 sshpass、SSH_HOST、SSH_USER、WALNUT_REMOTE_PROJECT_ROOT 和 WALNUT_REMOTE_BUILD_USER 配置可用。"),
+      ],
+    },
+    unknown: {
+      confidence: "low",
+      actions: [
+        action("manual-check", "按最早失败输出排查", "保留 buildId，查看 command output 中最早出现的 error、failed、fatal、permission 或 timeout 行。"),
+      ],
+    },
+  };
+  const plan = stagePlans[candidate.stage] || stagePlans.unknown;
+  candidate.confidence = plan.confidence;
+  candidate.proposedActions = plan.actions;
+  candidate.evidence = candidate.stage === "ok"
+    ? { ...hint.evidence, firstError: "" }
+    : hint.evidence;
+  return candidate;
 }
 
 function screenRecordSummary(record) {
@@ -1182,6 +1296,33 @@ async function handleScreenRepairPlan(req) {
   });
 }
 
+async function handleScreenRepairCandidate(req) {
+  let body;
+  try {
+    body = await readJsonRequest(req);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 400);
+  }
+
+  const buildId = String(body.buildId || "").trim();
+  const safeBuildId = safeRecordId(buildId);
+  if (!safeBuildId) {
+    return json({ ok: false, error: "invalid buildId", summary: "缺少有效的同步记录。" }, 400);
+  }
+
+  const record = await readScreenRecord(safeBuildId);
+  if (!record) {
+    return json({ ok: false, error: "screen record not found", summary: "找不到这次同步记录。" }, 404);
+  }
+
+  const repairCandidate = buildScreenRepairCandidate(record);
+  return json({
+    ok: true,
+    buildId: safeBuildId,
+    repairCandidate,
+  });
+}
+
 function validateScreenManifest(manifest) {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     throw new Error("screen manifest must be a JSON object");
@@ -1683,6 +1824,11 @@ const server = Bun.serve({
     if (url.pathname === "/api/screen/repair-plan") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       return handleScreenRepairPlan(req);
+    }
+
+    if (url.pathname === "/api/screen/repair-candidate") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleScreenRepairCandidate(req);
     }
 
     if (url.pathname === "/api/screen/records") {

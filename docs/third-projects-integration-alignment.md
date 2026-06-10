@@ -330,7 +330,7 @@ Web 端显示一个 LVGL 界面
 - 诊断图片使用 `GET /api/screen/frame/<buildId>` 按需触发只读 `walnut screen capture --png-base64`，默认同步 JSON 不嵌入 PNG 或 base64。
 - artifact evidence 使用真实 SHA-256；artifact hash 非法时不会激活设备。
 - delivery manifest / delivery hash 提交 artifact hash 和 screen manifest hash。
-- 同步失败记录会生成只读 `repairHint`，把失败阶段转成小白原因、开发者诊断和下一步建议；当前不会自动改代码或自动重试。
+- 同步失败记录会生成只读 `repairHint`，把失败阶段转成小白原因、开发者诊断和下一步建议；`POST /api/screen/repair-candidate` 会从本地同步记录生成结构化 `repairCandidate`，列出候选检查 / 本地编辑计划 / 设备检查 / 手动重试建议，并固定 `canAutoApply=false`、`requiresConfirmation=true`；当前不会自动改代码、自动连接设备或自动重试。
 - 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败` 等可理解状态。
 - `buildId`、hash、delivery manifest、命令输出、screen state、framebuffer frame hash、preview/device signature hash、`visualMatch` / `visualChecks` 和按需设备截图只进入开发者诊断层。
 - 当前 `walnut screen lvgl`、`walnut screen start`、`walnut screen stop`、`walnut screen toggle`、`walnut screen state` 行为没有被改动；新增的 `walnut screen frame` 只读读取 `/dev/fb0` 元数据、字节数和 SHA-256，`walnut screen capture` 只读返回 PNG 元数据并可选返回 `pngBase64`。
@@ -367,7 +367,7 @@ vtcon1 bind                        0
 
 当前阶段已经把等价 screen frame 回证升级为结构性画面回证和语义签名回证：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查、preview/device signature hash 和按需 PNG 截图。后续如果要做更强一致性，可以继续加入 Web 预览与 LVGL framebuffer 的像素级 diff。
 
-当前修复循环是第一层：失败归因和修复建议。后续如果要做真正的自动修复，应继续补“生成候选补丁 -> 用户确认 -> 应用修改 -> 重新同步 -> 记录回证”的闭环。
+当前修复循环已经到第二层：第一层是 `repairHint` 的失败归因和修复建议，第二层是只读 `repairCandidate` 的结构化候选方案。它仍然不应用补丁、不自动 SSH、不自动重启服务、不自动重新同步。后续如果要做真正的自动修复，应继续补“生成候选补丁 -> 用户确认 -> 应用修改 -> 重新同步 -> 记录回证”的闭环。
 
 ## 真机排障证据采集
 
