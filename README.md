@@ -210,7 +210,7 @@ http://127.0.0.1:4173/?nossh
 
 - `GET /api/screen/manifest`：返回当前小屏 manifest 和 hash。
 - `POST /api/screen/sync`：要求浏览器提交匹配且格式合法的 `manifestHash`；缺失、非法或过期 hash 会在构建 / SSH 前拒绝。
-- `GET /api/screen/frame/<buildId>`：开发者诊断专用，按需只读抓取设备 PNG 画面；默认同步 JSON 不内嵌图片字节或 `pngBase64`。
+- `GET /api/screen/frame/<buildId>`：开发者诊断专用，按需只读抓取设备 PNG 画面；默认同步 JSON 不内嵌图片字节或 `pngBase64`。LVGL 画面可能是动态帧，响应头会同时带当前 raw frame hash 和同步时 raw frame hash。
 
 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks` 和按需设备截图只放在开发者诊断层。
 

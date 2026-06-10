@@ -106,7 +106,7 @@ The first delivery adapter is deliberately narrow:
 - build: `scripts/build-lvgl-app.sh`
 - activation: `sudo -n walnut screen start`
 - evidence: `walnut screen state` and `sudo -n walnut screen frame`
-- diagnostics image: `GET /api/screen/frame/<buildId>` calls read-only `walnut screen capture --png-base64` on demand
+- diagnostics image: `GET /api/screen/frame/<buildId>` calls read-only `walnut screen capture --png-base64` on demand; dynamic LVGL frames are allowed, and response headers include both current and sync-time raw frame hashes
 
 Beginner UI only shows `未同步`, `同步中`, `已同步到核桃派`, or `同步失败`.
 `buildId`, screen manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, `visualMatch` / `visualChecks`, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.

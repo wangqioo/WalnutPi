@@ -200,7 +200,7 @@ Web 外部端先看到的界面
 - `unknown`：没有可用的 frame 回证。
 - `mismatch`：frame 存在，但结构性检查显示目标屏幕约束不一致。
 
-`visualChecks` 记录 manifest hash、artifact hash、frame captured、尺寸、像素格式、字节数和非空等布尔检查。PNG 画面通过 `frameUrl` 指向 `/api/screen/frame/<buildId>`，只在开发者诊断展开时按需抓取，不进入默认同步 JSON。
+`visualChecks` 记录 manifest hash、artifact hash、frame captured、尺寸、像素格式、字节数和非空等布尔检查。PNG 画面通过 `frameUrl` 指向 `/api/screen/frame/<buildId>`，只在开发者诊断展开时按需抓取，不进入默认同步 JSON。由于 LVGL 页面可能持续动画，按需 PNG 允许是后续动态帧；响应头保留当前 raw frame hash 和同步时 raw frame hash。
 
 允许延迟，但不接受长期分叉。也就是说，实时性可以让步，一致性不能让步。
 

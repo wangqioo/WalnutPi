@@ -329,24 +329,13 @@ async function handleScreenFrame(buildId) {
     );
   }
 
-  if (ticket.frameSha256 && parsed.capture.rawSha256 !== ticket.frameSha256) {
-    return json(
-      {
-        ok: false,
-        error: "screen frame changed",
-        expectedRawSha256: ticket.frameSha256,
-        actualRawSha256: parsed.capture.rawSha256,
-      },
-      409,
-    );
-  }
-
   return new Response(parsed.bytes, {
     headers: {
       "content-type": "image/png",
       "cache-control": "no-store",
       "x-walnut-png-sha256": parsed.capture.pngSha256,
       "x-walnut-raw-sha256": parsed.capture.rawSha256,
+      "x-walnut-sync-raw-sha256": ticket.frameSha256 || "",
       "x-walnut-manifest-sha256": ticket.manifestHash,
       "x-walnut-artifact-sha256": ticket.artifactHash || "",
     },
