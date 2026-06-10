@@ -105,6 +105,7 @@ export function createSshLocalAgentAdapter({
         sha256,
         stableStringify,
       });
+      const pixelEvidence = screenPixelEvidence({ frameEvidence, validSha256, sha256, stableStringify });
       const frameImageUrl = validFrameEvidence(frameEvidence, validSha256) ? frameUrl(buildId) : null;
       const failure = firstFailure(
         buildResult,
@@ -121,6 +122,7 @@ export function createSshLocalAgentAdapter({
         visualMatch: visual.visualMatch,
         visualChecks: visual.visualChecks,
         semantic: visual.semantic,
+        pixelEvidence,
         state: {
           kind: "screen-state",
           command: stateCommand,
@@ -203,6 +205,59 @@ function validFrameEvidence(frame, validSha256) {
       && frame.byteLength > 0
       && (!Number.isInteger(frame.expectedByteLength) || frame.expectedByteLength === frame.byteLength),
   );
+}
+
+function screenPixelEvidence({ frameEvidence, validSha256, sha256, stableStringify }) {
+  if (!validFrameEvidence(frameEvidence, validSha256)) {
+    return {
+      schema: "walnutpi.screenPixelEvidence.v1",
+      status: "missing-frame",
+      claim: "framebuffer-not-captured",
+      frameHash: null,
+      sampleHash: null,
+      nonzeroRatio: null,
+      capture: null,
+      limitations: [
+        "Framebuffer frame metadata was not valid for pixel evidence.",
+        "Web preview pixels are not rendered and compared in this slice.",
+      ],
+    };
+  }
+
+  const sample = frameEvidence.sample && typeof frameEvidence.sample === "object" ? frameEvidence.sample : null;
+  const sampleHash = sample
+    ? sha256(stableStringify({
+        base64: sample.base64 || "",
+        length: sample.length ?? null,
+        offset: sample.offset ?? null,
+        uniqueBytes: sample.uniqueBytes ?? null,
+      }))
+    : null;
+  const nonzeroBytes = Number(frameEvidence.nonzeroBytes ?? 0);
+  const byteLength = Number(frameEvidence.byteLength || 0);
+  const nonzeroRatio = byteLength > 0 ? Number((nonzeroBytes / byteLength).toFixed(6)) : null;
+
+  return {
+    schema: "walnutpi.screenPixelEvidence.v1",
+    status: "metadata-only",
+    claim: "framebuffer-captured-not-pixel-diffed",
+    frameHash: frameEvidence.sha256 || null,
+    sampleHash,
+    nonzeroRatio,
+    capture: {
+      width: frameEvidence.width ?? null,
+      height: frameEvidence.height ?? null,
+      pixelFormat: frameEvidence.pixelFormat || null,
+      bitsPerPixel: frameEvidence.bitsPerPixel ?? null,
+      byteLength: frameEvidence.byteLength ?? null,
+      expectedByteLength: frameEvidence.expectedByteLength ?? null,
+      isBlank: frameEvidence.isBlank ?? null,
+    },
+    limitations: [
+      "Web preview pixels are not rendered and compared in this slice.",
+      "LVGL may be dynamic, so diagnostic PNG can be later than sync-time raw frame.",
+    ],
+  };
 }
 
 function screenPreviewSignature(manifest) {

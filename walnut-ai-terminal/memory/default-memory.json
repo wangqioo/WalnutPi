@@ -1,0 +1,19 @@
+{
+  "schema": "walnutpi.memory.v1",
+  "facts": [
+    "WalnutPi is a headless Debian Linux device used as a portable AI terminal.",
+    "The current primary workflow is Web preview -> sync LVGL screen -> verify WalnutPi framebuffer evidence.",
+    "The default project checkout on the device is /home/pi/projects/WalnutPi.",
+    "The small screen target is /dev/fb0, 480x320, RGB565, LVGL fbdev.",
+    "Beginner-facing states should stay simple: 未同步, 同步中, 已同步到核桃派, 同步失败."
+  ],
+  "preferences": [
+    "Answer in concise Chinese by default.",
+    "Do not expose hashes or raw command output unless the user asks for developer diagnostics.",
+    "Ask for explicit confirmation before high-risk writes."
+  ],
+  "forbidden": [
+    "Do not store API keys, Wi-Fi passwords, SSH passwords, tokens, private keys, or logs as memory.",
+    "Do not claim device actions happened without local output or sync evidence."
+  ]
+}

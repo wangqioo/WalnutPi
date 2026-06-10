@@ -331,9 +331,10 @@ Web 端显示一个 LVGL 界面
 - artifact evidence 使用真实 SHA-256；artifact hash 非法时不会激活设备。
 - delivery manifest / delivery hash 提交 artifact hash 和 screen manifest hash。
 - 同步失败记录会生成只读 `repairHint`，把失败阶段转成小白原因、开发者诊断和下一步建议；`POST /api/screen/repair-candidate` 会从本地同步记录生成结构化 `repairCandidate`，列出候选检查 / 本地编辑计划 / 设备检查 / 手动重试建议，并固定 `canAutoApply=false`、`requiresConfirmation=true`；当前不会自动改代码、自动连接设备或自动重试。
+- Web 端已提供确认门控的 `POST /api/screen/repair-proposal` / `POST /api/screen/repair-apply`。提案只从本地同步记录生成；应用必须输入精确确认短语，只能应用服务器生成的安全本地补丁，并且不会自动 SSH、构建、激活、抓图或重新同步。
 - Web 端已提供只读 `POST /api/screen/ai-summary`，从本地同步记录提取 compact evidence 并生成中文 AI 总结；默认使用本地规则，配置 `OPENAI_API_KEY` 后可调用 OpenAI-compatible `/responses`，但总结只能基于该记录证据，不会触发 SSH、构建、激活、抓图、写文件或重试。
 - 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败` 等可理解状态。
-- `buildId`、hash、delivery manifest、命令输出、screen state、framebuffer frame hash、preview/device signature hash、`visualMatch` / `visualChecks`、AI 总结证据和按需设备截图只进入开发者诊断层。
+- `buildId`、hash、delivery manifest、命令输出、screen state、framebuffer frame hash、preview/device signature hash、metadata-only pixel evidence、`visualMatch` / `visualChecks`、AI 总结证据和按需设备截图只进入开发者诊断层。
 - 当前 `walnut screen lvgl`、`walnut screen start`、`walnut screen stop`、`walnut screen toggle`、`walnut screen state` 行为没有被改动；新增的 `walnut screen frame` 只读读取 `/dev/fb0` 元数据、字节数和 SHA-256，`walnut screen capture` 只读返回 PNG 元数据并可选返回 `pngBase64`。
 
 真机闭环已经通过一次验证：
@@ -366,9 +367,9 @@ vtcon1 bind                        0
 
 这比先做完整项目编辑器或完整代码生成更简单，但保留了 VibeBoard 的关键链路：artifact、manifest、delivery adapter、device evidence。后续 USB、eMMC、系统镜像或其他交付方式应作为新的 adapter 增加，而不是塞回 Web route。
 
-当前阶段已经把等价 screen frame 回证升级为结构性画面回证和语义签名回证：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查、preview/device signature hash 和按需 PNG 截图。后续如果要做更强一致性，可以继续加入 Web 预览与 LVGL framebuffer 的像素级 diff。
+当前阶段已经把等价 screen frame 回证升级为结构性画面回证、语义签名回证和 metadata-only pixel evidence：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查、sample hash、nonzero ratio、preview/device signature hash 和按需 PNG 截图。后续如果要做更强一致性，可以继续加入 Web 预览与 LVGL framebuffer 的真实像素级 diff；当前 pixel evidence 不宣称已经 diff Web/LVGL 像素。
 
-当前修复循环已经到第二层：第一层是 `repairHint` 的失败归因和修复建议，第二层是只读 `repairCandidate` 的结构化候选方案。它仍然不应用补丁、不自动 SSH、不自动重启服务、不自动重新同步。后续如果要做真正的自动修复，应继续补“生成候选补丁 -> 用户确认 -> 应用修改 -> 重新同步 -> 记录回证”的闭环。
+当前修复循环已经到第三层：第一层是 `repairHint` 的失败归因和修复建议，第二层是只读 `repairCandidate` 的结构化候选方案，第三层是确认门控的 `repairProposal` / `repairApply`。它可以在有安全本地补丁时要求用户输入精确确认短语后应用，但仍然不自动 SSH、不自动重启服务、不自动重新同步。后续如果要做完整自动修复，应继续补“应用修改 -> 用户确认重新同步 -> 记录回证”的闭环。
 
 ## 真机排障证据采集
 
@@ -419,6 +420,24 @@ frameSha256: 9c602317eb56908205e088212eb98a437069438309017d6748bfab76dd7f666c
 service: walnut-screen.service active
 framebuffer-status: walnut-framebuffer-status.service inactive
 vtcon1 bind: 0
+```
+
+2026-06-11 又跑了一次最新 Web API 真机同步回归：
+
+```text
+remote checkout: /home/pi/projects/WalnutPi
+root login cwd: /root
+pre-sync service: walnut-screen.service inactive
+pre-sync vtcon1 bind: 1
+pre-sync frameSha256: 1a7cf256bc09558a8c063d25bed470e7c9a9dcbd62594ea0b843787fd063b8ce
+build/lvgl_app owner: pi:pi
+buildId: screen-20260610161956-f51fbac3
+manifestHash: 1a5eb5ce0e8bc0a00912465a2e272d68664a278c809b9357adac59a2ebb79241
+artifactHash: 746a52b91a3ad32ce22637ba80e7ee88c8f7d6e5c01b97538f22f8e10f02bb56
+deliveryHash: 2d9e0bd88c6d5fa8522503abe9ae093dd2328f96056547fb4e07704d78f67c40
+visualMatch: captured
+frameSha256: 5a4d555aef5948c9a564a83414cf0021a047b8539da89b8b8017cea43b7767bb
+screenFrameUrl: /api/screen/frame/screen-20260610161956-f51fbac3
 ```
 
 常见排障判断：

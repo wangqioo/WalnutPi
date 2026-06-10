@@ -504,6 +504,13 @@
         gap: 8px;
       }
 
+      .repair-header-actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 6px;
+      }
+
       .repair-title {
         color: var(--paper);
         font-size: 12px;
@@ -528,10 +535,36 @@
         outline: none;
       }
 
+      .repair-button:disabled {
+        cursor: wait;
+        opacity: 0.58;
+      }
+
       .repair-copy {
         color: var(--muted);
         font-size: 11px;
         line-height: 1.4;
+      }
+
+      .repair-confirmation {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 6px;
+      }
+
+      .repair-confirmation[hidden] {
+        display: none;
+      }
+
+      .repair-confirmation input {
+        min-width: 0;
+        height: 30px;
+        border: 1px solid rgba(208, 160, 68, 0.28);
+        border-radius: 8px;
+        padding: 0 9px;
+        background: rgba(10, 18, 18, 0.62);
+        color: var(--text);
+        font-size: 11px;
       }
 
       .repair-actions {
@@ -1127,6 +1160,21 @@
           width: 100%;
         }
 
+        .repair-header {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .repair-header-actions,
+        .repair-confirmation {
+          grid-template-columns: 1fr;
+          justify-content: stretch;
+        }
+
+        .repair-button {
+          width: 100%;
+        }
+
         .sync-button {
           width: 100%;
         }
@@ -1249,10 +1297,17 @@
           <div class="repair-panel" id="repairPanel" hidden>
             <div class="repair-header">
               <div class="repair-title" id="repairTitle">同步修复建议</div>
-              <button class="repair-button" id="repairPlanButton" type="button">查看修复候选方案</button>
+              <div class="repair-header-actions">
+                <button class="repair-button" id="repairPlanButton" type="button">查看修复候选方案</button>
+                <button class="repair-button" id="repairProposalButton" type="button">查看修复提案</button>
+              </div>
             </div>
             <div class="repair-copy" id="repairReason"></div>
             <ol class="repair-actions" id="repairActions"></ol>
+            <div class="repair-confirmation" id="repairConfirmation" hidden>
+              <input id="repairConfirmationInput" type="text" autocomplete="off" placeholder="输入确认短语后应用本地修复" />
+              <button class="repair-button" id="repairApplyButton" type="button" disabled>应用本地修复</button>
+            </div>
           </div>
 
           <details class="diagnostics" id="diagnostics">
@@ -1291,12 +1346,20 @@
                 <pre class="diagnostic-output" id="diagVisualSignature">等待同步。</pre>
               </div>
               <div class="diagnostic-section">
+                <span class="diagnostic-label">pixel evidence</span>
+                <pre class="diagnostic-output" id="diagPixelEvidence">等待同步。</pre>
+              </div>
+              <div class="diagnostic-section">
                 <span class="diagnostic-label">repair hint</span>
                 <pre class="diagnostic-output" id="diagRepairHint">等待同步。</pre>
               </div>
               <div class="diagnostic-section">
                 <span class="diagnostic-label">repair candidate</span>
                 <pre class="diagnostic-output" id="diagRepairCandidate">等待同步。</pre>
+              </div>
+              <div class="diagnostic-section">
+                <span class="diagnostic-label">repair proposal</span>
+                <pre class="diagnostic-output" id="diagRepairProposal">等待同步。</pre>
               </div>
               <div class="diagnostic-section">
                 <span class="diagnostic-label">ai summary</span>
@@ -1491,8 +1554,12 @@
       const repairPanel = document.querySelector("#repairPanel");
       const repairTitle = document.querySelector("#repairTitle");
       const repairPlanButton = document.querySelector("#repairPlanButton");
+      const repairProposalButton = document.querySelector("#repairProposalButton");
       const repairReason = document.querySelector("#repairReason");
       const repairActions = document.querySelector("#repairActions");
+      const repairConfirmation = document.querySelector("#repairConfirmation");
+      const repairConfirmationInput = document.querySelector("#repairConfirmationInput");
+      const repairApplyButton = document.querySelector("#repairApplyButton");
       const diagnostics = document.querySelector("#diagnostics");
       const diagBuildId = document.querySelector("#diagBuildId");
       const diagManifestHash = document.querySelector("#diagManifestHash");
@@ -1501,8 +1568,10 @@
       const diagDeliveryManifest = document.querySelector("#diagDeliveryManifest");
       const diagEvidence = document.querySelector("#diagEvidence");
       const diagVisualSignature = document.querySelector("#diagVisualSignature");
+      const diagPixelEvidence = document.querySelector("#diagPixelEvidence");
       const diagRepairHint = document.querySelector("#diagRepairHint");
       const diagRepairCandidate = document.querySelector("#diagRepairCandidate");
+      const diagRepairProposal = document.querySelector("#diagRepairProposal");
       const diagAiSummary = document.querySelector("#diagAiSummary");
       const diagDeviceFrameSection = document.querySelector("#diagDeviceFrameSection");
       const diagDeviceFrame = document.querySelector("#diagDeviceFrame");
@@ -1513,6 +1582,7 @@
       let currentManifestHash = "";
       let currentTemplateId = "";
       let currentRepairBuildId = "";
+      let currentRepairProposal = null;
       let currentSummaryBuildId = "";
       let lastHistoryLoadAt = 0;
 
@@ -1845,12 +1915,14 @@
           screenEvidence: record.screenEvidence,
           evidence: record.screenEvidence,
           visualSignature: record.screenEvidence?.semantic || null,
+          pixelEvidence: record.screenEvidence?.pixelEvidence || null,
           screenFrameUrl: record.framePng?.url || record.screenEvidence?.frame?.cachedUrl || "",
           output: record.output,
           summary: record.summary,
           failedStage: record.failedStage,
           repairHint: record.repairHint,
           repairCandidate: record.repairCandidate || null,
+          repairProposal: record.repairProposal || null,
           aiSummary: record.aiSummary || null,
         };
       }
@@ -1889,14 +1961,22 @@
           diagAiSummary.textContent = "等待同步。";
         }
         repairPanel.hidden = true;
+        currentRepairProposal = null;
         repairTitle.textContent = "同步修复建议";
         repairReason.textContent = "";
         repairActions.replaceChildren();
+        repairConfirmation.hidden = true;
+        repairConfirmationInput.value = "";
+        repairApplyButton.disabled = true;
         diagVisualSignature.textContent = "等待同步。";
+        diagPixelEvidence.textContent = "等待同步。";
         diagRepairHint.textContent = "等待同步。";
         diagRepairCandidate.textContent = "等待同步。";
+        diagRepairProposal.textContent = "等待同步。";
         repairPlanButton.disabled = false;
         repairPlanButton.textContent = "查看修复候选方案";
+        repairProposalButton.disabled = false;
+        repairProposalButton.textContent = "查看修复提案";
       }
 
       function renderRepairHint(repairHint) {
@@ -1937,6 +2017,34 @@
           ? "需要确认后才能执行。"
           : "当前不会自动修改文件、连接核桃派或重新同步。";
         repairActions.append(safety);
+      }
+
+      function renderRepairProposal(repairProposal) {
+        if (!repairProposal) return;
+        currentRepairProposal = repairProposal;
+        repairPanel.hidden = false;
+        repairTitle.textContent = repairProposal.title || "修复提案";
+        repairReason.textContent = repairProposal.summary || "当前没有可应用的修复提案。";
+        repairActions.replaceChildren();
+
+        for (const note of repairProposal.notes || []) {
+          const item = document.createElement("li");
+          item.textContent = note;
+          repairActions.append(item);
+        }
+
+        if (repairProposal.proposedPatch) {
+          const item = document.createElement("li");
+          item.textContent = `本地补丁：${repairProposal.proposedPatch.path}，${repairProposal.proposedPatch.bytes} bytes。`;
+          repairActions.append(item);
+        }
+
+        repairConfirmation.hidden = !repairProposal.canApply;
+        repairConfirmationInput.value = "";
+        repairConfirmationInput.placeholder = repairProposal.canApply
+          ? repairProposal.confirmationPhrase
+          : "当前没有可应用的本地修复";
+        repairApplyButton.disabled = !repairProposal.canApply;
       }
 
       function renderAiSummary(aiSummary, options = {}) {
@@ -1991,6 +2099,59 @@
         } finally {
           repairPlanButton.disabled = false;
           repairPlanButton.textContent = "刷新候选方案";
+        }
+      }
+
+      async function loadRepairProposal(buildId = currentRepairBuildId) {
+        if (!buildId) return;
+        repairProposalButton.disabled = true;
+        repairProposalButton.textContent = "读取中";
+        try {
+          const response = await fetch(withCurrentSearch("/api/screen/repair-proposal"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ buildId }),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.summary || data.error || "repair proposal failed");
+          renderRepairProposal(data.repairProposal);
+          diagRepairProposal.textContent = formatDiagnosticJson(data.repairProposal);
+        } catch (error) {
+          repairReason.textContent = `无法读取修复提案：${error.message}`;
+        } finally {
+          repairProposalButton.disabled = false;
+          repairProposalButton.textContent = "刷新修复提案";
+        }
+      }
+
+      async function applyRepairProposal() {
+        if (!currentRepairProposal?.buildId) return;
+        repairApplyButton.disabled = true;
+        repairApplyButton.textContent = "应用中";
+        try {
+          const response = await fetch(withCurrentSearch("/api/screen/repair-apply"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              buildId: currentRepairProposal.buildId,
+              confirmation: repairConfirmationInput.value,
+            }),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.summary || data.error || "repair apply failed");
+          syncSummary.textContent = data.summary || "已应用本地修复。";
+          diagRepairProposal.textContent = formatDiagnosticJson(data.repairProposal);
+          if (data.manifestHash) {
+            currentManifestHash = data.manifestHash;
+            diagManifestHash.textContent = shortHash(currentManifestHash);
+            setSyncState("未同步", "pending");
+          }
+          addMessage("assistant", data.summary || "已应用本地修复，请预览后手动同步。");
+        } catch (error) {
+          repairReason.textContent = `无法应用修复：${error.message}`;
+        } finally {
+          repairApplyButton.disabled = !currentRepairProposal?.canApply;
+          repairApplyButton.textContent = "应用本地修复";
         }
       }
 
@@ -2185,8 +2346,10 @@
         diagDeliveryManifest.textContent = formatDiagnosticJson(result.deliveryManifest);
         diagEvidence.textContent = formatDiagnosticJson(result.screenEvidence || result.evidence);
         diagVisualSignature.textContent = formatDiagnosticJson(result.screenEvidence?.semantic || result.visualSignature);
+        diagPixelEvidence.textContent = formatDiagnosticJson(result.screenEvidence?.pixelEvidence || result.pixelEvidence);
         diagRepairHint.textContent = formatDiagnosticJson(result.repairHint);
         diagRepairCandidate.textContent = formatDiagnosticJson(result.repairCandidate);
+        diagRepairProposal.textContent = formatDiagnosticJson(result.repairProposal);
         diagAiSummary.textContent = formatDiagnosticJson(result.aiSummary);
         setDeviceFrameUrl(result.screenEvidence?.frame?.url || result.screenFrameUrl || "");
         diagOutput.textContent = result.output || result.summary || "无输出。";
@@ -2200,8 +2363,12 @@
           repairActions.replaceChildren();
           repairPlanButton.disabled = false;
           repairPlanButton.textContent = "查看修复候选方案";
+          repairProposalButton.disabled = false;
+          repairProposalButton.textContent = "查看修复提案";
           if (result.repairCandidate) {
             renderRepairCandidate(result.repairCandidate);
+          } else if (result.repairProposal) {
+            renderRepairProposal(result.repairProposal);
           } else {
             renderRepairHint(result.repairHint);
           }
@@ -2432,6 +2599,15 @@
       });
       repairPlanButton.addEventListener("click", () => {
         loadRepairPlan();
+      });
+      repairProposalButton.addEventListener("click", () => {
+        loadRepairProposal();
+      });
+      repairConfirmationInput.addEventListener("input", () => {
+        repairApplyButton.disabled = repairConfirmationInput.value !== currentRepairProposal?.confirmationPhrase;
+      });
+      repairApplyButton.addEventListener("click", () => {
+        applyRepairProposal();
       });
       screenIntentForm.addEventListener("submit", (event) => {
         event.preventDefault();

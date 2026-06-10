@@ -440,6 +440,74 @@ function buildScreenRepairCandidate(record) {
   return candidate;
 }
 
+function screenRepairConfirmationPhrase(buildId) {
+  return `APPLY SCREEN REPAIR ${buildId}`;
+}
+
+function buildScreenRepairProposal(record) {
+  const repairCandidate = buildScreenRepairCandidate(record);
+  const confirmationPhrase = screenRepairConfirmationPhrase(record.buildId);
+  const repairTargetPath = path.resolve(SCREEN_MANIFEST_PATH);
+  const projectRoot = path.resolve(PROJECT_ROOT);
+  const repairTargetInsideProject = repairTargetPath === projectRoot || repairTargetPath.startsWith(`${projectRoot}${path.sep}`);
+  const repairRelativePath = path.relative(PROJECT_ROOT, repairTargetPath).replace(/\\/g, "/");
+  const base = {
+    schema: "walnutpi.screenRepairProposal.v1",
+    buildId: record.buildId,
+    stage: repairCandidate.stage,
+    title: "屏幕修复提案",
+    summary: "当前没有可安全自动应用的本地补丁。",
+    canApply: false,
+    requiresConfirmation: true,
+    confirmationPhrase,
+    proposedPatch: null,
+    notes: [
+      "生成修复提案不会 SSH、构建、激活、抓图、写文件或重新同步。",
+      "只有输入精确确认短语后，才允许应用本地文件补丁。",
+    ],
+  };
+
+  if (!repairTargetInsideProject) {
+    return {
+      ...base,
+      notes: [
+        ...base.notes,
+        "当前 screen manifest 路径不在项目目录内，不能生成可应用补丁。",
+      ],
+    };
+  }
+
+  if (repairCandidate.stage === "manifest" && record.manifest) {
+    const manifestText = `${JSON.stringify(record.manifest, null, 2)}\n`;
+    return {
+      ...base,
+      summary: "可以把这条记录中的 screen manifest 写回本地 manifest 文件，然后重新预览并手动同步。",
+      canApply: true,
+      proposedPatch: {
+        schema: "walnutpi.screenRepairPatch.v1",
+        kind: "replace-file",
+        risk: "write-low",
+        path: repairRelativePath,
+        bytes: Buffer.byteLength(manifestText, "utf8"),
+        sha256: sha256(manifestText),
+        preview: manifestText.slice(0, 4000),
+      },
+      notes: [
+        ...base.notes,
+        "应用后只更新本地 manifest 文件，不会自动构建、连接核桃派或重新同步。",
+      ],
+    };
+  }
+
+  return {
+    ...base,
+    notes: [
+      ...base.notes,
+      "这条记录的失败阶段不适合自动生成本地补丁，请按 repairCandidate 的建议人工处理。",
+    ],
+  };
+}
+
 function screenSummaryEvidence(record) {
   const stage = record.failedStage || (record.ok ? "ok" : "unknown");
   const commandByStage = {
@@ -599,6 +667,9 @@ function screenRecordSummary(record) {
     deliveryHash: record.deliveryHash,
     visualMatch: record.screenEvidence?.visualMatch || "unknown",
     frameHash: record.screenEvidence?.frame?.sha256 || null,
+    pixelEvidenceStatus: record.screenEvidence?.pixelEvidence?.status || null,
+    pixelEvidenceClaim: record.screenEvidence?.pixelEvidence?.claim || null,
+    pixelSampleHash: record.screenEvidence?.pixelEvidence?.sampleHash || null,
     previewSignatureHash: record.screenEvidence?.semantic?.previewSignatureHash || null,
     deviceSignatureHash: record.screenEvidence?.semantic?.deviceSignatureHash || null,
     hasFramePng: Boolean(record.framePng),
@@ -1474,6 +1545,106 @@ async function handleScreenRepairCandidate(req) {
   });
 }
 
+async function handleScreenRepairProposal(req) {
+  let body;
+  try {
+    body = await readJsonRequest(req);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 400);
+  }
+
+  const buildId = String(body.buildId || "").trim();
+  const safeBuildId = safeRecordId(buildId);
+  if (!safeBuildId) {
+    return json({ ok: false, error: "invalid buildId", summary: "缺少有效的同步记录。" }, 400);
+  }
+
+  const record = await readScreenRecord(safeBuildId);
+  if (!record) {
+    return json({ ok: false, error: "screen record not found", summary: "找不到这次同步记录。" }, 404);
+  }
+
+  const repairProposal = buildScreenRepairProposal(record);
+  return json({
+    ok: true,
+    buildId: safeBuildId,
+    repairProposal,
+  });
+}
+
+async function handleScreenRepairApply(req) {
+  const url = new URL(req.url);
+  if (previewOnly(url)) {
+    return json({
+      ok: false,
+      error: "preview mode disables repair apply",
+      summary: "预览模式下不会写入本地 manifest。",
+    }, 403);
+  }
+
+  let body;
+  try {
+    body = await readJsonRequest(req);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 400);
+  }
+
+  const buildId = String(body.buildId || "").trim();
+  const safeBuildId = safeRecordId(buildId);
+  if (!safeBuildId) {
+    return json({ ok: false, error: "invalid buildId", summary: "缺少有效的同步记录。" }, 400);
+  }
+
+  const record = await readScreenRecord(safeBuildId);
+  if (!record) {
+    return json({ ok: false, error: "screen record not found", summary: "找不到这次同步记录。" }, 404);
+  }
+
+  const proposal = buildScreenRepairProposal(record);
+  const confirmation = String(body.confirmation || "");
+  if (!proposal.canApply || !proposal.proposedPatch) {
+    return json({
+      ok: false,
+      error: "repair proposal is not applicable",
+      summary: "这条同步记录没有可自动应用的本地补丁。",
+      repairProposal: proposal,
+    }, 409);
+  }
+  if (confirmation !== proposal.confirmationPhrase) {
+    return json({
+      ok: false,
+      error: "confirmation mismatch",
+      summary: `请输入确认短语：${proposal.confirmationPhrase}`,
+      repairProposal: proposal,
+    }, 400);
+  }
+  const targetPath = path.resolve(SCREEN_MANIFEST_PATH);
+  const projectRoot = path.resolve(PROJECT_ROOT);
+  const repairRelativePath = path.relative(PROJECT_ROOT, targetPath).replace(/\\/g, "/");
+  if (proposal.proposedPatch.kind !== "replace-file" || proposal.proposedPatch.path !== repairRelativePath) {
+    return json({ ok: false, error: "unsupported repair patch", summary: "修复补丁类型不受支持。" }, 400);
+  }
+
+  validateScreenManifest(record.manifest);
+  const manifestText = `${JSON.stringify(record.manifest, null, 2)}\n`;
+  if (!(targetPath === projectRoot || targetPath.startsWith(`${projectRoot}${path.sep}`))) {
+    return json({ ok: false, error: "repair target is outside project root", summary: "修复目标不在当前项目内。" }, 400);
+  }
+  if (sha256(manifestText) !== proposal.proposedPatch.sha256) {
+    return json({ ok: false, error: "repair patch hash changed", summary: "修复补丁已变化，请重新生成提案。" }, 409);
+  }
+
+  await writeFile(targetPath, manifestText, "utf8");
+  const envelope = await screenManifestEnvelope();
+  return json({
+    ok: true,
+    buildId: safeBuildId,
+    summary: "已应用本地 screen manifest 修复。请先预览确认，再手动同步到核桃派。",
+    manifestHash: envelope.manifestHash,
+    repairProposal: proposal,
+  });
+}
+
 async function handleScreenAiSummary(req) {
   let body;
   try {
@@ -2007,6 +2178,16 @@ const server = Bun.serve({
     if (url.pathname === "/api/screen/repair-candidate") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       return handleScreenRepairCandidate(req);
+    }
+
+    if (url.pathname === "/api/screen/repair-proposal") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleScreenRepairProposal(req);
+    }
+
+    if (url.pathname === "/api/screen/repair-apply") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleScreenRepairApply(req);
     }
 
     if (url.pathname === "/api/screen/ai-summary") {

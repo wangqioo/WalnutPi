@@ -19,17 +19,58 @@ APP_NAME = "WalnutAI"
 MODEL = os.getenv("WALNUT_AI_MODEL", "gpt-5.5")
 BASE_URL = os.getenv("WALNUT_AI_BASE_URL", "https://rehdasu.cn/v1").rstrip("/")
 API_KEY = os.getenv("OPENAI_API_KEY", "")
+APP_DIR = Path(__file__).resolve().parent
+CONTEXT_DIR = Path(os.getenv("WALNUT_AI_CONTEXT_DIR") or (APP_DIR / "skills"))
+MEMORY_FILE = Path(os.getenv("WALNUT_AI_MEMORY_FILE") or (APP_DIR / "memory" / "default-memory.json"))
 NOTES_DIR = Path(
     os.getenv("WALNUT_AI_NOTES_DIR")
     or os.getenv("WALNUT_MEMORY_DIR")
     or (Path.home() / "walnut-memory" / "daily")
 )
 HISTORY_LIMIT = 12
+CONTEXT_FILE_LIMIT = 6000
 
-SYSTEM_PROMPT = """你是 WalnutAI，一台无桌面 Linux 随身 AI 终端里的云端助手。
+BASE_SYSTEM_PROMPT = """你是 WalnutAI，一台无桌面 Linux 随身 AI 终端里的云端助手。
 你的回答要短、直接、可执行。默认使用中文。
 这台设备不是通用桌面电脑，而是云端 AI 的本地交互入口。你可以帮助用户记录想法、整理文本、翻译、检查设备状态、规划命令行工具。
 不要假装执行过没有发生的动作；如果本地动作输出已经提供给你，请基于这些真实输出总结。"""
+
+
+def safe_text_file(path: Path, suffixes: tuple[str, ...]) -> str:
+    if not path.is_file() or path.suffix.lower() not in suffixes:
+        return ""
+    try:
+        data = path.read_text(encoding="utf-8", errors="replace").strip()
+    except Exception:
+        return ""
+    return data[:CONTEXT_FILE_LIMIT]
+
+
+def load_context_bundle() -> str:
+    sections: list[str] = []
+
+    if CONTEXT_DIR.is_dir():
+        for path in sorted(CONTEXT_DIR.glob("walnutpi-*.md")):
+            data = safe_text_file(path, (".md",))
+            if data:
+                sections.append(f"## {path.name}\n{data}")
+
+    memory_data = safe_text_file(MEMORY_FILE, (".json",))
+    if memory_data:
+        try:
+            parsed = json.loads(memory_data)
+            memory_data = json.dumps(parsed, ensure_ascii=False, indent=2)
+        except json.JSONDecodeError:
+            memory_data = ""
+    if memory_data:
+        sections.append(f"## default-memory.json\n{memory_data}")
+
+    if not sections:
+        return ""
+    return "\n\nWalnutPi 本地上下文（非秘密，仅用于约束回答）：\n" + "\n\n".join(sections)
+
+
+SYSTEM_PROMPT = BASE_SYSTEM_PROMPT + load_context_bundle()
 
 ROUTER_PROMPT = """你是 WalnutPi 端侧意图路由器。只输出 JSON，不要输出 Markdown。
 
@@ -123,6 +164,8 @@ def file_preview(label: str, path: str, limit: int = 6000) -> str:
 
 
 def service_state(name: str) -> str:
+    if shutil.which("systemctl") is None:
+        return "unavailable"
     p = subprocess.run(["systemctl", "is-active", name], text=True, capture_output=True)
     return p.stdout.strip() or "unknown"
 
