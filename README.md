@@ -184,7 +184,7 @@ Web 端读取 screen manifest
 -> 后端构建 LVGL 程序
 -> 生成 WalnutPi delivery manifest
 -> 启动 walnut-screen.service
--> 读取 walnut screen state 作为设备回证
+-> 读取 walnut screen state 和 framebuffer frame hash 作为设备回证
 ```
 
 运行本地控制台：
@@ -211,12 +211,12 @@ http://127.0.0.1:4173/?nossh
 - `GET /api/screen/manifest`：返回当前小屏 manifest 和 hash。
 - `POST /api/screen/sync`：要求浏览器提交匹配且格式合法的 `manifestHash`；缺失、非法或过期 hash 会在构建 / SSH 前拒绝。
 
-普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出和设备回证只放在开发者诊断层。
+普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出、screen state 和 framebuffer frame hash 只放在开发者诊断层。
 
 当前真机闭环已经通过一次验证：
 
 ```text
-Web manifest -> POST /api/screen/sync -> LVGL build -> sudo -n walnut screen start -> walnut screen state
+Web manifest -> POST /api/screen/sync -> LVGL build -> sudo -n walnut screen start -> walnut screen state -> sudo -n walnut screen frame
 ```
 
 验证时 `artifactHash` 和 `deliveryHash` 都是 64 位 SHA-256/hex，设备回证显示 `walnut-screen.service` 为 `active`。如果远端 checkout 在 `/home/pi/projects/WalnutPi`，确保 `build/` 归 `pi:pi` 所有；root 拥有的旧构建目录会导致 CMake 写入失败。
@@ -401,7 +401,7 @@ Web 同步第一版复用现有 LVGL 运行边界，不改变 `walnut screen` �
 
 - 构建：`scripts/build-lvgl-app.sh`
 - 激活：`sudo -n walnut screen start`
-- 回证：`walnut screen state`
+- 回证：`walnut screen state` + `sudo -n walnut screen frame`
 - 目标：`/dev/fb0`，480x320，RGB565
 
 这里的“同步到核桃派”不是把 Web 前端搬到设备上，也不是 VibeBoard/ESP32 烧录链路；它是把同一个小屏 manifest 对应的 LVGL 产物交付给 WalnutPi 本地屏幕运行时，并记录可诊断的 delivery/evidence。

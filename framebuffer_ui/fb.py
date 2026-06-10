@@ -1,4 +1,6 @@
 from dataclasses import dataclass
+import base64
+import hashlib
 from pathlib import Path
 import struct
 
@@ -47,6 +49,45 @@ def read_info(device="fb0", sys_graphics=SYS_GRAPHICS):
         stride=stride,
         modes=(root / "modes").read_text() if (root / "modes").exists() else "",
     )
+
+
+def frame_byte_length(info):
+    if info.stride > 0:
+        return info.stride * info.height
+    bytes_per_pixel = max((info.bits_per_pixel + 7) // 8, 1)
+    return info.width * info.height * bytes_per_pixel
+
+
+def pixel_format(info):
+    if info.bits_per_pixel == 16:
+        return "RGB565_LE"
+    return f"{info.bits_per_pixel}BPP"
+
+
+def read_frame_evidence(device="/dev/fb0", fb_device="fb0", sys_graphics=SYS_GRAPHICS, sample_size=64):
+    info = read_info(fb_device, sys_graphics)
+    expected_byte_length = frame_byte_length(info)
+    with open(device, "rb", buffering=0) as framebuffer:
+        frame = framebuffer.read(expected_byte_length)
+    sample = frame[:sample_size]
+    return {
+        "device": device,
+        "name": info.name,
+        "width": info.width,
+        "height": info.height,
+        "bitsPerPixel": info.bits_per_pixel,
+        "pixelFormat": pixel_format(info),
+        "stride": info.stride,
+        "mode": info.mode,
+        "byteLength": len(frame),
+        "expectedByteLength": expected_byte_length,
+        "sha256": hashlib.sha256(frame).hexdigest(),
+        "sample": {
+            "offset": 0,
+            "length": len(sample),
+            "base64": base64.b64encode(sample).decode("ascii"),
+        },
+    }
 
 
 def write_frame(data, device="/dev/fb0"):

@@ -202,7 +202,27 @@ function validSha256(value) {
   return /^[a-f0-9]{64}$/i.test(String(value || "").trim());
 }
 
-function firstFailure(buildResult, artifactHash, activateResult, stateResult) {
+function parseFrameEvidence(result) {
+  if (!result.ok) return null;
+  try {
+    return JSON.parse(result.output);
+  } catch {
+    return null;
+  }
+}
+
+function validFrameEvidence(frame) {
+  return Boolean(
+    frame
+      && typeof frame === "object"
+      && validSha256(frame.sha256)
+      && Number.isInteger(frame.byteLength)
+      && frame.byteLength > 0
+      && (!Number.isInteger(frame.expectedByteLength) || frame.expectedByteLength === frame.byteLength),
+  );
+}
+
+function firstFailure(buildResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence) {
   if (!buildResult.ok) {
     return {
       stage: "build",
@@ -225,6 +245,12 @@ function firstFailure(buildResult, artifactHash, activateResult, stateResult) {
     return {
       stage: "evidence",
       summary: "屏幕状态回证失败。请检查 SSH 连接和 walnut screen state 输出。",
+    };
+  }
+  if (!frameResult.ok || !validFrameEvidence(frameEvidence)) {
+    return {
+      stage: "frame",
+      summary: "屏幕画面回证失败。请在诊断里查看 framebuffer 读取结果。",
     };
   }
   return null;
@@ -298,6 +324,7 @@ async function handleScreenSync(req) {
   ].join("; ");
   const activateCommand = "sudo -n walnut screen start";
   const stateCommand = "walnut screen state";
+  const frameCommand = "sudo -n walnut screen frame";
 
   const buildResult = await runRemote(buildCommand, 120_000);
   const artifactResult = buildResult.ok
@@ -324,7 +351,7 @@ async function handleScreenSync(req) {
       user: SSH_USER,
       display: manifest.target.display,
       activate: activateCommand,
-      evidence: "walnut screen state",
+      evidence: [stateCommand, frameCommand],
     },
     screenManifestHash: manifestHash,
   };
@@ -347,14 +374,49 @@ async function handleScreenSync(req) {
             ? "skipped because activation failed"
             : "skipped because artifact hash is invalid",
       };
+  const frameResult = buildResult.ok && artifactHashValid && activateResult.ok && stateResult.ok
+    ? await runRemote(frameCommand, 15_000)
+    : {
+        ok: false,
+        code: null,
+        output: !buildResult.ok
+          ? "skipped because build failed"
+          : !artifactHashValid
+            ? "skipped because artifact hash is invalid"
+            : !activateResult.ok
+              ? "skipped because activation failed"
+              : "skipped because screen state evidence failed",
+      };
+  const frameEvidence = parseFrameEvidence(frameResult);
+  if (frameEvidence) {
+    frameEvidence.capturedAt = new Date().toISOString();
+    frameEvidence.command = frameCommand;
+  }
 
-  const failure = firstFailure(buildResult, artifactHash, activateResult, stateResult);
+  const failure = firstFailure(buildResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence);
+  const screenEvidence = {
+    kind: "screen-frame",
+    state: {
+      kind: "screen-state",
+      command: stateCommand,
+      output: stateResult.output,
+      capturedAt: new Date().toISOString(),
+    },
+    frame: validFrameEvidence(frameEvidence)
+      ? frameEvidence
+      : {
+          command: frameCommand,
+          output: frameResult.output,
+          capturedAt: new Date().toISOString(),
+        },
+  };
   const output = limitedOutput(
     [
       commandBlockResult("build", buildResult),
       commandBlockResult("artifact", artifactResult),
       commandBlockResult("activate", activateResult),
       commandBlockResult("evidence", stateResult),
+      commandBlockResult("frame", frameResult),
     ].join("\n\n"),
   );
 
@@ -369,13 +431,9 @@ async function handleScreenSync(req) {
     deliveryManifest,
     deliveryHash,
     artifactHash: artifactHashValid ? artifactHash : null,
-    evidence: {
-      kind: "screen-state",
-      command: stateCommand,
-      output: stateResult.output,
-      capturedAt: new Date().toISOString(),
-    },
-    command: `${buildCommand}\n${activateCommand}\n${stateCommand}`,
+    evidence: screenEvidence,
+    screenEvidence,
+    command: `${buildCommand}\n${activateCommand}\n${stateCommand}\n${frameCommand}`,
     code: failure ? 1 : 0,
     output,
     summary: failure

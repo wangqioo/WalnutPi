@@ -94,7 +94,7 @@ Web preview
 -> Sync to WalnutPi
 -> Build LVGL app
 -> Activate walnut-screen.service
--> Read screen state evidence
+-> Read screen state and framebuffer frame evidence
 ```
 
 The web server exposes the current screen contract at `GET /api/screen/manifest`.
@@ -105,17 +105,17 @@ The first delivery adapter is deliberately narrow:
 - adapter: SSH / local agent
 - build: `scripts/build-lvgl-app.sh`
 - activation: `sudo -n walnut screen start`
-- evidence: `walnut screen state`
+- evidence: `walnut screen state` and `sudo -n walnut screen frame`
 
 Beginner UI only shows `未同步`, `同步中`, `已同步到核桃派`, or `同步失败`.
-`buildId`, screen manifest hash, artifact hash, delivery hash, command output, and screen-state evidence stay in the developer diagnostics panel.
+`buildId`, screen manifest hash, artifact hash, delivery hash, command output, screen-state evidence, and framebuffer frame hashes stay in the developer diagnostics panel.
 
 Current verification status:
 
 - `?nossh` is preview-only. Server routes reject screen sync, remote actions, and terminal connections before SSH/build/device-write paths.
 - Activation is gated on a real artifact SHA-256 hash.
 - The delivery manifest/hash commits to the artifact hash and screen manifest hash.
-- A real-device sync run has completed through build, activation, and `walnut screen state`; evidence reported `walnut-screen.service active`.
+- A real-device sync run has completed through build, activation, and `walnut screen state`; evidence reported `walnut-screen.service active`. The current sync path also requires `sudo -n walnut screen frame` to return valid framebuffer metadata and a raw frame SHA-256 hash.
 
 Remote checkout note: when syncing as `pi`, the WalnutPi checkout is expected at `/home/pi/projects/WalnutPi`. Keep `/home/pi/projects/WalnutPi/build` owned by `pi:pi`; a root-owned build directory blocks CMake from writing LVGL generated files.
 

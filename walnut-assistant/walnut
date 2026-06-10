@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -447,6 +449,20 @@ def print_screen_state() -> int:
     return 0
 
 
+def print_screen_frame() -> int:
+    current_root = project_root()
+    if str(current_root) not in sys.path:
+        sys.path.insert(0, str(current_root))
+    try:
+        from framebuffer_ui import fb
+
+        print(json.dumps(fb.read_frame_evidence(), ensure_ascii=True, sort_keys=True))
+        return 0
+    except OSError as error:
+        print(f"screen frame evidence failed: {error}")
+        return 1
+
+
 def screen(args: argparse.Namespace) -> int:
     command = getattr(args, "screen_cmd", "menu")
     if command == "menu":
@@ -467,6 +483,8 @@ def screen(args: argparse.Namespace) -> int:
         return start_walnut_screen()
     if command == "state":
         return print_screen_state()
+    if command == "frame":
+        return print_screen_frame()
     if command == "status":
         if not require_root("screen status"):
             return 1
@@ -531,7 +549,7 @@ def screen(args: argparse.Namespace) -> int:
             return 1
         subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
         return subprocess.call([str(binary), "/dev/fb0"], cwd=str(current_root))
-    print("Usage: walnut screen [start|stop|toggle|state|status|test|demo|off|image|ai|app|lvgl|lvgl-demo|restore]")
+    print("Usage: walnut screen [start|stop|toggle|state|frame|status|test|demo|off|image|ai|app|lvgl|lvgl-demo|restore]")
     return 2
 
 
@@ -680,7 +698,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_screen = sub.add_parser("screen")
     screen_sub = p_screen.add_subparsers(dest="screen_cmd")
-    for name in ["start", "stop", "toggle", "state", "status", "test", "demo", "off", "restore", "app", "lvgl", "lvgl-demo"]:
+    for name in ["start", "stop", "toggle", "state", "frame", "status", "test", "demo", "off", "restore", "app", "lvgl", "lvgl-demo"]:
         screen_sub.add_parser(name)
     p_image = screen_sub.add_parser("image")
     p_image.add_argument("path")

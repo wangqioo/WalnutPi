@@ -1486,7 +1486,7 @@
         diagArtifactHash.textContent = shortHash(result.artifactHash);
         diagDeliveryHash.textContent = shortHash(result.deliveryHash);
         diagDeliveryManifest.textContent = formatDiagnosticJson(result.deliveryManifest);
-        diagEvidence.textContent = formatDiagnosticJson(result.evidence);
+        diagEvidence.textContent = formatDiagnosticJson(result.screenEvidence || result.evidence);
         diagOutput.textContent = result.output || result.summary || "无输出。";
         diagnostics.open = !result.ok;
       }
