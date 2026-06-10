@@ -468,6 +468,64 @@
         stroke-width: 2;
       }
 
+      .repair-panel {
+        display: grid;
+        gap: 7px;
+        border: 1px solid rgba(208, 160, 68, 0.26);
+        border-radius: 8px;
+        padding: 8px;
+        background: rgba(208, 160, 68, 0.08);
+      }
+
+      .repair-panel[hidden] {
+        display: none;
+      }
+
+      .repair-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .repair-title {
+        color: var(--paper);
+        font-size: 12px;
+        font-weight: 760;
+        line-height: 1.3;
+      }
+
+      .repair-button {
+        min-height: 28px;
+        border: 1px solid rgba(208, 160, 68, 0.34);
+        border-radius: 8px;
+        padding: 0 9px;
+        background: rgba(208, 160, 68, 0.12);
+        color: var(--amber);
+        font-size: 11px;
+        font-weight: 720;
+      }
+
+      .repair-button:hover,
+      .repair-button:focus-visible {
+        background: rgba(208, 160, 68, 0.2);
+        outline: none;
+      }
+
+      .repair-copy {
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .repair-actions {
+        margin: 0;
+        padding-left: 17px;
+        color: #d8e7dc;
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
       .diagnostics {
         border-top: 1px solid rgba(240, 239, 231, 0.1);
         padding-top: 8px;
@@ -1161,6 +1219,15 @@
             </button>
           </div>
 
+          <div class="repair-panel" id="repairPanel" hidden>
+            <div class="repair-header">
+              <div class="repair-title" id="repairTitle">同步修复建议</div>
+              <button class="repair-button" id="repairPlanButton" type="button">查看修复建议</button>
+            </div>
+            <div class="repair-copy" id="repairReason"></div>
+            <ol class="repair-actions" id="repairActions"></ol>
+          </div>
+
           <details class="diagnostics" id="diagnostics">
             <summary>开发者诊断</summary>
             <div class="diagnostic-grid">
@@ -1191,6 +1258,14 @@
               <div class="diagnostic-section">
                 <span class="diagnostic-label">screen evidence</span>
                 <pre class="diagnostic-output" id="diagEvidence">等待同步。</pre>
+              </div>
+              <div class="diagnostic-section">
+                <span class="diagnostic-label">visual signature</span>
+                <pre class="diagnostic-output" id="diagVisualSignature">等待同步。</pre>
+              </div>
+              <div class="diagnostic-section">
+                <span class="diagnostic-label">repair hint</span>
+                <pre class="diagnostic-output" id="diagRepairHint">等待同步。</pre>
               </div>
               <div class="diagnostic-section" id="diagDeviceFrameSection" hidden>
                 <span class="diagnostic-label">device frame</span>
@@ -1377,6 +1452,11 @@
       const screenIntentForm = document.querySelector("#screenIntentForm");
       const screenIntentInput = document.querySelector("#screenIntentInput");
       const screenIntentSubmit = document.querySelector("#screenIntentSubmit");
+      const repairPanel = document.querySelector("#repairPanel");
+      const repairTitle = document.querySelector("#repairTitle");
+      const repairPlanButton = document.querySelector("#repairPlanButton");
+      const repairReason = document.querySelector("#repairReason");
+      const repairActions = document.querySelector("#repairActions");
       const diagnostics = document.querySelector("#diagnostics");
       const diagBuildId = document.querySelector("#diagBuildId");
       const diagManifestHash = document.querySelector("#diagManifestHash");
@@ -1384,6 +1464,8 @@
       const diagDeliveryHash = document.querySelector("#diagDeliveryHash");
       const diagDeliveryManifest = document.querySelector("#diagDeliveryManifest");
       const diagEvidence = document.querySelector("#diagEvidence");
+      const diagVisualSignature = document.querySelector("#diagVisualSignature");
+      const diagRepairHint = document.querySelector("#diagRepairHint");
       const diagDeviceFrameSection = document.querySelector("#diagDeviceFrameSection");
       const diagDeviceFrame = document.querySelector("#diagDeviceFrame");
       const diagOutput = document.querySelector("#diagOutput");
@@ -1392,6 +1474,7 @@
       let currentScreenManifest = null;
       let currentManifestHash = "";
       let currentTemplateId = "";
+      let currentRepairBuildId = "";
       let lastHistoryLoadAt = 0;
 
       const controlsById = {
@@ -1667,7 +1750,12 @@
 
           const meta = document.createElement("div");
           meta.className = "history-meta";
-          meta.textContent = `${formatHistoryTime(record.startedAt)} · ${shortHash(record.manifestHash)} · ${record.visualMatch || "unknown"}`;
+          const previewSig = shortHash(record.previewSignatureHash);
+          const deviceSig = shortHash(record.deviceSignatureHash);
+          const signatureText = previewSig !== "-" || deviceSig !== "-"
+            ? `${previewSig}/${deviceSig}`
+            : record.visualMatch || "unknown";
+          meta.textContent = `${formatHistoryTime(record.startedAt)} · ${shortHash(record.manifestHash)} · ${signatureText}`;
 
           const stage = document.createElement("span");
           stage.className = "history-stage";
@@ -1717,10 +1805,12 @@
           deliveryManifest: record.deliveryManifest,
           screenEvidence: record.screenEvidence,
           evidence: record.screenEvidence,
+          visualSignature: record.screenEvidence?.semantic || null,
           screenFrameUrl: record.framePng?.url || record.screenEvidence?.frame?.cachedUrl || "",
           output: record.output,
           summary: record.summary,
           failedStage: record.failedStage,
+          repairHint: record.repairHint,
         };
       }
 
@@ -1746,6 +1836,60 @@
           return;
         }
         refreshDeviceFrame();
+      }
+
+      function clearRepairPanel() {
+        currentRepairBuildId = "";
+        repairPanel.hidden = true;
+        repairTitle.textContent = "同步修复建议";
+        repairReason.textContent = "";
+        repairActions.replaceChildren();
+        diagVisualSignature.textContent = "等待同步。";
+        diagRepairHint.textContent = "等待同步。";
+        repairPlanButton.disabled = false;
+        repairPlanButton.textContent = "查看修复建议";
+      }
+
+      function renderRepairHint(repairHint) {
+        if (!repairHint) return;
+        repairPanel.hidden = false;
+        repairTitle.textContent = repairHint.title || "同步修复建议";
+        repairReason.textContent = repairHint.beginnerReason || repairHint.summary || "同步失败，需要查看诊断。";
+        repairActions.replaceChildren();
+        for (const action of repairHint.suggestedActions || []) {
+          const item = document.createElement("li");
+          item.textContent = action;
+          repairActions.append(item);
+        }
+        if (!repairActions.children.length) {
+          const item = document.createElement("li");
+          item.textContent = "查看开发者诊断里的 command output。";
+          repairActions.append(item);
+        }
+      }
+
+      async function loadRepairPlan(buildId = currentRepairBuildId) {
+        if (!buildId) return;
+        repairPlanButton.disabled = true;
+        repairPlanButton.textContent = "读取中";
+        try {
+          const response = await fetch(withCurrentSearch("/api/screen/repair-plan"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ buildId }),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.summary || data.error || "repair plan failed");
+          renderRepairHint(data.repairHint);
+          diagRepairHint.textContent = formatDiagnosticJson({
+            repairHint: data.repairHint,
+          });
+        } catch (error) {
+          repairReason.textContent = `无法读取修复建议：${error.message}`;
+        } finally {
+          repairPlanButton.disabled = false;
+          repairPlanButton.textContent = "刷新建议";
+        }
       }
 
       diagnostics.addEventListener("toggle", () => {
@@ -1823,6 +1967,7 @@
       async function applyScreenTemplate(templateId) {
         if (!templateId || !currentManifestHash) return;
         setScreenEditorBusy(true);
+        clearRepairPanel();
         syncSummary.textContent = "正在更新预览。";
         try {
           const data = await postManifestUpdate("/api/screen/template", { templateId });
@@ -1843,6 +1988,7 @@
         const value = String(text || "").trim();
         if (!value || !currentManifestHash) return;
         setScreenEditorBusy(true);
+        clearRepairPanel();
         syncSummary.textContent = "正在更新预览。";
         try {
           const data = await postManifestUpdate("/api/screen/intent", { text: value });
@@ -1917,6 +2063,7 @@
           if (!response.ok) throw new Error(data.error || "manifest load failed");
 
           applyManifestEnvelope(data);
+          clearRepairPanel();
         } catch (error) {
           setSyncState("同步失败", "failed");
           syncSummary.textContent = "无法读取 screen manifest。";
@@ -1932,8 +2079,22 @@
         diagDeliveryHash.textContent = shortHash(result.deliveryHash);
         diagDeliveryManifest.textContent = formatDiagnosticJson(result.deliveryManifest);
         diagEvidence.textContent = formatDiagnosticJson(result.screenEvidence || result.evidence);
+        diagVisualSignature.textContent = formatDiagnosticJson(result.screenEvidence?.semantic || result.visualSignature);
+        diagRepairHint.textContent = formatDiagnosticJson(result.repairHint);
         setDeviceFrameUrl(result.screenEvidence?.frame?.url || result.screenFrameUrl || "");
         diagOutput.textContent = result.output || result.summary || "无输出。";
+        if (result.ok) {
+          clearRepairPanel();
+        } else if (result.buildId) {
+          currentRepairBuildId = result.buildId;
+          repairPanel.hidden = false;
+          repairTitle.textContent = "同步修复建议";
+          repairReason.textContent = result.summary || "同步失败，可以查看修复建议。";
+          repairActions.replaceChildren();
+          repairPlanButton.disabled = false;
+          repairPlanButton.textContent = "查看修复建议";
+          renderRepairHint(result.repairHint);
+        }
         diagnostics.open = !result.ok;
         refreshDeviceFrame();
         if (options.refreshHistory !== false) loadScreenHistory(true);
@@ -1950,6 +2111,7 @@
         }
 
         setSyncState("同步中", "pending");
+        clearRepairPanel();
         syncSummary.textContent = "正在同步到核桃派。";
         syncScreen.disabled = true;
         addMessage("assistant", "我会把当前小屏界面同步到核桃派。");
@@ -2150,6 +2312,9 @@
       });
       syncScreen.addEventListener("click", () => {
         syncScreenToDevice();
+      });
+      repairPlanButton.addEventListener("click", () => {
+        loadRepairPlan();
       });
       screenIntentForm.addEventListener("submit", (event) => {
         event.preventDefault();

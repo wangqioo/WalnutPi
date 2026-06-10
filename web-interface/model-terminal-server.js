@@ -184,6 +184,141 @@ function compactCommandResult(result) {
   };
 }
 
+function firstDiagnosticLine(value) {
+  const text = String(value || "");
+  const preferred = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /error|failed|fatal|denied|missing|not found|permission|timeout|cmake|make|gcc|sudo/i.test(line));
+  if (preferred) return preferred.slice(0, 500);
+  const fallback = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  return fallback ? fallback.slice(0, 500) : "";
+}
+
+function repairCommandOutput(record, commandName) {
+  return record.commandResults?.[commandName]?.output || "";
+}
+
+function buildScreenRepairHint(record) {
+  const stage = record.failedStage || (record.ok ? "ok" : "unknown");
+  const visualChecks = record.screenEvidence?.visualChecks || null;
+  const commandByStage = {
+    build: "build",
+    artifact: "artifact",
+    activate: "activate",
+    evidence: "evidence",
+    frame: "frame",
+    visual: "frame",
+  };
+  const commandName = commandByStage[stage] || "";
+  const firstError = firstDiagnosticLine(commandName ? repairCommandOutput(record, commandName) : record.output);
+  const baseEvidence = {
+    buildId: record.buildId,
+    failedStage: stage,
+    command: commandName || null,
+    firstError,
+    visualMatch: record.screenEvidence?.visualMatch || "unknown",
+    visualChecks,
+  };
+
+  const plans = {
+    ok: {
+      title: "不需要修复",
+      summary: "这条同步记录已经成功。",
+      beginnerReason: "核桃派已经完成同步。",
+      developerDiagnosis: "record.ok=true，没有失败阶段。",
+      suggestedActions: ["继续编辑小屏内容，或查看开发者诊断里的同步证据。"],
+    },
+    preview: {
+      title: "预览模式不会同步",
+      summary: "当前页面处于预览模式，所以不会连接核桃派。",
+      beginnerReason: "预览模式只看 Web 效果，不会构建、SSH、激活或写设备。",
+      developerDiagnosis: "URL 带有 ?nossh，后端在 sync 前返回 preview 阶段。",
+      suggestedActions: ["去掉 URL 里的 ?nossh 后再点击同步。", "如果只想本地预览，可以忽略这条失败记录。"],
+    },
+    manifest: {
+      title: "小屏配置需要刷新或修复",
+      summary: "同步请求里的 screen manifest 不可用或已经过期。",
+      beginnerReason: "Web 预览和服务器上的小屏配置不是同一个版本。",
+      developerDiagnosis: firstError || "manifest 读取失败、JSON 无效、hash 缺失、hash 格式错误或 stale manifestHash。",
+      suggestedActions: ["刷新页面，重新读取当前小屏预览。", "如果仍失败，检查 lvgl_app/screen-manifest.json 是否是有效 JSON。", "确认同步请求带的是最新 manifestHash。"],
+    },
+    build: {
+      title: "LVGL 构建失败",
+      summary: "设备端没有成功编译小屏程序。",
+      beginnerReason: "核桃派还没有生成可以运行的小屏程序。",
+      developerDiagnosis: firstError || "构建命令没有返回可识别的第一处错误。",
+      suggestedActions: ["先查看 command output 里的 build 段第一处错误。", "如果提示缺少 cmake、gcc、make 或系统头文件，在设备上运行 scripts/install-lvgl-build-deps.sh。", "如果是 C 编译错误，先修复 lvgl_app/src/main.c 或生成的 screen_config.h。"],
+    },
+    artifact: {
+      title: "构建产物不可用",
+      summary: "构建后没有拿到合法的 LVGL 程序 SHA-256。",
+      beginnerReason: "同步需要确认小屏程序文件真实存在，当前确认失败。",
+      developerDiagnosis: firstError || "artifact command 没有返回合法 SHA-256。",
+      suggestedActions: ["确认 build/lvgl_app/walnut-lvgl-screen 是否存在且可执行。", "检查远端项目根是否指向 /home/pi/projects/WalnutPi。", "重新构建后再同步。"],
+    },
+    activate: {
+      title: "屏幕服务激活失败",
+      summary: "程序已构建，但没有成功启动核桃派屏幕服务。",
+      beginnerReason: "核桃派没有把新的小屏程序启动起来。",
+      developerDiagnosis: firstError || "sudo -n walnut screen start 没有成功。",
+      suggestedActions: ["确认 walnut screen start 在设备上可运行。", "检查 sudo -n 是否允许当前 SSH 用户启动 walnut-screen.service。", "查看 walnut-screen.service 状态和日志。"],
+    },
+    evidence: {
+      title: "屏幕状态回证失败",
+      summary: "屏幕启动后，状态命令没有返回可信证据。",
+      beginnerReason: "系统无法确认屏幕服务是否真的在运行。",
+      developerDiagnosis: firstError || "walnut screen state 没有成功。",
+      suggestedActions: ["在设备上运行 walnut screen state 查看状态。", "确认 walnut-screen.service 存在且 active。", "如果服务刚启动，稍等几秒后重新同步。"],
+    },
+    frame: {
+      title: "屏幕画面回证失败",
+      summary: "无法读取到有效的 framebuffer 画面证据。",
+      beginnerReason: "系统没有看到核桃派真实屏幕画面。",
+      developerDiagnosis: firstError || "sudo -n walnut screen frame 没有返回合法 frame 元数据。",
+      suggestedActions: ["确认 /dev/fb0 可读，且 walnut screen frame 能返回 JSON 元数据。", "确认 walnut-screen.service 正在占用小屏，而不是被其他 framebuffer 程序覆盖。", "检查 sudo -n walnut screen frame 权限。"],
+    },
+    visual: {
+      title: "屏幕画面结构不一致",
+      summary: "framebuffer 可读，但尺寸、格式、字节数或非空检查没有通过。",
+      beginnerReason: "核桃派返回了画面，但不像当前目标小屏画面。",
+      developerDiagnosis: visualChecks ? JSON.stringify(visualChecks, null, 2) : firstError || "visual checks 不完整。",
+      suggestedActions: ["确认目标屏幕仍是 480x320 RGB565。", "确认 framebuffer 返回的 byteLength 等于 expectedByteLength。", "如果 frame 是空白，重启 walnut-screen.service 后再同步。"],
+    },
+    delivery: {
+      title: "交付适配器失败",
+      summary: "同步流程在 delivery adapter 内部异常退出。",
+      beginnerReason: "同步程序自己出错了，还没有进入完整的构建和回证流程。",
+      developerDiagnosis: firstError || record.output || "adapter exception without output",
+      suggestedActions: ["查看 command output 里的异常堆栈。", "确认 sshpass、SSH 配置和 adapter 参数可用。", "修复 adapter 错误后重新同步。"],
+    },
+    unknown: {
+      title: "同步失败原因不明确",
+      summary: "同步记录没有提供明确的失败阶段。",
+      beginnerReason: "系统知道同步失败，但还不能判断具体卡在哪里。",
+      developerDiagnosis: firstError || record.output || "missing failedStage",
+      suggestedActions: ["查看 developer diagnostics 里的 command output。", "保留 buildId，按输出里最早失败的命令继续排查。"],
+    },
+  };
+
+  const selected = plans[stage] || plans.unknown;
+  return {
+    schema: "walnutpi.screenRepairHint.v1",
+    buildId: record.buildId,
+    stage,
+    title: selected.title,
+    summary: selected.summary,
+    beginnerReason: selected.beginnerReason,
+    developerDiagnosis: selected.developerDiagnosis,
+    suggestedActions: selected.suggestedActions,
+    evidence: baseEvidence,
+    autoRepairAvailable: false,
+  };
+}
+
 function screenRecordSummary(record) {
   return {
     schema: "walnutpi.screenSyncRecordSummary.v1",
@@ -199,14 +334,24 @@ function screenRecordSummary(record) {
     deliveryHash: record.deliveryHash,
     visualMatch: record.screenEvidence?.visualMatch || "unknown",
     frameHash: record.screenEvidence?.frame?.sha256 || null,
+    previewSignatureHash: record.screenEvidence?.semantic?.previewSignatureHash || null,
+    deviceSignatureHash: record.screenEvidence?.semantic?.deviceSignatureHash || null,
     hasFramePng: Boolean(record.framePng),
     frameUrl: record.framePng ? screenRecordFrameUrl(record.buildId) : null,
+    repairHint: record.repairHint
+      ? {
+          stage: record.repairHint.stage,
+          title: record.repairHint.title,
+          summary: record.repairHint.summary,
+          autoRepairAvailable: record.repairHint.autoRepairAvailable,
+        }
+      : null,
   };
 }
 
 function buildScreenRecord(result, commandResults = {}) {
   const finishedAt = new Date().toISOString();
-  return {
+  const record = {
     schema: "walnutpi.screenSyncRecord.v1",
     buildId: result.buildId,
     title: result.title || "同步到核桃派",
@@ -230,11 +375,15 @@ function buildScreenRecord(result, commandResults = {}) {
     output: limitedOutput(String(result.output || ""), ACTION_OUTPUT_LIMIT),
     framePng: null,
   };
+  record.repairHint = record.ok ? null : buildScreenRepairHint(record);
+  return record;
 }
 
 async function persistScreenSyncResult(result, commandResults = {}, status = 200) {
   try {
-    await writeScreenRecord(buildScreenRecord(result, commandResults));
+    const record = buildScreenRecord(result, commandResults);
+    if (!result.repairHint) result.repairHint = record.repairHint;
+    await writeScreenRecord(record);
   } catch (error) {
     result.recordWarning = `screen sync record was not saved: ${error.message}`;
   }
@@ -996,6 +1145,43 @@ async function handleScreenRecordList() {
   });
 }
 
+async function handleScreenRepairPlan(req) {
+  let body;
+  try {
+    body = await readJsonRequest(req);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 400);
+  }
+
+  const buildId = String(body.buildId || "").trim();
+  const safeBuildId = safeRecordId(buildId);
+  if (!safeBuildId) {
+    return json({ ok: false, error: "invalid buildId", summary: "缺少有效的同步记录。" }, 400);
+  }
+
+  const record = await readScreenRecord(safeBuildId);
+  if (!record) {
+    return json({ ok: false, error: "screen record not found", summary: "找不到这次同步记录。" }, 404);
+  }
+
+  const repairHint = record.repairHint || buildScreenRepairHint(record);
+  if (!record.repairHint) {
+    try {
+      await updateScreenRecord(safeBuildId, (nextRecord) => {
+        nextRecord.repairHint = repairHint;
+        return nextRecord;
+      });
+    } catch {
+      // The response can still return the plan even if persisting the backfill fails.
+    }
+  }
+
+  return json({
+    ok: true,
+    repairHint,
+  });
+}
+
 function validateScreenManifest(manifest) {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     throw new Error("screen manifest must be a JSON object");
@@ -1492,6 +1678,11 @@ const server = Bun.serve({
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       if (previewOnly(url)) return previewOnlyScreenSyncResult(req);
       return handleScreenSync(req);
+    }
+
+    if (url.pathname === "/api/screen/repair-plan") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleScreenRepairPlan(req);
     }
 
     if (url.pathname === "/api/screen/records") {

@@ -194,13 +194,13 @@ Web 外部端先看到的界面
 - 每次同步都带 `buildId`、artifact hash、screen manifest hash，避免外部端和设备显示不同版本。
 - 如果 Web 端预览和核桃派回传画面不一致，用户界面只提示“核桃派显示和预览不一致，需要重新同步或修复”，具体 manifest / hash 细节放到开发者诊断视图。
 
-`screenEvidence.visualMatch` 当前只表达结构性画面回证，不表达像素级 Web/LVGL diff：
+`screenEvidence.visualMatch` 当前表达结构性 framebuffer 回证和第一层语义签名回证，不表达像素级 Web/LVGL diff：
 
 - `captured`：设备 framebuffer frame 可用，尺寸、像素格式、字节数和非空检查通过。
 - `unknown`：没有可用的 frame 回证。
 - `mismatch`：frame 存在，但结构性检查显示目标屏幕约束不一致。
 
-`visualChecks` 记录 manifest hash、artifact hash、frame captured、尺寸、像素格式、字节数和非空等布尔检查。PNG 画面通过 `frameUrl` 指向 `/api/screen/frame/<buildId>`，只在开发者诊断展开时按需抓取，不进入默认同步 JSON。由于 LVGL 页面可能持续动画，按需 PNG 允许是后续动态帧；响应头保留当前 raw frame hash 和同步时 raw frame hash。
+`visualChecks` 记录 manifest hash、artifact hash、preview signature hash、device signature hash、frame captured、尺寸、像素格式、字节数和非空等检查。`screenEvidence.semantic` 保留 manifest 可见字段形成的 preview signature，以及 manifest / artifact / frame metadata 形成的 device signature，供开发者诊断对齐。PNG 画面通过 `frameUrl` 指向 `/api/screen/frame/<buildId>`，只在开发者诊断展开时按需抓取，不进入默认同步 JSON。由于 LVGL 页面可能持续动画，按需 PNG 允许是后续动态帧；响应头保留当前 raw frame hash 和同步时 raw frame hash。
 
 允许延迟，但不接受长期分叉。也就是说，实时性可以让步，一致性不能让步。
 
@@ -330,8 +330,9 @@ Web 端显示一个 LVGL 界面
 - 诊断图片使用 `GET /api/screen/frame/<buildId>` 按需触发只读 `walnut screen capture --png-base64`，默认同步 JSON 不嵌入 PNG 或 base64。
 - artifact evidence 使用真实 SHA-256；artifact hash 非法时不会激活设备。
 - delivery manifest / delivery hash 提交 artifact hash 和 screen manifest hash。
+- 同步失败记录会生成只读 `repairHint`，把失败阶段转成小白原因、开发者诊断和下一步建议；当前不会自动改代码或自动重试。
 - 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败` 等可理解状态。
-- `buildId`、hash、delivery manifest、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks` 和按需设备截图只进入开发者诊断层。
+- `buildId`、hash、delivery manifest、命令输出、screen state、framebuffer frame hash、preview/device signature hash、`visualMatch` / `visualChecks` 和按需设备截图只进入开发者诊断层。
 - 当前 `walnut screen lvgl`、`walnut screen start`、`walnut screen stop`、`walnut screen toggle`、`walnut screen state` 行为没有被改动；新增的 `walnut screen frame` 只读读取 `/dev/fb0` 元数据、字节数和 SHA-256，`walnut screen capture` 只读返回 PNG 元数据并可选返回 `pngBase64`。
 
 真机闭环已经通过一次验证：
@@ -364,7 +365,9 @@ vtcon1 bind                        0
 
 这比先做完整项目编辑器或完整代码生成更简单，但保留了 VibeBoard 的关键链路：artifact、manifest、delivery adapter、device evidence。后续 USB、eMMC、系统镜像或其他交付方式应作为新的 adapter 增加，而不是塞回 Web route。
 
-当前阶段已经把等价 screen frame 回证升级为结构性画面回证：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查和按需 PNG 截图。后续如果要做更强一致性，可以继续加入 Web 预览与 LVGL framebuffer 的像素级或语义级 diff。
+当前阶段已经把等价 screen frame 回证升级为结构性画面回证和语义签名回证：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查、preview/device signature hash 和按需 PNG 截图。后续如果要做更强一致性，可以继续加入 Web 预览与 LVGL framebuffer 的像素级 diff。
+
+当前修复循环是第一层：失败归因和修复建议。后续如果要做真正的自动修复，应继续补“生成候选补丁 -> 用户确认 -> 应用修改 -> 重新同步 -> 记录回证”的闭环。
 
 ## 真机排障证据采集
 

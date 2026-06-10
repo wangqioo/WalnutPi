@@ -95,7 +95,16 @@ export function createSshLocalAgentAdapter({
         frameEvidence.command = frameCommand;
       }
 
-      const visual = visualStatus(manifest, artifactHashValid, frameEvidence, validSha256);
+      const visual = visualStatus({
+        manifest,
+        manifestHash,
+        artifactHash: artifactHashValid ? artifactHash : null,
+        artifactHashValid,
+        frameEvidence,
+        validSha256,
+        sha256,
+        stableStringify,
+      });
       const frameImageUrl = validFrameEvidence(frameEvidence, validSha256) ? frameUrl(buildId) : null;
       const failure = firstFailure(
         buildResult,
@@ -111,6 +120,7 @@ export function createSshLocalAgentAdapter({
         kind: "screen-frame",
         visualMatch: visual.visualMatch,
         visualChecks: visual.visualChecks,
+        semantic: visual.semantic,
         state: {
           kind: "screen-state",
           command: stateCommand,
@@ -195,12 +205,78 @@ function validFrameEvidence(frame, validSha256) {
   );
 }
 
-function visualStatus(manifest, artifactHashValid, frameEvidence, validSha256) {
+function screenPreviewSignature(manifest) {
+  const pages = Array.isArray(manifest.pages) ? manifest.pages : [];
+  return {
+    schema: "walnutpi.screenPreviewSignature.v1",
+    target: {
+      width: manifest.target?.width ?? null,
+      height: manifest.target?.height ?? null,
+      color: manifest.target?.color ?? null,
+      display: manifest.target?.display ?? null,
+    },
+    title: manifest.title || "",
+    subtitle: manifest.subtitle || "",
+    pages: pages.map((page) => ({
+      id: page.id || "",
+      tab: page.tab || "",
+      title: page.title || "",
+      status: page.status || "",
+      metrics: Array.isArray(page.metrics) ? page.metrics : [],
+      lines: Array.isArray(page.lines) ? page.lines : [],
+    })),
+  };
+}
+
+function screenDeviceSignature({ manifest, manifestHash, artifactHash, frameEvidence }) {
+  return {
+    schema: "walnutpi.screenDeviceSignature.v1",
+    manifestHash,
+    artifactHash: artifactHash || null,
+    target: {
+      width: manifest.target?.width ?? null,
+      height: manifest.target?.height ?? null,
+      color: manifest.target?.color ?? null,
+      display: manifest.target?.display ?? null,
+    },
+    frame: frameEvidence
+      ? {
+          sha256: frameEvidence.sha256 || null,
+          width: frameEvidence.width ?? null,
+          height: frameEvidence.height ?? null,
+          pixelFormat: frameEvidence.pixelFormat || null,
+          bitsPerPixel: frameEvidence.bitsPerPixel ?? null,
+          byteLength: frameEvidence.byteLength ?? null,
+          expectedByteLength: frameEvidence.expectedByteLength ?? null,
+          isBlank: frameEvidence.isBlank ?? null,
+        }
+      : null,
+  };
+}
+
+function visualStatus({ manifest, manifestHash, artifactHash, artifactHashValid, frameEvidence, validSha256, sha256, stableStringify }) {
   const frameCaptured = validFrameEvidence(frameEvidence, validSha256);
   const target = manifest.target || {};
+  const previewSignature = screenPreviewSignature(manifest);
+  const deviceSignature = screenDeviceSignature({ manifest, manifestHash, artifactHash, frameEvidence });
+  const previewSignatureHash = sha256(stableStringify(previewSignature));
+  const deviceSignatureHash = sha256(stableStringify(deviceSignature));
+  const targetMatched = frameCaptured
+    && frameEvidence.width === target.width
+    && frameEvidence.height === target.height
+    && target.color === "RGB565"
+    && (frameEvidence.pixelFormat === "RGB565_LE" || frameEvidence.bitsPerPixel === 16);
+  const artifactCommittedToManifest = artifactHashValid
+    && validSha256(artifactHash)
+    && manifestHash === deviceSignature.manifestHash;
   const visualChecks = {
     manifestHashMatched: true,
     artifactHashValid,
+    previewSignatureHash,
+    deviceSignatureHash,
+    semanticManifestMatched: manifestHash === deviceSignature.manifestHash,
+    targetMatched,
+    artifactCommittedToManifest,
     frameCaptured,
     frameDimensionsMatched: frameCaptured
       && frameEvidence.width === target.width
@@ -215,12 +291,19 @@ function visualStatus(manifest, artifactHashValid, frameEvidence, validSha256) {
       && frameEvidence.isBlank === false
       && Number(frameEvidence.nonzeroBytes || 0) > 0,
   };
+  const semantic = {
+    previewSignatureHash,
+    deviceSignatureHash,
+    previewSignature,
+    deviceSignature,
+  };
   if (!frameCaptured) {
-    return { visualMatch: "unknown", visualChecks };
+    return { visualMatch: "unknown", visualChecks, semantic };
   }
   return {
     visualMatch: Object.values(visualChecks).every(Boolean) ? "captured" : "mismatch",
     visualChecks,
+    semantic,
   };
 }
 
