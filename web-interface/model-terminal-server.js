@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PORT || 4173);
-const SSH_HOST = process.env.SSH_HOST || "192.168.1.30";
+const SSH_HOST = process.env.SSH_HOST || "192.168.1.24";
 const SSH_USER = process.env.SSH_USER || "root";
 const SSH_PASSWORD = process.env.SSH_PASSWORD || "root";
 const BASE_DIR = import.meta.dir;

@@ -5,15 +5,19 @@ from __future__ import annotations
 
 import argparse
 import os
-import pwd
 import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
+try:
+    import pwd
+except ImportError:
+    pwd = None
+
 def user_home() -> Path:
     sudo_user = os.environ.get("SUDO_USER")
-    if sudo_user:
+    if sudo_user and pwd is not None:
         try:
             return Path(pwd.getpwnam(sudo_user).pw_dir)
         except KeyError:
@@ -57,6 +61,11 @@ def exists(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+def is_root() -> bool:
+    geteuid = getattr(os, "geteuid", None)
+    return callable(geteuid) and geteuid() == 0
+
+
 def first_existing_path(candidates: list[Path | None], fallback: Path) -> Path:
     for path in candidates:
         if path is not None and path.exists():
@@ -65,15 +74,15 @@ def first_existing_path(candidates: list[Path | None], fallback: Path) -> Path:
 
 
 def root_cmd(cmd: list[str]) -> list[str]:
-    if os.geteuid() == 0:
+    if is_root():
         return cmd
-    if exists("sudo"):
+    if os.name != "nt" and exists("sudo"):
         return ["sudo", "-n", *cmd]
     return cmd
 
 
 def require_root(action: str) -> bool:
-    if os.geteuid() == 0:
+    if is_root():
         return True
     print(f"{action} needs administrator permission.")
     print(f"Run: sudo walnut {action}")
@@ -400,7 +409,7 @@ def status(_: argparse.Namespace | None = None) -> int:
 
     section("Docker")
     if exists("docker"):
-        if os.geteuid() == 0:
+        if is_root():
             print(one_line(["docker", "ps", "--format", "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"]))
         else:
             print("Docker is installed. Run `sudo walnut status` to inspect containers.")

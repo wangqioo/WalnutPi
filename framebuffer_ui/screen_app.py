@@ -2,9 +2,14 @@
 from dataclasses import dataclass
 import argparse
 import sys
-import termios
-import tty
 import time
+
+try:
+    import termios
+    import tty
+except ImportError:
+    termios = None
+    tty = None
 
 from framebuffer_ui import components
 from framebuffer_ui import fb
@@ -181,6 +186,9 @@ def read_key(stream):
 
 
 def run_app(device="/dev/fb0", width=480, height=320):
+    if termios is None or tty is None:
+        raise RuntimeError("screen app requires POSIX terminal support")
+
     state = AppState(default_items())
     old_settings = termios.tcgetattr(sys.stdin)
     try:
