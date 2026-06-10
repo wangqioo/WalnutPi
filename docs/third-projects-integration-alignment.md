@@ -358,12 +358,70 @@ vtcon1 bind                        0
 
 - 默认 `root@192.168.1.24` 登录会让远端 `$HOME/projects/WalnutPi` 指向 `/root/projects/WalnutPi`，但实际 checkout 在 `/home/pi/projects/WalnutPi`。
 - Web 同步现在把远端项目根显式写入构建命令；`WALNUT_REMOTE_PROJECT_ROOT` / `WALNUT_PROJECT_ROOT` 默认指向 `/home/pi/projects/WalnutPi`，避免 root 登录时走错 checkout。
-- 改用 `pi@192.168.1.24` 后能到正确 checkout，但旧的 root-owned `build/` 目录会让 CMake 写入 `lvgl.pc.tmp`、`lv_version.h.tmp`、`CMakeCache.txt` 失败。
-- 如果改用 `pi` 执行同步，需要确保 `build/` 归 `pi:pi` 所有；root/root 环境可以继续通过显式远端项目根执行。
+- Web 同步可以继续用 root SSH 连接设备，但 LVGL build 应由 `WALNUT_REMOTE_BUILD_USER=pi` 执行，避免构建产物被 root 拥有。
+- 旧的 root-owned `build/lvgl_app` 文件会让 `pi` 构建时无法写入 `lvgl.pc.tmp`、`lv_version.h.tmp`、`CMakeCache.txt`；需要把该目录修回 `pi:pi`。
 
 这比先做完整项目编辑器或完整代码生成更简单，但保留了 VibeBoard 的关键链路：artifact、manifest、delivery adapter、device evidence。
 
 当前阶段已经把等价 screen frame 回证升级为结构性画面回证：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查和按需 PNG 截图。后续如果要做更强一致性，可以继续加入 Web 预览与 LVGL framebuffer 的像素级或语义级 diff。
+
+## 真机排障证据采集
+
+真机排障优先保留“事实证据”，而不是只记录一次人工判断。当前可复用脚本是：
+
+```powershell
+pwsh ./scripts/collect-screen-sync-evidence.ps1
+```
+
+默认参数面向当前局域网设备：
+
+```text
+Host=192.168.1.24
+User=root
+Password=root
+RemoteProjectRoot=/home/pi/projects/WalnutPi
+```
+
+默认模式只读，不会触发 Web 同步、构建、SSH 写入、服务重启或设备写入。它只通过 `sshpass` / `ssh` 采集：
+
+- 远端 `hostname`、`whoami`、登录后 `pwd` 和显式项目根检查。
+- `walnut screen state`。
+- `sudo -n walnut screen frame`。
+- `sudo -n walnut screen capture` 的默认元数据。
+- 已存在 LVGL artifact 的 SHA-256。
+- `build/lvgl_app` 等构建目录所有权，方便判断 root / pi 混用导致的 CMake 写入失败。
+
+需要完整走 Web API 同步链路时，必须显式加 `-Sync`：
+
+```powershell
+pwsh ./scripts/collect-screen-sync-evidence.ps1 -Sync -Port 4183
+```
+
+`-Sync` 会临时启动本地 Bun Web API server，读取 `/api/screen/manifest`，再把当前 `manifestHash` 提交到 `/api/screen/sync`。脚本会打印 `manifestHash`、`buildId`、`artifactHash`、`deliveryHash`、`visualMatch`、`frameSha256` 等关键字段，并在结束或出错时停止临时 server，避免留下后台进程。
+
+一次已确认的真机信号如下：
+
+```text
+remote checkout: /home/pi/projects/WalnutPi
+root login cwd: /root
+buildId: screen-20260610115318-89a74330
+manifestHash: 1a5eb5ce0e8bc0a00912465a2e272d68664a278c809b9357adac59a2ebb79241
+artifactHash: 746a52b91a3ad32ce22637ba80e7ee88c8f7d6e5c01b97538f22f8e10f02bb56
+deliveryHash: 0e1ed4335c797d9ef716a755cd08cc18ef8203fbafce2e2433cbe153be5854db
+visualMatch: captured
+framebuffer: 480x320 RGB565_LE, 307200 bytes
+frameSha256: 9c602317eb56908205e088212eb98a437069438309017d6748bfab76dd7f666c
+service: walnut-screen.service active
+framebuffer-status: walnut-framebuffer-status.service inactive
+vtcon1 bind: 0
+```
+
+常见排障判断：
+
+- `walnut-screen.service inactive` 但 `frame` / `capture` 仍返回数据，不一定代表同步链路成功；它只能说明 framebuffer 当前可读，可能是旧画面或其他进程留下的画面。
+- 同步成功后，服务状态、delivery hash、artifact hash 和 framebuffer frame hash 要一起看；单独看到 active 不够。
+- root 登录默认目录是 `/root`，不能用 `$HOME/projects/WalnutPi` 推断 checkout。远端项目根必须显式使用 `/home/pi/projects/WalnutPi`，或通过 `WALNUT_REMOTE_PROJECT_ROOT` / `WALNUT_PROJECT_ROOT` 指定。
+- `build/lvgl_app` 正常应保持 `pi:pi`。如果出现 root-owned `Makefile`、`walnut-lvgl-screen` 或其他构建文件，先用 root 在远端执行 `chown -R pi:pi /home/pi/projects/WalnutPi/build/lvgl_app` 修复当前状态，再确认 Web sync 使用 `WALNUT_REMOTE_BUILD_USER=pi` 构建，避免下一次 root SSH 同步再次污染 owner。
 
 ## 待确认问题
 

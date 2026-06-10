@@ -1,0 +1,43 @@
+{
+  "schema": "walnutpi.screen.v1",
+  "id": "walnutpi-lvgl-status",
+  "title": "WalnutPi",
+  "subtitle": "server screen",
+  "target": {
+    "runtime": "lvgl-fbdev",
+    "display": "/dev/fb0",
+    "width": 480,
+    "height": 320,
+    "color": "RGB565"
+  },
+  "source": {
+    "lvglEntry": "lvgl_app/src/main.c",
+    "command": "walnut screen start"
+  },
+  "pages": [
+    {
+      "id": "home",
+      "tab": "HOME",
+      "status": "OK CORE",
+      "metrics": ["IP loading", "MEM --", "DISK --"]
+    },
+    {
+      "id": "system",
+      "tab": "SYS",
+      "title": "System",
+      "lines": ["CPU load", "Memory", "Disk", "Uptime"]
+    },
+    {
+      "id": "ai",
+      "tab": "AI",
+      "title": "AI Agent",
+      "lines": ["Local shell online", "Cloud model ready", "Screen cards active"]
+    },
+    {
+      "id": "network",
+      "tab": "NET",
+      "title": "Network",
+      "lines": ["IP", "FRP", "SSH", "Display fbdev"]
+    }
+  ]
+}

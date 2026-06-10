@@ -10,8 +10,13 @@ const SSH_HOST = process.env.SSH_HOST || "192.168.1.24";
 const SSH_USER = process.env.SSH_USER || "root";
 const SSH_PASSWORD = process.env.SSH_PASSWORD || "root";
 const REMOTE_PROJECT_ROOT = process.env.WALNUT_REMOTE_PROJECT_ROOT || process.env.WALNUT_PROJECT_ROOT || "/home/pi/projects/WalnutPi";
+const REMOTE_BUILD_USER = process.env.WALNUT_REMOTE_BUILD_USER || "pi";
 const BASE_DIR = import.meta.dir;
+const PROJECT_ROOT = path.resolve(BASE_DIR, "..");
 const MODEL_FILE = "0c6390ea8b1ccf186ec099456954fd42.glb";
+const SCREEN_MANIFEST_PATH = process.env.WALNUT_SCREEN_MANIFEST_PATH
+  ? path.resolve(process.env.WALNUT_SCREEN_MANIFEST_PATH)
+  : path.join(PROJECT_ROOT, "lvgl_app", "screen-manifest.json");
 const ACTION_OUTPUT_LIMIT = 24_000;
 const CAPTURE_OUTPUT_LIMIT = 1_500_000;
 const SCREEN_FRAME_TICKET_TTL_MS = 10 * 60_000;
@@ -21,50 +26,6 @@ const SCREEN_RECORD_LIMIT = Number.isFinite(parsedScreenRecordLimit) && parsedSc
   : 50;
 const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BASE_DIR, "screen-sync-records");
 const screenFrameTickets = new Map();
-
-const SCREEN_MANIFEST = {
-  schema: "walnutpi.screen.v1",
-  id: "walnutpi-lvgl-status",
-  title: "WalnutPi",
-  subtitle: "server screen",
-  target: {
-    runtime: "lvgl-fbdev",
-    display: "/dev/fb0",
-    width: 480,
-    height: 320,
-    color: "RGB565",
-  },
-  source: {
-    lvglEntry: "lvgl_app/src/main.c",
-    command: "walnut screen start",
-  },
-  pages: [
-    {
-      id: "home",
-      tab: "HOME",
-      status: "OK CORE",
-      metrics: ["IP loading", "MEM --", "DISK --"],
-    },
-    {
-      id: "system",
-      tab: "SYS",
-      title: "System",
-      lines: ["CPU load", "Memory", "Disk", "Uptime"],
-    },
-    {
-      id: "ai",
-      tab: "AI",
-      title: "AI Agent",
-      lines: ["Local shell online", "Cloud model ready", "Screen cards active"],
-    },
-    {
-      id: "network",
-      tab: "NET",
-      title: "Network",
-      lines: ["IP", "FRP", "SSH", "Display fbdev"],
-    },
-  ],
-};
 
 const files = new Map([
   ["/", "model-terminal.html"],
@@ -109,7 +70,33 @@ function previewOnlyJson() {
 async function previewOnlyScreenSyncResult(req) {
   const startedAt = new Date();
   const buildId = `screen-${startedAt.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
-  const { manifest, manifestHash } = screenManifestEnvelope();
+  let envelope;
+  try {
+    envelope = await screenManifestEnvelope();
+  } catch (error) {
+    return persistScreenSyncResult({
+      ok: false,
+      title: "同步到核桃派",
+      risk: "preview",
+      mode: "preview",
+      buildId,
+      startedAt: startedAt.toISOString(),
+      manifest: null,
+      manifestHash: null,
+      deliveryManifest: null,
+      deliveryHash: null,
+      artifactHash: null,
+      evidence: null,
+      screenEvidence: null,
+      screenFrameUrl: null,
+      command: null,
+      code: 1,
+      output: error.message,
+      summary: "screen manifest 无法读取或格式无效，请先修复小屏 contract。",
+      failedStage: "manifest",
+    }, {}, 500);
+  }
+  const { manifest, manifestHash } = envelope;
   let clientManifestHash = null;
   try {
     const body = await req.json();
@@ -160,6 +147,11 @@ function sha256(value) {
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function remoteBuildShell(command) {
+  if (!REMOTE_BUILD_USER) return command;
+  return `sudo -n -u ${shellQuote(REMOTE_BUILD_USER)} sh -lc ${shellQuote(command)}`;
 }
 
 function limitedOutput(value, limit = ACTION_OUTPUT_LIMIT) {
@@ -696,10 +688,64 @@ function firstFailure(buildResult, artifactHash, activateResult, stateResult, fr
   return null;
 }
 
-function screenManifestEnvelope() {
-  const serializedManifest = stableStringify(SCREEN_MANIFEST);
+function validateScreenManifest(manifest) {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new Error("screen manifest must be a JSON object");
+  }
+  if (manifest.schema !== "walnutpi.screen.v1") {
+    throw new Error("screen manifest schema must be walnutpi.screen.v1");
+  }
+  if (!manifest.id || typeof manifest.id !== "string") {
+    throw new Error("screen manifest id is required");
+  }
+  if (!manifest.target || typeof manifest.target !== "object" || Array.isArray(manifest.target)) {
+    throw new Error("screen manifest target is required");
+  }
+  if (!Number.isInteger(manifest.target.width) || manifest.target.width <= 0) {
+    throw new Error("screen manifest target.width must be a positive integer");
+  }
+  if (!Number.isInteger(manifest.target.height) || manifest.target.height <= 0) {
+    throw new Error("screen manifest target.height must be a positive integer");
+  }
+  if (manifest.target.color !== "RGB565") {
+    throw new Error("screen manifest target.color must be RGB565");
+  }
+  if (!manifest.target.display || typeof manifest.target.display !== "string") {
+    throw new Error("screen manifest target.display is required");
+  }
+  if (!manifest.source || typeof manifest.source !== "object" || Array.isArray(manifest.source)) {
+    throw new Error("screen manifest source is required");
+  }
+  if (!manifest.source.lvglEntry || typeof manifest.source.lvglEntry !== "string") {
+    throw new Error("screen manifest source.lvglEntry is required");
+  }
+  if (!manifest.source.command || typeof manifest.source.command !== "string") {
+    throw new Error("screen manifest source.command is required");
+  }
+  if (!Array.isArray(manifest.pages) || manifest.pages.length === 0) {
+    throw new Error("screen manifest pages must be a non-empty array");
+  }
+  for (const [index, page] of manifest.pages.entries()) {
+    if (!page || typeof page !== "object" || Array.isArray(page)) {
+      throw new Error(`screen manifest pages[${index}] must be an object`);
+    }
+    if (!page.id || typeof page.id !== "string") {
+      throw new Error(`screen manifest pages[${index}].id is required`);
+    }
+  }
+}
+
+async function screenManifestEnvelope() {
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(SCREEN_MANIFEST_PATH, "utf8"));
+  } catch (error) {
+    throw new Error(`failed to read screen manifest ${SCREEN_MANIFEST_PATH}: ${error.message}`);
+  }
+  validateScreenManifest(manifest);
+  const serializedManifest = stableStringify(manifest);
   return {
-    manifest: SCREEN_MANIFEST,
+    manifest,
     manifestHash: sha256(serializedManifest),
   };
 }
@@ -707,7 +753,37 @@ function screenManifestEnvelope() {
 async function handleScreenSync(req) {
   const startedAt = new Date();
   const buildId = `screen-${startedAt.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
-  const { manifest, manifestHash } = screenManifestEnvelope();
+  let envelope;
+  try {
+    envelope = await screenManifestEnvelope();
+  } catch (error) {
+    return persistScreenSyncResult(
+      {
+        title: "同步到核桃派",
+        buildId,
+        startedAt: startedAt.toISOString(),
+        manifest: null,
+        manifestHash: null,
+        ok: false,
+        risk: "write-low",
+        mode: "remote",
+        failedStage: "manifest",
+        deliveryManifest: null,
+        deliveryHash: null,
+        artifactHash: null,
+        evidence: null,
+        screenEvidence: null,
+        screenFrameUrl: null,
+        command: null,
+        code: 1,
+        summary: "screen manifest 无法读取或格式无效，请先修复小屏 contract。",
+        output: error.message,
+      },
+      {},
+      500,
+    );
+  }
+  const { manifest, manifestHash } = envelope;
   const baseResult = {
     title: "同步到核桃派",
     buildId,
@@ -799,16 +875,17 @@ async function handleScreenSync(req) {
     'cd "$ROOT"',
     "scripts/build-lvgl-app.sh",
   ].join("; ");
+  const remoteBuildCommand = remoteBuildShell(buildCommand);
+  const artifactCommand = remoteBuildShell(
+    `set -e; ROOT=${shellQuote(REMOTE_PROJECT_ROOT)}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk '{print $1}'`,
+  );
   const activateCommand = "sudo -n walnut screen start";
   const stateCommand = "walnut screen state";
   const frameCommand = "sudo -n walnut screen frame";
 
-  const buildResult = await runRemote(buildCommand, 120_000);
+  const buildResult = await runRemote(remoteBuildCommand, 120_000);
   const artifactResult = buildResult.ok
-    ? await runRemote(
-        `set -e; ROOT=${shellQuote(REMOTE_PROJECT_ROOT)}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk '{print $1}'`,
-        10_000,
-      )
+    ? await runRemote(artifactCommand, 10_000)
     : { ok: false, code: null, output: "skipped because build failed" };
   const artifactHash = artifactResult.ok ? artifactResult.output.trim().split(/\s+/)[0] : null;
   const artifactHashValid = validSha256(artifactHash);
@@ -826,6 +903,7 @@ async function handleScreenSync(req) {
     target: {
       host: SSH_HOST,
       user: SSH_USER,
+      buildUser: REMOTE_BUILD_USER || SSH_USER,
       projectRoot: REMOTE_PROJECT_ROOT,
       display: manifest.target.display,
       activate: activateCommand,
@@ -924,7 +1002,7 @@ async function handleScreenSync(req) {
     evidence: screenEvidence,
     screenEvidence,
     screenFrameUrl: frameImageUrl,
-    command: `${buildCommand}\n${activateCommand}\n${stateCommand}\n${frameCommand}`,
+    command: `${remoteBuildCommand}\n${activateCommand}\n${stateCommand}\n${frameCommand}`,
     code: failure ? 1 : 0,
     output,
     summary: failure
@@ -1171,7 +1249,19 @@ const server = Bun.serve({
     }
 
     if (url.pathname === "/api/screen/manifest") {
-      return json(screenManifestEnvelope());
+      try {
+        return json(await screenManifestEnvelope());
+      } catch (error) {
+        return json(
+          {
+            ok: false,
+            error: "screen manifest invalid",
+            summary: "screen manifest 无法读取或格式无效，请先修复小屏 contract。",
+            output: error.message,
+          },
+          500,
+        );
+      }
     }
 
     if (url.pathname === "/api/screen/sync") {

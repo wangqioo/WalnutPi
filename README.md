@@ -187,6 +187,8 @@ Web 端读取 screen manifest
 -> 读取 walnut screen state、framebuffer frame hash 和结构性画面回证
 ```
 
+当前小屏 contract 保存在 `lvgl_app/screen-manifest.json`。Web 预览、`manifestHash` 校验和 delivery manifest 都从这个文件派生；可用 `WALNUT_SCREEN_MANIFEST_PATH` 指向另一个 manifest 进行本地验证。
+
 运行本地控制台：
 
 ```bash
@@ -230,18 +232,18 @@ Web manifest -> POST /api/screen/sync -> LVGL build -> sudo -n walnut screen sta
 真机验证时遇到过两个环境问题：
 
 - 用默认 `root` SSH 登录时，远端 `$HOME/projects/WalnutPi` 会变成 `/root/projects/WalnutPi`，但实际 checkout 在 `/home/pi/projects/WalnutPi`。
-- 改用 `pi` 登录后，旧的 root-owned `build/` 目录会导致 CMake 无法写入 `lvgl.pc.tmp`、`lv_version.h.tmp` 和 `CMakeCache.txt`。
+- 旧的 root-owned `build/lvgl_app` 文件会导致 `pi` 构建时无法写入 `lvgl.pc.tmp`、`lv_version.h.tmp` 和 `CMakeCache.txt`。
 
 当前常用 root/root 环境可以直接显式指定远端 checkout：
 
 ```bash
-SSH_USER=root SSH_PASSWORD=root WALNUT_REMOTE_PROJECT_ROOT=/home/pi/projects/WalnutPi bun web-interface/model-terminal-server.js
+SSH_USER=root SSH_PASSWORD=root WALNUT_REMOTE_PROJECT_ROOT=/home/pi/projects/WalnutPi WALNUT_REMOTE_BUILD_USER=pi bun web-interface/model-terminal-server.js
 ```
 
-如果改用 `pi` 运行 Web 同步，需要把远端构建目录修回 `pi:pi`：
+Web 同步默认用 `pi` 执行 LVGL build。若历史构建留下 root-owned 文件，需要把远端构建目录修回 `pi:pi`：
 
 ```bash
-sudo chown -R pi:pi /home/pi/projects/WalnutPi/build
+sudo chown -R pi:pi /home/pi/projects/WalnutPi/build/lvgl_app
 ```
 
 ### 中文本地控制台

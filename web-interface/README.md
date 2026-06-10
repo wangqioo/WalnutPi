@@ -99,6 +99,7 @@ Web preview
 
 The web server exposes the current screen contract at `GET /api/screen/manifest`.
 The browser renders its preview from that manifest, and `POST /api/screen/sync` refuses to run when the browser sends a missing, malformed, or stale manifest hash.
+The default contract is `../lvgl_app/screen-manifest.json`; set `WALNUT_SCREEN_MANIFEST_PATH` to validate another manifest without changing the server code.
 
 The first delivery adapter is deliberately narrow:
 
@@ -122,6 +123,7 @@ Current verification status:
 - A real-device sync run has completed through build, activation, and `walnut screen state`; evidence reported `walnut-screen.service active`. The current sync path also requires `sudo -n walnut screen frame` to return valid framebuffer metadata and a raw frame SHA-256 hash. The optional frame image route captures PNG evidence only when a developer opens diagnostics.
 
 Remote checkout note: Web sync sends an explicit remote project root. `WALNUT_REMOTE_PROJECT_ROOT` defaults to `/home/pi/projects/WalnutPi`, so the current root/root SSH setup does not accidentally resolve the checkout as `/root/projects/WalnutPi`. Override `WALNUT_REMOTE_PROJECT_ROOT` if the device checkout moves.
+Build ownership note: Web sync may SSH as root for device control, but LVGL build and artifact hash run as `WALNUT_REMOTE_BUILD_USER`, defaulting to `pi`, so `build/lvgl_app` stays writable for normal project work.
 
 ### Real-Device Verification Notes
 
