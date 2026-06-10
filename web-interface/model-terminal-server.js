@@ -7,6 +7,7 @@ const PORT = Number(process.env.PORT || 4173);
 const SSH_HOST = process.env.SSH_HOST || "192.168.1.24";
 const SSH_USER = process.env.SSH_USER || "root";
 const SSH_PASSWORD = process.env.SSH_PASSWORD || "root";
+const REMOTE_PROJECT_ROOT = process.env.WALNUT_REMOTE_PROJECT_ROOT || process.env.WALNUT_PROJECT_ROOT || "/home/pi/projects/WalnutPi";
 const BASE_DIR = import.meta.dir;
 const MODEL_FILE = "0c6390ea8b1ccf186ec099456954fd42.glb";
 const ACTION_OUTPUT_LIMIT = 24_000;
@@ -454,7 +455,7 @@ async function handleScreenSync(req) {
 
   const buildCommand = [
     "set -e",
-    "ROOT=${WALNUT_PROJECT_ROOT:-$HOME/projects/WalnutPi}",
+    `ROOT=${shellQuote(REMOTE_PROJECT_ROOT)}`,
     'cd "$ROOT"',
     "scripts/build-lvgl-app.sh",
   ].join("; ");
@@ -465,7 +466,7 @@ async function handleScreenSync(req) {
   const buildResult = await runRemote(buildCommand, 120_000);
   const artifactResult = buildResult.ok
     ? await runRemote(
-        'set -e; ROOT=${WALNUT_PROJECT_ROOT:-$HOME/projects/WalnutPi}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk \'{print $1}\'',
+        `set -e; ROOT=${shellQuote(REMOTE_PROJECT_ROOT)}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk '{print $1}'`,
         10_000,
       )
     : { ok: false, code: null, output: "skipped because build failed" };
@@ -485,6 +486,7 @@ async function handleScreenSync(req) {
     target: {
       host: SSH_HOST,
       user: SSH_USER,
+      projectRoot: REMOTE_PROJECT_ROOT,
       display: manifest.target.display,
       activate: activateCommand,
       evidence: [stateCommand, frameCommand],
@@ -886,3 +888,4 @@ const server = Bun.serve({
 
 console.log(`Serving model terminal at http://${server.hostname}:${server.port}/`);
 console.log(`Target: ${SSH_USER}@${SSH_HOST}`);
+console.log(`Remote project root: ${REMOTE_PROJECT_ROOT}`);

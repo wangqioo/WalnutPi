@@ -118,7 +118,7 @@ Current verification status:
 - The delivery manifest/hash commits to the artifact hash and screen manifest hash.
 - A real-device sync run has completed through build, activation, and `walnut screen state`; evidence reported `walnut-screen.service active`. The current sync path also requires `sudo -n walnut screen frame` to return valid framebuffer metadata and a raw frame SHA-256 hash. The optional frame image route captures PNG evidence only when a developer opens diagnostics.
 
-Remote checkout note: when syncing as `pi`, the WalnutPi checkout is expected at `/home/pi/projects/WalnutPi`. Keep `/home/pi/projects/WalnutPi/build` owned by `pi:pi`; a root-owned build directory blocks CMake from writing LVGL generated files.
+Remote checkout note: Web sync sends an explicit remote project root. `WALNUT_REMOTE_PROJECT_ROOT` defaults to `/home/pi/projects/WalnutPi`, so the current root/root SSH setup does not accidentally resolve the checkout as `/root/projects/WalnutPi`. Override `WALNUT_REMOTE_PROJECT_ROOT` if the device checkout moves.
 
 ### Real-Device Verification Notes
 
@@ -130,7 +130,7 @@ The first real-device verification hit two environment issues before the loop pa
    sh: 1: cd: can't cd to /root/projects/WalnutPi
    ```
 
-2. Setting `WALNUT_PROJECT_ROOT` on the local Bun process did not make the remote SSH shell see that variable. Running the sync as `pi@192.168.1.24` reached the correct checkout, but CMake failed because previous builds had left root-owned files under `build/`:
+2. Before the server sent an explicit remote project root, setting `WALNUT_PROJECT_ROOT` on the local Bun process did not make the remote SSH shell see that variable. Running the sync as `pi@192.168.1.24` reached the correct checkout, but CMake failed because previous builds had left root-owned files under `build/`:
 
    ```text
    Permission denied
@@ -145,7 +145,7 @@ The first real-device verification hit two environment issues before the loop pa
    sudo chown -R pi:pi /home/pi/projects/WalnutPi/build
    ```
 
-After that repair, running the Web server with `SSH_USER=pi` completed the sync. The successful evidence was:
+After that repair, running the Web server with the correct remote project root completed the sync. The successful evidence was:
 
 ```text
 == Screen ==

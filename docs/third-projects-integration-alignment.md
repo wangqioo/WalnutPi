@@ -357,9 +357,9 @@ vtcon1 bind                        0
 验证中遇到的环境问题：
 
 - 默认 `root@192.168.1.24` 登录会让远端 `$HOME/projects/WalnutPi` 指向 `/root/projects/WalnutPi`，但实际 checkout 在 `/home/pi/projects/WalnutPi`。
-- 本地 Bun 进程设置 `WALNUT_PROJECT_ROOT=/home/pi/projects/WalnutPi` 不会自动传进远端 SSH shell。
+- Web 同步现在把远端项目根显式写入构建命令；`WALNUT_REMOTE_PROJECT_ROOT` / `WALNUT_PROJECT_ROOT` 默认指向 `/home/pi/projects/WalnutPi`，避免 root 登录时走错 checkout。
 - 改用 `pi@192.168.1.24` 后能到正确 checkout，但旧的 root-owned `build/` 目录会让 CMake 写入 `lvgl.pc.tmp`、`lv_version.h.tmp`、`CMakeCache.txt` 失败。
-- 本次只做了作用域明确的修复：`sudo chown -R pi:pi /home/pi/projects/WalnutPi/build`。
+- 如果改用 `pi` 执行同步，需要确保 `build/` 归 `pi:pi` 所有；root/root 环境可以继续通过显式远端项目根执行。
 
 这比先做完整项目编辑器或完整代码生成更简单，但保留了 VibeBoard 的关键链路：artifact、manifest、delivery adapter、device evidence。
 

@@ -33,6 +33,7 @@ The implemented first slice is intentionally narrow:
 - Sync uses `POST /api/screen/sync`.
 - The request must include the current `manifestHash`; missing, invalid, or stale hashes must be rejected before any build or SSH action.
 - Build uses `scripts/build-lvgl-app.sh`.
+- Remote build root is explicit: `WALNUT_REMOTE_PROJECT_ROOT`, falling back to `WALNUT_PROJECT_ROOT`, then `/home/pi/projects/WalnutPi`.
 - Activation uses `sudo -n walnut screen start`.
 - Evidence uses `walnut screen state` and `sudo -n walnut screen frame`.
 - Diagnostics-only screenshots use `walnut screen capture`, a read-only PNG capture command that returns metadata by default and optional `pngBase64` only for the on-demand frame route.

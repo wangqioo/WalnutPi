@@ -220,14 +220,20 @@ http://127.0.0.1:4173/?nossh
 Web manifest -> POST /api/screen/sync -> LVGL build -> sudo -n walnut screen start -> walnut screen state -> sudo -n walnut screen frame -> diagnostics-only walnut screen capture
 ```
 
-验证时 `artifactHash` 和 `deliveryHash` 都是 64 位 SHA-256/hex，设备回证显示 `walnut-screen.service` 为 `active`。如果远端 checkout 在 `/home/pi/projects/WalnutPi`，确保 `build/` 归 `pi:pi` 所有；root 拥有的旧构建目录会导致 CMake 写入失败。
+验证时 `artifactHash` 和 `deliveryHash` 都是 64 位 SHA-256/hex，设备回证显示 `walnut-screen.service` 为 `active`。Web 同步会把远端 checkout 显式设为 `WALNUT_REMOTE_PROJECT_ROOT`，默认是 `/home/pi/projects/WalnutPi`，避免 root 登录时误进 `/root/projects/WalnutPi`。
 
 真机验证时遇到过两个环境问题：
 
 - 用默认 `root` SSH 登录时，远端 `$HOME/projects/WalnutPi` 会变成 `/root/projects/WalnutPi`，但实际 checkout 在 `/home/pi/projects/WalnutPi`。
 - 改用 `pi` 登录后，旧的 root-owned `build/` 目录会导致 CMake 无法写入 `lvgl.pc.tmp`、`lv_version.h.tmp` 和 `CMakeCache.txt`。
 
-对应处理是用 `SSH_USER=pi` 运行 Web 同步，并把远端构建目录修回 `pi:pi`：
+当前常用 root/root 环境可以直接显式指定远端 checkout：
+
+```bash
+SSH_USER=root SSH_PASSWORD=root WALNUT_REMOTE_PROJECT_ROOT=/home/pi/projects/WalnutPi bun web-interface/model-terminal-server.js
+```
+
+如果改用 `pi` 运行 Web 同步，需要把远端构建目录修回 `pi:pi`：
 
 ```bash
 sudo chown -R pi:pi /home/pi/projects/WalnutPi/build
