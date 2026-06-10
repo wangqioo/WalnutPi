@@ -98,7 +98,7 @@ Web preview
 ```
 
 The web server exposes the current screen contract at `GET /api/screen/manifest`.
-The browser renders its preview from that manifest, and `POST /api/screen/sync` refuses to run when the browser sends a stale manifest hash.
+The browser renders its preview from that manifest, and `POST /api/screen/sync` refuses to run when the browser sends a missing, malformed, or stale manifest hash.
 
 The first delivery adapter is deliberately narrow:
 
@@ -109,6 +109,49 @@ The first delivery adapter is deliberately narrow:
 
 Beginner UI only shows `未同步`, `同步中`, `已同步到核桃派`, or `同步失败`.
 `buildId`, screen manifest hash, artifact hash, delivery hash, command output, and screen-state evidence stay in the developer diagnostics panel.
+
+Current verification status:
+
+- `?nossh` is preview-only. Server routes reject screen sync, remote actions, and terminal connections before SSH/build/device-write paths.
+- Activation is gated on a real artifact SHA-256 hash.
+- The delivery manifest/hash commits to the artifact hash and screen manifest hash.
+- A real-device sync run has completed through build, activation, and `walnut screen state`; evidence reported `walnut-screen.service active`.
+
+Remote checkout note: when syncing as `pi`, the WalnutPi checkout is expected at `/home/pi/projects/WalnutPi`. Keep `/home/pi/projects/WalnutPi/build` owned by `pi:pi`; a root-owned build directory blocks CMake from writing LVGL generated files.
+
+### Real-Device Verification Notes
+
+The first real-device verification hit two environment issues before the loop passed:
+
+1. Default `root@192.168.1.24` login resolved the remote project root as `/root/projects/WalnutPi`, but the checkout was actually at `/home/pi/projects/WalnutPi`. The sync failed at build stage with:
+
+   ```text
+   sh: 1: cd: can't cd to /root/projects/WalnutPi
+   ```
+
+2. Setting `WALNUT_PROJECT_ROOT` on the local Bun process did not make the remote SSH shell see that variable. Running the sync as `pi@192.168.1.24` reached the correct checkout, but CMake failed because previous builds had left root-owned files under `build/`:
+
+   ```text
+   Permission denied
+   /home/pi/projects/WalnutPi/build/lvgl_app/lvgl/lvgl.pc.tmp
+   /home/pi/projects/WalnutPi/build/lvgl_app/lvgl/lv_version.h.tmp
+   /home/pi/projects/WalnutPi/build/lvgl_app/CMakeCache.txt
+   ```
+
+   The scoped repair was:
+
+   ```bash
+   sudo chown -R pi:pi /home/pi/projects/WalnutPi/build
+   ```
+
+After that repair, running the Web server with `SSH_USER=pi` completed the sync. The successful evidence was:
+
+```text
+== Screen ==
+walnut-screen.service              active
+walnut-framebuffer-status.service  inactive
+vtcon1 bind                        0
+```
 
 Suggested placeholder:
 

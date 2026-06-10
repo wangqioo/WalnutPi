@@ -297,9 +297,9 @@ skills 的目标是把 AI 回答限制在核桃派上下文内。
 - 不把终端娱乐 demo 当成主线。
 - 不公开暴露 SSH / root shell。
 
-## 候选第一实现切片
+## 第一实现切片状态
 
-当前还没有进入实现阶段。需求确认后，建议第一切片只选一个最小闭环：
+当前第一切片已经落地为一个最小闭环：
 
 ```text
 Web 端显示一个 LVGL 界面
@@ -310,17 +310,49 @@ Web 端显示一个 LVGL 界面
 -> 必要时开发者诊断层可查看日志和回证
 ```
 
-成功标准：
+已完成的安全和诊断边界：
 
-- 用户不用手写命令，也不用理解编译、manifest 或烧录细节。
-- Web 端先能看到要同步的界面。
-- 点击“同步到核桃派”后，核桃派真实屏幕最终显示同一界面，允许延迟。
-- Web 面向小白只显示同步状态和可理解的失败建议。
-- 开发者诊断层能判断当前同步画面对应哪个 `buildId` / artifact hash。
-- 失败时开发者能看到第一处错误、日志摘要和设备回证。
-- 当前 `walnut screen lvgl`、CLI、SSH 使用方式不被破坏。
+- `POST /api/screen/sync` 要求提交当前 `manifestHash`。
+- 缺失、非法格式或过期的 `manifestHash` 会在构建 / SSH / 激活前拒绝。
+- `?nossh` 是 preview-only；后端会阻止 sync、action 和 terminal 进入 SSH / 构建 / 设备写入路径。
+- 构建使用 `scripts/build-lvgl-app.sh`。
+- 激活使用 `sudo -n walnut screen start`。
+- 回证使用 `walnut screen state`。
+- artifact evidence 使用真实 SHA-256；artifact hash 非法时不会激活设备。
+- delivery manifest / delivery hash 提交 artifact hash 和 screen manifest hash。
+- 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败` 等可理解状态。
+- `buildId`、hash、delivery manifest、命令输出和设备回证只进入开发者诊断层。
+- 当前 `walnut screen lvgl`、`walnut screen start`、`walnut screen stop`、`walnut screen toggle`、`walnut screen state` 行为没有被改动。
+
+真机闭环已经通过一次验证：
+
+```text
+GET /api/screen/manifest
+-> POST /api/screen/sync
+-> LVGL build
+-> sudo -n walnut screen start
+-> walnut screen state
+```
+
+成功回证：
+
+```text
+== Screen ==
+walnut-screen.service              active
+walnut-framebuffer-status.service  inactive
+vtcon1 bind                        0
+```
+
+验证中遇到的环境问题：
+
+- 默认 `root@192.168.1.24` 登录会让远端 `$HOME/projects/WalnutPi` 指向 `/root/projects/WalnutPi`，但实际 checkout 在 `/home/pi/projects/WalnutPi`。
+- 本地 Bun 进程设置 `WALNUT_PROJECT_ROOT=/home/pi/projects/WalnutPi` 不会自动传进远端 SSH shell。
+- 改用 `pi@192.168.1.24` 后能到正确 checkout，但旧的 root-owned `build/` 目录会让 CMake 写入 `lvgl.pc.tmp`、`lv_version.h.tmp`、`CMakeCache.txt` 失败。
+- 本次只做了作用域明确的修复：`sudo chown -R pi:pi /home/pi/projects/WalnutPi/build`。
 
 这比先做完整项目编辑器或完整代码生成更简单，但保留了 VibeBoard 的关键链路：artifact、manifest、delivery adapter、device evidence。
+
+下一阶段应该把 `walnut screen state` 升级为真实屏幕画面证据，例如 framebuffer 截图或等价 screen frame。这样 Web 不只知道服务是 active，还能判断“核桃派真实屏幕是否显示了和 Web 预览一致的界面”。
 
 ## 待确认问题
 
