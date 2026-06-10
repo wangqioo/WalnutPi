@@ -324,6 +324,7 @@ Web 端显示一个 LVGL 界面
 - 缺失、非法格式或过期的 `manifestHash` 会在构建 / SSH / 激活前拒绝。
 - `?nossh` 是 preview-only；后端会阻止 sync、action 和 terminal 进入 SSH / 构建 / 设备写入路径。
 - 构建使用 `scripts/build-lvgl-app.sh`。
+- 第一版 delivery adapter 已拆为 `web-interface/screen-delivery-adapters/ssh-local-agent.js`；当前只支持 SSH / local-agent 路径。
 - 激活使用 `sudo -n walnut screen start`。
 - 回证使用 `walnut screen state` 和 `sudo -n walnut screen frame`。
 - 诊断图片使用 `GET /api/screen/frame/<buildId>` 按需触发只读 `walnut screen capture --png-base64`，默认同步 JSON 不嵌入 PNG 或 base64。
@@ -361,7 +362,7 @@ vtcon1 bind                        0
 - Web 同步可以继续用 root SSH 连接设备，但 LVGL build 应由 `WALNUT_REMOTE_BUILD_USER=pi` 执行，避免构建产物被 root 拥有。
 - 旧的 root-owned `build/lvgl_app` 文件会让 `pi` 构建时无法写入 `lvgl.pc.tmp`、`lv_version.h.tmp`、`CMakeCache.txt`；需要把该目录修回 `pi:pi`。
 
-这比先做完整项目编辑器或完整代码生成更简单，但保留了 VibeBoard 的关键链路：artifact、manifest、delivery adapter、device evidence。
+这比先做完整项目编辑器或完整代码生成更简单，但保留了 VibeBoard 的关键链路：artifact、manifest、delivery adapter、device evidence。后续 USB、eMMC、系统镜像或其他交付方式应作为新的 adapter 增加，而不是塞回 Web route。
 
 当前阶段已经把等价 screen frame 回证升级为结构性画面回证：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查和按需 PNG 截图。后续如果要做更强一致性，可以继续加入 Web 预览与 LVGL framebuffer 的像素级或语义级 diff。
 
