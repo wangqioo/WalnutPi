@@ -424,6 +424,12 @@
         gap: 8px;
       }
 
+      .workflow-action-buttons {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
       .sync-summary {
         overflow: hidden;
         color: var(--muted);
@@ -456,6 +462,16 @@
       .sync-button:disabled {
         cursor: wait;
         opacity: 0.62;
+      }
+
+      .secondary-sync-button {
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text);
+      }
+
+      .secondary-sync-button:hover,
+      .secondary-sync-button:focus-visible {
+        background: rgba(255, 255, 255, 0.14);
       }
 
       .sync-button svg {
@@ -1105,6 +1121,12 @@
           grid-template-columns: 1fr;
         }
 
+        .workflow-action-buttons {
+          display: grid;
+          grid-template-columns: 1fr;
+          width: 100%;
+        }
+
         .sync-button {
           width: 100%;
         }
@@ -1209,14 +1231,19 @@
 
           <div class="workflow-actions">
             <div class="sync-summary" id="syncSummary">Web 端已准备预览。</div>
-            <button class="sync-button" id="syncScreen" type="button" disabled>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M12 3v12" />
-                <path d="m7 10 5 5 5-5" />
-                <path d="M5 21h14" />
-              </svg>
-              <span>同步到核桃派</span>
-            </button>
+            <div class="workflow-action-buttons">
+              <button class="sync-button secondary-sync-button" id="aiSummaryButton" type="button" disabled>
+                <span>生成 AI 总结</span>
+              </button>
+              <button class="sync-button" id="syncScreen" type="button" disabled>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3v12" />
+                  <path d="m7 10 5 5 5-5" />
+                  <path d="M5 21h14" />
+                </svg>
+                <span>同步到核桃派</span>
+              </button>
+            </div>
           </div>
 
           <div class="repair-panel" id="repairPanel" hidden>
@@ -1270,6 +1297,10 @@
               <div class="diagnostic-section">
                 <span class="diagnostic-label">repair candidate</span>
                 <pre class="diagnostic-output" id="diagRepairCandidate">等待同步。</pre>
+              </div>
+              <div class="diagnostic-section">
+                <span class="diagnostic-label">ai summary</span>
+                <pre class="diagnostic-output" id="diagAiSummary">等待同步。</pre>
               </div>
               <div class="diagnostic-section" id="diagDeviceFrameSection" hidden>
                 <span class="diagnostic-label">device frame</span>
@@ -1451,6 +1482,7 @@
       const screenPreview = document.querySelector("#screenPreview");
       const syncState = document.querySelector("#syncState");
       const syncSummary = document.querySelector("#syncSummary");
+      const aiSummaryButton = document.querySelector("#aiSummaryButton");
       const syncScreen = document.querySelector("#syncScreen");
       const templateStrip = document.querySelector("#templateStrip");
       const screenIntentForm = document.querySelector("#screenIntentForm");
@@ -1471,6 +1503,7 @@
       const diagVisualSignature = document.querySelector("#diagVisualSignature");
       const diagRepairHint = document.querySelector("#diagRepairHint");
       const diagRepairCandidate = document.querySelector("#diagRepairCandidate");
+      const diagAiSummary = document.querySelector("#diagAiSummary");
       const diagDeviceFrameSection = document.querySelector("#diagDeviceFrameSection");
       const diagDeviceFrame = document.querySelector("#diagDeviceFrame");
       const diagOutput = document.querySelector("#diagOutput");
@@ -1480,6 +1513,7 @@
       let currentManifestHash = "";
       let currentTemplateId = "";
       let currentRepairBuildId = "";
+      let currentSummaryBuildId = "";
       let lastHistoryLoadAt = 0;
 
       const controlsById = {
@@ -1817,6 +1851,7 @@
           failedStage: record.failedStage,
           repairHint: record.repairHint,
           repairCandidate: record.repairCandidate || null,
+          aiSummary: record.aiSummary || null,
         };
       }
 
@@ -1844,8 +1879,15 @@
         refreshDeviceFrame();
       }
 
-      function clearRepairPanel() {
+      function clearRepairPanel(options = {}) {
+        const resetSummary = options.resetSummary !== false;
         currentRepairBuildId = "";
+        if (resetSummary) {
+          currentSummaryBuildId = "";
+          aiSummaryButton.disabled = true;
+          aiSummaryButton.textContent = "生成 AI 总结";
+          diagAiSummary.textContent = "等待同步。";
+        }
         repairPanel.hidden = true;
         repairTitle.textContent = "同步修复建议";
         repairReason.textContent = "";
@@ -1895,6 +1937,36 @@
           ? "需要确认后才能执行。"
           : "当前不会自动修改文件、连接核桃派或重新同步。";
         repairActions.append(safety);
+      }
+
+      function renderAiSummary(aiSummary, options = {}) {
+        if (!aiSummary) return;
+        const text = aiSummary.summary || "已生成同步总结。";
+        syncSummary.textContent = text;
+        diagAiSummary.textContent = formatDiagnosticJson(aiSummary);
+        if (options.addChat !== false) addMessage("assistant", text);
+      }
+
+      async function loadAiSummary(buildId = currentSummaryBuildId) {
+        if (!buildId) return;
+        aiSummaryButton.disabled = true;
+        aiSummaryButton.textContent = "总结中";
+        try {
+          const response = await fetch(withCurrentSearch("/api/screen/ai-summary"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ buildId }),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.summary || data.error || "ai summary failed");
+          currentSummaryBuildId = data.buildId || buildId;
+          renderAiSummary(data.aiSummary);
+        } catch (error) {
+          diagAiSummary.textContent = `无法生成 AI 总结：${error.message}`;
+        } finally {
+          aiSummaryButton.disabled = !currentSummaryBuildId;
+          aiSummaryButton.textContent = "生成 AI 总结";
+        }
       }
 
       async function loadRepairPlan(buildId = currentRepairBuildId) {
@@ -2103,6 +2175,9 @@
       }
 
       function updateDiagnostics(result, options = {}) {
+        currentSummaryBuildId = result.buildId || "";
+        aiSummaryButton.disabled = !currentSummaryBuildId;
+        aiSummaryButton.textContent = "生成 AI 总结";
         diagBuildId.textContent = result.buildId || "-";
         diagManifestHash.textContent = shortHash(result.manifestHash || currentManifestHash);
         diagArtifactHash.textContent = shortHash(result.artifactHash);
@@ -2112,10 +2187,11 @@
         diagVisualSignature.textContent = formatDiagnosticJson(result.screenEvidence?.semantic || result.visualSignature);
         diagRepairHint.textContent = formatDiagnosticJson(result.repairHint);
         diagRepairCandidate.textContent = formatDiagnosticJson(result.repairCandidate);
+        diagAiSummary.textContent = formatDiagnosticJson(result.aiSummary);
         setDeviceFrameUrl(result.screenEvidence?.frame?.url || result.screenFrameUrl || "");
         diagOutput.textContent = result.output || result.summary || "无输出。";
         if (result.ok) {
-          clearRepairPanel();
+          clearRepairPanel({ resetSummary: false });
         } else if (result.buildId) {
           currentRepairBuildId = result.buildId;
           repairPanel.hidden = false;
@@ -2129,6 +2205,9 @@
           } else {
             renderRepairHint(result.repairHint);
           }
+        }
+        if (result.aiSummary) {
+          renderAiSummary(result.aiSummary, { addChat: false });
         }
         diagnostics.open = !result.ok;
         refreshDeviceFrame();
@@ -2347,6 +2426,9 @@
       });
       syncScreen.addEventListener("click", () => {
         syncScreenToDevice();
+      });
+      aiSummaryButton.addEventListener("click", () => {
+        loadAiSummary();
       });
       repairPlanButton.addEventListener("click", () => {
         loadRepairPlan();

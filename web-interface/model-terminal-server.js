@@ -26,6 +26,9 @@ const SCREEN_RECORD_LIMIT = Number.isFinite(parsedScreenRecordLimit) && parsedSc
   ? Math.floor(parsedScreenRecordLimit)
   : 50;
 const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BASE_DIR, "screen-sync-records");
+const AI_MODEL = process.env.WALNUT_AI_MODEL || "gpt-5.5";
+const AI_BASE_URL = (process.env.WALNUT_AI_BASE_URL || "https://rehdasu.cn/v1").replace(/\/+$/, "");
+const AI_API_KEY = process.env.OPENAI_API_KEY || "";
 const screenFrameTickets = new Map();
 
 const files = new Map([
@@ -144,6 +147,10 @@ function stableStringify(value) {
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function shortHash(value) {
+  return typeof value === "string" && value.length >= 12 ? value.slice(0, 12) : null;
 }
 
 function shellQuote(value) {
@@ -431,6 +438,150 @@ function buildScreenRepairCandidate(record) {
     ? { ...hint.evidence, firstError: "" }
     : hint.evidence;
   return candidate;
+}
+
+function screenSummaryEvidence(record) {
+  const stage = record.failedStage || (record.ok ? "ok" : "unknown");
+  const commandByStage = {
+    build: "build",
+    artifact: "artifact",
+    activate: "activate",
+    evidence: "evidence",
+    frame: "frame",
+    visual: "frame",
+  };
+  const commandName = commandByStage[stage] || "";
+  const repairCandidate = buildScreenRepairCandidate(record);
+  return {
+    buildId: record.buildId,
+    ok: Boolean(record.ok),
+    failedStage: record.failedStage || null,
+    summary: record.summary || "",
+    manifestHashShort: shortHash(record.manifestHash),
+    artifactHashShort: shortHash(record.artifactHash),
+    deliveryHashShort: shortHash(record.deliveryHash),
+    visualMatch: record.screenEvidence?.visualMatch || "unknown",
+    visualChecks: record.screenEvidence?.visualChecks || null,
+    repairHint: record.repairHint
+      ? {
+          stage: record.repairHint.stage,
+          title: record.repairHint.title,
+          summary: record.repairHint.summary,
+          beginnerReason: record.repairHint.beginnerReason,
+        }
+      : null,
+    repairCandidate: {
+      stage: repairCandidate.stage,
+      confidence: repairCandidate.confidence,
+      beginnerSummary: repairCandidate.beginnerSummary,
+      proposedActions: repairCandidate.proposedActions,
+      canAutoApply: repairCandidate.canAutoApply,
+    },
+    firstDiagnosticLine: firstDiagnosticLine(commandName ? repairCommandOutput(record, commandName) : record.output),
+  };
+}
+
+function localScreenAiSummary(evidence) {
+  if (evidence.ok) {
+    if (evidence.visualMatch === "captured") {
+      return "已同步到核桃派。设备返回了有效的小屏画面证据，Web 预览和设备运行使用同一个 screen manifest。";
+    }
+    return "同步记录显示已完成，但画面证据还需要在开发者诊断里确认。";
+  }
+
+  const stage = evidence.failedStage || "unknown";
+  const nextAction = evidence.repairCandidate?.proposedActions?.[0]?.label
+    || evidence.repairHint?.summary
+    || "查看开发者诊断里的 command output";
+  const reason = evidence.repairCandidate?.beginnerSummary
+    || evidence.repairHint?.beginnerReason
+    || evidence.summary
+    || "同步失败，原因还需要进一步确认。";
+  return `同步失败，卡在 ${stage} 阶段。${reason} 下一步建议：${nextAction}。`;
+}
+
+function parseResponsesOutput(data) {
+  if (typeof data?.output_text === "string" && data.output_text.trim()) return data.output_text.trim();
+  const chunks = [];
+  for (const item of data?.output || []) {
+    for (const content of item?.content || []) {
+      if ((content.type === "output_text" || content.type === "text") && content.text) {
+        chunks.push(content.text);
+      }
+    }
+  }
+  return chunks.join("\n").trim();
+}
+
+async function callScreenSummaryAi(evidence) {
+  if (!AI_API_KEY) return { text: null, error: null, apiUsed: false };
+  const prompt = [
+    "你是 WalnutPi Web 控制台的同步结果总结器。",
+    "只根据提供的 JSON 证据总结，不要编造没有发生的动作。",
+    "用中文，面向小白，最多三句话。",
+    "如果同步失败，说清失败阶段和最安全的下一步。",
+    "",
+    JSON.stringify(evidence, null, 2),
+  ].join("\n");
+  const response = await fetch(`${AI_BASE_URL}/responses`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${AI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      input: [
+        { role: "system", content: "你只总结已提供的设备执行证据。" },
+        { role: "user", content: prompt },
+      ],
+    }),
+  });
+  if (!response.ok) {
+    const detail = await response.text();
+    return { text: null, error: `API HTTP ${response.status}: ${detail.slice(0, 800)}`, apiUsed: true };
+  }
+  const data = await response.json();
+  const text = parseResponsesOutput(data);
+  return { text: text || null, error: text ? null : "API response did not include output text", apiUsed: true };
+}
+
+async function buildScreenAiSummary(record) {
+  const evidence = screenSummaryEvidence(record);
+  const localSummary = localScreenAiSummary(evidence);
+  let source = "local";
+  let summary = localSummary;
+  let apiError = null;
+  let apiUsed = false;
+
+  try {
+    const ai = await callScreenSummaryAi(evidence);
+    apiUsed = ai.apiUsed;
+    if (ai.text) {
+      source = "ai";
+      summary = ai.text;
+    } else if (ai.error) {
+      source = "ai-fallback";
+      apiError = ai.error;
+    }
+  } catch (error) {
+    source = "ai-fallback";
+    apiUsed = true;
+    apiError = error.message;
+  }
+
+  return {
+    schema: "walnutpi.screenAiSummary.v1",
+    buildId: record.buildId,
+    source,
+    summary,
+    evidence,
+    diagnostics: {
+      model: apiUsed ? AI_MODEL : null,
+      apiUsed,
+      apiError,
+    },
+  };
 }
 
 function screenRecordSummary(record) {
@@ -1323,6 +1474,33 @@ async function handleScreenRepairCandidate(req) {
   });
 }
 
+async function handleScreenAiSummary(req) {
+  let body;
+  try {
+    body = await readJsonRequest(req);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 400);
+  }
+
+  const buildId = String(body.buildId || "").trim();
+  const safeBuildId = safeRecordId(buildId);
+  if (!safeBuildId) {
+    return json({ ok: false, error: "invalid buildId", summary: "缺少有效的同步记录。" }, 400);
+  }
+
+  const record = await readScreenRecord(safeBuildId);
+  if (!record) {
+    return json({ ok: false, error: "screen record not found", summary: "找不到这次同步记录。" }, 404);
+  }
+
+  const aiSummary = await buildScreenAiSummary(record);
+  return json({
+    ok: true,
+    buildId: safeBuildId,
+    aiSummary,
+  });
+}
+
 function validateScreenManifest(manifest) {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     throw new Error("screen manifest must be a JSON object");
@@ -1829,6 +2007,11 @@ const server = Bun.serve({
     if (url.pathname === "/api/screen/repair-candidate") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       return handleScreenRepairCandidate(req);
+    }
+
+    if (url.pathname === "/api/screen/ai-summary") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleScreenAiSummary(req);
     }
 
     if (url.pathname === "/api/screen/records") {

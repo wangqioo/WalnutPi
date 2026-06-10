@@ -331,8 +331,9 @@ Web 端显示一个 LVGL 界面
 - artifact evidence 使用真实 SHA-256；artifact hash 非法时不会激活设备。
 - delivery manifest / delivery hash 提交 artifact hash 和 screen manifest hash。
 - 同步失败记录会生成只读 `repairHint`，把失败阶段转成小白原因、开发者诊断和下一步建议；`POST /api/screen/repair-candidate` 会从本地同步记录生成结构化 `repairCandidate`，列出候选检查 / 本地编辑计划 / 设备检查 / 手动重试建议，并固定 `canAutoApply=false`、`requiresConfirmation=true`；当前不会自动改代码、自动连接设备或自动重试。
+- Web 端已提供只读 `POST /api/screen/ai-summary`，从本地同步记录提取 compact evidence 并生成中文 AI 总结；默认使用本地规则，配置 `OPENAI_API_KEY` 后可调用 OpenAI-compatible `/responses`，但总结只能基于该记录证据，不会触发 SSH、构建、激活、抓图、写文件或重试。
 - 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败` 等可理解状态。
-- `buildId`、hash、delivery manifest、命令输出、screen state、framebuffer frame hash、preview/device signature hash、`visualMatch` / `visualChecks` 和按需设备截图只进入开发者诊断层。
+- `buildId`、hash、delivery manifest、命令输出、screen state、framebuffer frame hash、preview/device signature hash、`visualMatch` / `visualChecks`、AI 总结证据和按需设备截图只进入开发者诊断层。
 - 当前 `walnut screen lvgl`、`walnut screen start`、`walnut screen stop`、`walnut screen toggle`、`walnut screen state` 行为没有被改动；新增的 `walnut screen frame` 只读读取 `/dev/fb0` 元数据、字节数和 SHA-256，`walnut screen capture` 只读返回 PNG 元数据并可选返回 `pngBase64`。
 
 真机闭环已经通过一次验证：
