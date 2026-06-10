@@ -175,6 +175,44 @@ walnut
 
 左侧负责理解、计划、执行和总结；右侧负责展示 3D 设备、执行现场和高级交互终端。普通用户不需要知道 `walnut status`、`gpio pins`、`curl wttr.in` 这些命令。
 
+当前 Web 控制台也承载第一版“小屏界面同步”闭环：
+
+```text
+Web 端读取 screen manifest
+-> 左侧显示 LVGL 小屏语义预览
+-> 用户点击“同步到核桃派”
+-> 后端构建 LVGL 程序
+-> 生成 WalnutPi delivery manifest
+-> 启动 walnut-screen.service
+-> 读取 walnut screen state 作为设备回证
+```
+
+运行本地控制台：
+
+```bash
+cd /home/pi/projects/WalnutPi
+PORT=4173 bun web-interface/model-terminal-server.js
+```
+
+浏览器打开：
+
+```text
+http://127.0.0.1:4173/
+```
+
+如果只想看 Web 预览、不连接 SSH 或真实核桃派：
+
+```text
+http://127.0.0.1:4173/?nossh
+```
+
+同步相关接口：
+
+- `GET /api/screen/manifest`：返回当前小屏 manifest 和 hash。
+- `POST /api/screen/sync`：要求浏览器提交匹配的 `manifestHash`；不匹配、缺失或非法 JSON 会在构建 / SSH 前拒绝。
+
+普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出和设备回证只放在开发者诊断层。
+
 ### 中文本地控制台
 
 路径：`console-chinese/`
@@ -339,6 +377,15 @@ sudo walnut screen ai "WalnutPi screen AI page is live"
 ```
 
 它用来验证“Server 无桌面系统也可以跑真正的嵌入式 UI 框架”。后续可以继续接入触摸坐标、真实 AI 总结和更完整的设置页。
+
+Web 同步第一版复用现有 LVGL 运行边界，不改变 `walnut screen` 命令：
+
+- 构建：`scripts/build-lvgl-app.sh`
+- 激活：`sudo walnut screen start`
+- 回证：`walnut screen state`
+- 目标：`/dev/fb0`，480x320，RGB565
+
+这里的“同步到核桃派”不是把 Web 前端搬到设备上，也不是 VibeBoard/ESP32 烧录链路；它是把同一个小屏 manifest 对应的 LVGL 产物交付给 WalnutPi 本地屏幕运行时，并记录可诊断的 delivery/evidence。
 
 ### WalnutAI 终端 V0
 

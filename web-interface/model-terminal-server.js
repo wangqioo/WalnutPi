@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PORT || 4173);
@@ -8,6 +9,50 @@ const SSH_PASSWORD = process.env.SSH_PASSWORD || "root";
 const BASE_DIR = import.meta.dir;
 const MODEL_FILE = "0c6390ea8b1ccf186ec099456954fd42.glb";
 const ACTION_OUTPUT_LIMIT = 24_000;
+
+const SCREEN_MANIFEST = {
+  schema: "walnutpi.screen.v1",
+  id: "walnutpi-lvgl-status",
+  title: "WalnutPi",
+  subtitle: "server screen",
+  target: {
+    runtime: "lvgl-fbdev",
+    display: "/dev/fb0",
+    width: 480,
+    height: 320,
+    color: "RGB565",
+  },
+  source: {
+    lvglEntry: "lvgl_app/src/main.c",
+    command: "walnut screen start",
+  },
+  pages: [
+    {
+      id: "home",
+      tab: "HOME",
+      status: "OK CORE",
+      metrics: ["IP loading", "MEM --", "DISK --"],
+    },
+    {
+      id: "system",
+      tab: "SYS",
+      title: "System",
+      lines: ["CPU load", "Memory", "Disk", "Uptime"],
+    },
+    {
+      id: "ai",
+      tab: "AI",
+      title: "AI Agent",
+      lines: ["Local shell online", "Cloud model ready", "Screen cards active"],
+    },
+    {
+      id: "network",
+      tab: "NET",
+      title: "Network",
+      lines: ["IP", "FRP", "SSH", "Display fbdev"],
+    },
+  ],
+};
 
 const files = new Map([
   ["/", "model-terminal.html"],
@@ -30,6 +75,23 @@ function contentType(pathname) {
 
 function json(data, status = 200) {
   return Response.json(data, { status });
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function shellQuote(value) {
@@ -105,6 +167,175 @@ function runRemote(command, timeoutMs = 15_000) {
       const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok");
       resolve({ ok: code === 0, code, output });
     });
+  });
+}
+
+function commandBlockResult(name, result) {
+  return [
+    `## ${name}`,
+    `ok=${result.ok}`,
+    `code=${result.code ?? "timeout"}`,
+    result.output,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function validSha256(value) {
+  return /^[a-f0-9]{64}$/i.test(String(value || "").trim());
+}
+
+function firstFailure(buildResult, artifactHash, activateResult, stateResult) {
+  if (!buildResult.ok) {
+    return {
+      stage: "build",
+      summary: "LVGL 构建失败。请在诊断里查看第一处编译错误。",
+    };
+  }
+  if (!validSha256(artifactHash)) {
+    return {
+      stage: "artifact",
+      summary: "LVGL 产物哈希校验失败。请在诊断里确认构建产物是否存在。",
+    };
+  }
+  if (!activateResult.ok) {
+    return {
+      stage: "activate",
+      summary: "核桃派屏幕激活失败。请确认 walnut-screen.service 已安装并允许 sudo 执行。",
+    };
+  }
+  if (!stateResult.ok) {
+    return {
+      stage: "evidence",
+      summary: "屏幕状态回证失败。请检查 SSH 连接和 walnut screen state 输出。",
+    };
+  }
+  return null;
+}
+
+function screenManifestEnvelope() {
+  const serializedManifest = stableStringify(SCREEN_MANIFEST);
+  return {
+    manifest: SCREEN_MANIFEST,
+    manifestHash: sha256(serializedManifest),
+  };
+}
+
+async function handleScreenSync(req) {
+  const startedAt = new Date();
+  const buildId = `screen-${startedAt.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
+  const { manifest, manifestHash } = screenManifestEnvelope();
+  let body = {};
+  try {
+    body = await req.json();
+  } catch {
+    return json(
+      {
+        ok: false,
+        title: "同步到核桃派",
+        failedStage: "manifest",
+        manifestHash,
+        summary: "同步请求缺少有效的 screen manifest hash，请刷新页面后再同步。",
+        output: "request body is not valid JSON",
+      },
+      400,
+    );
+  }
+  if (body.manifestHash !== manifestHash) {
+    return json(
+      {
+        ok: false,
+        title: "同步到核桃派",
+        failedStage: "manifest",
+        manifestHash,
+        summary: body.manifestHash
+          ? "Web 预览和服务器 screen manifest 不一致，请刷新后再同步。"
+          : "同步请求缺少 screen manifest hash，请刷新页面后再同步。",
+        output: `client=${body.manifestHash || "(missing)"}\nserver=${manifestHash}`,
+      },
+      body.manifestHash ? 409 : 400,
+    );
+  }
+
+  const buildCommand = [
+    "set -e",
+    "ROOT=${WALNUT_PROJECT_ROOT:-$HOME/projects/WalnutPi}",
+    'cd "$ROOT"',
+    "scripts/build-lvgl-app.sh",
+  ].join("; ");
+  const activateCommand = "sudo -n walnut screen start";
+  const stateCommand = "walnut screen state";
+
+  const buildResult = await runRemote(buildCommand, 120_000);
+  const artifactResult = buildResult.ok
+    ? await runRemote(
+        'set -e; ROOT=${WALNUT_PROJECT_ROOT:-$HOME/projects/WalnutPi}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk \'{print $1}\'',
+        10_000,
+      )
+    : { ok: false, code: null, output: "skipped because build failed" };
+  const artifactHash = artifactResult.ok ? artifactResult.output.trim().split(/\s+/)[0] : null;
+  const deliveryManifest = {
+    schema: "walnutpi.delivery.v1",
+    buildId,
+    adapter: "ssh-local-agent",
+    risk: "write-low",
+    artifact: {
+      name: "walnut-lvgl-screen",
+      path: "build/lvgl_app/walnut-lvgl-screen",
+      source: "lvgl_app/src/main.c",
+      sha256: validSha256(artifactHash) ? artifactHash : null,
+    },
+    target: {
+      host: SSH_HOST,
+      user: SSH_USER,
+      display: manifest.target.display,
+      activate: "walnut screen start",
+      evidence: "walnut screen state",
+    },
+    screenManifestHash: manifestHash,
+  };
+  const deliveryHash = sha256(stableStringify(deliveryManifest));
+  const activateResult = buildResult.ok
+    ? await runRemote(activateCommand, 30_000)
+    : { ok: false, code: null, output: "skipped because build failed" };
+  const stateResult = buildResult.ok && activateResult.ok
+    ? await runRemote(stateCommand, 15_000)
+    : { ok: false, code: null, output: "skipped because activation failed" };
+
+  const failure = firstFailure(buildResult, artifactHash, activateResult, stateResult);
+  const output = limitedOutput(
+    [
+      commandBlockResult("build", buildResult),
+      commandBlockResult("artifact", artifactResult),
+      commandBlockResult("activate", activateResult),
+      commandBlockResult("evidence", stateResult),
+    ].join("\n\n"),
+  );
+
+  return json({
+    ok: failure === null,
+    title: "同步到核桃派",
+    risk: "write-low",
+    mode: "remote",
+    buildId,
+    manifest,
+    manifestHash,
+    deliveryManifest,
+    deliveryHash,
+    artifactHash: validSha256(artifactHash) ? artifactHash : null,
+    evidence: {
+      kind: "screen-state",
+      command: stateCommand,
+      output: stateResult.output,
+      capturedAt: new Date().toISOString(),
+    },
+    command: `${buildCommand}\n${activateCommand}\n${stateCommand}`,
+    code: failure ? 1 : 0,
+    output,
+    summary: failure
+      ? failure.summary
+      : "已同步到核桃派。Web 预览和设备运行使用同一个 screen manifest。",
+    failedStage: failure?.stage || null,
   });
 }
 
@@ -331,6 +562,15 @@ const server = Bun.serve({
         target: `${SSH_USER}@${SSH_HOST}`,
         actions: Object.fromEntries(Object.entries(ACTIONS).map(([id, action]) => [id, actionSummary(action, id)])),
       });
+    }
+
+    if (url.pathname === "/api/screen/manifest") {
+      return json(screenManifestEnvelope());
+    }
+
+    if (url.pathname === "/api/screen/sync") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleScreenSync(req);
     }
 
     if (url.pathname === "/api/action") {

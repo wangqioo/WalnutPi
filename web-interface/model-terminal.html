@@ -72,7 +72,7 @@
         display: grid;
         min-width: 0;
         min-height: 0;
-        grid-template-rows: auto minmax(0, 1fr) auto auto;
+        grid-template-rows: auto auto minmax(0, 1fr) auto auto;
         border-right: 1px solid var(--line);
         background: rgba(11, 13, 12, 0.86);
         box-shadow: 18px 0 48px rgba(0, 0, 0, 0.18);
@@ -165,6 +165,268 @@
         font-weight: 650;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .screen-workflow {
+        display: grid;
+        gap: 10px;
+        border-bottom: 1px solid var(--line);
+        padding: 12px 16px;
+        background: rgba(240, 239, 231, 0.035);
+      }
+
+      .workflow-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .workflow-title {
+        margin: 0;
+        color: var(--paper);
+        font-size: 13px;
+        font-weight: 720;
+        letter-spacing: 0;
+      }
+
+      .sync-state {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 6px;
+        min-height: 26px;
+        border: 1px solid rgba(240, 239, 231, 0.14);
+        border-radius: 999px;
+        padding: 0 9px;
+        background: rgba(240, 239, 231, 0.055);
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .sync-state.is-synced {
+        border-color: rgba(117, 196, 134, 0.42);
+        color: #bde7c5;
+      }
+
+      .sync-state.is-failed {
+        border-color: rgba(214, 107, 101, 0.48);
+        color: #f0aaa6;
+      }
+
+      .screen-preview-frame {
+        overflow: hidden;
+        border: 1px solid rgba(120, 200, 193, 0.22);
+        border-radius: 8px;
+        background: #071014;
+        aspect-ratio: 3 / 2;
+        box-shadow: inset 0 0 0 1px rgba(240, 239, 231, 0.04);
+      }
+
+      .lvgl-preview {
+        display: grid;
+        width: 100%;
+        height: 100%;
+        grid-template-rows: 20% minmax(0, 1fr);
+        gap: 5%;
+        padding: 4.4%;
+        background: #05080b;
+        color: var(--paper);
+      }
+
+      .lvgl-header {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .lvgl-brand {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
+      }
+
+      .lvgl-title {
+        overflow: hidden;
+        font-size: 18px;
+        font-weight: 800;
+        line-height: 1;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .lvgl-subtitle {
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .lvgl-tabs {
+        display: grid;
+        grid-template-columns: repeat(4, 34px);
+        gap: 5px;
+      }
+
+      .lvgl-tab {
+        display: grid;
+        height: 14px;
+        place-items: center;
+        border-radius: 4px;
+        background: #33434a;
+        color: #05080b;
+        font-size: 7px;
+        font-weight: 800;
+      }
+
+      .lvgl-tab:first-child {
+        background: var(--cyan);
+      }
+
+      .lvgl-body {
+        display: grid;
+        grid-template-columns: 42% minmax(0, 1fr);
+        align-items: center;
+        gap: 7%;
+        min-height: 0;
+      }
+
+      .lvgl-core {
+        display: grid;
+        width: min(92%, 144px);
+        aspect-ratio: 1;
+        place-items: center;
+        justify-self: center;
+        border: 8px solid #172329;
+        border-top-color: var(--green);
+        border-right-color: var(--cyan);
+        border-radius: 50%;
+        color: var(--paper);
+        font-size: 17px;
+        font-weight: 800;
+        line-height: 1.05;
+        text-align: center;
+      }
+
+      .lvgl-metrics {
+        display: grid;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .lvgl-metric {
+        min-width: 0;
+        border: 1px solid rgba(120, 200, 193, 0.52);
+        border-radius: 6px;
+        padding: 7px 9px;
+        background: #10191d;
+        color: var(--paper);
+        font-size: 11px;
+        font-weight: 680;
+        letter-spacing: 0;
+      }
+
+      .workflow-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .sync-summary {
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.35;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .sync-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        min-height: 34px;
+        border-radius: 8px;
+        padding: 0 12px;
+        background: var(--cyan);
+        color: #061112;
+        font-size: 12px;
+        font-weight: 760;
+      }
+
+      .sync-button:hover,
+      .sync-button:focus-visible {
+        background: #98ddd8;
+        outline: none;
+      }
+
+      .sync-button:disabled {
+        cursor: wait;
+        opacity: 0.62;
+      }
+
+      .sync-button svg {
+        width: 16px;
+        height: 16px;
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2;
+      }
+
+      .diagnostics {
+        border-top: 1px solid rgba(240, 239, 231, 0.1);
+        padding-top: 8px;
+      }
+
+      .diagnostics summary {
+        cursor: pointer;
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0;
+      }
+
+      .diagnostic-grid {
+        display: grid;
+        gap: 5px;
+        padding-top: 8px;
+      }
+
+      .diagnostic-row {
+        display: grid;
+        grid-template-columns: 74px minmax(0, 1fr);
+        gap: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.3;
+      }
+
+      .diagnostic-row code {
+        overflow: hidden;
+        color: #d8e7dc;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .diagnostic-output {
+        max-height: 120px;
+        overflow: auto;
+        border-radius: 6px;
+        padding: 7px;
+        background: rgba(0, 0, 0, 0.28);
+        color: #d8e7dc;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        font-size: 10px;
+        line-height: 1.35;
+        white-space: pre-wrap;
       }
 
       .chat-log {
@@ -541,7 +803,7 @@
         .assistant-pane {
           border-right: 0;
           border-bottom: 1px solid var(--line);
-          grid-template-rows: auto minmax(0, 1fr) auto auto;
+          grid-template-rows: auto auto minmax(0, 1fr) auto auto;
         }
 
         .assistant-head {
@@ -554,6 +816,14 @@
 
         .chat-log {
           padding: 10px 12px;
+        }
+
+        .screen-workflow {
+          padding: 10px 12px;
+        }
+
+        .screen-preview-frame {
+          max-height: 170px;
         }
 
         .quick-grid {
@@ -583,6 +853,14 @@
 
         .target {
           display: none;
+        }
+
+        .workflow-actions {
+          grid-template-columns: 1fr;
+        }
+
+        .sync-button {
+          width: 100%;
         }
 
         .quick-grid {
@@ -648,6 +926,52 @@
             </div>
           </div>
         </header>
+
+        <section class="screen-workflow" aria-label="LVGL 屏幕同步">
+          <div class="workflow-top">
+            <h2 class="workflow-title">小屏界面</h2>
+            <span class="sync-state" id="syncState">未同步</span>
+          </div>
+
+          <div class="screen-preview-frame">
+            <div class="lvgl-preview" id="screenPreview"></div>
+          </div>
+
+          <div class="workflow-actions">
+            <div class="sync-summary" id="syncSummary">Web 端已准备预览。</div>
+            <button class="sync-button" id="syncScreen" type="button" disabled>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 3v12" />
+                <path d="m7 10 5 5 5-5" />
+                <path d="M5 21h14" />
+              </svg>
+              <span>同步到核桃派</span>
+            </button>
+          </div>
+
+          <details class="diagnostics" id="diagnostics">
+            <summary>开发者诊断</summary>
+            <div class="diagnostic-grid">
+              <div class="diagnostic-row">
+                <span>buildId</span>
+                <code id="diagBuildId">-</code>
+              </div>
+              <div class="diagnostic-row">
+                <span>screen</span>
+                <code id="diagManifestHash">-</code>
+              </div>
+              <div class="diagnostic-row">
+                <span>artifact</span>
+                <code id="diagArtifactHash">-</code>
+              </div>
+              <div class="diagnostic-row">
+                <span>delivery</span>
+                <code id="diagDeliveryHash">-</code>
+              </div>
+              <pre class="diagnostic-output" id="diagOutput">等待同步。</pre>
+            </div>
+          </details>
+        </section>
 
         <div class="chat-log" id="chatLog" role="log" aria-live="polite">
           <article class="message assistant">
@@ -812,7 +1136,19 @@
       const composer = document.querySelector("#composer");
       const assistantInput = document.querySelector("#assistantInput");
       const panel = document.querySelector("#panel");
+      const screenPreview = document.querySelector("#screenPreview");
+      const syncState = document.querySelector("#syncState");
+      const syncSummary = document.querySelector("#syncSummary");
+      const syncScreen = document.querySelector("#syncScreen");
+      const diagnostics = document.querySelector("#diagnostics");
+      const diagBuildId = document.querySelector("#diagBuildId");
+      const diagManifestHash = document.querySelector("#diagManifestHash");
+      const diagArtifactHash = document.querySelector("#diagArtifactHash");
+      const diagDeliveryHash = document.querySelector("#diagDeliveryHash");
+      const diagOutput = document.querySelector("#diagOutput");
       const previewOnly = new URLSearchParams(window.location.search).has("nossh");
+      let currentScreenManifest = null;
+      let currentManifestHash = "";
 
       const controlsById = {
         x: document.querySelector("#screenX"),
@@ -858,6 +1194,10 @@
         reconnect: {
           reply: "我会重新连接核桃派。",
           run: () => connectTerminal(),
+        },
+        syncScreen: {
+          reply: "我会把当前小屏界面同步到核桃派。",
+          run: () => syncScreenToDevice({ addUserMessage: false }),
         },
       };
 
@@ -993,6 +1333,9 @@
 
         if (/清屏|clear/.test(trimmed)) return actions.clear;
         if (/重连|断开|ssh|连接/.test(lower)) return actions.reconnect;
+        if (/同步|部署|推送|运行到|显示到|sync/.test(lower) && /核桃派|设备|板子|小屏|屏幕|lvgl|screen/.test(lower)) {
+          return actions.syncScreen;
+        }
         if (/视频|彩色|ascii|demo/.test(lower)) return actions.video;
         if (/玩具|播放|演示|效果|动画|play/.test(lower)) return actions.video;
 
@@ -1014,6 +1357,138 @@
         ].filter((line) => line !== "");
 
         term.write(`\r\n${lines.join("\r\n")}\r\n`);
+      }
+
+      function setSyncState(text, state) {
+        syncState.textContent = text;
+        syncState.classList.toggle("is-synced", state === "synced");
+        syncState.classList.toggle("is-failed", state === "failed");
+      }
+
+      function shortHash(value) {
+        if (!value) return "-";
+        return String(value).slice(0, 12);
+      }
+
+      function renderScreenManifest(manifest) {
+        currentScreenManifest = manifest;
+        screenPreview.replaceChildren();
+
+        const header = document.createElement("div");
+        header.className = "lvgl-header";
+
+        const brand = document.createElement("div");
+        brand.className = "lvgl-brand";
+
+        const title = document.createElement("div");
+        title.className = "lvgl-title";
+        title.textContent = manifest.title || "WalnutPi";
+
+        const subtitle = document.createElement("div");
+        subtitle.className = "lvgl-subtitle";
+        subtitle.textContent = manifest.subtitle || "server screen";
+        brand.append(title, subtitle);
+
+        const tabs = document.createElement("div");
+        tabs.className = "lvgl-tabs";
+        for (const page of manifest.pages || []) {
+          const tab = document.createElement("span");
+          tab.className = "lvgl-tab";
+          tab.textContent = page.tab || page.id;
+          tabs.append(tab);
+        }
+
+        const body = document.createElement("div");
+        body.className = "lvgl-body";
+
+        const homePage = (manifest.pages || []).find((page) => page.id === "home") || {};
+        const core = document.createElement("div");
+        core.className = "lvgl-core";
+        core.textContent = homePage.status || "OK CORE";
+
+        const metrics = document.createElement("div");
+        metrics.className = "lvgl-metrics";
+        for (const metric of homePage.metrics || []) {
+          const item = document.createElement("div");
+          item.className = "lvgl-metric";
+          item.textContent = metric;
+          metrics.append(item);
+        }
+
+        header.append(brand, tabs);
+        body.append(core, metrics);
+        screenPreview.append(header, body);
+      }
+
+      async function loadScreenManifest() {
+        try {
+          const response = await fetch("/api/screen/manifest");
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || "manifest load failed");
+
+          currentManifestHash = data.manifestHash || "";
+          diagManifestHash.textContent = shortHash(currentManifestHash);
+          renderScreenManifest(data.manifest);
+          syncScreen.disabled = false;
+        } catch (error) {
+          setSyncState("预览失败", "failed");
+          syncSummary.textContent = "无法读取 screen manifest。";
+          diagOutput.textContent = error.message;
+          syncScreen.disabled = true;
+        }
+      }
+
+      function updateDiagnostics(result) {
+        diagBuildId.textContent = result.buildId || "-";
+        diagManifestHash.textContent = shortHash(result.manifestHash || currentManifestHash);
+        diagArtifactHash.textContent = shortHash(result.artifactHash);
+        diagDeliveryHash.textContent = shortHash(result.deliveryHash);
+        diagOutput.textContent = result.output || result.summary || "无输出。";
+        diagnostics.open = !result.ok;
+      }
+
+      async function syncScreenToDevice(options = {}) {
+        if (options.addUserMessage !== false) addMessage("user", "同步到核桃派");
+
+        if (previewOnly) {
+          setSyncState("预览模式", "failed");
+          syncSummary.textContent = "预览模式下不会连接核桃派。";
+          addMessage("assistant", "预览模式下不会连接核桃派。", { command: "screen sync" });
+          return;
+        }
+
+        setSyncState("同步中", "pending");
+        syncSummary.textContent = "正在构建、交付并等待设备回证。";
+        syncScreen.disabled = true;
+        addMessage("assistant", "我会构建 LVGL 程序、生成 delivery manifest，并激活核桃派屏幕。");
+
+        let result;
+        try {
+          const response = await fetch("/api/screen/sync", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ manifestHash: currentManifestHash }),
+          });
+          result = await response.json();
+        } catch (error) {
+          result = {
+            ok: false,
+            summary: `同步请求失败：${error.message}`,
+            output: error.message,
+          };
+        } finally {
+          syncScreen.disabled = false;
+        }
+
+        updateDiagnostics(result);
+        setSyncState(result.ok ? "已同步到核桃派" : "同步失败", result.ok ? "synced" : "failed");
+        syncSummary.textContent = result.summary || (result.ok ? "已同步。" : "同步失败。");
+        addMessage("assistant", result.summary || (result.ok ? "已同步到核桃派。" : "同步失败。"), {
+          command: result.command,
+          output: result.output,
+          error: !result.ok,
+        });
+        writeTerminalBlock(result);
       }
 
       function sendTerminalCommand(command) {
@@ -1183,6 +1658,9 @@
       document.querySelector("#togglePanel").addEventListener("click", () => {
         panel.classList.toggle("is-open");
       });
+      syncScreen.addEventListener("click", () => {
+        syncScreenToDevice();
+      });
 
       function submitPrompt(text) {
         text = text.trim();
@@ -1246,6 +1724,7 @@
         requestAnimationFrame(animate);
       }
 
+      loadScreenManifest();
       updateScreenTransform();
       connectTerminal();
       resize();

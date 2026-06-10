@@ -85,6 +85,31 @@ The first screen should have:
 
 Avoid making the left side a list of permanent feature buttons. Beginner users should not need to decide whether their request is “status”, “snapshot”, “GPIO”, “network”, or “AI”. The agent should infer that.
 
+## Screen Sync Slice
+
+The first LVGL delivery slice keeps the beginner-facing flow simple:
+
+```text
+Web preview
+-> Sync to WalnutPi
+-> Build LVGL app
+-> Activate walnut-screen.service
+-> Read screen state evidence
+```
+
+The web server exposes the current screen contract at `GET /api/screen/manifest`.
+The browser renders its preview from that manifest, and `POST /api/screen/sync` refuses to run when the browser sends a stale manifest hash.
+
+The first delivery adapter is deliberately narrow:
+
+- adapter: SSH / local agent
+- build: `scripts/build-lvgl-app.sh`
+- activation: `sudo -n walnut screen start`
+- evidence: `walnut screen state`
+
+Beginner UI only shows `未同步`, `同步中`, `已同步到核桃派`, or `同步失败`.
+`buildId`, screen manifest hash, artifact hash, delivery hash, command output, and screen-state evidence stay in the developer diagnostics panel.
+
 Suggested placeholder:
 
 ```text
