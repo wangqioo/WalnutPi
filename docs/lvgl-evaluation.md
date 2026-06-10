@@ -89,8 +89,12 @@ walnut screen image FILE
 walnut screen ai [text...]
 walnut screen app
 walnut screen lvgl
+walnut screen frame
+walnut screen capture
 walnut screen restore
 ```
+
+`walnut screen frame` and `walnut screen capture` are read-only evidence commands; they should not change the LVGL start/stop/toggle behavior.
 
 ## Current Decision
 

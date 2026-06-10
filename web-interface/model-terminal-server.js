@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 
@@ -9,6 +10,9 @@ const SSH_PASSWORD = process.env.SSH_PASSWORD || "root";
 const BASE_DIR = import.meta.dir;
 const MODEL_FILE = "0c6390ea8b1ccf186ec099456954fd42.glb";
 const ACTION_OUTPUT_LIMIT = 24_000;
+const CAPTURE_OUTPUT_LIMIT = 1_500_000;
+const SCREEN_FRAME_TICKET_TTL_MS = 10 * 60_000;
+const screenFrameTickets = new Map();
 
 const SCREEN_MANIFEST = {
   schema: "walnutpi.screen.v1",
@@ -115,12 +119,12 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
-function limitedOutput(value) {
-  if (value.length <= ACTION_OUTPUT_LIMIT) return value;
-  return `${value.slice(0, ACTION_OUTPUT_LIMIT)}\n\n[local] output truncated`;
+function limitedOutput(value, limit = ACTION_OUTPUT_LIMIT) {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}\n\n[local] output truncated`;
 }
 
-function runRemote(command, timeoutMs = 15_000) {
+function runRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
   return new Promise((resolve) => {
     const target = `${SSH_USER}@${SSH_HOST}`;
     const child = spawn(
@@ -161,7 +165,7 @@ function runRemote(command, timeoutMs = 15_000) {
       resolve({
         ok: false,
         code: null,
-        output: limitedOutput(`${stdout}${stderr}\n[local] action timed out`.trim()),
+        output: limitedOutput(`${stdout}${stderr}\n[local] action timed out`.trim(), outputLimit),
       });
     }, timeoutMs);
 
@@ -181,7 +185,7 @@ function runRemote(command, timeoutMs = 15_000) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok");
+      const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok", outputLimit);
       resolve({ ok: code === 0, code, output });
     });
   });
@@ -222,7 +226,133 @@ function validFrameEvidence(frame) {
   );
 }
 
-function firstFailure(buildResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence) {
+function frameUrl(buildId) {
+  return `/api/screen/frame/${encodeURIComponent(buildId)}`;
+}
+
+function cleanupScreenFrameTickets() {
+  const now = Date.now();
+  for (const [buildId, ticket] of screenFrameTickets.entries()) {
+    if (now - ticket.createdAt > SCREEN_FRAME_TICKET_TTL_MS) {
+      screenFrameTickets.delete(buildId);
+    }
+  }
+}
+
+function rememberScreenFrameTicket(buildId, ticket) {
+  cleanupScreenFrameTickets();
+  screenFrameTickets.set(buildId, {
+    ...ticket,
+    createdAt: Date.now(),
+  });
+}
+
+function visualStatus(manifest, artifactHashValid, frameEvidence) {
+  const frameCaptured = validFrameEvidence(frameEvidence);
+  const target = manifest.target || {};
+  const visualChecks = {
+    manifestHashMatched: true,
+    artifactHashValid,
+    frameCaptured,
+    frameDimensionsMatched: frameCaptured
+      && frameEvidence.width === target.width
+      && frameEvidence.height === target.height,
+    framePixelFormatMatched: frameCaptured
+      && target.color === "RGB565"
+      && (frameEvidence.pixelFormat === "RGB565_LE" || frameEvidence.bitsPerPixel === 16),
+    frameByteLengthMatched: frameCaptured
+      && Number.isInteger(frameEvidence.expectedByteLength)
+      && frameEvidence.expectedByteLength === frameEvidence.byteLength,
+    frameNonblank: frameCaptured
+      && frameEvidence.isBlank === false
+      && Number(frameEvidence.nonzeroBytes || 0) > 0,
+  };
+  if (!frameCaptured) {
+    return { visualMatch: "unknown", visualChecks };
+  }
+  return {
+    visualMatch: Object.values(visualChecks).every(Boolean) ? "captured" : "mismatch",
+    visualChecks,
+  };
+}
+
+function validPngBytes(bytes) {
+  const signature = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+  return bytes.length > signature.length && bytes.subarray(0, signature.length).equals(signature);
+}
+
+function parseCaptureResult(result) {
+  if (!result.ok) return null;
+  let capture;
+  try {
+    capture = JSON.parse(result.output);
+  } catch {
+    return null;
+  }
+
+  if (!capture || typeof capture !== "object" || !validSha256(capture.pngSha256) || typeof capture.pngBase64 !== "string") {
+    return null;
+  }
+
+  const bytes = Buffer.from(capture.pngBase64, "base64");
+  if (!validPngBytes(bytes) || sha256(bytes) !== capture.pngSha256) {
+    return null;
+  }
+  return { capture, bytes };
+}
+
+async function handleScreenFrame(buildId) {
+  cleanupScreenFrameTickets();
+  const ticket = screenFrameTickets.get(buildId);
+  if (!ticket) {
+    return json(
+      {
+        ok: false,
+        error: "unknown or expired screen frame",
+        summary: "screen frame evidence is only available after a recent successful sync",
+      },
+      404,
+    );
+  }
+
+  const captureResult = await runRemote("sudo -n walnut screen capture --png-base64", 30_000, CAPTURE_OUTPUT_LIMIT);
+  const parsed = parseCaptureResult(captureResult);
+  if (!parsed) {
+    return json(
+      {
+        ok: false,
+        error: "screen capture failed",
+        output: captureResult.output,
+      },
+      502,
+    );
+  }
+
+  if (ticket.frameSha256 && parsed.capture.rawSha256 !== ticket.frameSha256) {
+    return json(
+      {
+        ok: false,
+        error: "screen frame changed",
+        expectedRawSha256: ticket.frameSha256,
+        actualRawSha256: parsed.capture.rawSha256,
+      },
+      409,
+    );
+  }
+
+  return new Response(parsed.bytes, {
+    headers: {
+      "content-type": "image/png",
+      "cache-control": "no-store",
+      "x-walnut-png-sha256": parsed.capture.pngSha256,
+      "x-walnut-raw-sha256": parsed.capture.rawSha256,
+      "x-walnut-manifest-sha256": ticket.manifestHash,
+      "x-walnut-artifact-sha256": ticket.artifactHash || "",
+    },
+  });
+}
+
+function firstFailure(buildResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence, visual) {
   if (!buildResult.ok) {
     return {
       stage: "build",
@@ -251,6 +381,12 @@ function firstFailure(buildResult, artifactHash, activateResult, stateResult, fr
     return {
       stage: "frame",
       summary: "屏幕画面回证失败。请在诊断里查看 framebuffer 读取结果。",
+    };
+  }
+  if (visual.visualMatch !== "captured") {
+    return {
+      stage: "visual",
+      summary: "屏幕画面回证和目标屏幕约束不一致。请在诊断里查看 frame checks。",
     };
   }
   return null;
@@ -393,9 +529,21 @@ async function handleScreenSync(req) {
     frameEvidence.command = frameCommand;
   }
 
-  const failure = firstFailure(buildResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence);
+  const visual = visualStatus(manifest, artifactHashValid, frameEvidence);
+  const frameImageUrl = validFrameEvidence(frameEvidence) ? frameUrl(buildId) : null;
+  if (frameImageUrl) {
+    rememberScreenFrameTicket(buildId, {
+      manifestHash,
+      artifactHash: artifactHashValid ? artifactHash : null,
+      frameSha256: frameEvidence.sha256,
+    });
+  }
+
+  const failure = firstFailure(buildResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence, visual);
   const screenEvidence = {
     kind: "screen-frame",
+    visualMatch: visual.visualMatch,
+    visualChecks: visual.visualChecks,
     state: {
       kind: "screen-state",
       command: stateCommand,
@@ -403,7 +551,10 @@ async function handleScreenSync(req) {
       capturedAt: new Date().toISOString(),
     },
     frame: validFrameEvidence(frameEvidence)
-      ? frameEvidence
+      ? {
+          ...frameEvidence,
+          url: frameImageUrl,
+        }
       : {
           command: frameCommand,
           output: frameResult.output,
@@ -433,6 +584,7 @@ async function handleScreenSync(req) {
     artifactHash: artifactHashValid ? artifactHash : null,
     evidence: screenEvidence,
     screenEvidence,
+    screenFrameUrl: frameImageUrl,
     command: `${buildCommand}\n${activateCommand}\n${stateCommand}\n${frameCommand}`,
     code: failure ? 1 : 0,
     output,
@@ -679,6 +831,19 @@ const server = Bun.serve({
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       if (previewOnly(url)) return previewOnlyJson();
       return handleScreenSync(req);
+    }
+
+    const screenFrameMatch = url.pathname.match(/^\/api\/screen\/frame\/([^/]+)$/);
+    if (screenFrameMatch) {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      if (previewOnly(url)) return previewOnlyJson();
+      let buildId;
+      try {
+        buildId = decodeURIComponent(screenFrameMatch[1]);
+      } catch {
+        return json({ ok: false, error: "Invalid screen frame id" }, 400);
+      }
+      return handleScreenFrame(buildId);
     }
 
     if (url.pathname === "/api/action") {

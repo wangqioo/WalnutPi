@@ -190,9 +190,17 @@ Web 外部端先看到的界面
 - 同步前：Web 外部端是用户的设计和预览主界面。
 - 同步中：内部执行编译、交付、激活和验证，用户只看进度。
 - 同步后：核桃派真实屏幕是最终验证对象。
-- 同步证据优先使用核桃派回传的 framebuffer 截图或等价屏幕帧；如果后续性能需要，可以补充 LVGL screen state 流。
+- 同步证据优先使用核桃派回传的 framebuffer frame hash、结构性 frame checks，以及按需 framebuffer PNG 截图；如果后续性能需要，可以补充 LVGL screen state 流。
 - 每次同步都带 `buildId`、artifact hash、screen manifest hash，避免外部端和设备显示不同版本。
 - 如果 Web 端预览和核桃派回传画面不一致，用户界面只提示“核桃派显示和预览不一致，需要重新同步或修复”，具体 manifest / hash 细节放到开发者诊断视图。
+
+`screenEvidence.visualMatch` 当前只表达结构性画面回证，不表达像素级 Web/LVGL diff：
+
+- `captured`：设备 framebuffer frame 可用，尺寸、像素格式、字节数和非空检查通过。
+- `unknown`：没有可用的 frame 回证。
+- `mismatch`：frame 存在，但结构性检查显示目标屏幕约束不一致。
+
+`visualChecks` 记录 manifest hash、artifact hash、frame captured、尺寸、像素格式、字节数和非空等布尔检查。PNG 画面通过 `frameUrl` 指向 `/api/screen/frame/<buildId>`，只在开发者诊断展开时按需抓取，不进入默认同步 JSON。
 
 允许延迟，但不接受长期分叉。也就是说，实时性可以让步，一致性不能让步。
 
@@ -318,11 +326,12 @@ Web 端显示一个 LVGL 界面
 - 构建使用 `scripts/build-lvgl-app.sh`。
 - 激活使用 `sudo -n walnut screen start`。
 - 回证使用 `walnut screen state` 和 `sudo -n walnut screen frame`。
+- 诊断图片使用 `GET /api/screen/frame/<buildId>` 按需触发只读 `walnut screen capture --png-base64`，默认同步 JSON 不嵌入 PNG 或 base64。
 - artifact evidence 使用真实 SHA-256；artifact hash 非法时不会激活设备。
 - delivery manifest / delivery hash 提交 artifact hash 和 screen manifest hash。
 - 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败` 等可理解状态。
-- `buildId`、hash、delivery manifest、命令输出、screen state 和 framebuffer frame hash 只进入开发者诊断层。
-- 当前 `walnut screen lvgl`、`walnut screen start`、`walnut screen stop`、`walnut screen toggle`、`walnut screen state` 行为没有被改动；新增的 `walnut screen frame` 只读读取 `/dev/fb0` 元数据、字节数和 SHA-256。
+- `buildId`、hash、delivery manifest、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks` 和按需设备截图只进入开发者诊断层。
+- 当前 `walnut screen lvgl`、`walnut screen start`、`walnut screen stop`、`walnut screen toggle`、`walnut screen state` 行为没有被改动；新增的 `walnut screen frame` 只读读取 `/dev/fb0` 元数据、字节数和 SHA-256，`walnut screen capture` 只读返回 PNG 元数据并可选返回 `pngBase64`。
 
 真机闭环已经通过一次验证：
 
@@ -333,6 +342,7 @@ GET /api/screen/manifest
 -> sudo -n walnut screen start
 -> walnut screen state
 -> sudo -n walnut screen frame
+-> diagnostics-only walnut screen capture
 ```
 
 成功回证：
@@ -353,7 +363,7 @@ vtcon1 bind                        0
 
 这比先做完整项目编辑器或完整代码生成更简单，但保留了 VibeBoard 的关键链路：artifact、manifest、delivery adapter、device evidence。
 
-下一阶段应该继续把当前等价 screen frame 回证升级为可比对的真实屏幕画面证据，例如 framebuffer 截图或 LVGL screen state。当前 `walnut screen frame` 已经让 Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数和 SHA-256。
+当前阶段已经把等价 screen frame 回证升级为结构性画面回证：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查和按需 PNG 截图。后续如果要做更强一致性，可以继续加入 Web 预览与 LVGL framebuffer 的像素级或语义级 diff。
 
 ## 待确认问题
 

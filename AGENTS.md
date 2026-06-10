@@ -34,10 +34,11 @@ The implemented first slice is intentionally narrow:
 - The request must include the current `manifestHash`; missing, invalid, or stale hashes must be rejected before any build or SSH action.
 - Build uses `scripts/build-lvgl-app.sh`.
 - Activation uses `sudo -n walnut screen start`.
-- Evidence uses `walnut screen state`.
+- Evidence uses `walnut screen state` and `sudo -n walnut screen frame`.
+- Diagnostics-only screenshots use `walnut screen capture`, a read-only PNG capture command that returns metadata by default and optional `pngBase64` only for the on-demand frame route.
 - Artifact evidence must be a real SHA-256 hash, and the delivery manifest/hash must commit to that artifact hash.
 
-Beginner UI should show only understandable states such as `未同步`, `同步中`, `已同步到核桃派`, and `同步失败`. Keep `buildId`, hashes, delivery manifests, command output, and raw device evidence in developer diagnostics.
+Beginner UI should show only understandable states such as `未同步`, `同步中`, `已同步到核桃派`, and `同步失败`. Keep `buildId`, hashes, delivery manifests, command output, raw device evidence, `frameUrl`, and image bytes in developer diagnostics.
 
 ## Safety Boundaries
 

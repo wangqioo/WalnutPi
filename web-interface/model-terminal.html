@@ -440,6 +440,24 @@
         white-space: pre-wrap;
       }
 
+      .device-frame-box {
+        display: grid;
+        width: min(100%, 240px);
+        aspect-ratio: 3 / 2;
+        place-items: center;
+        overflow: hidden;
+        border: 1px solid rgba(240, 239, 231, 0.12);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, 0.28);
+      }
+
+      .device-frame-box img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        image-rendering: pixelated;
+      }
+
       .chat-log {
         display: flex;
         min-height: 0;
@@ -987,6 +1005,12 @@
                 <span class="diagnostic-label">screen evidence</span>
                 <pre class="diagnostic-output" id="diagEvidence">等待同步。</pre>
               </div>
+              <div class="diagnostic-section" id="diagDeviceFrameSection" hidden>
+                <span class="diagnostic-label">device frame</span>
+                <div class="device-frame-box">
+                  <img id="diagDeviceFrame" alt="WalnutPi screen frame evidence" />
+                </div>
+              </div>
               <div class="diagnostic-section">
                 <span class="diagnostic-label">command output</span>
                 <pre class="diagnostic-output" id="diagOutput">等待同步。</pre>
@@ -1169,6 +1193,8 @@
       const diagDeliveryHash = document.querySelector("#diagDeliveryHash");
       const diagDeliveryManifest = document.querySelector("#diagDeliveryManifest");
       const diagEvidence = document.querySelector("#diagEvidence");
+      const diagDeviceFrameSection = document.querySelector("#diagDeviceFrameSection");
+      const diagDeviceFrame = document.querySelector("#diagDeviceFrame");
       const diagOutput = document.querySelector("#diagOutput");
       const previewOnly = new URLSearchParams(window.location.search).has("nossh");
       let currentScreenManifest = null;
@@ -1412,6 +1438,32 @@
         }
       }
 
+      function refreshDeviceFrame() {
+        const frameUrl = diagDeviceFrame.dataset.frameUrl || "";
+        if (!frameUrl || diagDeviceFrameSection.hidden || !diagnostics.open) {
+          diagDeviceFrame.removeAttribute("src");
+          return;
+        }
+
+        const targetUrl = withCurrentSearch(frameUrl);
+        if (diagDeviceFrame.getAttribute("src") !== targetUrl) {
+          diagDeviceFrame.src = targetUrl;
+        }
+      }
+
+      function setDeviceFrameUrl(frameUrl) {
+        const nextUrl = frameUrl || "";
+        diagDeviceFrame.dataset.frameUrl = nextUrl;
+        diagDeviceFrameSection.hidden = !nextUrl;
+        if (!nextUrl) {
+          diagDeviceFrame.removeAttribute("src");
+          return;
+        }
+        refreshDeviceFrame();
+      }
+
+      diagnostics.addEventListener("toggle", refreshDeviceFrame);
+
       function renderScreenManifest(manifest) {
         currentScreenManifest = manifest;
         screenPreview.replaceChildren();
@@ -1487,8 +1539,10 @@
         diagDeliveryHash.textContent = shortHash(result.deliveryHash);
         diagDeliveryManifest.textContent = formatDiagnosticJson(result.deliveryManifest);
         diagEvidence.textContent = formatDiagnosticJson(result.screenEvidence || result.evidence);
+        setDeviceFrameUrl(result.screenEvidence?.frame?.url || result.screenFrameUrl || "");
         diagOutput.textContent = result.output || result.summary || "无输出。";
         diagnostics.open = !result.ok;
+        refreshDeviceFrame();
       }
 
       async function syncScreenToDevice(options = {}) {

@@ -64,12 +64,18 @@ def pixel_format(info):
     return f"{info.bits_per_pixel}BPP"
 
 
-def read_frame_evidence(device="/dev/fb0", fb_device="fb0", sys_graphics=SYS_GRAPHICS, sample_size=64):
+def read_frame(device="/dev/fb0", fb_device="fb0", sys_graphics=SYS_GRAPHICS):
     info = read_info(fb_device, sys_graphics)
     expected_byte_length = frame_byte_length(info)
     with open(device, "rb", buffering=0) as framebuffer:
         frame = framebuffer.read(expected_byte_length)
+    return info, frame
+
+
+def frame_evidence(info, frame, device="/dev/fb0", sample_size=64):
+    expected_byte_length = frame_byte_length(info)
     sample = frame[:sample_size]
+    nonzero_bytes = sum(1 for value in frame if value != 0)
     return {
         "device": device,
         "name": info.name,
@@ -82,12 +88,20 @@ def read_frame_evidence(device="/dev/fb0", fb_device="fb0", sys_graphics=SYS_GRA
         "byteLength": len(frame),
         "expectedByteLength": expected_byte_length,
         "sha256": hashlib.sha256(frame).hexdigest(),
+        "nonzeroBytes": nonzero_bytes,
+        "isBlank": nonzero_bytes == 0,
         "sample": {
             "offset": 0,
             "length": len(sample),
             "base64": base64.b64encode(sample).decode("ascii"),
+            "uniqueBytes": len(set(sample)),
         },
     }
+
+
+def read_frame_evidence(device="/dev/fb0", fb_device="fb0", sys_graphics=SYS_GRAPHICS, sample_size=64):
+    info, frame = read_frame(device, fb_device, sys_graphics)
+    return frame_evidence(info, frame, device=device, sample_size=sample_size)
 
 
 def write_frame(data, device="/dev/fb0"):

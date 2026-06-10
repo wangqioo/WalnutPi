@@ -94,7 +94,7 @@ Web preview
 -> Sync to WalnutPi
 -> Build LVGL app
 -> Activate walnut-screen.service
--> Read screen state and framebuffer frame evidence
+-> Read screen state, framebuffer frame evidence, and structural visual evidence
 ```
 
 The web server exposes the current screen contract at `GET /api/screen/manifest`.
@@ -106,16 +106,17 @@ The first delivery adapter is deliberately narrow:
 - build: `scripts/build-lvgl-app.sh`
 - activation: `sudo -n walnut screen start`
 - evidence: `walnut screen state` and `sudo -n walnut screen frame`
+- diagnostics image: `GET /api/screen/frame/<buildId>` calls read-only `walnut screen capture --png-base64` on demand
 
 Beginner UI only shows `未同步`, `同步中`, `已同步到核桃派`, or `同步失败`.
-`buildId`, screen manifest hash, artifact hash, delivery hash, command output, screen-state evidence, and framebuffer frame hashes stay in the developer diagnostics panel.
+`buildId`, screen manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, `visualMatch` / `visualChecks`, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.
 
 Current verification status:
 
 - `?nossh` is preview-only. Server routes reject screen sync, remote actions, and terminal connections before SSH/build/device-write paths.
 - Activation is gated on a real artifact SHA-256 hash.
 - The delivery manifest/hash commits to the artifact hash and screen manifest hash.
-- A real-device sync run has completed through build, activation, and `walnut screen state`; evidence reported `walnut-screen.service active`. The current sync path also requires `sudo -n walnut screen frame` to return valid framebuffer metadata and a raw frame SHA-256 hash.
+- A real-device sync run has completed through build, activation, and `walnut screen state`; evidence reported `walnut-screen.service active`. The current sync path also requires `sudo -n walnut screen frame` to return valid framebuffer metadata and a raw frame SHA-256 hash. The optional frame image route captures PNG evidence only when a developer opens diagnostics.
 
 Remote checkout note: when syncing as `pi`, the WalnutPi checkout is expected at `/home/pi/projects/WalnutPi`. Keep `/home/pi/projects/WalnutPi/build` owned by `pi:pi`; a root-owned build directory blocks CMake from writing LVGL generated files.
 

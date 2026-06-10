@@ -184,7 +184,7 @@ Web 端读取 screen manifest
 -> 后端构建 LVGL 程序
 -> 生成 WalnutPi delivery manifest
 -> 启动 walnut-screen.service
--> 读取 walnut screen state 和 framebuffer frame hash 作为设备回证
+-> 读取 walnut screen state、framebuffer frame hash 和结构性画面回证
 ```
 
 运行本地控制台：
@@ -210,13 +210,14 @@ http://127.0.0.1:4173/?nossh
 
 - `GET /api/screen/manifest`：返回当前小屏 manifest 和 hash。
 - `POST /api/screen/sync`：要求浏览器提交匹配且格式合法的 `manifestHash`；缺失、非法或过期 hash 会在构建 / SSH 前拒绝。
+- `GET /api/screen/frame/<buildId>`：开发者诊断专用，按需只读抓取设备 PNG 画面；默认同步 JSON 不内嵌图片字节或 `pngBase64`。
 
-普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出、screen state 和 framebuffer frame hash 只放在开发者诊断层。
+普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks` 和按需设备截图只放在开发者诊断层。
 
 当前真机闭环已经通过一次验证：
 
 ```text
-Web manifest -> POST /api/screen/sync -> LVGL build -> sudo -n walnut screen start -> walnut screen state -> sudo -n walnut screen frame
+Web manifest -> POST /api/screen/sync -> LVGL build -> sudo -n walnut screen start -> walnut screen state -> sudo -n walnut screen frame -> diagnostics-only walnut screen capture
 ```
 
 验证时 `artifactHash` 和 `deliveryHash` 都是 64 位 SHA-256/hex，设备回证显示 `walnut-screen.service` 为 `active`。如果远端 checkout 在 `/home/pi/projects/WalnutPi`，确保 `build/` 归 `pi:pi` 所有；root 拥有的旧构建目录会导致 CMake 写入失败。
@@ -365,6 +366,15 @@ sudo walnut screen toggle
 walnut screen state
 ```
 
+只读抓取当前 framebuffer 为 PNG 证据：
+
+```bash
+walnut screen capture
+walnut screen capture --png-base64
+```
+
+默认输出只包含 PNG 元数据、尺寸、字节数和 SHA-256；`--png-base64` 只供 Web 诊断图片路由按需使用。
+
 当前 LVGL 页面包含旋转圆环、呼吸核心、滑入状态卡片、循环进度条和日志刷新，并会读取真实设备状态：
 
 - IP 地址
@@ -402,6 +412,7 @@ Web 同步第一版复用现有 LVGL 运行边界，不改变 `walnut screen` �
 - 构建：`scripts/build-lvgl-app.sh`
 - 激活：`sudo -n walnut screen start`
 - 回证：`walnut screen state` + `sudo -n walnut screen frame`
+- 诊断截图：`walnut screen capture`，通过 `/api/screen/frame/<buildId>` 按需返回 PNG
 - 目标：`/dev/fb0`，480x320，RGB565
 
 这里的“同步到核桃派”不是把 Web 前端搬到设备上，也不是 VibeBoard/ESP32 烧录链路；它是把同一个小屏 manifest 对应的 LVGL 产物交付给 WalnutPi 本地屏幕运行时，并记录可诊断的 delivery/evidence。
