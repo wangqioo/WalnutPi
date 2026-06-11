@@ -1,9 +1,15 @@
+import { Buffer } from "node:buffer";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
 export function createSshLocalAgentAdapter({
+  localProjectRoot,
   remoteProjectRoot,
   remoteBuildUser,
   sshHost,
   sshUser,
   runRemote,
+  runRemoteScript,
   shellQuote,
   remoteBuildShell,
   sha256,
@@ -15,12 +21,30 @@ export function createSshLocalAgentAdapter({
   return {
     id: "ssh-local-agent",
     async deliver({ buildId, manifest, manifestHash }) {
+      const screenSlice = await buildScreenDeliverySlice({ localProjectRoot, manifest });
+      const remoteSliceScript = buildRemoteSliceScript({
+        remoteProjectRoot,
+        remoteBuildUser,
+        files: screenSlice.files,
+      });
       const buildCommand = [
         "set -e",
         `ROOT=${shellQuote(remoteProjectRoot)}`,
         'cd "$ROOT"',
         "scripts/build-lvgl-app.sh",
       ].join("; ");
+      const validateCommand = remoteBuildShell(
+        [
+          "set -e",
+          `ROOT=${shellQuote(remoteProjectRoot)}`,
+          'cd "$ROOT"',
+          "test -f lvgl_app/generated/screen_config.h",
+          `grep -F ${shellQuote(manifestHash)} lvgl_app/generated/screen_config.h >/dev/null`,
+          "test -x build/lvgl_app/walnut-lvgl-screen",
+          `strings build/lvgl_app/walnut-lvgl-screen | grep -F ${shellQuote(manifestHash)} >/dev/null`,
+          `printf 'manifest-hash=%s\\n' ${shellQuote(manifestHash)}`,
+        ].join("; "),
+      );
       const remoteBuildCommand = remoteBuildShell(buildCommand);
       const artifactCommand = remoteBuildShell(
         `set -e; ROOT=${shellQuote(remoteProjectRoot)}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk '{print $1}'`,
@@ -29,10 +53,24 @@ export function createSshLocalAgentAdapter({
       const stateCommand = "walnut screen state";
       const frameCommand = "sudo -n walnut screen frame";
 
-      const buildResult = await runRemote(remoteBuildCommand, 120_000);
-      const artifactResult = buildResult.ok
+      const sliceResult = await runRemoteScript(remoteSliceScript, 30_000);
+      const buildResult = sliceResult.ok
+        ? await runRemote(remoteBuildCommand, 120_000)
+        : { ok: false, code: null, output: "skipped because manifest delivery failed" };
+      const validateResult = sliceResult.ok && buildResult.ok
+        ? await runRemote(validateCommand, 15_000)
+        : { ok: false, code: null, output: sliceResult.ok ? "skipped because build failed" : "skipped because screen slice delivery failed" };
+      const artifactResult = sliceResult.ok && buildResult.ok && validateResult.ok
         ? await runRemote(artifactCommand, 10_000)
-        : { ok: false, code: null, output: "skipped because build failed" };
+        : {
+            ok: false,
+            code: null,
+            output: !sliceResult.ok
+              ? "skipped because screen slice delivery failed"
+              : buildResult.ok
+                ? "skipped because artifact does not contain current manifest hash"
+                : "skipped because build failed",
+          };
       const artifactHash = artifactResult.ok ? artifactResult.output.trim().split(/\s+/)[0] : null;
       const artifactHashValid = validSha256(artifactHash);
       const deliveryManifest = {
@@ -45,6 +83,10 @@ export function createSshLocalAgentAdapter({
           path: "build/lvgl_app/walnut-lvgl-screen",
           source: "lvgl_app/src/main.c",
           sha256: artifactHashValid ? artifactHash : null,
+        },
+        manifest: {
+          path: "lvgl_app/screen-manifest.json",
+          sha256: manifestHash,
         },
         target: {
           host: sshHost,
@@ -63,14 +105,24 @@ export function createSshLocalAgentAdapter({
         : {
             ok: false,
             code: null,
-            output: buildResult.ok ? "skipped because artifact hash is invalid" : "skipped because build failed",
+            output: !sliceResult.ok
+              ? "skipped because screen slice delivery failed"
+              : !validateResult.ok
+                ? "skipped because artifact does not contain current manifest hash"
+              : buildResult.ok
+                ? "skipped because artifact hash is invalid"
+                : "skipped because build failed",
           };
       const stateResult = buildResult.ok && artifactHashValid && activateResult.ok
         ? await runRemote(stateCommand, 15_000)
         : {
             ok: false,
             code: null,
-            output: !buildResult.ok
+            output: !sliceResult.ok
+              ? "skipped because screen slice delivery failed"
+              : !validateResult.ok
+                ? "skipped because artifact does not contain current manifest hash"
+              : !buildResult.ok
               ? "skipped because build failed"
               : artifactHashValid
                 ? "skipped because activation failed"
@@ -81,7 +133,11 @@ export function createSshLocalAgentAdapter({
         : {
             ok: false,
             code: null,
-            output: !buildResult.ok
+            output: !sliceResult.ok
+              ? "skipped because screen slice delivery failed"
+              : !validateResult.ok
+                ? "skipped because artifact does not contain current manifest hash"
+              : !buildResult.ok
               ? "skipped because build failed"
               : !artifactHashValid
                 ? "skipped because artifact hash is invalid"
@@ -108,7 +164,9 @@ export function createSshLocalAgentAdapter({
       const pixelEvidence = screenPixelEvidence({ frameEvidence, validSha256, sha256, stableStringify });
       const frameImageUrl = validFrameEvidence(frameEvidence, validSha256) ? frameUrl(buildId) : null;
       const failure = firstFailure(
+        sliceResult,
         buildResult,
+        validateResult,
         artifactHash,
         activateResult,
         stateResult,
@@ -141,7 +199,9 @@ export function createSshLocalAgentAdapter({
             },
       };
       const commandResults = {
+        "screen-slice": sliceResult,
         build: buildResult,
+        validate: validateResult,
         artifact: artifactResult,
         activate: activateResult,
         evidence: stateResult,
@@ -149,7 +209,9 @@ export function createSshLocalAgentAdapter({
       };
       const output = limitedOutput(
         [
+          commandBlockResult("screen-slice", sliceResult),
           commandBlockResult("build", buildResult),
+          commandBlockResult("validate", validateResult),
           commandBlockResult("artifact", artifactResult),
           commandBlockResult("activate", activateResult),
           commandBlockResult("evidence", stateResult),
@@ -174,7 +236,7 @@ export function createSshLocalAgentAdapter({
               frameSha256: frameEvidence.sha256,
             }
           : null,
-        command: `${remoteBuildCommand}\n${activateCommand}\n${stateCommand}\n${frameCommand}`,
+        command: `screen-slice: deliver ${screenSlice.files.length} files to ${remoteProjectRoot}\n${remoteBuildCommand}\n${validateCommand}\n${activateCommand}\n${stateCommand}\n${frameCommand}`,
         commandResults,
         code: failure ? 1 : 0,
         output,
@@ -185,6 +247,83 @@ export function createSshLocalAgentAdapter({
       };
     },
   };
+}
+
+const SCREEN_SLICE_FILES = [
+  "scripts/build-lvgl-app.sh",
+  "scripts/fetch-lvgl.sh",
+  "scripts/generate-lvgl-screen-config.py",
+  "scripts/generate-lvgl-screen-config.js",
+  "lvgl_app/CMakeLists.txt",
+  "lvgl_app/lv_conf.h",
+  "lvgl_app/src/main.c",
+  "lvgl_app/systemd/walnut-screen.service",
+];
+
+async function buildScreenDeliverySlice({ localProjectRoot, manifest }) {
+  const files = [];
+  for (const relativePath of SCREEN_SLICE_FILES) {
+    files.push({
+      path: relativePath,
+      mode: relativePath.endsWith(".sh") ? "755" : "644",
+      content: await readLocalSliceFile(localProjectRoot, relativePath),
+    });
+  }
+  files.push({
+    path: "lvgl_app/screen-manifest.json",
+    mode: "644",
+    content: `${JSON.stringify(manifest, null, 2)}\n`,
+  });
+  return { files };
+}
+
+async function readLocalSliceFile(localProjectRoot, relativePath) {
+  const root = path.resolve(localProjectRoot);
+  const filePath = path.resolve(root, relativePath);
+  if (!filePath.startsWith(`${root}${path.sep}`)) {
+    throw new Error(`screen slice path escapes project root: ${relativePath}`);
+  }
+  return readFile(filePath, "utf8");
+}
+
+function buildRemoteSliceScript({ remoteProjectRoot, remoteBuildUser, files }) {
+  const lines = [
+    "set -e",
+    `ROOT=${shSingleQuote(remoteProjectRoot)}`,
+    'install -d "$ROOT"',
+  ];
+
+  for (const file of files) {
+    const base64 = Buffer.from(file.content.replace(/\r\n/g, "\n"), "utf8").toString("base64");
+    lines.push(
+      `install -d "$ROOT/${shDoubleQuoteDir(file.path)}"`,
+      `base64 -d > "$ROOT/${shDoubleQuote(file.path)}" <<'WALNUT_SCREEN_FILE'`,
+      base64,
+      "WALNUT_SCREEN_FILE",
+      `chmod ${file.mode} "$ROOT/${shDoubleQuote(file.path)}"`,
+    );
+  }
+  if (remoteBuildUser) {
+    lines.push(
+      `chown -R ${shSingleQuote(`${remoteBuildUser}:${remoteBuildUser}`)} "$ROOT/lvgl_app" "$ROOT/scripts" 2>/dev/null || chown -R ${shSingleQuote(remoteBuildUser)} "$ROOT/lvgl_app" "$ROOT/scripts"`,
+      `if [ -d "$ROOT/build/lvgl_app" ]; then chown -R ${shSingleQuote(`${remoteBuildUser}:${remoteBuildUser}`)} "$ROOT/build/lvgl_app" 2>/dev/null || chown -R ${shSingleQuote(remoteBuildUser)} "$ROOT/build/lvgl_app"; fi`,
+    );
+  }
+  lines.push("printf 'screen slice delivered: %s files\\n' " + shSingleQuote(String(files.length)));
+  return lines.join("\n");
+}
+
+function shSingleQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+function shDoubleQuote(value) {
+  return String(value).replace(/\\/g, "/").replace(/"/g, '\\"').replace(/\$/g, "\\$").replace(/`/g, "\\`");
+}
+
+function shDoubleQuoteDir(relativePath) {
+  const directory = path.posix.dirname(String(relativePath).replace(/\\/g, "/"));
+  return directory === "." ? "" : shDoubleQuote(directory);
 }
 
 function parseFrameEvidence(result) {
@@ -364,11 +503,23 @@ function visualStatus({ manifest, manifestHash, artifactHash, artifactHashValid,
   };
 }
 
-function firstFailure(buildResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence, visual, validSha256) {
+function firstFailure(sliceResult, buildResult, validateResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence, visual, validSha256) {
+  if (!sliceResult.ok) {
+    return {
+      stage: "screen-slice",
+      summary: "当前小屏程序片段写入核桃派失败。请检查 SSH 连接和远端项目目录权限。",
+    };
+  }
   if (!buildResult.ok) {
     return {
       stage: "build",
       summary: "LVGL 构建失败。请在诊断里查看第一处编译错误。",
+    };
+  }
+  if (!validateResult.ok) {
+    return {
+      stage: "artifact",
+      summary: "LVGL 产物没有绑定当前 Web 预览。请在诊断里确认远端生成文件和二进制 manifest hash。",
     };
   }
   if (!validSha256(artifactHash)) {

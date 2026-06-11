@@ -32,6 +32,10 @@
         box-sizing: border-box;
       }
 
+      [hidden] {
+        display: none !important;
+      }
+
       html,
       body {
         width: 100%;
@@ -72,10 +76,11 @@
         display: grid;
         min-width: 0;
         min-height: 0;
-        grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+        grid-template-rows: auto auto minmax(0, 1fr) auto;
         border-right: 1px solid var(--line);
         background: rgba(11, 13, 12, 0.86);
         box-shadow: 18px 0 48px rgba(0, 0, 0, 0.18);
+        overflow: hidden;
       }
 
       .assistant-head {
@@ -168,6 +173,7 @@
       }
 
       .screen-workflow {
+        --preview-height: clamp(150px, 30dvh, 238px);
         display: grid;
         gap: 10px;
         border-bottom: 1px solid var(--line);
@@ -216,6 +222,9 @@
       }
 
       .screen-preview-frame {
+        width: min(100%, calc(var(--preview-height) * 1.5));
+        height: var(--preview-height);
+        justify-self: center;
         overflow: hidden;
         border: 1px solid rgba(120, 200, 193, 0.22);
         border-radius: 8px;
@@ -1136,15 +1145,16 @@
 
         .app {
           grid-template-columns: 1fr;
-          grid-template-rows: auto minmax(420px, 58vh);
-          min-height: 100%;
+          grid-template-rows: minmax(0, 100dvh) minmax(380px, 54vh);
+          min-height: 100dvh;
           height: auto;
         }
 
         .assistant-pane {
           border-right: 0;
           border-bottom: 1px solid var(--line);
-          grid-template-rows: auto auto minmax(140px, 24vh) auto auto;
+          height: 100dvh;
+          grid-template-rows: auto auto minmax(0, 1fr) auto;
         }
 
         .showcase-pane {
@@ -1164,11 +1174,12 @@
         }
 
         .screen-workflow {
+          --preview-height: clamp(138px, 25dvh, 210px);
           padding: 10px 12px;
         }
 
         .screen-preview-frame {
-          max-height: 170px;
+          max-width: 100%;
         }
 
         .quick-grid {
@@ -1183,11 +1194,11 @@
 
       @media (max-width: 620px) {
         .app {
-          grid-template-rows: auto minmax(360px, 54vh);
+          grid-template-rows: minmax(0, 100dvh) minmax(340px, 52vh);
         }
 
         .assistant-pane {
-          grid-template-rows: auto auto minmax(120px, 22vh) auto auto;
+          grid-template-rows: auto auto minmax(0, 1fr) auto;
         }
 
         .showcase-pane {
@@ -1273,6 +1284,30 @@
           height: 325px;
         }
       }
+
+      @media (max-height: 760px) {
+        .assistant-head {
+          padding: 12px 14px 10px;
+        }
+
+        .target {
+          display: none;
+        }
+
+        .screen-workflow {
+          --preview-height: clamp(126px, 27dvh, 190px);
+          gap: 8px;
+          padding: 10px 14px;
+        }
+
+        .chat-log {
+          padding: 10px 14px;
+        }
+
+        .composer {
+          padding: 10px 14px 12px;
+        }
+      }
     </style>
     <script type="importmap">
       {
@@ -1315,7 +1350,7 @@
             <div class="lvgl-preview" id="screenPreview"></div>
           </div>
 
-          <div class="screen-editor" aria-label="小屏界面编辑">
+          <div class="screen-editor" aria-label="小屏界面编辑" hidden>
             <div class="template-strip" id="templateStrip"></div>
             <form class="intent-form" id="screenIntentForm">
               <input
@@ -1335,7 +1370,7 @@
             </form>
           </div>
 
-          <div class="workflow-actions">
+          <div class="workflow-actions" hidden>
             <div class="sync-summary" id="syncSummary">Web 端已准备预览。</div>
             <div class="workflow-action-buttons">
               <button class="sync-button secondary-sync-button" id="aiSummaryButton" type="button" disabled>
@@ -1368,7 +1403,7 @@
             </div>
           </div>
 
-          <details class="diagnostics" id="diagnostics">
+          <details class="diagnostics" id="diagnostics" hidden>
             <summary>开发者诊断</summary>
             <div class="diagnostic-grid">
               <div class="diagnostic-section">
@@ -1448,7 +1483,7 @@
           </article>
         </div>
 
-        <div class="quick-grid" aria-label="示例请求">
+        <div class="quick-grid" aria-label="示例请求" hidden>
           <button class="quick-action" type="button" data-prompt="我想知道核桃派现在还好吗">
             <span class="quick-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M4 19V5" /><path d="M4 19h16" /><path d="M8 16v-5" /><path d="M12 16V8" /><path d="M16 16v-3" /></svg>
@@ -1680,7 +1715,7 @@
           reply: "我会只读检查 GPIO、总线和 overlay。",
         },
         ask: {
-          reply: "直接在下面输入问题，我会通过 CLI 调用 WalnutAI，由它判断是否需要先执行本地安全动作。",
+          reply: "直接在下面输入问题。状态、网络、小屏生成会自动走本地动作，普通问题交给 WalnutAI 回答。",
           run: () => assistantInput.focus(),
         },
         video: {
@@ -1703,6 +1738,16 @@
           reply: "我会把当前小屏界面同步到核桃派。",
           run: () => syncScreenToDevice({ addUserMessage: false }),
         },
+        aiSummary: {
+          reply: "我会根据最近一次同步证据生成总结。",
+          run: () => {
+            if (!currentSummaryBuildId) {
+              addMessage("assistant", "还没有可以总结的同步记录。");
+              return;
+            }
+            loadAiSummary();
+          },
+        },
       };
 
       const scene = new THREE.Scene();
@@ -1710,7 +1755,7 @@
       camera.position.set(0.9, 0.42, 1.28);
 
       const webglRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      webglRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
       webglRenderer.outputColorSpace = THREE.SRGBColorSpace;
       webglRenderer.toneMapping = THREE.ACESFilmicToneMapping;
       webglRenderer.toneMappingExposure = 1.08;
@@ -1724,6 +1769,7 @@
       orbit.target.set(0, 0.03, 0);
       orbit.minDistance = 0.42;
       orbit.maxDistance = 3.4;
+      orbit.addEventListener("change", requestRender);
 
       scene.add(new THREE.HemisphereLight(0xf6f1df, 0x425156, 2.35));
 
@@ -1775,6 +1821,8 @@
       let socket;
       let connectionId = 0;
       let pendingCommand = "";
+      let renderFrame = 0;
+      let renderBurstUntil = 0;
 
       term.loadAddon(fitAddon);
       term.open(terminalElement);
@@ -1792,6 +1840,7 @@
       function addMessage(role, text, options = {}) {
         const message = document.createElement("article");
         message.className = `message ${role}`;
+        message.dataset.role = role;
         message.classList.toggle("is-error", options.error === true);
 
         const meta = document.createElement("span");
@@ -1822,6 +1871,16 @@
         chatLog.scrollTop = chatLog.scrollHeight;
       }
 
+      function recentChatMessages(limit = 8) {
+        return Array.from(chatLog.querySelectorAll(".message"))
+          .slice(-limit)
+          .map((message) => ({
+            role: message.dataset.role === "user" ? "user" : "assistant",
+            content: message.querySelector(".message-body")?.textContent?.trim() || "",
+          }))
+          .filter((message) => message.content);
+      }
+
       function actionForText(text) {
         const trimmed = text.trim();
         const lower = trimmed.toLowerCase();
@@ -1831,7 +1890,7 @@
           return {
             id: "ai",
             payload: { text: aiQuestion[1].trim() },
-            reply: "我会把这句话交给 WalnutAI，由它判断是否需要先执行本地安全动作。",
+            reply: "我会把这句话交给 WalnutAI 回答。",
           };
         }
 
@@ -1840,14 +1899,51 @@
         if (/同步|部署|推送|运行到|显示到|sync/.test(lower) && /核桃派|设备|板子|小屏|屏幕|lvgl|screen/.test(lower)) {
           return actions.syncScreen;
         }
+        if (/总结|summary/i.test(trimmed) && /同步|证据|小屏|屏幕|screen/i.test(trimmed)) {
+          return actions.aiSummary;
+        }
+        if (/状态|健康|还好吗|怎么样|status|系统|服务|docker|内存|存储|磁盘|空间/.test(lower)) {
+          return actions.status;
+        }
+        if (/快照|snapshot|release|os-release|kernel|内核|hostname|启动配置|boot|设备信息|板子信息|硬件信息/.test(lower)) {
+          return actions.snapshot;
+        }
+        if (/网络|联网|wifi|wi-fi|ip\b|路由|route|network/.test(lower)) return actions.network;
+        if (/gpio|引脚|针脚|i2c|spi|uart|pwm|总线|bus|set-device/.test(lower)) return actions.gpio;
+        if (/今天.*(笔记|记录)|笔记.*今天|记了什么|notes|today/.test(lower)) return actions.notes;
+        if (/^(?:记一下|记录|note)\s*[:：]?\s*(.+)/i.test(trimmed)) {
+          const noteText = trimmed.replace(/^(?:记一下|记录|note)\s*[:：]?\s*/i, "").trim();
+          return {
+            id: "note",
+            payload: { text: noteText },
+            reply: "我会把这句话写进核桃派本地笔记。",
+          };
+        }
         if (/视频|彩色|ascii|demo/.test(lower)) return actions.video;
         if (/玩具|播放|演示|效果|动画|play/.test(lower)) return actions.video;
 
         return {
           id: "ai",
           payload: { text: trimmed },
-          reply: "我会把这句话交给 WalnutAI，由它判断是否需要先执行本地安全动作。",
+          reply: "我会把这句话交给 WalnutAI 回答。",
         };
+      }
+
+      function looksLikeScreenEdit(text) {
+        const value = String(text || "").trim();
+        if (!value) return false;
+
+        if (/^(设备状态|AI\s*任务板|网络面板|健康告警)$/i.test(value)) return true;
+        if (/(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个).*(?:软件|应用|app|程序|小程序|小工具|播放器|面板)|(?:软件|应用|app|程序|小程序|小工具|播放器|面板).*(?:做|创建|生成|开发|写|造|设计|弄)/i.test(value)) {
+          return true;
+        }
+        if (/^(标题|副标题|状态|进度|完成度|状态色|语义|告警级别|等级|指标|系统页|AI页|网络页)\s*(改成|改为|写成|写|显示|是|:|：)/i.test(value)) {
+          return true;
+        }
+        if (/(小屏|屏幕|预览|界面|lvgl|screen)/i.test(value)) {
+          return /(改|换|显示|写|设置|变成|更新|调整|标题|副标题|状态|进度|完成度|指标|面板|任务板|告警|网络|系统)/i.test(value);
+        }
+        return false;
       }
 
       function writeTerminalBlock(result) {
@@ -1971,6 +2067,17 @@
         }
       }
 
+      function reconcileSyncStateFromHistory(records) {
+        if (!currentManifestHash || !Array.isArray(records)) return;
+        const matchingRecord = records.find((record) => record.ok && record.manifestHash === currentManifestHash);
+        if (!matchingRecord) return;
+        setSyncState("已同步到核桃派", "synced");
+        syncSummary.textContent = "当前 Web 预览已同步到核桃派。";
+        currentSummaryBuildId = matchingRecord.buildId || currentSummaryBuildId;
+        currentDeviceFrameUrl = matchingRecord.frameUrl || currentDeviceFrameUrl;
+        currentPixelDiffManifestHash = matchingRecord.manifestHash || currentPixelDiffManifestHash;
+      }
+
       async function loadScreenHistory(force = false) {
         const now = Date.now();
         if (!force && now - lastHistoryLoadAt < 5000) return;
@@ -1980,7 +2087,9 @@
           const response = await fetch(withCurrentSearch("/api/screen/records"));
           const data = await response.json();
           if (!response.ok || !data.ok) throw new Error(data.error || "history load failed");
-          renderHistory(data.records || []);
+          const records = data.records || [];
+          renderHistory(records);
+          reconcileSyncStateFromHistory(records);
         } catch (error) {
           diagHistory.textContent = `无法读取同步记录：${error.message}`;
         }
@@ -2616,9 +2725,9 @@
         }
       }
 
-      async function applyScreenIntent(text) {
+      async function applyScreenIntent(text, options = {}) {
         const value = String(text || "").trim();
-        if (!value || !currentManifestHash) return;
+        if (!value || !currentManifestHash) return null;
         setScreenEditorBusy(true);
         clearRepairPanel();
         syncSummary.textContent = "正在更新预览。";
@@ -2629,10 +2738,20 @@
           screenIntentInput.value = "";
           syncSummary.textContent = data.summary || "已更新预览。";
           setSyncState("未同步", "pending");
+          if (options.addChat) {
+            addMessage("assistant", data.summary || "已更新上面的小屏预览。");
+          }
+          return data;
         } catch (error) {
           const result = error.result || {};
           syncSummary.textContent = result.summary || error.message || "无法理解这次修改。";
           diagOutput.textContent = result.output || result.error || error.message;
+          if (options.addChat) {
+            addMessage("assistant", result.summary || "我还没理解这次小屏修改。可以直接说：标题改成早安核桃派。", {
+              error: true,
+            });
+          }
+          return null;
         } finally {
           setScreenEditorBusy(false);
         }
@@ -2757,7 +2876,8 @@
         if (result.aiSummary) {
           renderAiSummary(result.aiSummary, { addChat: false });
         }
-        diagnostics.open = !result.ok;
+        repairPanel.hidden = true;
+        diagnostics.open = false;
         refreshDeviceFrame();
         if (options.refreshHistory !== false) loadScreenHistory(true);
       }
@@ -2835,6 +2955,9 @@
           action: action.id,
           ...(action.payload || {}),
         };
+        if (action.id === "ai") {
+          payload.messages = recentChatMessages();
+        }
 
         if (previewOnly) {
           addMessage("assistant", "预览模式下不会连接核桃派。", {
@@ -2864,6 +2987,14 @@
         if (result.mode === "terminal") {
           addMessage("assistant", result.reply, { command: result.command });
           sendTerminalCommand(result.command);
+          return;
+        }
+
+        if (result.id === "ai") {
+          addMessage("assistant", result.output || result.error || "WalnutAI 没有返回内容。", {
+            error: !result.ok,
+          });
+          if (result.output) writeTerminalBlock(result);
           return;
         }
 
@@ -2946,6 +3077,7 @@
           const value = Number(input.value);
           output.value = input.id === "screenScale" ? value.toFixed(5) : value.toFixed(3);
         }
+        requestRender();
       }
 
       for (const input of Object.values(controlsById)) {
@@ -2995,12 +3127,18 @@
         applyScreenIntent(screenIntentInput.value);
       });
 
-      function submitPrompt(text) {
+      async function submitPrompt(text) {
         text = text.trim();
         if (!text) return;
 
         assistantInput.value = "";
         addMessage("user", text);
+
+        if (looksLikeScreenEdit(text)) {
+          addMessage("assistant", "我先生成上面的小屏预览。");
+          await applyScreenIntent(text, { addChat: true });
+          return;
+        }
 
         const action = actionForText(text);
         if (!action) {
@@ -3031,6 +3169,7 @@
 
           root.position.sub(center);
           scene.add(root);
+          requestRenderBurst(700);
         },
         undefined,
         (error) => {
@@ -3048,22 +3187,40 @@
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
         fitAddon.fit();
+        requestRender();
       }
 
-      function animate() {
+      function renderScene() {
         orbit.update();
         webglRenderer.render(scene, camera);
         cssRenderer.render(scene, camera);
-        requestAnimationFrame(animate);
+      }
+
+      function renderLoop() {
+        renderFrame = 0;
+        renderScene();
+        if (performance.now() < renderBurstUntil) {
+          requestRender();
+        }
+      }
+
+      function requestRender() {
+        if (renderFrame) return;
+        renderFrame = requestAnimationFrame(renderLoop);
+      }
+
+      function requestRenderBurst(durationMs = 350) {
+        renderBurstUntil = Math.max(renderBurstUntil, performance.now() + durationMs);
+        requestRender();
       }
 
       loadScreenTemplates();
       loadScreenManifest();
       loadScreenHistory(true);
       updateScreenTransform();
-      connectTerminal();
       resize();
-      animate();
+      setStatus("Ready", "pending");
+      requestRenderBurst(900);
 
       window.addEventListener("resize", resize);
     </script>

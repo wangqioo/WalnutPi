@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -104,6 +105,8 @@ function renderHeader(config) {
 #ifndef WALNUT_SCREEN_CONFIG_H
 #define WALNUT_SCREEN_CONFIG_H
 
+#define WALNUT_SCREEN_MANIFEST_HASH ${cString(config.manifestHash)}
+
 #define WALNUT_SCREEN_TITLE ${cString(config.title)}
 #define WALNUT_SCREEN_SUBTITLE ${cString(config.subtitle)}
 
@@ -148,9 +151,25 @@ function renderHeader(config) {
 async function main() {
   const manifest = JSON.parse(await readFile(MANIFEST_PATH, "utf8"));
   const config = normalize(manifest);
+  config.manifestHash = stableStringifyHash(manifest);
   await mkdir(path.dirname(OUTPUT_PATH), { recursive: true });
   await writeFile(OUTPUT_PATH, renderHeader(config), "utf8");
   console.log(OUTPUT_PATH);
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function stableStringifyHash(value) {
+  return createHash("sha256").update(stableStringify(value)).digest("hex");
 }
 
 main().catch((error) => {

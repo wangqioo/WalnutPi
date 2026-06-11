@@ -2,41 +2,43 @@
 #ifndef WALNUT_SCREEN_CONFIG_H
 #define WALNUT_SCREEN_CONFIG_H
 
-#define WALNUT_SCREEN_TITLE "WalnutPi"
-#define WALNUT_SCREEN_SUBTITLE "server screen"
+#define WALNUT_SCREEN_MANIFEST_HASH "fc1821341680497f49704d6264f69de5f5c153295144513f0420e7496db38026"
 
-#define WALNUT_SCREEN_TAB_HOME "HOME"
-#define WALNUT_SCREEN_TAB_SYSTEM "SYS"
-#define WALNUT_SCREEN_TAB_AI "AI"
-#define WALNUT_SCREEN_TAB_NETWORK "NET"
+#define WALNUT_SCREEN_TITLE "WalnutMusic"
+#define WALNUT_SCREEN_SUBTITLE "music player"
 
-#define WALNUT_SCREEN_HOME_STATUS "OK CORE"
+#define WALNUT_SCREEN_TAB_HOME "PLAY"
+#define WALNUT_SCREEN_TAB_SYSTEM "LIB"
+#define WALNUT_SCREEN_TAB_AI "CTL"
+#define WALNUT_SCREEN_TAB_NETWORK "SYNC"
+
+#define WALNUT_SCREEN_HOME_STATUS "MUSIC READY"
 #define WALNUT_SCREEN_HOME_TONE "ok"
 #define WALNUT_SCREEN_HOME_TONE_COLOR C_GREEN
-#define WALNUT_SCREEN_HOME_PROGRESS 72
-#define WALNUT_SCREEN_HOME_METRIC_1 "IP loading"
-#define WALNUT_SCREEN_HOME_METRIC_2 "MEM --"
-#define WALNUT_SCREEN_HOME_METRIC_3 "DISK --"
+#define WALNUT_SCREEN_HOME_PROGRESS 38
+#define WALNUT_SCREEN_HOME_METRIC_1 "Track queue"
+#define WALNUT_SCREEN_HOME_METRIC_2 "Vol --"
+#define WALNUT_SCREEN_HOME_METRIC_3 "Local audio"
 
-#define WALNUT_SCREEN_SYSTEM_TITLE "System"
-#define WALNUT_SCREEN_SYSTEM_LINE_1 "CPU load"
-#define WALNUT_SCREEN_SYSTEM_LINE_2 "Memory"
-#define WALNUT_SCREEN_SYSTEM_LINE_3 "Disk"
-#define WALNUT_SCREEN_SYSTEM_LINE_4 "Uptime"
-#define WALNUT_SCREEN_SYSTEM_TEXT "System\n\nCPU load\nMemory\nDisk\nUptime"
+#define WALNUT_SCREEN_SYSTEM_TITLE "Music Library"
+#define WALNUT_SCREEN_SYSTEM_LINE_1 "Scan music-library"
+#define WALNUT_SCREEN_SYSTEM_LINE_2 "MP3 FLAC WAV"
+#define WALNUT_SCREEN_SYSTEM_LINE_3 "Playlist ready"
+#define WALNUT_SCREEN_SYSTEM_LINE_4 "No cloud needed"
+#define WALNUT_SCREEN_SYSTEM_TEXT "Music Library\n\nScan music-library\nMP3 FLAC WAV\nPlaylist ready\nNo cloud needed"
 
-#define WALNUT_SCREEN_AI_TITLE "AI Agent"
-#define WALNUT_SCREEN_AI_LINE_1 "Local shell online"
-#define WALNUT_SCREEN_AI_LINE_2 "Cloud model ready"
-#define WALNUT_SCREEN_AI_LINE_3 "Screen cards active"
-#define WALNUT_SCREEN_AI_LINE_4 ""
-#define WALNUT_SCREEN_AI_TEXT "AI Agent\n\nLocal shell online\nCloud model ready\nScreen cards active"
+#define WALNUT_SCREEN_AI_TITLE "Player Controls"
+#define WALNUT_SCREEN_AI_LINE_1 "Play pause next"
+#define WALNUT_SCREEN_AI_LINE_2 "Volume guarded"
+#define WALNUT_SCREEN_AI_LINE_3 "Use walnut play"
+#define WALNUT_SCREEN_AI_LINE_4 "Terminal fallback"
+#define WALNUT_SCREEN_AI_TEXT "Player Controls\n\nPlay pause next\nVolume guarded\nUse walnut play\nTerminal fallback"
 
-#define WALNUT_SCREEN_NETWORK_TITLE "Network"
-#define WALNUT_SCREEN_NETWORK_LINE_1 "IP"
-#define WALNUT_SCREEN_NETWORK_LINE_2 "FRP"
-#define WALNUT_SCREEN_NETWORK_LINE_3 "SSH"
-#define WALNUT_SCREEN_NETWORK_LINE_4 "Display fbdev"
-#define WALNUT_SCREEN_NETWORK_TEXT "Network\n\nIP\nFRP\nSSH\nDisplay fbdev"
+#define WALNUT_SCREEN_NETWORK_TITLE "WalnutPi Sync"
+#define WALNUT_SCREEN_NETWORK_LINE_1 "Preview first"
+#define WALNUT_SCREEN_NETWORK_LINE_2 "Sync to fbdev"
+#define WALNUT_SCREEN_NETWORK_LINE_3 "Evidence frame"
+#define WALNUT_SCREEN_NETWORK_LINE_4 "Ask before writes"
+#define WALNUT_SCREEN_NETWORK_TEXT "WalnutPi Sync\n\nPreview first\nSync to fbdev\nEvidence frame\nAsk before writes"
 
 #endif

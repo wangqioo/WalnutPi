@@ -1,7 +1,9 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { createSshLocalAgentAdapter } from "./screen-delivery-adapters/ssh-local-agent.js";
 
@@ -29,6 +31,12 @@ const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BA
 const AI_MODEL = process.env.WALNUT_AI_MODEL || "gpt-5.5";
 const AI_BASE_URL = (process.env.WALNUT_AI_BASE_URL || "https://rehdasu.cn/v1").replace(/\/+$/, "");
 const AI_API_KEY = process.env.OPENAI_API_KEY || "";
+const AI_CONTEXT_LIMIT = 4;
+const AI_CONTEXT_TEXT_LIMIT = 900;
+const AI_TIMEOUT_SECONDS = Number(process.env.WALNUT_WEB_AI_TIMEOUT || 20);
+const SSH_CONTROLMASTER_ENABLED = process.platform !== "win32"
+  && !["0", "false", "no", "off"].includes(String(process.env.WALNUT_SSH_CONTROLMASTER || "1").toLowerCase());
+const SSH_CONTROL_DIR = process.env.SSH_CONTROL_DIR || path.join(tmpdir(), `walnutpi-web-ssh-${process.getuid?.() || "user"}`);
 const screenFrameTickets = new Map();
 
 const files = new Map([
@@ -162,9 +170,61 @@ function remoteBuildShell(command) {
   return `sudo -n -u ${shellQuote(REMOTE_BUILD_USER)} sh -lc ${shellQuote(command)}`;
 }
 
+function sshConnectionOptions() {
+  const options = [
+    "-o",
+    "StrictHostKeyChecking=no",
+    "-o",
+    "UserKnownHostsFile=/dev/null",
+    "-o",
+    "LogLevel=ERROR",
+  ];
+  if (SSH_CONTROLMASTER_ENABLED) {
+    mkdirSync(SSH_CONTROL_DIR, { recursive: true, mode: 0o700 });
+    options.push(
+      "-o",
+      "ControlMaster=auto",
+      "-o",
+      "ControlPersist=600",
+      "-o",
+      `ControlPath=${path.join(SSH_CONTROL_DIR, "%C")}`,
+    );
+  }
+  return options;
+}
+
 function limitedOutput(value, limit = ACTION_OUTPUT_LIMIT) {
   if (value.length <= limit) return value;
   return `${value.slice(0, limit)}\n\n[local] output truncated`;
+}
+
+function clippedText(value, limit = AI_CONTEXT_TEXT_LIMIT) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit);
+}
+
+function aiQuestionWithContext(text, messages = []) {
+  const recent = Array.isArray(messages)
+    ? messages
+      .filter((message) => message && (message.role === "user" || message.role === "assistant"))
+      .slice(-AI_CONTEXT_LIMIT)
+      .map((message) => `${message.role === "user" ? "用户" : "WalnutAI"}：${clippedText(message.content)}`)
+      .filter(Boolean)
+    : [];
+
+  return [
+    "你是 WalnutAI Web 入口，面向新手操作核桃派。",
+    "回答要短、直接、中文。需要实时设备状态时，不要编造，建议使用 Web 本地动作。",
+    "常用入口：walnut status、walnut-ai、walnut play、walnut video color。",
+    "",
+    "最近对话：",
+    recent.length ? recent.join("\n") : "（无）",
+    "",
+    "当前用户问题：",
+    text,
+  ].join("\n");
 }
 
 function safeRecordId(value) {
@@ -233,7 +293,9 @@ function buildScreenRepairHint(record) {
   const stage = record.failedStage || (record.ok ? "ok" : "unknown");
   const visualChecks = record.screenEvidence?.visualChecks || null;
   const commandByStage = {
+    "screen-slice": "screen-slice",
     build: "build",
+    validate: "validate",
     artifact: "artifact",
     activate: "activate",
     evidence: "evidence",
@@ -273,6 +335,13 @@ function buildScreenRepairHint(record) {
       developerDiagnosis: firstError || "manifest 读取失败、JSON 无效、hash 缺失、hash 格式错误或 stale manifestHash。",
       suggestedActions: ["刷新页面，重新读取当前小屏预览。", "如果仍失败，检查 lvgl_app/screen-manifest.json 是否是有效 JSON。", "确认同步请求带的是最新 manifestHash。"],
     },
+    "screen-slice": {
+      title: "小屏程序下发失败",
+      summary: "当前 Web 的小屏构建片段没有成功写到核桃派。",
+      beginnerReason: "核桃派还没有拿到这次预览对应的小屏程序文件。",
+      developerDiagnosis: firstError || "screen-slice 阶段没有成功写入 LVGL 源码、构建脚本、生成器或 manifest。",
+      suggestedActions: ["检查 SSH 连接和远端 /home/pi/projects/WalnutPi 写入权限。", "确认 WALNUT_REMOTE_PROJECT_ROOT 指向真实 checkout。", "修复权限后重新同步。"],
+    },
     build: {
       title: "LVGL 构建失败",
       summary: "设备端没有成功编译小屏程序。",
@@ -282,10 +351,10 @@ function buildScreenRepairHint(record) {
     },
     artifact: {
       title: "构建产物不可用",
-      summary: "构建后没有拿到合法的 LVGL 程序 SHA-256。",
-      beginnerReason: "同步需要确认小屏程序文件真实存在，当前确认失败。",
-      developerDiagnosis: firstError || "artifact command 没有返回合法 SHA-256。",
-      suggestedActions: ["确认 build/lvgl_app/walnut-lvgl-screen 是否存在且可执行。", "检查远端项目根是否指向 /home/pi/projects/WalnutPi。", "重新构建后再同步。"],
+      summary: "构建后没有拿到绑定当前预览的 LVGL 程序。",
+      beginnerReason: "同步需要确认小屏程序文件真实存在，而且就是这次 Web 预览对应的版本。",
+      developerDiagnosis: firstError || "artifact/validate 没有返回合法 SHA-256，或二进制没有包含当前 manifest hash。",
+      suggestedActions: ["确认 lvgl_app/generated/screen_config.h 包含当前 manifest hash。", "确认 build/lvgl_app/walnut-lvgl-screen 存在且 strings 能看到当前 manifest hash。", "检查远端项目根是否指向 /home/pi/projects/WalnutPi。"],
     },
     activate: {
       title: "屏幕服务激活失败",
@@ -375,6 +444,13 @@ function buildScreenRepairCandidate(record) {
         action("local-edit-plan", "检查 manifest JSON", "检查 lvgl_app/screen-manifest.json 是否是合法 JSON，schema 是否仍是 walnutpi.screen.v1。"),
       ],
     },
+    "screen-slice": {
+      confidence: "medium",
+      actions: [
+        action("device-check", "检查远端项目权限", "确认 WALNUT_REMOTE_PROJECT_ROOT 指向真实 checkout，且构建用户可以写入 lvgl_app 和 scripts。"),
+        action("manual-check", "查看 screen-slice 输出", "在开发者诊断 command output 的 screen-slice 段查看最早失败的 install、base64 或 chmod 行。"),
+      ],
+    },
     build: {
       confidence: "medium",
       actions: [
@@ -385,7 +461,7 @@ function buildScreenRepairCandidate(record) {
     artifact: {
       confidence: "medium",
       actions: [
-        action("device-check", "检查 LVGL 产物", "确认远端 build/lvgl_app/walnut-lvgl-screen 存在且可执行。"),
+        action("device-check", "检查 LVGL 产物", "确认远端 build/lvgl_app/walnut-lvgl-screen 存在且可执行，并包含当前 manifest hash。"),
         action("manual-check", "确认远端项目根", "确认 WALNUT_REMOTE_PROJECT_ROOT 指向 /home/pi/projects/WalnutPi 或真实 checkout。"),
       ],
     },
@@ -837,14 +913,11 @@ function runRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMI
         "-e",
         "ssh",
         "-T",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "-o",
-        "UserKnownHostsFile=/dev/null",
-        "-o",
-        "LogLevel=ERROR",
+        ...sshConnectionOptions(),
         "-o",
         "ConnectTimeout=8",
+        "-o",
+        "ConnectionAttempts=1",
         target,
         `sh -lc ${shellQuote(command)}`,
       ],
@@ -895,6 +968,70 @@ function runRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMI
   });
 }
 
+function runRemoteScript(script, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+  return new Promise((resolve) => {
+    const target = `${SSH_USER}@${SSH_HOST}`;
+    const child = spawn(
+      "sshpass",
+      [
+        "-e",
+        "ssh",
+        "-T",
+        ...sshConnectionOptions(),
+        "-o",
+        "ConnectTimeout=8",
+        "-o",
+        "ConnectionAttempts=1",
+        target,
+        "sh",
+      ],
+      {
+        env: {
+          ...process.env,
+          SSHPASS: SSH_PASSWORD,
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      resolve({
+        ok: false,
+        code: null,
+        output: limitedOutput(`${stdout}${stderr}\n[local] remote script timed out after ${timeoutMs}ms`.trim(), outputLimit),
+      });
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.stdin.on("error", () => {});
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok: false, code: null, output: `[local] ${error.message}` });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok", outputLimit);
+      resolve({ ok: code === 0, code, output });
+    });
+    child.stdin.end(String(script || "").replace(/\r\n/g, "\n"));
+  });
+}
+
 function validSha256(value) {
   return /^[a-f0-9]{64}$/i.test(String(value || "").trim());
 }
@@ -903,11 +1040,13 @@ const screenDeliveryAdapters = new Map([
   [
     "ssh-local-agent",
     createSshLocalAgentAdapter({
+      localProjectRoot: PROJECT_ROOT,
       remoteProjectRoot: REMOTE_PROJECT_ROOT,
       remoteBuildUser: REMOTE_BUILD_USER,
       sshHost: SSH_HOST,
       sshUser: SSH_USER,
       runRemote,
+      runRemoteScript,
       shellQuote,
       remoteBuildShell,
       sha256,
@@ -988,6 +1127,21 @@ const SCREEN_TEMPLATES = [
         { id: "system", tab: "SYS", title: "System Alerts", lines: ["CPU load watch", "Memory high", "Disk ok", "Check uptime"] },
         { id: "ai", tab: "AI", title: "AI Assist", lines: ["Collect evidence", "Explain risk", "No auto repair", "Ask before writes"] },
         { id: "network", tab: "NET", title: "Network Risk", lines: ["LAN reachable", "SSH guarded", "FRP check", "No public shell"] },
+      ],
+    },
+  },
+  {
+    id: "music-player",
+    label: "音乐播放器",
+    summary: "把音乐软件想法落成核桃派小屏播放器预览。",
+    manifest: {
+      title: "WalnutMusic",
+      subtitle: "music player",
+      pages: [
+        { id: "home", tab: "PLAY", status: "MUSIC READY", tone: "ok", progress: 38, metrics: ["Track queue", "Vol --", "Local audio"] },
+        { id: "system", tab: "LIB", title: "Music Library", lines: ["Scan music-library", "MP3 FLAC WAV", "Playlist ready", "No cloud needed"] },
+        { id: "ai", tab: "CTL", title: "Player Controls", lines: ["Play pause next", "Volume guarded", "Use walnut play", "Terminal fallback"] },
+        { id: "network", tab: "SYNC", title: "WalnutPi Sync", lines: ["Preview first", "Sync to fbdev", "Evidence frame", "Ask before writes"] },
       ],
     },
   },
@@ -1214,9 +1368,47 @@ function linePagePatch(pageIndex, title, lines, tab) {
   return { pages };
 }
 
+function looksLikeScreenProgramRequest(input) {
+  const text = String(input || "").trim();
+  if (!text) return false;
+  if (/(小屏|屏幕|界面|lvgl|screen)/i.test(text) && /(做|创建|生成|开发|写|造|设计|弄|来一个)/i.test(text)) {
+    return true;
+  }
+  return /(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个).*(?:软件|应用|app|程序|小程序|小工具|播放器|面板)|(?:软件|应用|app|程序|小程序|小工具|播放器|面板).*(?:做|创建|生成|开发|写|造|设计|弄)/i.test(text);
+}
+
+function screenProgramIntentPatch(input) {
+  if (!looksLikeScreenProgramRequest(input)) return null;
+
+  if (/音乐|歌曲|歌单|播放器|音频|声音|music|audio|player/i.test(input)) {
+    const template = SCREEN_TEMPLATES.find((item) => item.id === "music-player");
+    return template
+      ? {
+        ...template.manifest,
+        intentSummary: "已把音乐软件生成成小屏播放器预览。可以继续说要改哪里，或说“同步到核桃派”。",
+      }
+      : null;
+  }
+
+  return {
+    title: "WalnutApp",
+    subtitle: "app preview",
+    pages: [
+      { id: "home", tab: "APP", status: "APP DRAFT", tone: "ok", progress: 40, metrics: ["Preview ready", "Sync safe", "Edit by chat"] },
+      { id: "system", tab: "UI", title: "Screen UI", lines: ["Main screen", "Status area", "Action list", "Evidence ready"] },
+      { id: "ai", tab: "AI", title: "Build Intent", lines: ["Natural language", "Safe local actions", "Ask before writes", "Beginner first"] },
+      { id: "network", tab: "NEXT", title: "Next Steps", lines: ["Refine preview", "Sync to WalnutPi", "Check frame", "Keep diagnostics hidden"] },
+    ],
+    intentSummary: "已生成一个小屏应用预览。可以继续说要改哪里，或说“同步到核桃派”。",
+  };
+}
+
 function parseScreenIntent(text, currentManifest) {
   const input = String(text || "").trim();
   if (!input) return null;
+
+  const programPatch = screenProgramIntentPatch(input);
+  if (programPatch) return programPatch;
 
   let match = input.match(/(?:副标题|说明)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
   if (match) return { subtitle: match[1].trim() };
@@ -1351,7 +1543,7 @@ async function handleScreenIntent(req) {
     const envelope = await writeScreenManifest(next);
     return json({
       ok: true,
-      summary: "已更新预览。",
+      summary: patch.intentSummary || "已更新预览。",
       ...envelope,
     });
   } catch (error) {
@@ -2156,10 +2348,11 @@ const ACTIONS = {
     buildCommand(body) {
       const text = String(body.text || "").trim();
       if (!text) throw new Error("缺少要问 WalnutAI 的内容。");
-      return `walnut ai ${shellQuote(text)}`;
+      const prompt = aiQuestionWithContext(text, body.messages);
+      return `WALNUT_AI_TIMEOUT=${shellQuote(AI_TIMEOUT_SECONDS)} WALNUT_AI_DISABLE_MEMORY=1 WALNUT_AI_CHAT_ONLY=1 walnut-ai ${shellQuote(prompt)}`;
     },
-    reply: "我会把自然语言交给 WalnutAI，由它判断是否需要先执行本地安全动作。",
-    timeoutMs: 120_000,
+    reply: "我会把普通问题交给 WalnutAI 回答；状态、网络和小屏生成由 Web 入口先分流到本地动作。",
+    timeoutMs: (AI_TIMEOUT_SECONDS + 15) * 1000,
   },
   video: {
     title: "彩色视频",
@@ -2178,6 +2371,14 @@ function actionSummary(action, id) {
     mode: action.mode,
     reply: action.reply,
   };
+}
+
+function aiActionOutputFailed(output) {
+  const firstLine = String(output || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) || "";
+  return /^(API 请求失败|API HTTP|OPENAI_API_KEY|usage:|walnut: error:|ERR:|\[local\])/i.test(firstLine);
 }
 
 async function handleAction(req) {
@@ -2210,11 +2411,14 @@ async function handleAction(req) {
   }
 
   const result = await runRemote(command, action.timeoutMs);
+  const outputFailed = id === "ai" && aiActionOutputFailed(result.output);
   return json({
-    ok: result.ok,
+    ok: result.ok && !outputFailed,
     ...actionSummary(action, id),
     command,
     code: result.code,
+    remoteOk: result.ok,
+    outputFailed,
     output: result.output,
   });
 }
@@ -2227,12 +2431,7 @@ function startSsh(ws) {
       "-e",
       "ssh",
       "-tt",
-      "-o",
-      "StrictHostKeyChecking=no",
-      "-o",
-      "UserKnownHostsFile=/dev/null",
-      "-o",
-      "LogLevel=ERROR",
+      ...sshConnectionOptions(),
       target,
     ],
     {

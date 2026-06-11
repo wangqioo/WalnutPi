@@ -259,7 +259,7 @@ def classify_intent(text: str) -> dict[str, object] | None:
         {"role": "user", "content": text},
     ])
     if answer.startswith(("API ", "API 请求失败", "OPENAI_API_KEY")):
-        return {"action": "router_error", "risk": "none", "args": {"message": answer}, "reason": ""}
+        return None
     data = parse_json_object(answer)
     if not data:
         return None

@@ -40,6 +40,12 @@ static volatile bool running = true;
 #define WALNUT_SCREEN_HOME_PROGRESS 72
 #endif
 
+#if defined(__GNUC__)
+static const char walnut_screen_manifest_hash[] __attribute__((used)) = WALNUT_SCREEN_MANIFEST_HASH;
+#else
+static const char walnut_screen_manifest_hash[] = WALNUT_SCREEN_MANIFEST_HASH;
+#endif
+
 typedef struct {
     lv_obj_t * mem_label;
     lv_obj_t * disk_label;
@@ -788,6 +794,8 @@ static void build_demo_ui(void)
 
 int main(int argc, char ** argv)
 {
+    (void)walnut_screen_manifest_hash;
+
     const char * fbdev = "/dev/fb0";
     bool demo = false;
     for(int i = 1; i < argc; i++) {

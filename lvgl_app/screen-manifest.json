@@ -1,8 +1,8 @@
 {
   "schema": "walnutpi.screen.v1",
   "id": "walnutpi-lvgl-status",
-  "title": "WalnutPi",
-  "subtitle": "server screen",
+  "title": "WalnutMusic",
+  "subtitle": "music player",
   "target": {
     "runtime": "lvgl-fbdev",
     "display": "/dev/fb0",
@@ -17,29 +17,48 @@
   "pages": [
     {
       "id": "home",
-      "tab": "HOME",
-      "status": "OK CORE",
+      "tab": "PLAY",
+      "status": "MUSIC READY",
       "tone": "ok",
-      "progress": 72,
-      "metrics": ["IP loading", "MEM --", "DISK --"]
+      "progress": 38,
+      "metrics": [
+        "Track queue",
+        "Vol --",
+        "Local audio"
+      ]
     },
     {
       "id": "system",
-      "tab": "SYS",
-      "title": "System",
-      "lines": ["CPU load", "Memory", "Disk", "Uptime"]
+      "tab": "LIB",
+      "title": "Music Library",
+      "lines": [
+        "Scan music-library",
+        "MP3 FLAC WAV",
+        "Playlist ready",
+        "No cloud needed"
+      ]
     },
     {
       "id": "ai",
-      "tab": "AI",
-      "title": "AI Agent",
-      "lines": ["Local shell online", "Cloud model ready", "Screen cards active"]
+      "tab": "CTL",
+      "title": "Player Controls",
+      "lines": [
+        "Play pause next",
+        "Volume guarded",
+        "Use walnut play",
+        "Terminal fallback"
+      ]
     },
     {
       "id": "network",
-      "tab": "NET",
-      "title": "Network",
-      "lines": ["IP", "FRP", "SSH", "Display fbdev"]
+      "tab": "SYNC",
+      "title": "WalnutPi Sync",
+      "lines": [
+        "Preview first",
+        "Sync to fbdev",
+        "Evidence frame",
+        "Ask before writes"
+      ]
     }
   ]
 }
