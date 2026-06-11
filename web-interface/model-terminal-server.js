@@ -2,10 +2,22 @@ import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import {
+  SCREEN_PAGE_IDS,
+  cleanProgress,
+  cleanText,
+  firstScreenComponent,
+  metricItemFromText,
+  normalizeScreenManifest,
+  stableStringify,
+  toneFromText,
+} from "../scripts/screen-manifest-vocabulary.js";
+import { createScreenEvidenceLedger } from "./screen-evidence-ledger.js";
 import { createSshLocalAgentAdapter } from "./screen-delivery-adapters/ssh-local-agent.js";
+import { createScreenSyncWorkflow } from "./screen-sync-workflow.js";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PORT || 4173);
@@ -305,80 +317,6 @@ async function handleSession(req, url) {
   return json({ ok: false, error: "Method not allowed" }, 405);
 }
 
-async function previewOnlyScreenSyncResult(req) {
-  const startedAt = new Date();
-  const buildId = `screen-${startedAt.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
-  let envelope;
-  try {
-    envelope = await screenManifestEnvelope();
-  } catch (error) {
-    return persistScreenSyncResult({
-      ok: false,
-      title: "同步到核桃派",
-      risk: "preview",
-      mode: "preview",
-      buildId,
-      startedAt: startedAt.toISOString(),
-      manifest: null,
-      manifestHash: null,
-      deliveryManifest: null,
-      deliveryHash: null,
-      artifactHash: null,
-      evidence: null,
-      screenEvidence: null,
-      screenFrameUrl: null,
-      command: null,
-      code: 1,
-      output: error.message,
-      summary: "screen manifest 无法读取或格式无效，请先修复小屏 contract。",
-      failedStage: "manifest",
-    }, {}, 500);
-  }
-  const { manifest, manifestHash } = envelope;
-  let clientManifestHash = null;
-  try {
-    const body = await req.json();
-    clientManifestHash = typeof body.manifestHash === "string" ? body.manifestHash : null;
-  } catch {
-    clientManifestHash = null;
-  }
-
-  return persistScreenSyncResult({
-    ok: false,
-    title: "同步到核桃派",
-    risk: "preview",
-    mode: "preview",
-    buildId,
-    startedAt: startedAt.toISOString(),
-    manifest,
-    manifestHash,
-    deliveryManifest: null,
-    deliveryHash: null,
-    artifactHash: null,
-    evidence: null,
-    screenEvidence: null,
-    screenFrameUrl: null,
-    command: null,
-    code: 1,
-    output: `preview mode disables SSH, build, delivery, activation, and device writes\nclient=${clientManifestHash || "(missing)"}\nserver=${manifestHash}`,
-    summary: "预览模式下不会连接核桃派。",
-    failedStage: "preview",
-  }, {}, 403);
-}
-
-function stableStringify(value) {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(",")}]`;
-  }
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
-      .join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -489,30 +427,6 @@ function aiQuestionWithContext(text, messages = [], projectMemory = null) {
     "当前用户问题：",
     text,
   ].join("\n");
-}
-
-function safeRecordId(value) {
-  const text = String(value || "");
-  if (!/^[a-zA-Z0-9._-]+$/.test(text) || text.includes("..") || text === "." || text.startsWith(".")) return null;
-  return text;
-}
-
-function screenRecordDir(buildId) {
-  const id = safeRecordId(buildId);
-  if (!id) return null;
-  return path.join(SCREEN_RECORDS_DIR, id);
-}
-
-function screenRecordFrameUrl(buildId) {
-  return `/api/screen/records/${encodeURIComponent(buildId)}/frame.png`;
-}
-
-function compactCommandResult(result) {
-  return {
-    ok: Boolean(result?.ok),
-    code: result?.code ?? null,
-    output: limitedOutput(String(result?.output || ""), 12_000),
-  };
 }
 
 function firstDiagnosticLine(value) {
@@ -678,6 +592,19 @@ function buildScreenRepairHint(record) {
     autoRepairAvailable: false,
   };
 }
+
+const screenEvidenceLedger = createScreenEvidenceLedger({
+  recordsDir: SCREEN_RECORDS_DIR,
+  recordLimit: SCREEN_RECORD_LIMIT,
+  outputLimit: ACTION_OUTPUT_LIMIT,
+  buildRepairHint: buildScreenRepairHint,
+});
+
+const safeRecordId = screenEvidenceLedger.safeRecordId;
+const screenRecordFrameUrl = screenEvidenceLedger.frameUrl;
+const readScreenRecord = screenEvidenceLedger.readRecord;
+const updateScreenRecord = screenEvidenceLedger.updateRecord;
+const listScreenRecords = screenEvidenceLedger.listRecords;
 
 function buildScreenRepairCandidate(record) {
   const hint = record.repairHint || buildScreenRepairHint(record);
@@ -1186,82 +1113,9 @@ async function buildScreenAiSummary(record) {
   };
 }
 
-function screenRecordSummary(record) {
-  return {
-    schema: "walnutpi.screenSyncRecordSummary.v1",
-    buildId: record.buildId,
-    ok: record.ok,
-    title: record.title,
-    startedAt: record.startedAt,
-    finishedAt: record.finishedAt,
-    failedStage: record.failedStage,
-    summary: record.summary,
-    manifestHash: record.manifestHash,
-    artifactHash: record.artifactHash,
-    deliveryHash: record.deliveryHash,
-    visualMatch: record.screenEvidence?.visualMatch || "unknown",
-    frameHash: record.screenEvidence?.frame?.sha256 || null,
-    pixelEvidenceStatus: record.screenEvidence?.pixelEvidence?.status || null,
-    pixelEvidenceClaim: record.screenEvidence?.pixelEvidence?.claim || null,
-    pixelSampleHash: record.screenEvidence?.pixelEvidence?.sampleHash || null,
-    webDevicePixelDiffSchema: record.webDevicePixelDiff?.schema || null,
-    webDevicePixelDiffStatus: record.webDevicePixelDiff?.status || null,
-    webDevicePixelDiffRatio: record.webDevicePixelDiff?.diffRatio ?? null,
-    webDevicePixelDiffSource: record.webDevicePixelDiff?.source || null,
-    webDevicePixelDiffWidth: record.webDevicePixelDiff?.width ?? null,
-    webDevicePixelDiffHeight: record.webDevicePixelDiff?.height ?? null,
-    webDevicePixelDiffComparedPixels: record.webDevicePixelDiff?.comparedPixels ?? null,
-    previewSignatureHash: record.screenEvidence?.semantic?.previewSignatureHash || null,
-    deviceSignatureHash: record.screenEvidence?.semantic?.deviceSignatureHash || null,
-    hasFramePng: Boolean(record.framePng),
-    frameUrl: record.framePng ? screenRecordFrameUrl(record.buildId) : null,
-    repairHint: record.repairHint
-      ? {
-          stage: record.repairHint.stage,
-          title: record.repairHint.title,
-          summary: record.repairHint.summary,
-          autoRepairAvailable: record.repairHint.autoRepairAvailable,
-        }
-      : null,
-  };
-}
-
-function buildScreenRecord(result, commandResults = {}) {
-  const finishedAt = new Date().toISOString();
-  const record = {
-    schema: "walnutpi.screenSyncRecord.v1",
-    buildId: result.buildId,
-    title: result.title || "同步到核桃派",
-    ok: Boolean(result.ok),
-    risk: result.risk || "write-low",
-    mode: result.mode || "remote",
-    startedAt: result.startedAt,
-    finishedAt,
-    failedStage: result.failedStage || null,
-    summary: result.summary,
-    manifest: result.manifest || null,
-    manifestHash: result.manifestHash || null,
-    deliveryManifest: result.deliveryManifest || null,
-    deliveryHash: result.deliveryHash || null,
-    artifactHash: result.artifactHash || null,
-    screenEvidence: result.screenEvidence || result.evidence || null,
-    command: result.command || null,
-    commandResults: Object.fromEntries(
-      Object.entries(commandResults).map(([name, value]) => [name, compactCommandResult(value)]),
-    ),
-    output: limitedOutput(String(result.output || ""), ACTION_OUTPUT_LIMIT),
-    framePng: null,
-    webDevicePixelDiff: null,
-  };
-  record.repairHint = record.ok ? null : buildScreenRepairHint(record);
-  return record;
-}
-
 async function persistScreenSyncResult(result, commandResults = {}, status = 200) {
   try {
-    const record = buildScreenRecord(result, commandResults);
-    if (!result.repairHint) result.repairHint = record.repairHint;
-    await writeScreenRecord(record);
+    const record = await screenEvidenceLedger.persistSyncResult(result, commandResults);
     await rememberSuccessfulScreenSync(record);
   } catch (error) {
     result.recordWarning = `screen sync record was not saved: ${error.message}`;
@@ -1273,17 +1127,6 @@ async function writeJsonFile(filePath, value) {
   await writeFile(`${filePath}.tmp`, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   await rm(filePath, { force: true });
   await rename(`${filePath}.tmp`, filePath);
-}
-
-async function writeScreenRecord(record) {
-  const dir = screenRecordDir(record.buildId);
-  if (!dir) return;
-
-  await mkdir(dir, { recursive: true });
-  const summary = screenRecordSummary(record);
-  await writeJsonFile(path.join(dir, "record.json"), record);
-  await writeJsonFile(path.join(dir, "summary.json"), summary);
-  await trimScreenRecords();
 }
 
 function successfulScreenSyncEntry(record) {
@@ -1331,87 +1174,6 @@ async function rememberSuccessfulScreenSync(record) {
   }
   if (existing.includes(`## ${record.buildId}`)) return;
   await writeFile(SCREEN_SUCCESS_CORPUS_PATH, `${existing.trimEnd()}\n\n${successfulScreenSyncEntry(record)}`, "utf8");
-}
-
-async function updateScreenRecord(buildId, updater) {
-  const dir = screenRecordDir(buildId);
-  if (!dir) return null;
-
-  const recordPath = path.join(dir, "record.json");
-  let record;
-  try {
-    record = JSON.parse(await readFile(recordPath, "utf8"));
-  } catch {
-    return null;
-  }
-
-  const nextRecord = updater(record) || record;
-  await writeJsonFile(recordPath, nextRecord);
-  await writeJsonFile(path.join(dir, "summary.json"), screenRecordSummary(nextRecord));
-  return nextRecord;
-}
-
-async function readScreenRecord(buildId) {
-  const dir = screenRecordDir(buildId);
-  if (!dir) return null;
-
-  try {
-    return JSON.parse(await readFile(path.join(dir, "record.json"), "utf8"));
-  } catch {
-    return null;
-  }
-}
-
-async function readScreenRecordSummary(dirent) {
-  const dir = path.join(SCREEN_RECORDS_DIR, dirent.name);
-  try {
-    const summary = JSON.parse(await readFile(path.join(dir, "summary.json"), "utf8"));
-    const hasFramePng = await fileExists(path.join(dir, "frame.png"));
-    return {
-      ...summary,
-      hasFramePng,
-      frameUrl: hasFramePng ? screenRecordFrameUrl(summary.buildId) : null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function fileExists(filePath) {
-  try {
-    await stat(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function listScreenRecords() {
-  let entries = [];
-  try {
-    entries = await readdir(SCREEN_RECORDS_DIR, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-
-  const summaries = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (!safeRecordId(entry.name)) continue;
-    const summary = await readScreenRecordSummary(entry);
-    if (summary) summaries.push(summary);
-  }
-  summaries.sort((a, b) => String(b.startedAt || "").localeCompare(String(a.startedAt || "")));
-  return summaries;
-}
-
-async function trimScreenRecords() {
-  const summaries = await listScreenRecords();
-  const stale = summaries.slice(Math.max(SCREEN_RECORD_LIMIT, 1));
-  for (const summary of stale) {
-    const dir = screenRecordDir(summary.buildId);
-    if (dir) await rm(dir, { recursive: true, force: true });
-  }
 }
 
 function runRawRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
@@ -1691,11 +1453,17 @@ function screenDeliveryAdapter(id = "ssh-local-agent") {
   return adapter;
 }
 
-const SCREEN_PAGE_IDS = ["home", "system", "ai", "network"];
-const SCREEN_TEXT_LIMIT = 48;
-const SCREEN_LINE_LIMIT = 72;
-const SCREEN_TONES = new Set(["ok", "warn", "error"]);
-const SCREEN_COMPONENT_TYPES = new Set(["statusCard", "metricGroup", "list", "progress", "alert", "textPage"]);
+function newScreenBuildId(startedAt = new Date()) {
+  return `screen-${startedAt.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
+}
+
+const screenSyncWorkflow = createScreenSyncWorkflow({
+  readManifestEnvelope: screenManifestEnvelope,
+  deliveryAdapter: screenDeliveryAdapter(),
+  rememberFrameTicket: rememberScreenFrameTicket,
+  validSha256,
+  newBuildId: newScreenBuildId,
+});
 
 const SCREEN_TEMPLATES = [
   {
@@ -1774,308 +1542,6 @@ const SCREEN_TEMPLATES = [
     },
   },
 ];
-
-function rejectControlText(value, field) {
-  if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(value)) {
-    throw new Error(`${field} contains control characters`);
-  }
-}
-
-function cleanText(value, field, limit = SCREEN_TEXT_LIMIT) {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
-  rejectControlText(text, field);
-  if (!text) throw new Error(`${field} is required`);
-  if ([...text].length > limit) {
-    throw new Error(`${field} is too long`);
-  }
-  return text;
-}
-
-function cleanOptionalText(value, field, limit = SCREEN_TEXT_LIMIT) {
-  const text = String(value ?? "").replace(/\s+/g, " ").trim();
-  rejectControlText(text, field);
-  if ([...text].length > limit) {
-    throw new Error(`${field} is too long`);
-  }
-  return text;
-}
-
-function cleanTextList(values, field, maxItems, limit = SCREEN_LINE_LIMIT) {
-  if (!Array.isArray(values)) throw new Error(`${field} must be an array`);
-  const items = values.map((value, index) => cleanText(value, `${field}[${index}]`, limit));
-  if (items.length === 0 || items.length > maxItems) {
-    throw new Error(`${field} must contain 1-${maxItems} items`);
-  }
-  return items;
-}
-
-function cleanTone(value, field) {
-  const tone = String(value || "ok").trim().toLowerCase();
-  if (!SCREEN_TONES.has(tone)) throw new Error(`${field} must be ok, warn, or error`);
-  return tone;
-}
-
-function cleanProgress(value, field) {
-  if (value === undefined || value === null || value === "") return 72;
-  const progress = Number(value);
-  if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
-    throw new Error(`${field} must be between 0 and 100`);
-  }
-  return Math.round(progress);
-}
-
-function cleanScreenComponent(component, field) {
-  if (!component || typeof component !== "object" || Array.isArray(component)) {
-    throw new Error(`${field} must be an object`);
-  }
-  const type = cleanText(component.type, `${field}.type`, 16);
-  if (!SCREEN_COMPONENT_TYPES.has(type)) throw new Error(`${field}.type is not supported`);
-  if (type === "statusCard") {
-    return {
-      type,
-      label: cleanText(component.label || "Status", `${field}.label`, 12),
-      value: cleanText(component.value || "OK CORE", `${field}.value`, 24),
-      tone: cleanTone(component.tone || "ok", `${field}.tone`),
-      detail: cleanText(component.detail || "Ready", `${field}.detail`, 24),
-    };
-  }
-  if (type === "metricGroup") {
-    if (!Array.isArray(component.items)) throw new Error(`${field}.items must be an array`);
-    if (component.items.length === 0 || component.items.length > 3) {
-      throw new Error(`${field}.items must contain 1-3 items`);
-    }
-    return {
-      type,
-      items: component.items.map((item, index) => {
-        const itemObject = item && typeof item === "object" && !Array.isArray(item) ? item : null;
-        return {
-          label: cleanText(itemObject ? itemObject.label || `M${index + 1}` : item, `${field}.items[${index}].label`, 12),
-          value: cleanText(itemObject ? itemObject.value || "--" : item, `${field}.items[${index}].value`, 16),
-          unit: cleanOptionalText(itemObject ? itemObject.unit || "" : "", `${field}.items[${index}].unit`, 8),
-          tone: cleanTone(itemObject ? itemObject.tone || "ok" : "ok", `${field}.items[${index}].tone`),
-        };
-      }),
-    };
-  }
-  if (type === "list") {
-    return {
-      type,
-      title: cleanText(component.title || "List", `${field}.title`, 32),
-      items: cleanTextList(component.items || [], `${field}.items`, 4, 48),
-    };
-  }
-  if (type === "progress") {
-    return {
-      type,
-      label: cleanText(component.label || "Progress", `${field}.label`, 16),
-      value: cleanProgress(component.value ?? 72, `${field}.value`),
-      max: cleanProgress(component.max ?? 100, `${field}.max`),
-      tone: cleanTone(component.tone || "ok", `${field}.tone`),
-    };
-  }
-  if (type === "alert") {
-    return {
-      type,
-      title: cleanText(component.title || "Alert", `${field}.title`, 32),
-      body: cleanText(component.body || "Check status", `${field}.body`, 48),
-      tone: cleanTone(component.tone || "warn", `${field}.tone`),
-    };
-  }
-  return {
-    type,
-    title: cleanText(component.title || "Page", `${field}.title`, 32),
-    lines: cleanTextList(component.lines || [], `${field}.lines`, 4, 48),
-  };
-}
-
-function normalizeScreenComponents(page, pageIndex) {
-  if (page.components === undefined) return [];
-  if (!Array.isArray(page.components)) throw new Error(`pages[${pageIndex}].components must be an array`);
-  if (page.components.length > 6) throw new Error(`pages[${pageIndex}].components must contain at most 6 items`);
-  const normalized = page.components.map((component, index) => cleanScreenComponent(component, `pages[${pageIndex}].components[${index}]`));
-  const seenTypes = new Set();
-  for (const component of normalized) {
-    if (seenTypes.has(component.type)) throw new Error(`pages[${pageIndex}].components must not repeat ${component.type}`);
-    seenTypes.add(component.type);
-  }
-  return normalized;
-}
-
-function firstScreenComponent(components, type) {
-  return components.find((component) => component.type === type) || null;
-}
-
-function screenMetricText(item) {
-  const value = `${item.value} ${item.unit || ""}`.trim();
-  return cleanText(`${item.label} ${value}`.trim(), "metricGroup.item", 24);
-}
-
-function metricItemFromText(value, index) {
-  const text = cleanText(value, `pages[0].metrics[${index}]`, 24);
-  const [label, ...rest] = text.split(/\s+/);
-  return {
-    label: cleanText(label || `M${index + 1}`, `pages[0].metrics[${index}].label`, 12),
-    value: cleanText(rest.join(" ") || "--", `pages[0].metrics[${index}].value`, 16),
-    unit: "",
-    tone: "ok",
-  };
-}
-
-function componentLines(page, components, pageIndex) {
-  const alert = firstScreenComponent(components, "alert");
-  const textPage = firstScreenComponent(components, "textPage");
-  const listComponent = firstScreenComponent(components, "list");
-  if (alert) {
-    return {
-      title: alert.title,
-      lines: cleanTextList([alert.body], `pages[${pageIndex}].componentLines`, 4, 48),
-    };
-  }
-  if (listComponent) {
-    return {
-      title: listComponent.title,
-      lines: cleanTextList(listComponent.items.slice(0, 4), `pages[${pageIndex}].componentLines`, 4, 48),
-    };
-  }
-  if (textPage) {
-    return {
-      title: textPage.title,
-      lines: cleanTextList(textPage.lines.slice(0, 4), `pages[${pageIndex}].componentLines`, 4, 48),
-    };
-  }
-  const title = cleanText(page.title || page.tab || SCREEN_PAGE_IDS[pageIndex], `pages[${pageIndex}].title`, 32);
-  return {
-    title,
-    lines: cleanTextList(page.lines || [title], `pages[${pageIndex}].lines`, 4, 48),
-  };
-}
-
-function buildHomeComponents(page, status, tone, progress, metrics, existingComponents) {
-  const components = existingComponents.filter((component) => !["statusCard", "progress", "metricGroup"].includes(component.type));
-  const existingStatusCard = firstScreenComponent(existingComponents, "statusCard");
-  const existingProgress = firstScreenComponent(existingComponents, "progress");
-  const existingMetricGroup = firstScreenComponent(existingComponents, "metricGroup");
-  components.unshift({
-    type: "metricGroup",
-    items: existingMetricGroup?.items || metrics.map(metricItemFromText),
-  });
-  components.unshift({
-    type: "progress",
-    label: existingProgress?.label || "Progress",
-    value: progress,
-    max: existingProgress?.max || 100,
-    tone,
-  });
-  components.unshift({
-    type: "statusCard",
-    label: existingStatusCard?.label || "Status",
-    value: status,
-    tone,
-    detail: existingStatusCard?.detail || "Ready",
-  });
-  return components;
-}
-
-function buildTextPageComponents(title, lines, existingComponents) {
-  const existingAlert = firstScreenComponent(existingComponents, "alert");
-  const components = existingComponents.filter((component) => !["alert", "textPage", "list"].includes(component.type));
-  const existingTextPage = firstScreenComponent(existingComponents, "textPage");
-  const existingList = firstScreenComponent(existingComponents, "list");
-  if (existingAlert) {
-    components.unshift(existingList ? {
-      type: "list",
-      title: existingList.title,
-      items: existingList.items,
-    } : {
-      type: "textPage",
-      title: existingTextPage?.title || title,
-      lines: existingTextPage?.lines || lines,
-    });
-    components.unshift({
-      type: "alert",
-      title,
-      body: lines[0] || "Check status",
-      tone: existingAlert.tone || "warn",
-    });
-    return components;
-  }
-  if (existingList) {
-    components.unshift({
-      type: "list",
-      title,
-      items: lines,
-    });
-    return components;
-  }
-  components.unshift({
-    type: "textPage",
-    title,
-    lines,
-  });
-  return components;
-}
-
-function toneFromText(value) {
-  const text = String(value || "");
-  if (/错误|失败|异常|危险|离线|error|fail|failed|down|offline|critical/i.test(text)) return "error";
-  if (/告警|警告|注意|偏高|等待|warn|warning|pending|busy|degraded/i.test(text)) return "warn";
-  return "ok";
-}
-
-function ensureFourScreenPages(manifest) {
-  if (!Array.isArray(manifest.pages) || manifest.pages.length !== SCREEN_PAGE_IDS.length) {
-    throw new Error(`screen manifest pages must contain exactly ${SCREEN_PAGE_IDS.length} pages`);
-  }
-  for (const [index, expectedId] of SCREEN_PAGE_IDS.entries()) {
-    if (manifest.pages[index]?.id !== expectedId) {
-      throw new Error(`screen manifest pages[${index}].id must be ${expectedId}`);
-    }
-  }
-}
-
-function normalizeScreenManifest(manifest) {
-  validateScreenManifest(manifest);
-  ensureFourScreenPages(manifest);
-
-  const pages = manifest.pages.map((page, index) => {
-    const components = normalizeScreenComponents(page, index);
-    const next = {
-      id: SCREEN_PAGE_IDS[index],
-      tab: cleanText(page.tab || SCREEN_PAGE_IDS[index].toUpperCase(), `pages[${index}].tab`, 8),
-    };
-    if (index === 0) {
-      const statusCard = firstScreenComponent(components, "statusCard");
-      const progressComponent = firstScreenComponent(components, "progress");
-      const metricGroup = firstScreenComponent(components, "metricGroup");
-      const alert = firstScreenComponent(components, "alert");
-      next.status = cleanText(statusCard ? statusCard.value : page.status || "OK CORE", "pages[0].status", 24);
-      next.tone = cleanTone(
-        statusCard ? statusCard.tone : alert ? alert.tone : progressComponent ? progressComponent.tone : page.tone || toneFromText(next.status),
-        "pages[0].tone",
-      );
-      next.progress = cleanProgress(progressComponent ? progressComponent.value : page.progress, "pages[0].progress");
-      next.metrics = metricGroup
-        ? metricGroup.items.map(screenMetricText)
-        : cleanTextList(page.metrics || ["IP loading", "MEM --", "DISK --"], "pages[0].metrics", 3, 24);
-      while (next.metrics.length < 3) next.metrics.push("--");
-      next.metrics = next.metrics.slice(0, 3);
-      next.components = buildHomeComponents(page, next.status, next.tone, next.progress, next.metrics, components);
-    } else {
-      const text = componentLines(page, components, index);
-      next.title = text.title;
-      next.lines = text.lines;
-      next.components = buildTextPageComponents(next.title, next.lines, components);
-    }
-    return next;
-  });
-
-  return {
-    ...manifest,
-    title: cleanText(manifest.title || "WalnutPi", "title", 32),
-    subtitle: cleanText(manifest.subtitle || "server screen", "subtitle", 40),
-    pages,
-  };
-}
 
 function mutableManifestView(manifest) {
   return {
@@ -2721,44 +2187,13 @@ async function handleScreenFrame(buildId) {
 }
 
 async function cacheScreenFramePng(buildId, parsed) {
-  const dir = screenRecordDir(buildId);
-  if (!dir) return;
-
-  await mkdir(dir, { recursive: true });
-  await writeFile(path.join(dir, "frame.png"), parsed.bytes);
-
-  const framePng = {
-    capturedAt: new Date().toISOString(),
-    pngSha256: parsed.capture.pngSha256,
-    pngByteLength: parsed.capture.pngByteLength,
-    rawSha256: parsed.capture.rawSha256,
-    rawByteLength: parsed.capture.rawByteLength,
-    width: parsed.capture.width,
-    height: parsed.capture.height,
-    pixelFormat: parsed.capture.pixelFormat,
-    url: screenRecordFrameUrl(buildId),
-  };
-
-  await updateScreenRecord(buildId, (record) => {
-    record.framePng = framePng;
-    if (record.screenEvidence?.frame && typeof record.screenEvidence.frame === "object") {
-      record.screenEvidence.frame.cachedUrl = framePng.url;
-    }
-    return record;
-  });
+  await screenEvidenceLedger.writeFramePng(buildId, parsed);
 }
 
 async function handleScreenRecordFrame(buildId) {
-  const id = safeRecordId(buildId);
-  const dir = screenRecordDir(id);
-  if (!id || !dir) return json({ ok: false, error: "Invalid screen record id" }, 400);
-
-  let bytes;
-  try {
-    bytes = await readFile(path.join(dir, "frame.png"));
-  } catch {
-    return json({ ok: false, error: "screen record frame not found" }, 404);
-  }
+  const { id, bytes } = await screenEvidenceLedger.readFramePng(buildId);
+  if (!id) return json({ ok: false, error: "Invalid screen record id" }, 400);
+  if (!bytes) return json({ ok: false, error: "screen record frame not found" }, 404);
 
   if (!validPngBytes(bytes)) {
     return json({ ok: false, error: "screen record frame is not a valid PNG" }, 500);
@@ -3165,53 +2600,6 @@ async function handleScreenAiSummary(req) {
   });
 }
 
-function validateScreenManifest(manifest) {
-  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
-    throw new Error("screen manifest must be a JSON object");
-  }
-  if (manifest.schema !== "walnutpi.screen.v1") {
-    throw new Error("screen manifest schema must be walnutpi.screen.v1");
-  }
-  if (!manifest.id || typeof manifest.id !== "string") {
-    throw new Error("screen manifest id is required");
-  }
-  if (!manifest.target || typeof manifest.target !== "object" || Array.isArray(manifest.target)) {
-    throw new Error("screen manifest target is required");
-  }
-  if (!Number.isInteger(manifest.target.width) || manifest.target.width <= 0) {
-    throw new Error("screen manifest target.width must be a positive integer");
-  }
-  if (!Number.isInteger(manifest.target.height) || manifest.target.height <= 0) {
-    throw new Error("screen manifest target.height must be a positive integer");
-  }
-  if (manifest.target.color !== "RGB565") {
-    throw new Error("screen manifest target.color must be RGB565");
-  }
-  if (!manifest.target.display || typeof manifest.target.display !== "string") {
-    throw new Error("screen manifest target.display is required");
-  }
-  if (!manifest.source || typeof manifest.source !== "object" || Array.isArray(manifest.source)) {
-    throw new Error("screen manifest source is required");
-  }
-  if (!manifest.source.lvglEntry || typeof manifest.source.lvglEntry !== "string") {
-    throw new Error("screen manifest source.lvglEntry is required");
-  }
-  if (!manifest.source.command || typeof manifest.source.command !== "string") {
-    throw new Error("screen manifest source.command is required");
-  }
-  if (!Array.isArray(manifest.pages) || manifest.pages.length === 0) {
-    throw new Error("screen manifest pages must be a non-empty array");
-  }
-  for (const [index, page] of manifest.pages.entries()) {
-    if (!page || typeof page !== "object" || Array.isArray(page)) {
-      throw new Error(`screen manifest pages[${index}] must be an object`);
-    }
-    if (!page.id || typeof page.id !== "string") {
-      throw new Error(`screen manifest pages[${index}].id is required`);
-    }
-  }
-}
-
 async function screenManifestEnvelope() {
   let manifest;
   try {
@@ -3228,169 +2616,11 @@ async function screenManifestEnvelope() {
 }
 
 async function handleScreenSync(req) {
-  const startedAt = new Date();
-  const buildId = `screen-${startedAt.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
-  let envelope;
-  try {
-    envelope = await screenManifestEnvelope();
-  } catch (error) {
-    return persistScreenSyncResult(
-      {
-        title: "同步到核桃派",
-        buildId,
-        startedAt: startedAt.toISOString(),
-        manifest: null,
-        manifestHash: null,
-        ok: false,
-        risk: "write-low",
-        mode: "remote",
-        failedStage: "manifest",
-        deliveryManifest: null,
-        deliveryHash: null,
-        artifactHash: null,
-        evidence: null,
-        screenEvidence: null,
-        screenFrameUrl: null,
-        command: null,
-        code: 1,
-        summary: "screen manifest 无法读取或格式无效，请先修复小屏 contract。",
-        output: error.message,
-      },
-      {},
-      500,
-    );
-  }
-  const { manifest, manifestHash } = envelope;
-  const baseResult = {
-    title: "同步到核桃派",
-    buildId,
-    startedAt: startedAt.toISOString(),
-    manifest,
-    manifestHash,
-  };
-  let body = {};
-  try {
-    body = await req.json();
-  } catch {
-    return persistScreenSyncResult(
-      {
-        ...baseResult,
-        ok: false,
-        risk: "write-low",
-        mode: "remote",
-        failedStage: "manifest",
-        deliveryManifest: null,
-        deliveryHash: null,
-        artifactHash: null,
-        evidence: null,
-        screenEvidence: null,
-        screenFrameUrl: null,
-        command: null,
-        code: 1,
-        summary: "同步请求缺少有效的 screen manifest hash，请刷新页面后再同步。",
-        output: "request body is not valid JSON",
-      },
-      {},
-      400,
-    );
-  }
-  if (typeof body.manifestHash !== "string" || !validSha256(body.manifestHash)) {
-    return persistScreenSyncResult(
-      {
-        ...baseResult,
-        ok: false,
-        risk: "write-low",
-        mode: "remote",
-        failedStage: "manifest",
-        deliveryManifest: null,
-        deliveryHash: null,
-        artifactHash: null,
-        evidence: null,
-        screenEvidence: null,
-        screenFrameUrl: null,
-        command: null,
-        code: 1,
-        summary: body.manifestHash
-          ? "同步请求包含无效的 screen manifest hash，请刷新页面后再同步。"
-          : "同步请求缺少 screen manifest hash，请刷新页面后再同步。",
-        output: `client=${body.manifestHash || "(missing)"}\nserver=${manifestHash}`,
-      },
-      {},
-      400,
-    );
-  }
-
-  if (body.manifestHash !== manifestHash) {
-    return persistScreenSyncResult(
-      {
-        ...baseResult,
-        ok: false,
-        risk: "write-low",
-        mode: "remote",
-        failedStage: "manifest",
-        deliveryManifest: null,
-        deliveryHash: null,
-        artifactHash: null,
-        evidence: null,
-        screenEvidence: null,
-        screenFrameUrl: null,
-        command: null,
-        code: 1,
-        summary: body.manifestHash
-          ? "Web 预览和服务器 screen manifest 不一致，请刷新后再同步。"
-          : "同步请求缺少 screen manifest hash，请刷新页面后再同步。",
-        output: `client=${body.manifestHash || "(missing)"}\nserver=${manifestHash}`,
-      },
-      {},
-      body.manifestHash ? 409 : 400,
-    );
-  }
-
-  let delivery;
-  try {
-    delivery = await screenDeliveryAdapter().deliver({ buildId, manifest, manifestHash });
-  } catch (error) {
-    delivery = {
-      ok: false,
-      risk: "write-low",
-      mode: "remote",
-      deliveryManifest: null,
-      deliveryHash: null,
-      artifactHash: null,
-      screenEvidence: null,
-      screenFrameUrl: null,
-      frameTicket: null,
-      command: null,
-      commandResults: {},
-      code: 1,
-      output: error.stack || error.message,
-      summary: "核桃派交付适配器执行失败。请在诊断里查看错误。",
-      failedStage: "delivery",
-    };
-  }
-  if (delivery.frameTicket) {
-    rememberScreenFrameTicket(buildId, delivery.frameTicket);
-  }
-
-  const result = {
-    ...baseResult,
-    ok: delivery.ok,
-    risk: delivery.risk,
-    mode: delivery.mode,
-    deliveryManifest: delivery.deliveryManifest,
-    deliveryHash: delivery.deliveryHash,
-    artifactHash: delivery.artifactHash,
-    evidence: delivery.screenEvidence,
-    screenEvidence: delivery.screenEvidence,
-    screenFrameUrl: delivery.screenFrameUrl,
-    command: delivery.command,
-    code: delivery.code,
-    output: delivery.output,
-    summary: delivery.summary,
-    failedStage: delivery.failedStage,
-  };
-
-  return persistScreenSyncResult(result, delivery.commandResults);
+  const outcome = await screenSyncWorkflow.run({
+    requestJson: () => req.json(),
+    mode: "remote",
+  });
+  return persistScreenSyncResult(outcome.result, outcome.commandResults, outcome.status);
 }
 
 const ACTIONS = {
@@ -3786,7 +3016,13 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/screen/sync") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      if (previewOnly(url)) return previewOnlyScreenSyncResult(req);
+      if (previewOnly(url)) {
+        const outcome = await screenSyncWorkflow.run({
+          requestJson: () => req.json(),
+          mode: "preview",
+        });
+        return persistScreenSyncResult(outcome.result, outcome.commandResults, outcome.status);
+      }
       return handleScreenSync(req);
     }
 

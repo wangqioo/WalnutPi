@@ -255,6 +255,7 @@ const SCREEN_SLICE_FILES = [
   "scripts/fetch-lvgl.sh",
   "scripts/generate-lvgl-screen-config.py",
   "scripts/generate-lvgl-screen-config.js",
+  "scripts/screen-manifest-vocabulary.js",
   "lvgl_app/CMakeLists.txt",
   "lvgl_app/lv_conf.h",
   "lvgl_app/src/main.c",

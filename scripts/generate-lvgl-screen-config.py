@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -62,12 +63,12 @@ def clean_progress(value: object, field: str) -> int:
     if value in (None, ""):
         return 72
     try:
-        progress = int(value)
+        progress = float(value)
     except (TypeError, ValueError):
         fail(f"{field} must be between 0 and 100")
     if progress < 0 or progress > 100:
         fail(f"{field} must be between 0 and 100")
-    return progress
+    return math.floor(progress + 0.5)
 
 
 def clean_component(component: object, field: str) -> dict:
@@ -203,6 +204,10 @@ def validate_manifest(manifest: object) -> dict:
     target = manifest.get("target")
     if not isinstance(target, dict):
         fail("screen manifest target is required")
+    if target.get("runtime") != "lvgl-fbdev":
+        fail("screen manifest target.runtime must be lvgl-fbdev")
+    if target.get("display") != "/dev/fb0":
+        fail("screen manifest target.display must be /dev/fb0")
     if target.get("width") != 480:
         fail("screen manifest target.width must be 480")
     if target.get("height") != 320:
@@ -214,6 +219,8 @@ def validate_manifest(manifest: object) -> dict:
         fail("screen manifest source is required")
     if source.get("lvglEntry") != "lvgl_app/src/main.c":
         fail("screen manifest source.lvglEntry must be lvgl_app/src/main.c")
+    if source.get("command") != "walnut screen start":
+        fail("screen manifest source.command must be walnut screen start")
     pages = manifest.get("pages")
     if not isinstance(pages, list) or len(pages) != len(PAGE_IDS):
         fail("screen manifest pages must contain exactly four pages")
