@@ -40,6 +40,70 @@ static volatile bool running = true;
 #define WALNUT_SCREEN_HOME_PROGRESS 72
 #endif
 
+#ifndef WALNUT_SCREEN_HOME_PROGRESS_MAX
+#define WALNUT_SCREEN_HOME_PROGRESS_MAX 100
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_STATUS_LABEL
+#define WALNUT_SCREEN_HOME_STATUS_LABEL "Status"
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_STATUS_DETAIL
+#define WALNUT_SCREEN_HOME_STATUS_DETAIL "Ready"
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_PROGRESS_LABEL
+#define WALNUT_SCREEN_HOME_PROGRESS_LABEL "Progress"
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_METRIC_1_LABEL
+#define WALNUT_SCREEN_HOME_METRIC_1_LABEL WALNUT_SCREEN_HOME_METRIC_1
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_METRIC_1_VALUE
+#define WALNUT_SCREEN_HOME_METRIC_1_VALUE ""
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_METRIC_1_TONE_COLOR
+#define WALNUT_SCREEN_HOME_METRIC_1_TONE_COLOR WALNUT_SCREEN_HOME_TONE_COLOR
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_METRIC_2_LABEL
+#define WALNUT_SCREEN_HOME_METRIC_2_LABEL WALNUT_SCREEN_HOME_METRIC_2
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_METRIC_2_VALUE
+#define WALNUT_SCREEN_HOME_METRIC_2_VALUE ""
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_METRIC_2_TONE_COLOR
+#define WALNUT_SCREEN_HOME_METRIC_2_TONE_COLOR C_AMBER
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_METRIC_3_LABEL
+#define WALNUT_SCREEN_HOME_METRIC_3_LABEL WALNUT_SCREEN_HOME_METRIC_3
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_METRIC_3_VALUE
+#define WALNUT_SCREEN_HOME_METRIC_3_VALUE ""
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_METRIC_3_TONE_COLOR
+#define WALNUT_SCREEN_HOME_METRIC_3_TONE_COLOR C_RED
+#endif
+
+#ifndef WALNUT_SCREEN_SYSTEM_KIND
+#define WALNUT_SCREEN_SYSTEM_KIND "textPage"
+#endif
+
+#ifndef WALNUT_SCREEN_AI_KIND
+#define WALNUT_SCREEN_AI_KIND "textPage"
+#endif
+
+#ifndef WALNUT_SCREEN_NETWORK_KIND
+#define WALNUT_SCREEN_NETWORK_KIND "textPage"
+#endif
+
 #if defined(__GNUC__)
 static const char walnut_screen_manifest_hash[] __attribute__((used)) = WALNUT_SCREEN_MANIFEST_HASH;
 #else
@@ -216,6 +280,30 @@ static bool text_contains_ci(const char * text, const char * needle)
     return false;
 }
 
+static bool text_equals(const char * a, const char * b)
+{
+    if(a == NULL || b == NULL) return false;
+    return strcmp(a, b) == 0;
+}
+
+static const char * page_kind_label(const char * kind)
+{
+    if(text_equals(kind, "alert")) return "ALERT";
+    if(text_equals(kind, "list")) return "LIST";
+    return "TEXT";
+}
+
+static void join_metric_value(char * out, size_t out_size, const char * value, const char * unit)
+{
+    if(out_size == 0) return;
+    if(value == NULL) value = "";
+    if(unit == NULL || unit[0] == '\0') {
+        snprintf(out, out_size, "%s", value);
+        return;
+    }
+    snprintf(out, out_size, "%s %s", value, unit);
+}
+
 static void read_uptime(char * out, size_t out_size)
 {
     FILE * f = fopen("/proc/uptime", "r");
@@ -241,27 +329,33 @@ static void update_demo_status_values(demo_status_ui_t * ui)
 
     read_ip(ip, sizeof(ip));
 
-    if(text_contains_ci(WALNUT_SCREEN_HOME_METRIC_2, "MEM")) {
-        if(mem >= 0) lv_label_set_text_fmt(ui->mem_label, "MEM %d%%", mem);
+    if(text_contains_ci(WALNUT_SCREEN_HOME_METRIC_2_LABEL, "MEM")) {
+        if(mem >= 0) lv_label_set_text_fmt(ui->mem_label, "%d%%", mem);
         else lv_label_set_text(ui->mem_label, "MEM --");
     }
     else {
-        lv_label_set_text(ui->mem_label, WALNUT_SCREEN_HOME_METRIC_2);
+        char value[40];
+        join_metric_value(value, sizeof(value), WALNUT_SCREEN_HOME_METRIC_2_VALUE, WALNUT_SCREEN_HOME_METRIC_2_UNIT);
+        lv_label_set_text(ui->mem_label, value);
     }
 
-    if(text_contains_ci(WALNUT_SCREEN_HOME_METRIC_3, "DISK")) {
-        if(disk >= 0) lv_label_set_text_fmt(ui->disk_label, "DISK %d%%", disk);
+    if(text_contains_ci(WALNUT_SCREEN_HOME_METRIC_3_LABEL, "DISK")) {
+        if(disk >= 0) lv_label_set_text_fmt(ui->disk_label, "%d%%", disk);
         else lv_label_set_text(ui->disk_label, "DISK --");
     }
     else {
-        lv_label_set_text(ui->disk_label, WALNUT_SCREEN_HOME_METRIC_3);
+        char value[40];
+        join_metric_value(value, sizeof(value), WALNUT_SCREEN_HOME_METRIC_3_VALUE, WALNUT_SCREEN_HOME_METRIC_3_UNIT);
+        lv_label_set_text(ui->disk_label, value);
     }
 
-    if(text_contains_ci(WALNUT_SCREEN_HOME_METRIC_1, "IP")) {
-        lv_label_set_text_fmt(ui->ip_label, "IP %s", ip);
+    if(text_contains_ci(WALNUT_SCREEN_HOME_METRIC_1_LABEL, "IP")) {
+        lv_label_set_text(ui->ip_label, ip);
     }
     else {
-        lv_label_set_text(ui->ip_label, WALNUT_SCREEN_HOME_METRIC_1);
+        char value[40];
+        join_metric_value(value, sizeof(value), WALNUT_SCREEN_HOME_METRIC_1_VALUE, WALNUT_SCREEN_HOME_METRIC_1_UNIT);
+        lv_label_set_text(ui->ip_label, value);
     }
 
 }
@@ -353,7 +447,8 @@ static void update_screen_page_values(screen_ui_t * ui)
 
     if(ui->system_label != NULL) {
         lv_label_set_text_fmt(ui->system_label,
-                              "%s\n\n%s  %.2f\n%s    %d%%\n%s      %d%%\n%s    %s",
+                              "[%s] %s\n\n%s  %.2f\n%s    %d%%\n%s      %d%%\n%s    %s",
+                              page_kind_label(WALNUT_SCREEN_SYSTEM_KIND),
                               WALNUT_SCREEN_SYSTEM_TITLE,
                               WALNUT_SCREEN_SYSTEM_LINE_1[0] ? WALNUT_SCREEN_SYSTEM_LINE_1 : "CPU load",
                               loads[0],
@@ -377,14 +472,22 @@ static void update_screen_page_values(screen_ui_t * ui)
             lv_label_set_text_fmt(ui->ai_label, "AI Agent\n\n%s", ai_text);
         }
         else {
-            lv_label_set_text(ui->ai_label, WALNUT_SCREEN_AI_TEXT);
+            lv_label_set_text_fmt(ui->ai_label,
+                                  "[%s] %s\n\n%s\n%s\n%s\n%s",
+                                  page_kind_label(WALNUT_SCREEN_AI_KIND),
+                                  WALNUT_SCREEN_AI_TITLE,
+                                  WALNUT_SCREEN_AI_LINE_1,
+                                  WALNUT_SCREEN_AI_LINE_2,
+                                  WALNUT_SCREEN_AI_LINE_3,
+                                  WALNUT_SCREEN_AI_LINE_4);
         }
     }
 
     if(ui->network_label != NULL) {
         bool frp = service_active("frpc.service") || service_active("frpc");
         lv_label_set_text_fmt(ui->network_label,
-                              "%s\n\n%s       %s\n%s      %s\n%s      ready\n%s  fbdev",
+                              "[%s] %s\n\n%s       %s\n%s      %s\n%s      ready\n%s  fbdev",
+                              page_kind_label(WALNUT_SCREEN_NETWORK_KIND),
                               WALNUT_SCREEN_NETWORK_TITLE,
                               WALNUT_SCREEN_NETWORK_LINE_1[0] ? WALNUT_SCREEN_NETWORK_LINE_1 : "IP",
                               ip,
@@ -586,6 +689,36 @@ static lv_obj_t * demo_metric(lv_obj_t * parent, int y, const char * label, lv_c
     return row;
 }
 
+static lv_obj_t * demo_metric_pair(lv_obj_t * parent, int y, const char * label, const char * value, lv_color_t color, uint32_t delay, lv_obj_t ** value_label)
+{
+    lv_obj_t * row = lv_obj_create(parent);
+    lv_obj_set_size(row, 196, 34);
+    style_panel(row, color);
+    lv_obj_set_style_pad_all(row, 7, 0);
+    lv_obj_align(row, LV_ALIGN_TOP_LEFT, 250, y);
+    lv_obj_set_style_opa(row, 0, 0);
+
+    lv_obj_t * label_text = lv_label_create(row);
+    lv_label_set_text(label_text, label);
+    lv_obj_set_width(label_text, 72);
+    lv_obj_set_style_text_color(label_text, lv_color_hex(C_MUTED), 0);
+    lv_obj_set_style_text_font(label_text, &lv_font_montserrat_14, 0);
+    lv_obj_align(label_text, LV_ALIGN_LEFT_MID, 0, 0);
+
+    lv_obj_t * value_text = lv_label_create(row);
+    lv_label_set_text(value_text, value);
+    lv_obj_set_width(value_text, 102);
+    lv_obj_set_style_text_align(value_text, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_color(value_text, lv_color_hex(C_TEXT), 0);
+    lv_obj_set_style_text_font(value_text, &lv_font_montserrat_14, 0);
+    lv_obj_align(value_text, LV_ALIGN_RIGHT_MID, 0, 0);
+    if(value_label != NULL) *value_label = value_text;
+
+    animate_obj_x(row, 520, 250, delay);
+    animate_obj_opa(row, 0, 255, delay + 120);
+    return row;
+}
+
 static lv_obj_t * create_page(lv_obj_t * parent)
 {
     lv_obj_t * page = lv_obj_create(parent);
@@ -664,6 +797,20 @@ static void add_scan_line(lv_obj_t * parent, int x, int y, lv_color_t color)
     animate_width(line, 24, 142, 0);
 }
 
+static void format_component_page_text(char * out, size_t out_size, const char * kind, const char * title, const char * line1, const char * line2, const char * line3, const char * line4)
+{
+    if(out_size == 0) return;
+    snprintf(out,
+             out_size,
+             "[%s] %s\n\n%s\n%s\n%s\n%s",
+             page_kind_label(kind),
+             title,
+             line1,
+             line2,
+             line3,
+             line4);
+}
+
 static void build_tabs(screen_ui_t * ui, lv_obj_t * scr)
 {
     static const char * names[] = {
@@ -737,7 +884,8 @@ static void build_demo_ui(void)
     lv_obj_set_size(arc, 168, 168);
     lv_obj_align(arc, LV_ALIGN_LEFT_MID, 24, 8);
     lv_arc_set_range(arc, 0, 100);
-    int progress = clamp_percent(WALNUT_SCREEN_HOME_PROGRESS);
+    int max_progress = WALNUT_SCREEN_HOME_PROGRESS_MAX <= 0 ? 100 : WALNUT_SCREEN_HOME_PROGRESS_MAX;
+    int progress = clamp_percent((WALNUT_SCREEN_HOME_PROGRESS * 100) / max_progress);
     lv_arc_set_value(arc, progress);
     lv_arc_set_bg_angles(arc, 0, 360);
     lv_arc_set_angles(arc, 18, 286);
@@ -759,26 +907,77 @@ static void build_demo_ui(void)
     lv_obj_align_to(core, arc, LV_ALIGN_CENTER, 0, 0);
     animate_pulse(core, 0);
 
+    lv_obj_t * core_label = lv_label_create(core);
+    lv_label_set_text(core_label, WALNUT_SCREEN_HOME_STATUS_LABEL);
+    lv_obj_set_style_text_align(core_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(core_label, lv_color_hex(C_MUTED), 0);
+    lv_obj_set_style_text_font(core_label, &lv_font_montserrat_14, 0);
+    lv_obj_align(core_label, LV_ALIGN_CENTER, 0, -28);
+
     lv_obj_t * core_text = lv_label_create(core);
     lv_label_set_text(core_text, WALNUT_SCREEN_HOME_STATUS);
+    lv_obj_set_width(core_text, 86);
     lv_obj_set_style_text_align(core_text, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_style_text_color(core_text, lv_color_hex(C_TEXT), 0);
     lv_obj_set_style_text_font(core_text, &lv_font_montserrat_18, 0);
     lv_obj_center(core_text);
 
-    demo_metric(ui.pages[0], 82, WALNUT_SCREEN_HOME_METRIC_1, lv_color_hex(WALNUT_SCREEN_HOME_TONE_COLOR), 120, &ui.status.ip_label);
-    demo_metric(ui.pages[0], 122, WALNUT_SCREEN_HOME_METRIC_2, lv_color_hex(C_AMBER), 260, &ui.status.mem_label);
-    demo_metric(ui.pages[0], 162, WALNUT_SCREEN_HOME_METRIC_3, lv_color_hex(C_RED), 400, &ui.status.disk_label);
+    lv_obj_t * core_detail = lv_label_create(core);
+    lv_label_set_text(core_detail, WALNUT_SCREEN_HOME_STATUS_DETAIL);
+    lv_obj_set_width(core_detail, 86);
+    lv_obj_set_style_text_align(core_detail, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_color(core_detail, lv_color_hex(C_MUTED), 0);
+    lv_obj_set_style_text_font(core_detail, &lv_font_montserrat_14, 0);
+    lv_obj_align(core_detail, LV_ALIGN_CENTER, 0, 30);
 
-    ui.system_label = add_text_page(ui.pages[1], WALNUT_SCREEN_SYSTEM_TEXT, lv_color_hex(C_AMBER));
+    char metric_value_1[40];
+    char metric_value_2[40];
+    char metric_value_3[40];
+    join_metric_value(metric_value_1, sizeof(metric_value_1), WALNUT_SCREEN_HOME_METRIC_1_VALUE, WALNUT_SCREEN_HOME_METRIC_1_UNIT);
+    join_metric_value(metric_value_2, sizeof(metric_value_2), WALNUT_SCREEN_HOME_METRIC_2_VALUE, WALNUT_SCREEN_HOME_METRIC_2_UNIT);
+    join_metric_value(metric_value_3, sizeof(metric_value_3), WALNUT_SCREEN_HOME_METRIC_3_VALUE, WALNUT_SCREEN_HOME_METRIC_3_UNIT);
+
+    demo_metric_pair(ui.pages[0], 82, WALNUT_SCREEN_HOME_METRIC_1_LABEL, metric_value_1, lv_color_hex(WALNUT_SCREEN_HOME_METRIC_1_TONE_COLOR), 120, &ui.status.ip_label);
+    demo_metric_pair(ui.pages[0], 122, WALNUT_SCREEN_HOME_METRIC_2_LABEL, metric_value_2, lv_color_hex(WALNUT_SCREEN_HOME_METRIC_2_TONE_COLOR), 260, &ui.status.mem_label);
+    demo_metric_pair(ui.pages[0], 162, WALNUT_SCREEN_HOME_METRIC_3_LABEL, metric_value_3, lv_color_hex(WALNUT_SCREEN_HOME_METRIC_3_TONE_COLOR), 400, &ui.status.disk_label);
+
+    char system_text[320];
+    char ai_text[320];
+    char network_text[320];
+    format_component_page_text(system_text,
+                               sizeof(system_text),
+                               WALNUT_SCREEN_SYSTEM_KIND,
+                               WALNUT_SCREEN_SYSTEM_TITLE,
+                               WALNUT_SCREEN_SYSTEM_LINE_1,
+                               WALNUT_SCREEN_SYSTEM_LINE_2,
+                               WALNUT_SCREEN_SYSTEM_LINE_3,
+                               WALNUT_SCREEN_SYSTEM_LINE_4);
+    format_component_page_text(ai_text,
+                               sizeof(ai_text),
+                               WALNUT_SCREEN_AI_KIND,
+                               WALNUT_SCREEN_AI_TITLE,
+                               WALNUT_SCREEN_AI_LINE_1,
+                               WALNUT_SCREEN_AI_LINE_2,
+                               WALNUT_SCREEN_AI_LINE_3,
+                               WALNUT_SCREEN_AI_LINE_4);
+    format_component_page_text(network_text,
+                               sizeof(network_text),
+                               WALNUT_SCREEN_NETWORK_KIND,
+                               WALNUT_SCREEN_NETWORK_TITLE,
+                               WALNUT_SCREEN_NETWORK_LINE_1,
+                               WALNUT_SCREEN_NETWORK_LINE_2,
+                               WALNUT_SCREEN_NETWORK_LINE_3,
+                               WALNUT_SCREEN_NETWORK_LINE_4);
+
+    ui.system_label = add_text_page(ui.pages[1], system_text, lv_color_hex(C_AMBER));
     add_spinner_badge(ui.pages[1], 356, 82, lv_color_hex(C_AMBER));
     add_scan_line(ui.pages[1], 278, 182, lv_color_hex(C_AMBER));
 
-    ui.ai_label = add_text_page(ui.pages[2], WALNUT_SCREEN_AI_TEXT, lv_color_hex(C_GREEN));
+    ui.ai_label = add_text_page(ui.pages[2], ai_text, lv_color_hex(C_GREEN));
     add_pulse_dots(ui.pages[2], 318, 92, lv_color_hex(C_GREEN));
     add_scan_line(ui.pages[2], 278, 182, lv_color_hex(C_GREEN));
 
-    ui.network_label = add_text_page(ui.pages[3], WALNUT_SCREEN_NETWORK_TEXT, lv_color_hex(C_CYAN));
+    ui.network_label = add_text_page(ui.pages[3], network_text, lv_color_hex(C_CYAN));
     add_spinner_badge(ui.pages[3], 356, 82, lv_color_hex(C_CYAN));
     add_pulse_dots(ui.pages[3], 304, 184, lv_color_hex(C_CYAN));
 

@@ -10,6 +10,7 @@ const MANIFEST_PATH = path.join(ROOT_DIR, "lvgl_app", "screen-manifest.json");
 const OUTPUT_PATH = path.join(ROOT_DIR, "lvgl_app", "generated", "screen_config.h");
 const PAGE_IDS = ["home", "system", "ai", "network"];
 const TONES = new Set(["ok", "warn", "error"]);
+const COMPONENT_TYPES = new Set(["statusCard", "metricGroup", "list", "progress", "alert", "textPage"]);
 
 function fail(message) {
   throw new Error(message);
@@ -25,6 +26,13 @@ function cleanText(value, field, limit) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
   rejectControlText(text, field);
   if (!text) fail(`${field} is required`);
+  if ([...text].length > limit) fail(`${field} is too long`);
+  return text;
+}
+
+function cleanOptionalText(value, field, limit) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  rejectControlText(text, field);
   if ([...text].length > limit) fail(`${field} is too long`);
   return text;
 }
@@ -47,6 +55,120 @@ function cleanProgress(value, field) {
   const progress = Number(value);
   if (!Number.isFinite(progress) || progress < 0 || progress > 100) fail(`${field} must be between 0 and 100`);
   return Math.round(progress);
+}
+
+function cleanComponent(component, field) {
+  if (!component || typeof component !== "object" || Array.isArray(component)) fail(`${field} must be an object`);
+  const type = cleanText(component.type, `${field}.type`, 16);
+  if (!COMPONENT_TYPES.has(type)) fail(`${field}.type is not supported`);
+
+  if (type === "statusCard") {
+    return {
+      type,
+      label: cleanText(component.label || "Status", `${field}.label`, 12),
+      value: cleanText(component.value || "OK CORE", `${field}.value`, 24),
+      tone: cleanTone(component.tone || "ok", `${field}.tone`),
+      detail: cleanText(component.detail || "Ready", `${field}.detail`, 24),
+    };
+  }
+  if (type === "metricGroup") {
+    if (!Array.isArray(component.items)) fail(`${field}.items must be an array`);
+    if (component.items.length === 0 || component.items.length > 3) fail(`${field}.items must contain 1-3 items`);
+    return {
+      type,
+      items: component.items.map((item, index) => {
+        const itemObject = item && typeof item === "object" && !Array.isArray(item) ? item : null;
+        return {
+          label: cleanText(itemObject ? itemObject.label || `M${index + 1}` : item, `${field}.items[${index}].label`, 12),
+          value: cleanText(itemObject ? itemObject.value || "--" : item, `${field}.items[${index}].value`, 16),
+          unit: cleanOptionalText(itemObject ? itemObject.unit || "" : "", `${field}.items[${index}].unit`, 8),
+          tone: cleanTone(itemObject ? itemObject.tone || "ok" : "ok", `${field}.items[${index}].tone`),
+        };
+      }),
+    };
+  }
+  if (type === "list") {
+    return {
+      type,
+      title: cleanText(component.title || "List", `${field}.title`, 32),
+      items: cleanList(component.items || [], `${field}.items`, 4, 48),
+    };
+  }
+  if (type === "progress") {
+    return {
+      type,
+      label: cleanText(component.label || "Progress", `${field}.label`, 16),
+      value: cleanProgress(component.value ?? 72, `${field}.value`),
+      max: cleanProgress(component.max ?? 100, `${field}.max`),
+      tone: cleanTone(component.tone || "ok", `${field}.tone`),
+    };
+  }
+  if (type === "alert") {
+    return {
+      type,
+      title: cleanText(component.title || "Alert", `${field}.title`, 32),
+      body: cleanText(component.body || "Check status", `${field}.body`, 48),
+      tone: cleanTone(component.tone || "warn", `${field}.tone`),
+    };
+  }
+  return {
+    type,
+    title: cleanText(component.title || "Page", `${field}.title`, 32),
+    lines: cleanList(component.lines || [], `${field}.lines`, 4, 48),
+  };
+}
+
+function normalizeComponents(page, pageIndex) {
+  if (page.components === undefined) return [];
+  if (!Array.isArray(page.components)) fail(`pages[${pageIndex}].components must be an array`);
+  if (page.components.length > 6) fail(`pages[${pageIndex}].components must contain at most 6 items`);
+  const normalized = page.components.map((component, index) => cleanComponent(component, `pages[${pageIndex}].components[${index}]`));
+  const seenTypes = new Set();
+  for (const component of normalized) {
+    if (seenTypes.has(component.type)) fail(`pages[${pageIndex}].components must not repeat ${component.type}`);
+    seenTypes.add(component.type);
+  }
+  return normalized;
+}
+
+function firstComponent(components, type) {
+  return components.find((component) => component.type === type) || null;
+}
+
+function metricText(item) {
+  const value = `${item.value} ${item.unit || ""}`.trim();
+  return cleanText(`${item.label} ${value}`.trim(), "metricGroup.item", 24);
+}
+
+function pageLinesFromComponents(page, components, pageIndex) {
+  const alert = firstComponent(components, "alert");
+  const textPage = firstComponent(components, "textPage");
+  const listComponent = firstComponent(components, "list");
+  let title;
+  let lines;
+  if (alert) {
+    title = alert.title;
+    lines = [alert.body];
+  } else if (textPage) {
+    title = textPage.title;
+    lines = textPage.lines;
+  } else if (listComponent) {
+    title = listComponent.title;
+    lines = listComponent.items;
+  } else {
+    title = cleanText(page.title || page.tab || PAGE_IDS[pageIndex], `pages[${pageIndex}].title`, 32);
+    lines = cleanList(page.lines || [title], `pages[${pageIndex}].lines`, 4, 48);
+  }
+  return {
+    title,
+    lines: cleanList(lines.slice(0, 4), `pages[${pageIndex}].componentLines`, 4, 48),
+  };
+}
+
+function pageKind(components) {
+  if (firstComponent(components, "alert")) return "alert";
+  if (firstComponent(components, "list")) return "list";
+  return "textPage";
 }
 
 function toneColor(tone) {
@@ -74,18 +196,51 @@ function validateManifest(manifest) {
 
 function normalize(manifest) {
   validateManifest(manifest);
+  const homeComponents = normalizeComponents(manifest.pages[0], 0);
+  const statusCard = firstComponent(homeComponents, "statusCard");
+  const progressComponent = firstComponent(homeComponents, "progress");
+  const metricGroup = firstComponent(homeComponents, "metricGroup");
+  const alert = firstComponent(homeComponents, "alert");
+  const statusLabel = statusCard ? statusCard.label : "Status";
+  const statusDetail = statusCard ? statusCard.detail : "Ready";
+  const progressLabel = progressComponent ? progressComponent.label : "Progress";
+  const progressMax = progressComponent ? progressComponent.max : 100;
+  const metrics = metricGroup
+    ? metricGroup.items.map(metricText)
+    : cleanList(manifest.pages[0].metrics || ["IP loading", "MEM --", "DISK --"], "pages[0].metrics", 3, 24);
+  const metricItems = metricGroup
+    ? metricGroup.items
+    : metrics.map((value, index) => {
+      const parts = value.split(/\s+/).filter(Boolean);
+      return {
+        label: cleanText(parts[0] || `M${index + 1}`, `pages[0].metrics[${index}].label`, 12),
+        value: cleanText(parts.slice(1).join(" ") || "--", `pages[0].metrics[${index}].value`, 16),
+        unit: "",
+        tone: "ok",
+      };
+    });
+  while (metrics.length < 3) metrics.push("--");
+  while (metricItems.length < 3) metricItems.push({ label: "Metric", value: "--", unit: "", tone: "ok" });
   return {
     title: cleanText(manifest.title || "WalnutPi", "title", 32),
     subtitle: cleanText(manifest.subtitle || "server screen", "subtitle", 40),
-    homeStatus: cleanText(manifest.pages[0].status || "OK CORE", "pages[0].status", 24),
-    homeTone: cleanTone(manifest.pages[0].tone || "ok", "pages[0].tone"),
-    homeProgress: cleanProgress(manifest.pages[0].progress ?? 72, "pages[0].progress"),
+    homeStatusLabel: cleanText(statusLabel, "pages[0].statusCard.label", 12),
+    homeStatus: cleanText(statusCard ? statusCard.value : manifest.pages[0].status || "OK CORE", "pages[0].status", 24),
+    homeStatusDetail: cleanText(statusDetail, "pages[0].statusCard.detail", 24),
+    homeTone: cleanTone(statusCard ? statusCard.tone : alert ? alert.tone : progressComponent ? progressComponent.tone : manifest.pages[0].tone || "ok", "pages[0].tone"),
+    homeProgressLabel: cleanText(progressLabel, "pages[0].progress.label", 16),
+    homeProgress: cleanProgress(progressComponent ? progressComponent.value : manifest.pages[0].progress ?? 72, "pages[0].progress"),
+    homeProgressMax: cleanProgress(progressMax, "pages[0].progress.max"),
     tabs: manifest.pages.map((page, index) => cleanText(page.tab || PAGE_IDS[index].toUpperCase(), `pages[${index}].tab`, 8)),
-    metrics: cleanList(manifest.pages[0].metrics || ["IP loading", "MEM --", "DISK --"], "pages[0].metrics", 3, 24),
-    textPages: manifest.pages.slice(1).map((page, index) => ({
-      title: cleanText(page.title || page.tab || PAGE_IDS[index + 1], `pages[${index + 1}].title`, 32),
-      lines: cleanList(page.lines || [page.title || page.tab || PAGE_IDS[index + 1]], `pages[${index + 1}].lines`, 4, 48),
-    })),
+    metrics: metrics.slice(0, 3),
+    metricItems: metricItems.slice(0, 3),
+    textPages: manifest.pages.slice(1).map((page, index) => {
+      const components = normalizeComponents(page, index + 1);
+      return {
+        kind: pageKind(components),
+        ...pageLinesFromComponents(page, components, index + 1),
+      };
+    }),
   };
 }
 
@@ -97,6 +252,20 @@ function cString(value) {
 
 function cMultiline(title, lines) {
   return cString([title, "", ...lines].join("\n"));
+}
+
+function metricDefineLines(metricItems) {
+  const lines = [];
+  metricItems.forEach((item, index) => {
+    const n = index + 1;
+    const tone = cleanTone(item.tone || "ok", `metricItems[${index}].tone`);
+    lines.push(`#define WALNUT_SCREEN_HOME_METRIC_${n}_LABEL ${cString(item.label)}`);
+    lines.push(`#define WALNUT_SCREEN_HOME_METRIC_${n}_VALUE ${cString(item.value)}`);
+    lines.push(`#define WALNUT_SCREEN_HOME_METRIC_${n}_UNIT ${cString(item.unit || "")}`);
+    lines.push(`#define WALNUT_SCREEN_HOME_METRIC_${n}_TONE ${cString(tone)}`);
+    lines.push(`#define WALNUT_SCREEN_HOME_METRIC_${n}_TONE_COLOR ${toneColor(tone)}`);
+  });
+  return lines.join("\n");
 }
 
 function renderHeader(config) {
@@ -115,14 +284,20 @@ function renderHeader(config) {
 #define WALNUT_SCREEN_TAB_AI ${cString(config.tabs[2])}
 #define WALNUT_SCREEN_TAB_NETWORK ${cString(config.tabs[3])}
 
+#define WALNUT_SCREEN_HOME_STATUS_LABEL ${cString(config.homeStatusLabel)}
 #define WALNUT_SCREEN_HOME_STATUS ${cString(config.homeStatus)}
+#define WALNUT_SCREEN_HOME_STATUS_DETAIL ${cString(config.homeStatusDetail)}
 #define WALNUT_SCREEN_HOME_TONE ${cString(config.homeTone)}
 #define WALNUT_SCREEN_HOME_TONE_COLOR ${toneColor(config.homeTone)}
+#define WALNUT_SCREEN_HOME_PROGRESS_LABEL ${cString(config.homeProgressLabel)}
 #define WALNUT_SCREEN_HOME_PROGRESS ${config.homeProgress}
+#define WALNUT_SCREEN_HOME_PROGRESS_MAX ${config.homeProgressMax}
 #define WALNUT_SCREEN_HOME_METRIC_1 ${cString(config.metrics[0])}
 #define WALNUT_SCREEN_HOME_METRIC_2 ${cString(config.metrics[1])}
 #define WALNUT_SCREEN_HOME_METRIC_3 ${cString(config.metrics[2])}
+${metricDefineLines(config.metricItems)}
 
+#define WALNUT_SCREEN_SYSTEM_KIND ${cString(systemPage.kind)}
 #define WALNUT_SCREEN_SYSTEM_TITLE ${cString(systemPage.title)}
 #define WALNUT_SCREEN_SYSTEM_LINE_1 ${cString(systemPage.lines[0] || "")}
 #define WALNUT_SCREEN_SYSTEM_LINE_2 ${cString(systemPage.lines[1] || "")}
@@ -130,6 +305,7 @@ function renderHeader(config) {
 #define WALNUT_SCREEN_SYSTEM_LINE_4 ${cString(systemPage.lines[3] || "")}
 #define WALNUT_SCREEN_SYSTEM_TEXT ${cMultiline(systemPage.title, systemPage.lines)}
 
+#define WALNUT_SCREEN_AI_KIND ${cString(aiPage.kind)}
 #define WALNUT_SCREEN_AI_TITLE ${cString(aiPage.title)}
 #define WALNUT_SCREEN_AI_LINE_1 ${cString(aiPage.lines[0] || "")}
 #define WALNUT_SCREEN_AI_LINE_2 ${cString(aiPage.lines[1] || "")}
@@ -137,6 +313,7 @@ function renderHeader(config) {
 #define WALNUT_SCREEN_AI_LINE_4 ${cString(aiPage.lines[3] || "")}
 #define WALNUT_SCREEN_AI_TEXT ${cMultiline(aiPage.title, aiPage.lines)}
 
+#define WALNUT_SCREEN_NETWORK_KIND ${cString(networkPage.kind)}
 #define WALNUT_SCREEN_NETWORK_TITLE ${cString(networkPage.title)}
 #define WALNUT_SCREEN_NETWORK_LINE_1 ${cString(networkPage.lines[0] || "")}
 #define WALNUT_SCREEN_NETWORK_LINE_2 ${cString(networkPage.lines[1] || "")}

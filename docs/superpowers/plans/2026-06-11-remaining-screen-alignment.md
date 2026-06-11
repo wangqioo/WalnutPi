@@ -171,3 +171,62 @@ This backlog records the remaining implementation gaps after the first screen-sy
 - [x] Verify sync records include artifact hash, delivery hash, frame evidence, and pixel evidence fields.
 - [x] Verify repair proposal/apply reject missing or wrong confirmation.
 - [x] Keep real-device evidence collection in `scripts/collect-screen-sync-evidence.ps1`.
+
+### Task 11: Manifest Components Compatibility Slice
+
+**Goal:** Start implementing the beginner-safe manifest vocabulary without changing the delivery chain or exposing arbitrary LVGL/C code.
+
+**Files:**
+- Modify: `docs/third-projects-integration-alignment.md`
+- Modify: `docs/superpowers/plans/2026-06-11-remaining-screen-alignment.md`
+- Modify: `scripts/generate-lvgl-screen-config.py`
+- Modify: `scripts/generate-lvgl-screen-config.js`
+- Modify: `web-interface/model-terminal-server.js`
+- Modify: `web-interface/model-terminal.html`
+- Modify: `README.md`
+- Modify: `web-interface/README.md`
+
+- [x] Accept optional page-level `components` for `statusCard`, `metricGroup`, `list`, `progress`, `alert`, and `textPage`.
+- [x] Normalize component values with the same text bounds and tone/progress validation as the current manifest fields.
+- [x] Map components back into the current LVGL config fields first: home `status` / `tone` / `progress` / `metrics`, and non-home page `title` / `lines`.
+- [x] Preserve the current four-page fixed screen shape and reject unknown component types.
+- [x] Update Web semantic preview to render component-backed pages without claiming LVGL pixel-perfect preview.
+- [x] Keep sync, SSH, build, activation, capture, repair, and delivery behavior unchanged.
+- [x] Run generator parity checks, API safety regression, and `git diff --check`.
+
+### Task 12: LVGL Runtime Component Metadata Slice
+
+**Goal:** Let the fixed LVGL runtime consume normalized component metadata without turning the manifest into an arbitrary LVGL layout or code surface.
+
+**Files:**
+- Modify: `docs/third-projects-integration-alignment.md`
+- Modify: `docs/superpowers/plans/2026-06-11-remaining-screen-alignment.md`
+- Modify: `scripts/generate-lvgl-screen-config.py`
+- Modify: `scripts/generate-lvgl-screen-config.js`
+- Modify: `lvgl_app/src/main.c`
+- Modify: `README.md`
+- Modify: `web-interface/README.md`
+
+- [x] Emit component metadata defines from both generators for home `statusCard`, `progress`, `metricGroup`, and non-home page content type.
+- [x] Keep existing compatibility defines so old runtime assumptions and current manifests still build.
+- [x] Update the fixed LVGL layout to display home status label/detail, progress label, and metric label/value pairs when present.
+- [x] Let non-home pages distinguish text, list, and alert metadata inside the same fixed page panel.
+- [x] Do not add arbitrary coordinates, styles, LVGL object trees, shell commands, or delivery behavior to the manifest.
+- [x] Verify Python/Node generator parity, local LVGL build, screen API safety regression, and `git diff --check`.
+
+### Task 13: Rule-Based Component Intent Editing
+
+**Goal:** Let the existing rule-based natural-language editor update the new component vocabulary fields without introducing AI code generation or unsafe device actions.
+
+**Files:**
+- Modify: `docs/third-projects-integration-alignment.md`
+- Modify: `docs/superpowers/plans/2026-06-11-remaining-screen-alignment.md`
+- Modify: `web-interface/model-terminal-server.js`
+- Modify: `README.md`
+- Modify: `web-interface/README.md`
+
+- [x] Add narrow intent rules for `statusCard.label`, `statusCard.detail`, `progress.label`, `metricGroup.items`, `list`, and `alert`.
+- [x] Keep existing title, subtitle, status, tone, progress, metrics, and page text edits working.
+- [x] Reject any attempt to edit `schema`, `target`, `source`, page ids, commands, SSH, sudo, build, delivery, or arbitrary code.
+- [x] Keep all intent edits local manifest writes gated by current `manifestHash`.
+- [x] Verify intent API behavior with a temporary manifest plus existing API safety regression.
