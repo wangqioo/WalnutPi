@@ -1382,6 +1382,7 @@ const SCREEN_PAGE_IDS = ["home", "system", "ai", "network"];
 const SCREEN_TEXT_LIMIT = 48;
 const SCREEN_LINE_LIMIT = 72;
 const SCREEN_TONES = new Set(["ok", "warn", "error"]);
+const SCREEN_COMPONENT_TYPES = new Set(["statusCard", "metricGroup", "list", "progress", "alert", "textPage"]);
 
 const SCREEN_TEMPLATES = [
   {
@@ -1477,6 +1478,15 @@ function cleanText(value, field, limit = SCREEN_TEXT_LIMIT) {
   return text;
 }
 
+function cleanOptionalText(value, field, limit = SCREEN_TEXT_LIMIT) {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  rejectControlText(text, field);
+  if ([...text].length > limit) {
+    throw new Error(`${field} is too long`);
+  }
+  return text;
+}
+
 function cleanTextList(values, field, maxItems, limit = SCREEN_LINE_LIMIT) {
   if (!Array.isArray(values)) throw new Error(`${field} must be an array`);
   const items = values.map((value, index) => cleanText(value, `${field}[${index}]`, limit));
@@ -1499,6 +1509,197 @@ function cleanProgress(value, field) {
     throw new Error(`${field} must be between 0 and 100`);
   }
   return Math.round(progress);
+}
+
+function cleanScreenComponent(component, field) {
+  if (!component || typeof component !== "object" || Array.isArray(component)) {
+    throw new Error(`${field} must be an object`);
+  }
+  const type = cleanText(component.type, `${field}.type`, 16);
+  if (!SCREEN_COMPONENT_TYPES.has(type)) throw new Error(`${field}.type is not supported`);
+  if (type === "statusCard") {
+    return {
+      type,
+      label: cleanText(component.label || "Status", `${field}.label`, 12),
+      value: cleanText(component.value || "OK CORE", `${field}.value`, 24),
+      tone: cleanTone(component.tone || "ok", `${field}.tone`),
+      detail: cleanText(component.detail || "Ready", `${field}.detail`, 24),
+    };
+  }
+  if (type === "metricGroup") {
+    if (!Array.isArray(component.items)) throw new Error(`${field}.items must be an array`);
+    if (component.items.length === 0 || component.items.length > 3) {
+      throw new Error(`${field}.items must contain 1-3 items`);
+    }
+    return {
+      type,
+      items: component.items.map((item, index) => {
+        const itemObject = item && typeof item === "object" && !Array.isArray(item) ? item : null;
+        return {
+          label: cleanText(itemObject ? itemObject.label || `M${index + 1}` : item, `${field}.items[${index}].label`, 12),
+          value: cleanText(itemObject ? itemObject.value || "--" : item, `${field}.items[${index}].value`, 16),
+          unit: cleanOptionalText(itemObject ? itemObject.unit || "" : "", `${field}.items[${index}].unit`, 8),
+          tone: cleanTone(itemObject ? itemObject.tone || "ok" : "ok", `${field}.items[${index}].tone`),
+        };
+      }),
+    };
+  }
+  if (type === "list") {
+    return {
+      type,
+      title: cleanText(component.title || "List", `${field}.title`, 32),
+      items: cleanTextList(component.items || [], `${field}.items`, 4, 48),
+    };
+  }
+  if (type === "progress") {
+    return {
+      type,
+      label: cleanText(component.label || "Progress", `${field}.label`, 16),
+      value: cleanProgress(component.value ?? 72, `${field}.value`),
+      max: cleanProgress(component.max ?? 100, `${field}.max`),
+      tone: cleanTone(component.tone || "ok", `${field}.tone`),
+    };
+  }
+  if (type === "alert") {
+    return {
+      type,
+      title: cleanText(component.title || "Alert", `${field}.title`, 32),
+      body: cleanText(component.body || "Check status", `${field}.body`, 48),
+      tone: cleanTone(component.tone || "warn", `${field}.tone`),
+    };
+  }
+  return {
+    type,
+    title: cleanText(component.title || "Page", `${field}.title`, 32),
+    lines: cleanTextList(component.lines || [], `${field}.lines`, 4, 48),
+  };
+}
+
+function normalizeScreenComponents(page, pageIndex) {
+  if (page.components === undefined) return [];
+  if (!Array.isArray(page.components)) throw new Error(`pages[${pageIndex}].components must be an array`);
+  if (page.components.length > 6) throw new Error(`pages[${pageIndex}].components must contain at most 6 items`);
+  const normalized = page.components.map((component, index) => cleanScreenComponent(component, `pages[${pageIndex}].components[${index}]`));
+  const seenTypes = new Set();
+  for (const component of normalized) {
+    if (seenTypes.has(component.type)) throw new Error(`pages[${pageIndex}].components must not repeat ${component.type}`);
+    seenTypes.add(component.type);
+  }
+  return normalized;
+}
+
+function firstScreenComponent(components, type) {
+  return components.find((component) => component.type === type) || null;
+}
+
+function screenMetricText(item) {
+  const value = `${item.value} ${item.unit || ""}`.trim();
+  return cleanText(`${item.label} ${value}`.trim(), "metricGroup.item", 24);
+}
+
+function metricItemFromText(value, index) {
+  const text = cleanText(value, `pages[0].metrics[${index}]`, 24);
+  const [label, ...rest] = text.split(/\s+/);
+  return {
+    label: cleanText(label || `M${index + 1}`, `pages[0].metrics[${index}].label`, 12),
+    value: cleanText(rest.join(" ") || "--", `pages[0].metrics[${index}].value`, 16),
+    unit: "",
+    tone: "ok",
+  };
+}
+
+function componentLines(page, components, pageIndex) {
+  const alert = firstScreenComponent(components, "alert");
+  const textPage = firstScreenComponent(components, "textPage");
+  const listComponent = firstScreenComponent(components, "list");
+  if (alert) {
+    return {
+      title: alert.title,
+      lines: cleanTextList([alert.body], `pages[${pageIndex}].componentLines`, 4, 48),
+    };
+  }
+  if (listComponent) {
+    return {
+      title: listComponent.title,
+      lines: cleanTextList(listComponent.items.slice(0, 4), `pages[${pageIndex}].componentLines`, 4, 48),
+    };
+  }
+  if (textPage) {
+    return {
+      title: textPage.title,
+      lines: cleanTextList(textPage.lines.slice(0, 4), `pages[${pageIndex}].componentLines`, 4, 48),
+    };
+  }
+  const title = cleanText(page.title || page.tab || SCREEN_PAGE_IDS[pageIndex], `pages[${pageIndex}].title`, 32);
+  return {
+    title,
+    lines: cleanTextList(page.lines || [title], `pages[${pageIndex}].lines`, 4, 48),
+  };
+}
+
+function buildHomeComponents(page, status, tone, progress, metrics, existingComponents) {
+  const components = existingComponents.filter((component) => !["statusCard", "progress", "metricGroup"].includes(component.type));
+  const existingStatusCard = firstScreenComponent(existingComponents, "statusCard");
+  const existingProgress = firstScreenComponent(existingComponents, "progress");
+  const existingMetricGroup = firstScreenComponent(existingComponents, "metricGroup");
+  components.unshift({
+    type: "metricGroup",
+    items: existingMetricGroup?.items || metrics.map(metricItemFromText),
+  });
+  components.unshift({
+    type: "progress",
+    label: existingProgress?.label || "Progress",
+    value: progress,
+    max: existingProgress?.max || 100,
+    tone,
+  });
+  components.unshift({
+    type: "statusCard",
+    label: existingStatusCard?.label || "Status",
+    value: status,
+    tone,
+    detail: existingStatusCard?.detail || "Ready",
+  });
+  return components;
+}
+
+function buildTextPageComponents(title, lines, existingComponents) {
+  const existingAlert = firstScreenComponent(existingComponents, "alert");
+  const components = existingComponents.filter((component) => !["alert", "textPage", "list"].includes(component.type));
+  const existingTextPage = firstScreenComponent(existingComponents, "textPage");
+  const existingList = firstScreenComponent(existingComponents, "list");
+  if (existingAlert) {
+    components.unshift(existingList ? {
+      type: "list",
+      title: existingList.title,
+      items: existingList.items,
+    } : {
+      type: "textPage",
+      title: existingTextPage?.title || title,
+      lines: existingTextPage?.lines || lines,
+    });
+    components.unshift({
+      type: "alert",
+      title,
+      body: lines[0] || "Check status",
+      tone: existingAlert.tone || "warn",
+    });
+    return components;
+  }
+  if (existingList) {
+    components.unshift({
+      type: "list",
+      title,
+      items: lines,
+    });
+    return components;
+  }
+  components.unshift({
+    type: "textPage",
+    title,
+    lines,
+  });
+  return components;
 }
 
 function toneFromText(value) {
@@ -1524,18 +1725,33 @@ function normalizeScreenManifest(manifest) {
   ensureFourScreenPages(manifest);
 
   const pages = manifest.pages.map((page, index) => {
+    const components = normalizeScreenComponents(page, index);
     const next = {
       id: SCREEN_PAGE_IDS[index],
       tab: cleanText(page.tab || SCREEN_PAGE_IDS[index].toUpperCase(), `pages[${index}].tab`, 8),
     };
     if (index === 0) {
-      next.status = cleanText(page.status || "OK CORE", "pages[0].status", 24);
-      next.tone = cleanTone(page.tone || toneFromText(next.status), "pages[0].tone");
-      next.progress = cleanProgress(page.progress, "pages[0].progress");
-      next.metrics = cleanTextList(page.metrics || ["IP loading", "MEM --", "DISK --"], "pages[0].metrics", 3, 24);
+      const statusCard = firstScreenComponent(components, "statusCard");
+      const progressComponent = firstScreenComponent(components, "progress");
+      const metricGroup = firstScreenComponent(components, "metricGroup");
+      const alert = firstScreenComponent(components, "alert");
+      next.status = cleanText(statusCard ? statusCard.value : page.status || "OK CORE", "pages[0].status", 24);
+      next.tone = cleanTone(
+        statusCard ? statusCard.tone : alert ? alert.tone : progressComponent ? progressComponent.tone : page.tone || toneFromText(next.status),
+        "pages[0].tone",
+      );
+      next.progress = cleanProgress(progressComponent ? progressComponent.value : page.progress, "pages[0].progress");
+      next.metrics = metricGroup
+        ? metricGroup.items.map(screenMetricText)
+        : cleanTextList(page.metrics || ["IP loading", "MEM --", "DISK --"], "pages[0].metrics", 3, 24);
+      while (next.metrics.length < 3) next.metrics.push("--");
+      next.metrics = next.metrics.slice(0, 3);
+      next.components = buildHomeComponents(page, next.status, next.tone, next.progress, next.metrics, components);
     } else {
-      next.title = cleanText(page.title || next.tab, `pages[${index}].title`, 32);
-      next.lines = cleanTextList(page.lines || [next.title], `pages[${index}].lines`, 4, 48);
+      const text = componentLines(page, components, index);
+      next.title = text.title;
+      next.lines = text.lines;
+      next.components = buildTextPageComponents(next.title, next.lines, components);
     }
     return next;
   });
@@ -1556,6 +1772,35 @@ function mutableManifestView(manifest) {
   };
 }
 
+function mergeScreenComponents(baseComponents, patchComponents) {
+  if (patchComponents === undefined) return baseComponents;
+  if (!Array.isArray(patchComponents)) return patchComponents;
+  const merged = Array.isArray(baseComponents) ? [...baseComponents] : [];
+  for (const component of patchComponents) {
+    const type = component?.type;
+    const existingIndex = merged.findIndex((item) => item?.type === type);
+    if (type && existingIndex >= 0) {
+      merged[existingIndex] = {
+        ...merged[existingIndex],
+        ...component,
+      };
+    } else {
+      merged.push(component);
+    }
+  }
+  return merged;
+}
+
+function mergePageComponents(basePage, mutablePage) {
+  if (!mutablePage) return basePage?.components;
+  if (mutablePage.components !== undefined) {
+    return mergeScreenComponents(basePage?.components, mutablePage.components);
+  }
+  const replacesComponentBackedFields = ["status", "tone", "progress", "metrics", "title", "lines"]
+    .some((field) => Object.prototype.hasOwnProperty.call(mutablePage, field));
+  return replacesComponentBackedFields ? undefined : basePage?.components;
+}
+
 function applyMutableManifest(baseManifest, mutable) {
   const basePages = baseManifest.pages || [];
   const mutablePages = mutable.pages || [];
@@ -1566,6 +1811,7 @@ function applyMutableManifest(baseManifest, mutable) {
     pages: SCREEN_PAGE_IDS.map((id, index) => ({
       ...(basePages[index] || { id }),
       ...(mutablePages[index] || {}),
+      components: mergePageComponents(basePages[index], mutablePages[index]),
       id,
     })),
   });
@@ -1671,6 +1917,16 @@ function splitIntentItems(value) {
     .slice(0, 4);
 }
 
+function splitGroupedIntentItems(value, maxItems) {
+  const text = String(value || "");
+  const grouped = text
+    .split(/[，,、;；\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (grouped.length > 1) return grouped.slice(0, maxItems);
+  return splitIntentItems(text).slice(0, maxItems);
+}
+
 function linePagePatch(pageIndex, title, lines, tab) {
   const pages = SCREEN_PAGE_IDS.map((id) => ({ id }));
   pages[pageIndex] = {
@@ -1678,6 +1934,40 @@ function linePagePatch(pageIndex, title, lines, tab) {
     tab,
     title,
     lines,
+    components: [
+      {
+        type: "textPage",
+        title,
+        lines,
+      },
+    ],
+  };
+  return { pages };
+}
+
+function homeComponentPatch(component) {
+  const pages = SCREEN_PAGE_IDS.map((id) => ({ id }));
+  pages[0] = {
+    id: "home",
+    components: [component],
+  };
+  return { pages };
+}
+
+function currentHomeComponent(currentManifest, type) {
+  return firstScreenComponent(currentManifest.pages?.[0]?.components || [], type);
+}
+
+function currentTextComponent(currentManifest, pageIndex, type) {
+  return firstScreenComponent(currentManifest.pages?.[pageIndex]?.components || [], type);
+}
+
+function pageComponentPatch(pageIndex, tab, component) {
+  const pages = SCREEN_PAGE_IDS.map((id) => ({ id }));
+  pages[pageIndex] = {
+    id: SCREEN_PAGE_IDS[pageIndex],
+    tab,
+    components: [component],
   };
   return { pages };
 }
@@ -1734,15 +2024,78 @@ function parseScreenIntent(text, currentManifest) {
   if (match) {
     const pages = currentManifest.pages.map((page) => ({ id: page.id }));
     const status = match[1].trim();
-    pages[0] = { id: "home", status, tone: toneFromText(status) };
+    const tone = toneFromText(status);
+    pages[0] = {
+      id: "home",
+      status,
+      tone,
+      components: [
+        {
+          type: "statusCard",
+          label: firstScreenComponent(currentManifest.pages[0]?.components || [], "statusCard")?.label || "Status",
+          value: status,
+          tone,
+          detail: firstScreenComponent(currentManifest.pages[0]?.components || [], "statusCard")?.detail || "Ready",
+        },
+      ],
+    };
     return { pages };
+  }
+
+  match = input.match(/(?:状态标签|状态卡标签|状态名)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
+  if (match) {
+    const statusCard = currentHomeComponent(currentManifest, "statusCard") || {};
+    return homeComponentPatch({
+      type: "statusCard",
+      label: match[1].trim(),
+      value: currentManifest.pages[0]?.status || statusCard.value || "OK CORE",
+      tone: currentManifest.pages[0]?.tone || statusCard.tone || "ok",
+      detail: statusCard.detail || "Ready",
+    });
+  }
+
+  match = input.match(/(?:状态详情|状态说明|详情)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
+  if (match) {
+    const statusCard = currentHomeComponent(currentManifest, "statusCard") || {};
+    return homeComponentPatch({
+      type: "statusCard",
+      label: statusCard.label || "Status",
+      value: currentManifest.pages[0]?.status || statusCard.value || "OK CORE",
+      tone: currentManifest.pages[0]?.tone || statusCard.tone || "ok",
+      detail: match[1].trim(),
+    });
   }
 
   match = input.match(/(?:进度|完成度)\s*(?:改成|改为|写成|是|:|：)?\s*(\d{1,3})\s*%?$/);
   if (match) {
     const pages = currentManifest.pages.map((page) => ({ id: page.id }));
-    pages[0] = { id: "home", progress: Number(match[1]) };
+    const value = Number(match[1]);
+    pages[0] = {
+      id: "home",
+      progress: value,
+      components: [
+        {
+          type: "progress",
+          label: firstScreenComponent(currentManifest.pages[0]?.components || [], "progress")?.label || "Progress",
+          value,
+          max: 100,
+          tone: currentManifest.pages[0]?.tone || "ok",
+        },
+      ],
+    };
     return { pages };
+  }
+
+  match = input.match(/(?:进度标签|进度名|进度说明)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
+  if (match) {
+    const progress = currentHomeComponent(currentManifest, "progress") || {};
+    return homeComponentPatch({
+      type: "progress",
+      label: match[1].trim(),
+      value: currentManifest.pages[0]?.progress ?? progress.value ?? 72,
+      max: progress.max || 100,
+      tone: currentManifest.pages[0]?.tone || progress.tone || "ok",
+    });
   }
 
   match = input.match(/(?:状态色|语义|告警级别|等级)\s*(?:改成|改为|写成|是|:|：)?\s*(正常|健康|ok|OK|告警|警告|warn|warning|错误|失败|error|ERROR)$/);
@@ -1750,8 +2103,70 @@ function parseScreenIntent(text, currentManifest) {
     const raw = match[1];
     const tone = /错误|失败|error/i.test(raw) ? "error" : /告警|警告|warn|warning/i.test(raw) ? "warn" : "ok";
     const pages = currentManifest.pages.map((page) => ({ id: page.id }));
-    pages[0] = { id: "home", tone };
+    pages[0] = {
+      id: "home",
+      tone,
+      components: [
+        {
+          type: "statusCard",
+          label: firstScreenComponent(currentManifest.pages[0]?.components || [], "statusCard")?.label || "Status",
+          value: currentManifest.pages[0]?.status || "OK CORE",
+          tone,
+          detail: firstScreenComponent(currentManifest.pages[0]?.components || [], "statusCard")?.detail || "Ready",
+        },
+        {
+          type: "progress",
+          label: firstScreenComponent(currentManifest.pages[0]?.components || [], "progress")?.label || "Progress",
+          value: currentManifest.pages[0]?.progress ?? 72,
+          max: 100,
+          tone,
+        },
+      ],
+    };
     return { pages };
+  }
+
+  match = input.match(/(?:告警|警告|提示)\s*(?:改成|改为|写成|写|是|:|：)\s*(.+)$/);
+  if (match) {
+    return pageComponentPatch(1, currentManifest.pages[1]?.tab || "SYS", {
+      type: "alert",
+      title: "Alert",
+      body: match[1].trim(),
+      tone: toneFromText(match[1]),
+    });
+  }
+
+  match = input.match(/(?:指标组|组件指标)\s*(?:改成|改为|写成|写|:|：)?\s*(.+)$/);
+  if (match) {
+    const metrics = splitGroupedIntentItems(match[1], 3);
+    if (metrics.length > 0) {
+      return homeComponentPatch({
+        type: "metricGroup",
+        items: metrics.map(metricItemFromText),
+      });
+    }
+  }
+
+  match = input.match(/(?:列表|清单|步骤)\s*(?:改成|改为|写成|写|显示|:|：)\s*(.+)$/);
+  if (match) {
+    const items = splitIntentItems(match[1]).slice(0, 4);
+    if (items.length > 0) {
+      return pageComponentPatch(1, currentManifest.pages[1]?.tab || "LIST", {
+        type: "list",
+        title: currentTextComponent(currentManifest, 1, "list")?.title || "List",
+        items,
+      });
+    }
+  }
+
+  match = input.match(/(?:列表标题|清单标题|步骤标题)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
+  if (match) {
+    const list = currentTextComponent(currentManifest, 1, "list") || {};
+    return pageComponentPatch(1, currentManifest.pages[1]?.tab || "LIST", {
+      type: "list",
+      title: match[1].trim(),
+      items: list.items || currentManifest.pages[1]?.lines || ["Item"],
+    });
   }
 
   if (/告警|警告|异常|风险|错误|失败|报警|warn|error/i.test(input)) {
@@ -1772,10 +2187,19 @@ function parseScreenIntent(text, currentManifest) {
 
   match = input.match(/(?:指标|显示)\s*(?:改成|改为|写成|写|:|：)?\s*(.+)$/);
   if (match) {
-    const metrics = splitIntentItems(match[1]).slice(0, 3);
+    const metrics = splitGroupedIntentItems(match[1], 3);
     if (metrics.length > 0) {
       const pages = currentManifest.pages.map((page) => ({ id: page.id }));
-      pages[0] = { id: "home", metrics };
+      pages[0] = {
+        id: "home",
+        metrics,
+        components: [
+          {
+            type: "metricGroup",
+            items: metrics.map(metricItemFromText),
+          },
+        ],
+      };
       return { pages };
     }
   }

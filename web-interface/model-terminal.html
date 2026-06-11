@@ -366,6 +366,32 @@
         border-color: rgba(255, 107, 107, 0.56);
       }
 
+      .lvgl-metric-title {
+        display: block;
+        overflow: hidden;
+        color: var(--muted);
+        font-size: 7px;
+        line-height: 1.1;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .lvgl-metric-value {
+        display: block;
+        overflow: hidden;
+        padding-top: 2px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .lvgl-alert {
+        border-color: rgba(255, 200, 87, 0.62);
+      }
+
+      .lvgl-alert.is-error {
+        border-color: rgba(255, 107, 107, 0.62);
+      }
+
       .screen-editor {
         display: grid;
         gap: 8px;
@@ -2234,12 +2260,17 @@
 
       function screenTone(manifest) {
         const home = (Array.isArray(manifest?.pages) ? manifest.pages : []).find((page) => page.id === "home") || {};
-        return ["ok", "warn", "error"].includes(home.tone) ? home.tone : "ok";
+        const statusCard = firstManifestComponent(home, "statusCard");
+        const alert = firstManifestComponent(home, "alert");
+        const progress = firstManifestComponent(home, "progress");
+        const tone = statusCard?.tone || alert?.tone || progress?.tone || home.tone;
+        return ["ok", "warn", "error"].includes(tone) ? tone : "ok";
       }
 
       function screenProgress(manifest) {
         const home = (Array.isArray(manifest?.pages) ? manifest.pages : []).find((page) => page.id === "home") || {};
-        const progress = Number(home.progress ?? 72);
+        const progressComponent = firstManifestComponent(home, "progress");
+        const progress = Number(progressComponent?.value ?? home.progress ?? 72);
         if (!Number.isFinite(progress)) return 72;
         return Math.max(0, Math.min(100, Math.round(progress)));
       }
@@ -2824,6 +2855,64 @@
         }
       }
 
+      function firstManifestComponent(page, type) {
+        return (page?.components || []).find((component) => component?.type === type) || null;
+      }
+
+      function previewMetricItems(page) {
+        const metricGroup = firstManifestComponent(page, "metricGroup");
+        if (metricGroup?.items?.length) {
+          return metricGroup.items.slice(0, 3).map((item) => ({
+            label: item.label || "Metric",
+            value: `${item.value || "--"} ${item.unit || ""}`.trim(),
+            tone: item.tone || page.tone || "ok",
+          }));
+        }
+        return (page.metrics || []).slice(0, 3).map((metric) => ({
+          label: "",
+          value: metric,
+          tone: page.tone || "ok",
+        }));
+      }
+
+      function previewPageLines(manifest) {
+        const pages = (manifest.pages || []).filter((page) => page.id !== "home");
+        const selected = pages.find((page) => firstManifestComponent(page, "alert"))
+          || pages.find((page) => firstManifestComponent(page, "list"))
+          || pages.find((page) => firstManifestComponent(page, "textPage"))
+          || pages[0]
+          || {};
+        const alert = firstManifestComponent(selected, "alert");
+        if (alert) {
+          return {
+            tone: alert.tone || "warn",
+            title: alert.title || selected.title || selected.tab || "Alert",
+            lines: [alert.body || "Check status"],
+          };
+        }
+        const list = firstManifestComponent(selected, "list");
+        if (list) {
+          return {
+            tone: selected.tone || "ok",
+            title: list.title || selected.title || selected.tab || "List",
+            lines: list.items || selected.lines || [],
+          };
+        }
+        const textPage = firstManifestComponent(selected, "textPage");
+        if (textPage) {
+          return {
+            tone: selected.tone || "ok",
+            title: textPage.title || selected.title || selected.tab || "Page",
+            lines: textPage.lines || selected.lines || [],
+          };
+        }
+        return {
+          tone: selected.tone || "ok",
+          title: selected.title || selected.tab || "Page",
+          lines: selected.lines || [],
+        };
+      }
+
       function renderScreenManifestInto(target, manifest) {
         target.replaceChildren();
 
@@ -2855,18 +2944,56 @@
         body.className = "lvgl-body";
 
         const homePage = (manifest.pages || []).find((page) => page.id === "home") || {};
+        const statusCard = firstManifestComponent(homePage, "statusCard");
+        const progressComponent = firstManifestComponent(homePage, "progress");
+        const alert = firstManifestComponent(homePage, "alert");
         const tone = screenTone(manifest);
         const core = document.createElement("div");
         core.className = `lvgl-core is-${tone}`;
-        core.style.setProperty("--screen-progress", `${screenProgress(manifest)}%`);
-        core.textContent = homePage.status || "OK CORE";
+        core.style.setProperty("--screen-progress", `${progressComponent?.value ?? screenProgress(manifest)}%`);
+        core.textContent = statusCard?.value || homePage.status || "OK CORE";
 
         const metrics = document.createElement("div");
         metrics.className = "lvgl-metrics";
-        for (const metric of homePage.metrics || []) {
+        if (alert) {
           const item = document.createElement("div");
-          item.className = `lvgl-metric is-${tone}`;
-          item.textContent = metric;
+          item.className = `lvgl-metric lvgl-alert is-${alert.tone || tone}`;
+          const label = document.createElement("span");
+          label.className = "lvgl-metric-title";
+          label.textContent = alert.title || "Alert";
+          const value = document.createElement("span");
+          value.className = "lvgl-metric-value";
+          value.textContent = alert.body || "Check status";
+          item.append(label, value);
+          metrics.append(item);
+        }
+        for (const metric of previewMetricItems(homePage)) {
+          const item = document.createElement("div");
+          item.className = `lvgl-metric is-${metric.tone || tone}`;
+          if (metric.label) {
+            const label = document.createElement("span");
+            label.className = "lvgl-metric-title";
+            label.textContent = metric.label;
+            const value = document.createElement("span");
+            value.className = "lvgl-metric-value";
+            value.textContent = metric.value;
+            item.append(label, value);
+          } else {
+            item.textContent = metric.value;
+          }
+          metrics.append(item);
+        }
+        if (!metrics.childElementCount) {
+          const pageSummary = previewPageLines(manifest);
+          const item = document.createElement("div");
+          item.className = `lvgl-metric is-${pageSummary.tone}`;
+          const label = document.createElement("span");
+          label.className = "lvgl-metric-title";
+          label.textContent = pageSummary.title;
+          const value = document.createElement("span");
+          value.className = "lvgl-metric-value";
+          value.textContent = (pageSummary.lines || []).join(" / ") || "Ready";
+          item.append(label, value);
           metrics.append(item);
         }
 
