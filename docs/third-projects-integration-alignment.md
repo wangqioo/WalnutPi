@@ -388,6 +388,22 @@ vtcon1 bind                        0
 
 所以当前剩余工作不再是“把第一闭环做出来”，而是把第一闭环从窄切片推进成可靠产品能力。
 
+### 剩余项进度台账
+
+2026-06-11 根据当前代码、真机同步记录和产品边界，剩余项记录为以下进度：
+
+| 项目 | 当前状态 | 下一步 |
+| --- | --- | --- |
+| 真实 LVGL 预览 | 未实现。Web 预览仍是 DOM / Canvas 语义近似。 | 短期先推进 Web DOM screenshot -> 设备 PNG 的像素 diff；真实 LVGL headless preview 作为更重的后续路线。 |
+| Web / 真机像素一致性 | 部分实现。已有 framebuffer hash、非空检查、按需 PNG、metadata-only pixel evidence 和诊断级 Web/device diff。 | 把当前 canvas diff 升级为可复查的 DOM screenshot 与设备 framebuffer PNG diff，并继续保持诊断属性，不改变同步成功判定。 |
+| 自然语言生成 | 部分实现。当前 `/api/screen/intent` 是规则式 manifest 小改动。 | 先设计受控 manifest 生成层；是否允许生成受限 LVGL C 代码另行确认。 |
+| manifest 表达能力 | 部分实现。当前固定 480x320 / RGB565 / 四页结构，home 页支持 `tone` 和 `progress`。 | 扩展小白可理解的组件 vocabulary：状态卡、列表、告警、指标组、进度等。 |
+| 修复闭环 | 部分实现。已有 `repairHint` / `repairCandidate` / `repairProposal` / `repairApply`，但不会自动同步。 | 补成半自动闭环：应用本地修复 -> 重新读取预览 -> 用户确认 -> 手动同步 -> 新回证。 |
+| delivery adapter | 窄切片实现。当前只有 SSH / local-agent。 | 继续巩固 SSH/local-agent；USB、eMMC、镜像或外部 MCU adapter 后置，并作为新 adapter 接入。 |
+| 自动化回归 | 不足。主要依赖 `collect-screen-sync-evidence.ps1` 和真机记录。 | 增加围绕 manifest 校验、`?nossh` 拦截、sync 记录、repair route 的轻量 API 回归。 |
+| 高风险动作确认流 | 骨架存在。`walnut action` 有 prepare/commit 方向，confirmed execution 仍禁用。 | 先定义确认文案、风险级别、证据格式和审计记录，再开放任何系统写入、重启、GPIO 输出。 |
+| 长期记忆产品化 | 部分实现。已有 session JSONL、memory distiller、project-memory API 和 non-secret 过滤。 | 明确 Web 会话与 `~/walnut-memory/` 的共享策略，决定哪些事实跨会话持久化。 |
+
 ### 1. Web / LVGL 真实像素一致性
 
 当前 `pixelEvidence` 是 metadata-only。它记录 framebuffer 原始帧 hash、sample hash、nonzero ratio、尺寸、格式和字节数。Web 诊断层新增了 `walnutpi.webDevicePixelDiff.v1`，用同一个 manifest 生成 480x320 语义预览 canvas，再和设备 PNG 比较像素，并把结果写回本地同步记录。
@@ -518,6 +534,34 @@ frameSha256: 5a4d555aef5948c9a564a83414cf0021a047b8539da89b8b8017cea43b7767bb
 screenFrameUrl: /api/screen/frame/screen-20260610161956-f51fbac3
 ```
 
+2026-06-11 20:43 Asia/Shanghai 对当前工作区又跑了一次真机同步回归，当前 manifest 已变为 WalnutMusic：
+
+```text
+remote checkout: /home/pi/projects/WalnutPi
+hostname: WalnutPi
+root login cwd: /root
+remoteProjectRoot: /home/pi/projects/WalnutPi
+projectRootExists: yes
+webApiFileExists: yes
+pre-sync service: walnut-screen.service active
+pre-sync framebuffer-status: walnut-framebuffer-status.service inactive
+pre-sync vtcon1 bind: 0
+pre-sync frame: 480x320 RGB565_LE, 307200 bytes, nonblank
+pre-sync frameSha256: e7fde48781322d4a829c064bb3d44be9d3e72e618b999d6878a62df5b606047b
+pre-sync capturePngSha256: b5befd4b42390e802ee2d0f1ac60d4a0f0e5c3add8e5693a29d70a69b5760798
+build/lvgl_app owner: pi:pi
+buildId: screen-20260611124330-973d015f
+manifestHash: fc1821341680497f49704d6264f69de5f5c153295144513f0420e7496db38026
+artifactHash: 364bc7d1179e37a6082f141e225842f2ed81fbd2a8c7da52d34f44e067c29c70
+deliveryHash: 12ac32c9bbfbc3cf76fc18ffd551683f615f39c02148671e9f4329f3b86f9ca0
+visualMatch: captured
+frameSha256: 38a0d8daeba24b0b7b4fc09db7ebe164237550068bdd3fd3dfdfb7bc3872a422
+screenFrameUrl: /api/screen/frame/screen-20260611124330-973d015f
+post-sync service: walnut-screen.service active
+post-sync framebuffer-status: walnut-framebuffer-status.service inactive
+post-sync vtcon1 bind: 0
+```
+
 常见排障判断：
 
 - `walnut-screen.service inactive` 但 `frame` / `capture` 仍返回数据，不一定代表同步链路成功；它只能说明 framebuffer 当前可读，可能是旧画面或其他进程留下的画面。
@@ -550,15 +594,16 @@ screenFrameUrl: /api/screen/frame/screen-20260610161956-f51fbac3
 
 ```text
 1. 保持现有第一闭环：manifest -> build -> delivery adapter -> activation -> device evidence。
-2. 先补强视觉一致性：真实 LVGL preview 或 Web/LVGL 像素 diff 二选一。
+2. 先补强视觉一致性：短期推进 Web DOM screenshot -> 设备 framebuffer PNG 的像素 diff。
 3. 扩展 manifest vocabulary，让小白能表达更多小屏界面，但仍不暴露通用 IDE。
 4. 把修复提案补成半自动闭环：应用本地修复 -> 预览 -> 用户手动同步 -> 新回证。
 5. 再考虑 AI 生成 manifest 或受限 LVGL 代码，并让生成结果走同一套 hash / build / evidence 安全门。
 6. 最后再增加 USB、eMMC、镜像或其他 delivery adapter。
 ```
 
-第一件需要一起确认的事已经变化：
+当前推进选择：
 
 ```text
-下一步要优先做真实 LVGL headless preview，还是做现有 Web 语义预览与设备 framebuffer 截图的像素级 diff？
+下一步先做现有 Web 语义预览与设备 framebuffer 截图的像素级 diff。
+真实 LVGL headless preview 仍保留为后续更强一致性路线，不作为下一步默认切片。
 ```

@@ -87,3 +87,87 @@ Stop-Process -Id $p.Id
 - [x] Verify repair proposal and confirmation rejection with a temporary `WALNUT_SCREEN_RECORDS_DIR`.
 - [x] Smoke test the Web UI with the in-app browser.
 - [ ] Stage only this slice, commit, and push `yrd`.
+
+---
+
+## Follow-Up Progress Backlog
+
+This backlog records the remaining implementation gaps after the first screen-sync closure. Keep each item narrow and do not expand WalnutPi into a generic IDE, public root shell, or unsafe device writer.
+
+### Task 6: Record Remaining Gaps And Latest Device Evidence
+
+**Files:**
+- Modify: `docs/third-projects-integration-alignment.md`
+- Modify: `docs/superpowers/plans/2026-06-11-remaining-screen-alignment.md`
+
+- [x] Record the nine remaining items as a status table:
+  - real LVGL preview
+  - Web/device pixel consistency
+  - natural-language generation
+  - manifest vocabulary
+  - repair loop
+  - delivery adapters
+  - automated regression
+  - high-risk action confirmation flow
+  - long-term memory productization
+- [x] Record the latest real-device WalnutMusic sync evidence from `screen-20260611124330-973d015f`.
+- [x] Set the next default progress slice to Web DOM screenshot -> device framebuffer PNG pixel diff.
+
+### Task 7: Web/Device Pixel Diff V2
+
+**Goal:** Make the current diagnostic pixel comparison more reproducible without claiming LVGL pixel-perfect equality.
+
+**Files:**
+- Modify: `web-interface/model-terminal.html`
+- Modify: `web-interface/model-terminal-server.js`
+- Modify: `README.md`
+- Modify: `web-interface/README.md`
+- Modify: `docs/third-projects-integration-alignment.md`
+
+- [ ] Capture a stable Web preview bitmap for the current manifest, preferably from the actual preview DOM rather than a manually redrawn approximation.
+- [ ] Compare that Web bitmap with the on-demand device PNG and persist the diff result as a versioned diagnostic object.
+- [ ] Store dimensions, compared pixel count, mismatch ratio, thresholds, and limitations in the sync record.
+- [ ] Keep this diagnostic out of `visualMatch` and out of beginner-facing success/failure states.
+- [ ] Document that this is Web semantic preview vs device PNG, not true LVGL headless preview.
+
+### Task 8: Manifest Vocabulary Expansion Plan
+
+**Goal:** Define the next beginner-safe manifest vocabulary before changing generators or LVGL UI code.
+
+**Files:**
+- Create or modify: `docs/superpowers/specs/*screen-manifest-vocabulary*.md`
+- Modify: `docs/third-projects-integration-alignment.md`
+
+- [ ] Propose a small component vocabulary: status card, metric group, list, progress, alert, text page.
+- [ ] Define which fields are user-editable through natural language.
+- [ ] Define generator impact for `scripts/generate-lvgl-screen-config.py` and `.js`.
+- [ ] Define LVGL runtime impact in `lvgl_app/src/main.c`.
+- [ ] Keep arbitrary C/LVGL code editing out of scope.
+
+### Task 9: Repair Loop Half-Automation
+
+**Goal:** Finish the safe repair loop without auto-SSH, auto-build, or auto-resync.
+
+**Files:**
+- Modify: `web-interface/model-terminal-server.js`
+- Modify: `web-interface/model-terminal.html`
+- Modify: `README.md`
+- Modify: `web-interface/README.md`
+
+- [ ] After `repair-apply`, force the Web UI to reload the manifest and preview.
+- [ ] Present the changed preview and tell the user to manually sync.
+- [ ] Keep sync as a separate user action with current `manifestHash` validation.
+- [ ] Write the new sync result as a separate record with fresh evidence.
+
+### Task 10: Lightweight Regression Coverage
+
+**Goal:** Add focused checks around the current safety gates.
+
+**Files:**
+- Prefer existing scripts or minimal API checks; do not add broad fixtures or snapshots.
+
+- [ ] Verify stale, missing, and malformed `manifestHash` are rejected before SSH/build.
+- [ ] Verify `?nossh` blocks sync, terminal, remote actions, build, activation, and capture.
+- [ ] Verify sync records include artifact hash, delivery hash, frame evidence, and pixel evidence fields.
+- [ ] Verify repair proposal/apply reject missing or wrong confirmation.
+- [ ] Keep real-device evidence collection in `scripts/collect-screen-sync-evidence.ps1`.
