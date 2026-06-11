@@ -1008,8 +1008,13 @@ function screenRecordSummary(record) {
     pixelEvidenceStatus: record.screenEvidence?.pixelEvidence?.status || null,
     pixelEvidenceClaim: record.screenEvidence?.pixelEvidence?.claim || null,
     pixelSampleHash: record.screenEvidence?.pixelEvidence?.sampleHash || null,
+    webDevicePixelDiffSchema: record.webDevicePixelDiff?.schema || null,
     webDevicePixelDiffStatus: record.webDevicePixelDiff?.status || null,
     webDevicePixelDiffRatio: record.webDevicePixelDiff?.diffRatio ?? null,
+    webDevicePixelDiffSource: record.webDevicePixelDiff?.source || null,
+    webDevicePixelDiffWidth: record.webDevicePixelDiff?.width ?? null,
+    webDevicePixelDiffHeight: record.webDevicePixelDiff?.height ?? null,
+    webDevicePixelDiffComparedPixels: record.webDevicePixelDiff?.comparedPixels ?? null,
     previewSignatureHash: record.screenEvidence?.semantic?.previewSignatureHash || null,
     deviceSignatureHash: record.screenEvidence?.semantic?.deviceSignatureHash || null,
     hasFramePng: Boolean(record.framePng),
@@ -2074,8 +2079,9 @@ function normalizeWebDevicePixelDiff(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("webDevicePixelDiff must be an object");
   }
-  if (value.schema !== "walnutpi.webDevicePixelDiff.v1") {
-    throw new Error("webDevicePixelDiff schema must be walnutpi.webDevicePixelDiff.v1");
+  const schema = String(value.schema || "").trim();
+  if (!["walnutpi.webDevicePixelDiff.v1", "walnutpi.webDevicePixelDiff.v2"].includes(schema)) {
+    throw new Error("webDevicePixelDiff schema must be walnutpi.webDevicePixelDiff.v1 or walnutpi.webDevicePixelDiff.v2");
   }
   const status = String(value.status || "").trim();
   if (!["matched", "different", "unavailable"].includes(status)) {
@@ -2088,18 +2094,32 @@ function normalizeWebDevicePixelDiff(value) {
   if (manifestHash && !validSha256(manifestHash)) {
     throw new Error("manifestHash must be SHA-256 hex");
   }
+  const width = cleanPixelDiffInteger(value.width, "width", 1, 4096);
+  const height = cleanPixelDiffInteger(value.height, "height", 1, 4096);
+  const comparedPixels = schema === "walnutpi.webDevicePixelDiff.v2"
+    ? cleanPixelDiffInteger(value.comparedPixels, "comparedPixels", 1, 4096 * 4096)
+    : width * height;
+  const differentPixels = cleanPixelDiffInteger(value.differentPixels, "differentPixels", 0, 4096 * 4096);
+  if (differentPixels > comparedPixels) {
+    throw new Error("differentPixels must not exceed comparedPixels");
+  }
   return {
-    schema: "walnutpi.webDevicePixelDiff.v1",
+    schema,
     status,
     claim: String(value.claim || "web-semantic-preview-compared-to-device-png").slice(0, 120),
+    source: String(value.source || (schema.endsWith(".v2") ? "actual-preview-dom-snapshot" : "semantic-canvas-preview"))
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80),
     manifestHash,
     frameUrl: value.frameUrl ? String(value.frameUrl).slice(0, 240) : null,
     previewHash: cleanPixelDiffHash(value.previewHash, "previewHash"),
     devicePngHash: cleanPixelDiffHash(value.devicePngHash, "devicePngHash"),
-    width: cleanPixelDiffInteger(value.width, "width", 1, 4096),
-    height: cleanPixelDiffInteger(value.height, "height", 1, 4096),
+    width,
+    height,
+    comparedPixels,
     threshold: cleanPixelDiffNumber(value.threshold, "threshold", 0, 1),
-    differentPixels: cleanPixelDiffInteger(value.differentPixels, "differentPixels", 0, 4096 * 4096),
+    differentPixels,
     diffRatio: cleanPixelDiffNumber(value.diffRatio, "diffRatio", 0, 1),
     averageChannelDelta: cleanPixelDiffNumber(value.averageChannelDelta, "averageChannelDelta", 0, 255, 3),
     limitations,
@@ -2356,7 +2376,9 @@ async function handleScreenRepairApply(req) {
   return json({
     ok: true,
     buildId: safeBuildId,
-    summary: "已应用本地 screen manifest 修复。请先预览确认，再手动同步到核桃派。",
+    summary: "已应用本地 screen manifest 修复。Web 会重新读取预览；确认后请手动同步到核桃派。",
+    nextAction: "reload-preview-then-manual-sync",
+    autoSync: false,
     manifestHash: envelope.manifestHash,
     manifest: envelope.manifest,
     repairProposal: proposal,

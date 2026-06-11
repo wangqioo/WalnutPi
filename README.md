@@ -218,13 +218,13 @@ http://127.0.0.1:4173/?nossh
 - `GET /api/screen/records/<buildId>/frame.png`：读取已经缓存到本地诊断记录的 PNG；不会重新连接核桃派。
 - `POST /api/screen/repair-candidate`：读取本地同步记录并返回结构化修复候选方案；不会 SSH、构建、激活、抓图、写文件或自动重试。
 - `POST /api/screen/repair-proposal`：读取本地同步记录并生成确认门控的本地修复提案；生成提案不会写文件、SSH、构建、激活、抓图或重试。
-- `POST /api/screen/repair-apply`：只在输入精确确认短语后应用服务器生成的安全本地补丁；不会自动同步到核桃派。
+- `POST /api/screen/repair-apply`：只在输入精确确认短语后应用服务器生成的安全本地补丁；Web 随后重新读取 manifest 和预览，但不会自动同步到核桃派。
 - `POST /api/screen/ai-summary`：读取本地同步记录并生成证据受限的中文总结；默认本地规则生成，配置 `OPENAI_API_KEY` 后可调用 OpenAI-compatible `/responses`，失败会回退本地总结；不会 SSH、构建、激活、抓图、写文件或自动重试。
-- `POST /api/screen/pixel-diff`：只把浏览器算出的 `walnutpi.webDevicePixelDiff.v1` 写回本地同步记录；manifest hash 必须和记录一致；不会连接核桃派、抓图、构建、激活或改变同步状态。
+- `POST /api/screen/pixel-diff`：只把浏览器算出的 `walnutpi.webDevicePixelDiff.v2` 写回本地同步记录；manifest hash 必须和记录一致；记录固定 480x320 Web DOM 预览快照与设备 PNG 的尺寸、像素数和差异比例；不会连接核桃派、抓图、构建、激活或改变同步状态。
 
 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、metadata-only pixel evidence、诊断级 Web/device pixel diff、历史记录、修复提示、修复候选方案、修复提案、AI 总结证据和按需设备截图只放在开发者诊断层。
 
-小屏 manifest 的 home 页支持 `tone`（`ok` / `warn` / `error`）和 `progress`（`0-100`）。Web 预览、诊断 canvas、生成的 LVGL 配置和设备端 LVGL 颜色共用这两个字段。
+小屏 manifest 的 home 页支持 `tone`（`ok` / `warn` / `error`）和 `progress`（`0-100`）。Web 预览、诊断 DOM 快照、生成的 LVGL 配置和设备端 LVGL 颜色共用这两个字段。
 
 同步记录默认保存在 `web-interface/screen-sync-records/`，该目录不进入 Git。每条记录保存 `record.json`、`summary.json`，开发者展开诊断截图后还会缓存 `frame.png`。默认保留最近 50 条，可用 `WALNUT_SCREEN_RECORD_LIMIT` 调整，也可用 `WALNUT_SCREEN_RECORDS_DIR` 改变保存目录。`?nossh` 模式仍然不会连接核桃派或触发构建 / 激活 / 设备写入；它只会在本地记录一次 preview 拒绝结果，方便确认同步路径被拦截。
 
@@ -437,6 +437,14 @@ Web 同步第一版复用现有 LVGL 运行边界，不改变 `walnut screen` �
 - 修复提案：`POST /api/screen/repair-proposal` + `POST /api/screen/repair-apply`，只允许确认后应用安全本地补丁，不自动同步
 - AI 总结：`POST /api/screen/ai-summary`，只读总结本地同步记录，证据范围固定为该记录的 compact evidence
 - 目标：`/dev/fb0`，480x320，RGB565
+
+轻量 API 安全回归：
+
+```powershell
+pwsh ./scripts/test-screen-api-safety.ps1
+```
+
+该脚本使用临时 manifest 和临时同步记录目录，验证 manifest hash 拦截、`?nossh` 拦截、repair 确认拦截和 pixel-diff 记录字段；它不会连接核桃派、构建、激活、抓图或写真实设备。
 
 这里的“同步到核桃派”不是把 Web 前端搬到设备上，也不是 VibeBoard/ESP32 烧录链路；它是把同一个小屏 manifest 对应的 LVGL 产物交付给 WalnutPi 本地屏幕运行时，并记录可诊断的 delivery/evidence。
 

@@ -124,11 +124,11 @@ This backlog records the remaining implementation gaps after the first screen-sy
 - Modify: `web-interface/README.md`
 - Modify: `docs/third-projects-integration-alignment.md`
 
-- [ ] Capture a stable Web preview bitmap for the current manifest, preferably from the actual preview DOM rather than a manually redrawn approximation.
-- [ ] Compare that Web bitmap with the on-demand device PNG and persist the diff result as a versioned diagnostic object.
-- [ ] Store dimensions, compared pixel count, mismatch ratio, thresholds, and limitations in the sync record.
-- [ ] Keep this diagnostic out of `visualMatch` and out of beginner-facing success/failure states.
-- [ ] Document that this is Web semantic preview vs device PNG, not true LVGL headless preview.
+- [x] Capture a stable Web preview bitmap for the current manifest, preferably from the actual preview DOM rather than a manually redrawn approximation.
+- [x] Compare that Web bitmap with the on-demand device PNG and persist the diff result as a versioned diagnostic object.
+- [x] Store dimensions, compared pixel count, mismatch ratio, thresholds, and limitations in the sync record.
+- [x] Keep this diagnostic out of `visualMatch` and out of beginner-facing success/failure states.
+- [x] Document that this is Web semantic preview vs device PNG, not true LVGL headless preview.
 
 ### Task 8: Manifest Vocabulary Expansion Plan
 
@@ -138,11 +138,11 @@ This backlog records the remaining implementation gaps after the first screen-sy
 - Create or modify: `docs/superpowers/specs/*screen-manifest-vocabulary*.md`
 - Modify: `docs/third-projects-integration-alignment.md`
 
-- [ ] Propose a small component vocabulary: status card, metric group, list, progress, alert, text page.
-- [ ] Define which fields are user-editable through natural language.
-- [ ] Define generator impact for `scripts/generate-lvgl-screen-config.py` and `.js`.
-- [ ] Define LVGL runtime impact in `lvgl_app/src/main.c`.
-- [ ] Keep arbitrary C/LVGL code editing out of scope.
+- [x] Propose a small component vocabulary: status card, metric group, list, progress, alert, text page.
+- [x] Define which fields are user-editable through natural language.
+- [x] Define generator impact for `scripts/generate-lvgl-screen-config.py` and `.js`.
+- [x] Define LVGL runtime impact in `lvgl_app/src/main.c`.
+- [x] Keep arbitrary C/LVGL code editing out of scope.
 
 ### Task 9: Repair Loop Half-Automation
 
@@ -154,10 +154,10 @@ This backlog records the remaining implementation gaps after the first screen-sy
 - Modify: `README.md`
 - Modify: `web-interface/README.md`
 
-- [ ] After `repair-apply`, force the Web UI to reload the manifest and preview.
-- [ ] Present the changed preview and tell the user to manually sync.
-- [ ] Keep sync as a separate user action with current `manifestHash` validation.
-- [ ] Write the new sync result as a separate record with fresh evidence.
+- [x] After `repair-apply`, force the Web UI to reload the manifest and preview.
+- [x] Present the changed preview and tell the user to manually sync.
+- [x] Keep sync as a separate user action with current `manifestHash` validation.
+- [x] Write the new sync result as a separate record with fresh evidence.
 
 ### Task 10: Lightweight Regression Coverage
 
@@ -166,8 +166,8 @@ This backlog records the remaining implementation gaps after the first screen-sy
 **Files:**
 - Prefer existing scripts or minimal API checks; do not add broad fixtures or snapshots.
 
-- [ ] Verify stale, missing, and malformed `manifestHash` are rejected before SSH/build.
-- [ ] Verify `?nossh` blocks sync, terminal, remote actions, build, activation, and capture.
-- [ ] Verify sync records include artifact hash, delivery hash, frame evidence, and pixel evidence fields.
-- [ ] Verify repair proposal/apply reject missing or wrong confirmation.
-- [ ] Keep real-device evidence collection in `scripts/collect-screen-sync-evidence.ps1`.
+- [x] Verify stale, missing, and malformed `manifestHash` are rejected before SSH/build.
+- [x] Verify `?nossh` blocks sync, terminal, remote actions, build, activation, and capture.
+- [x] Verify sync records include artifact hash, delivery hash, frame evidence, and pixel evidence fields.
+- [x] Verify repair proposal/apply reject missing or wrong confirmation.
+- [x] Keep real-device evidence collection in `scripts/collect-screen-sync-evidence.ps1`.

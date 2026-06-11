@@ -200,7 +200,7 @@ Web 外部端先看到的界面
 - `unknown`：没有可用的 frame 回证。
 - `mismatch`：frame 存在，但结构性检查显示目标屏幕约束不一致。
 
-`visualChecks` 记录 manifest hash、artifact hash、preview signature hash、device signature hash、frame captured、尺寸、像素格式、字节数和非空等检查。`screenEvidence.semantic` 保留 manifest 可见字段形成的 preview signature，以及 manifest / artifact / frame metadata 形成的 device signature，供开发者诊断对齐。PNG 画面通过 `frameUrl` 指向 `/api/screen/frame/<buildId>`，只在开发者诊断展开时按需抓取，不进入默认同步 JSON。由于 LVGL 页面可能持续动画，按需 PNG 允许是后续动态帧；响应头保留当前 raw frame hash 和同步时 raw frame hash。当前 Web 诊断层还会用同一个 manifest 画一张 480x320 语义预览 canvas，并与已加载的设备 PNG 做浏览器本地像素 diff；这个结果是 `walnutpi.webDevicePixelDiff.v1` 诊断，会通过 `POST /api/screen/pixel-diff` 写回本地同步记录，但不改变 `visualMatch` 或同步成功判定。
+`visualChecks` 记录 manifest hash、artifact hash、preview signature hash、device signature hash、frame captured、尺寸、像素格式、字节数和非空等检查。`screenEvidence.semantic` 保留 manifest 可见字段形成的 preview signature，以及 manifest / artifact / frame metadata 形成的 device signature，供开发者诊断对齐。PNG 画面通过 `frameUrl` 指向 `/api/screen/frame/<buildId>`，只在开发者诊断展开时按需抓取，不进入默认同步 JSON。由于 LVGL 页面可能持续动画，按需 PNG 允许是后续动态帧；响应头保留当前 raw frame hash 和同步时 raw frame hash。当前 Web 诊断层会从同一 manifest 生成固定 480x320 的 Web 预览 DOM 快照，并与已加载的设备 PNG 做浏览器本地像素 diff；这个结果是 `walnutpi.webDevicePixelDiff.v2` 诊断，会通过 `POST /api/screen/pixel-diff` 写回本地同步记录，记录 dimensions、compared pixel count、mismatch ratio、threshold 和 limitations，但不改变 `visualMatch` 或同步成功判定。旧的 `walnutpi.webDevicePixelDiff.v1` canvas 记录仍可读取。
 
 允许延迟，但不接受长期分叉。也就是说，实时性可以让步，一致性不能让步。
 
@@ -367,7 +367,7 @@ vtcon1 bind                        0
 
 这比先做完整项目编辑器或完整代码生成更简单，但保留了 VibeBoard 的关键链路：artifact、manifest、delivery adapter、device evidence。后续 USB、eMMC、系统镜像或其他交付方式应作为新的 adapter 增加，而不是塞回 Web route。
 
-当前阶段已经把等价 screen frame 回证升级为结构性画面回证、语义签名回证、metadata-only pixel evidence 和诊断级 Web/device pixel diff：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查、sample hash、nonzero ratio、preview/device signature hash、按需 PNG 截图，以及浏览器语义预览 canvas 与设备 PNG 的 diff ratio。当前 pixel diff 会进入本地同步记录，并在同步历史里显示一个小型 diff badge，方便历史诊断复查；它仍不宣称已经完成真实 LVGL headless preview，也不改变同步判定。
+当前阶段已经把等价 screen frame 回证升级为结构性画面回证、语义签名回证、metadata-only pixel evidence 和诊断级 Web/device pixel diff：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查、sample hash、nonzero ratio、preview/device signature hash、按需 PNG 截图，以及固定 480x320 Web 预览 DOM 快照与设备 PNG 的 diff ratio。当前 pixel diff 会进入本地同步记录，并在同步历史里显示一个小型 diff badge，方便历史诊断复查；它仍不宣称已经完成真实 LVGL headless preview，也不改变同步判定。
 
 当前修复循环已经到第三层：第一层是 `repairHint` 的失败归因和修复建议，第二层是只读 `repairCandidate` 的结构化候选方案，第三层是确认门控的 `repairProposal` / `repairApply`。它可以在有安全本地补丁时要求用户输入精确确认短语后应用，但仍然不自动 SSH、不自动重启服务、不自动重新同步。后续如果要做完整自动修复，应继续补“应用修改 -> 用户确认重新同步 -> 记录回证”的闭环。
 
@@ -394,26 +394,23 @@ vtcon1 bind                        0
 
 | 项目 | 当前状态 | 下一步 |
 | --- | --- | --- |
-| 真实 LVGL 预览 | 未实现。Web 预览仍是 DOM / Canvas 语义近似。 | 短期先推进 Web DOM screenshot -> 设备 PNG 的像素 diff；真实 LVGL headless preview 作为更重的后续路线。 |
-| Web / 真机像素一致性 | 部分实现。已有 framebuffer hash、非空检查、按需 PNG、metadata-only pixel evidence 和诊断级 Web/device diff。 | 把当前 canvas diff 升级为可复查的 DOM screenshot 与设备 framebuffer PNG diff，并继续保持诊断属性，不改变同步成功判定。 |
+| 真实 LVGL 预览 | 未实现。Web 预览仍是 DOM 语义近似。 | 真实 LVGL headless preview 作为更重的后续路线。 |
+| Web / 真机像素一致性 | 部分实现。已有 framebuffer hash、非空检查、按需 PNG、metadata-only pixel evidence，以及固定 480x320 Web DOM 快照与设备 PNG 的诊断级 diff。 | 继续把它作为可复查诊断，不改变同步成功判定；后续若需要更强一致性，再做真实 LVGL headless preview。 |
 | 自然语言生成 | 部分实现。当前 `/api/screen/intent` 是规则式 manifest 小改动。 | 先设计受控 manifest 生成层；是否允许生成受限 LVGL C 代码另行确认。 |
-| manifest 表达能力 | 部分实现。当前固定 480x320 / RGB565 / 四页结构，home 页支持 `tone` 和 `progress`。 | 扩展小白可理解的组件 vocabulary：状态卡、列表、告警、指标组、进度等。 |
-| 修复闭环 | 部分实现。已有 `repairHint` / `repairCandidate` / `repairProposal` / `repairApply`，但不会自动同步。 | 补成半自动闭环：应用本地修复 -> 重新读取预览 -> 用户确认 -> 手动同步 -> 新回证。 |
+| manifest 表达能力 | 部分实现。当前固定 480x320 / RGB565 / 四页结构，home 页支持 `tone` 和 `progress`；已补 `docs/superpowers/specs/2026-06-11-screen-manifest-vocabulary.md` 定义下一步组件 vocabulary。 | 下一轮再按该 spec 改 generator、Web preview 和 LVGL runtime。 |
+| 修复闭环 | 部分实现。已有 `repairHint` / `repairCandidate` / `repairProposal` / `repairApply`；应用本地修复后 Web 会重新读取 manifest 和预览，但不会自动同步。 | 保持同步为单独用户动作，下一次手动同步会生成新的记录和设备回证。 |
 | delivery adapter | 窄切片实现。当前只有 SSH / local-agent。 | 继续巩固 SSH/local-agent；USB、eMMC、镜像或外部 MCU adapter 后置，并作为新 adapter 接入。 |
-| 自动化回归 | 不足。主要依赖 `collect-screen-sync-evidence.ps1` 和真机记录。 | 增加围绕 manifest 校验、`?nossh` 拦截、sync 记录、repair route 的轻量 API 回归。 |
+| 自动化回归 | 已新增轻量 API 回归 `scripts/test-screen-api-safety.ps1`，覆盖 manifest hash 拦截、`?nossh` 拦截、sync 记录摘要、repair 确认和 pixel-diff 写回。真机闭环仍由 `collect-screen-sync-evidence.ps1` 保留。 | 后续再按风险补更细的 API/真机回归，不引入大 fixtures 或 snapshots。 |
 | 高风险动作确认流 | 骨架存在。`walnut action` 有 prepare/commit 方向，confirmed execution 仍禁用。 | 先定义确认文案、风险级别、证据格式和审计记录，再开放任何系统写入、重启、GPIO 输出。 |
 | 长期记忆产品化 | 部分实现。已有 session JSONL、memory distiller、project-memory API 和 non-secret 过滤。 | 明确 Web 会话与 `~/walnut-memory/` 的共享策略，决定哪些事实跨会话持久化。 |
 
 ### 1. Web / LVGL 真实像素一致性
 
-当前 `pixelEvidence` 是 metadata-only。它记录 framebuffer 原始帧 hash、sample hash、nonzero ratio、尺寸、格式和字节数。Web 诊断层新增了 `walnutpi.webDevicePixelDiff.v1`，用同一个 manifest 生成 480x320 语义预览 canvas，再和设备 PNG 比较像素，并把结果写回本地同步记录。
+当前 `pixelEvidence` 是 metadata-only。它记录 framebuffer 原始帧 hash、sample hash、nonzero ratio、尺寸、格式和字节数。Web 诊断层已经升级到 `walnutpi.webDevicePixelDiff.v2`，用同一个 manifest 生成固定 480x320 的实际 Web 预览 DOM 快照，再和设备 PNG 比较像素，并把结果写回本地同步记录。
 
-也就是说，现在已经能证明“设备有一帧符合目标屏幕结构的真实画面”，并能在开发者诊断里看到“当前 Web 语义预览和设备 PNG 的像素差异”。但它还不能证明真实 LVGL headless 预览和核桃派屏幕像素一致。
+也就是说，现在已经能证明“设备有一帧符合目标屏幕结构的真实画面”，并能在开发者诊断里看到“当前 Web DOM 语义预览和设备 PNG 的像素差异”。但它还不能证明真实 LVGL headless 预览和核桃派屏幕像素一致。
 
-后续更强一致性仍要二选一推进：
-
-- 做真实 LVGL headless preview，并把它作为 Web 预览来源。
-- 或继续保留 vanilla DOM 语义预览，把当前 canvas diff 升级成真实 DOM screenshot -> LVGL framebuffer PNG 的像素级 diff。
+后续更强一致性仍需要做真实 LVGL headless preview，并把它作为 Web 预览来源；当前 DOM diff 只作为诊断和排障线索。
 
 ### 2. 预览仍是语义近似，不是真实 LVGL 渲染
 
@@ -431,17 +428,17 @@ vtcon1 bind                        0
 
 ### 4. manifest 表达能力仍很窄
 
-当前 `scripts/generate-lvgl-screen-config.py` / `.js` 要求固定 480x320、RGB565、固定四页 `home` / `system` / `ai` / `network`，并生成 `lvgl_app/generated/screen_config.h`。home 页已经支持最小状态语义 `tone: ok | warn | error` 和 `progress: 0-100`，Web 预览、diagnostic canvas 和 LVGL UI 使用同一语义。
+当前 `scripts/generate-lvgl-screen-config.py` / `.js` 要求固定 480x320、RGB565、固定四页 `home` / `system` / `ai` / `network`，并生成 `lvgl_app/generated/screen_config.h`。home 页已经支持最小状态语义 `tone: ok | warn | error` 和 `progress: 0-100`，Web 预览、diagnostic DOM snapshot 和 LVGL UI 使用同一语义。
 
-这适合第一版状态页和任务页，但还不是通用 screen manifest。后续扩展 manifest 时，应优先增加小白能理解的组件 vocabulary，例如状态卡、文本页、指标组、列表、进度、告警，而不是直接暴露任意 C/LVGL 代码编辑。
+这适合第一版状态页和任务页，但还不是通用 screen manifest。下一步组件 vocabulary 已在 `docs/superpowers/specs/2026-06-11-screen-manifest-vocabulary.md` 里收敛为 `statusCard`、`metricGroup`、`list`、`progress`、`alert`、`textPage` 六类，并明确自然语言只允许编辑标题、标签、状态、指标、列表、进度和告警等内容字段，不允许编辑 page id、target、runtime、build、delivery、SSH、sudo 或任意 C/LVGL 代码。后续实现应先让 generator 归一化这些组件，再分别更新 Web preview 和 `lvgl_app/src/main.c`。
 
 ### 5. 修复提案不是通用自动修复
 
-当前 `repairProposal` 只在安全条件满足时生成本地 manifest 写回补丁。`repairApply` 必须输入精确确认短语，且只写本地 manifest，不会 SSH、构建、激活、抓图或重新同步。
+当前 `repairProposal` 只在安全条件满足时生成本地 manifest 写回补丁。`repairApply` 必须输入精确确认短语，且只写本地 manifest；应用成功后 Web 会重新读取 `/api/screen/manifest` 并刷新预览，但不会 SSH、构建、激活、抓图或重新同步。
 
 build 失败、C 编译错误、服务激活失败、framebuffer 权限、画面 mismatch 等仍然是候选建议和人工排障，不是自动修复。
 
-下一步应该补的是半自动闭环：
+当前半自动闭环是：
 
 ```text
 应用本地修复
@@ -459,11 +456,16 @@ build 失败、C 编译错误、服务激活失败、framebuffer 权限、画面
 
 后续新增交付方式时，应作为新的 adapter 增加，继续复用上层 manifest、artifact evidence、delivery manifest、risk 和 screen evidence，不要把新交付逻辑塞回 Web route。
 
-### 7. 自动化回归仍不足
+### 7. 自动化回归已有轻量覆盖
 
-当前主要回归证据来自 `scripts/collect-screen-sync-evidence.ps1` 和本地 / 真机同步记录。屏幕同步链路还没有成体系的可读自动化测试源码覆盖。
+当前新增了 `scripts/test-screen-api-safety.ps1`，用于本地启动临时 Web API server，并使用临时 manifest / 临时同步记录目录验证以下安全门：
 
-本轮文档更新不新增测试代码。后续如果要补回归，优先围绕现有脚本和 API 行为设计，不要为了测试引入大 fixtures、snapshots 或测试专用实现。
+- stale、missing、malformed `manifestHash` 在 SSH / build 前被拒绝。
+- `?nossh` 会阻止 sync、terminal、remote action 和 frame capture 进入设备路径。
+- 同步记录摘要能保留 artifact hash、delivery hash、frame evidence、pixel evidence 和 pixel diff 字段。
+- repair proposal / apply 必须读取本地记录，且 apply 缺少或错误确认短语会失败。
+
+真机闭环仍由 `scripts/collect-screen-sync-evidence.ps1` 保留。后续如果继续补回归，应优先围绕现有 API 行为和脚本扩展，不要为了测试引入大 fixtures、snapshots 或测试专用实现。
 
 ## 真机排障证据采集
 
