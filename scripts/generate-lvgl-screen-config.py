@@ -10,6 +10,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = ROOT_DIR / "lvgl_app" / "screen-manifest.json"
 OUTPUT_PATH = ROOT_DIR / "lvgl_app" / "generated" / "screen_config.h"
 PAGE_IDS = ["home", "system", "ai", "network"]
+TONES = {"ok", "warn", "error"}
 
 
 def fail(message: str) -> None:
@@ -38,6 +39,33 @@ def clean_list(values: object, field: str, max_items: int, limit: int) -> list[s
     if len(items) == 0 or len(items) > max_items:
         fail(f"{field} must contain 1-{max_items} items")
     return items
+
+
+def clean_tone(value: object, field: str) -> str:
+    tone = str(value or "ok").strip().lower()
+    if tone not in TONES:
+        fail(f"{field} must be ok, warn, or error")
+    return tone
+
+
+def clean_progress(value: object, field: str) -> int:
+    if value in (None, ""):
+        return 72
+    try:
+        progress = int(value)
+    except (TypeError, ValueError):
+        fail(f"{field} must be between 0 and 100")
+    if progress < 0 or progress > 100:
+        fail(f"{field} must be between 0 and 100")
+    return progress
+
+
+def tone_color(tone: str) -> str:
+    return {
+        "ok": "C_GREEN",
+        "warn": "C_AMBER",
+        "error": "C_RED",
+    }[tone]
 
 
 def validate_manifest(manifest: object) -> dict:
@@ -76,6 +104,8 @@ def normalize(manifest: dict) -> dict:
         "title": clean_text(manifest.get("title", "WalnutPi"), "title", 32),
         "subtitle": clean_text(manifest.get("subtitle", "server screen"), "subtitle", 40),
         "homeStatus": clean_text(pages[0].get("status", "OK CORE"), "pages[0].status", 24),
+        "homeTone": clean_tone(pages[0].get("tone", "ok"), "pages[0].tone"),
+        "homeProgress": clean_progress(pages[0].get("progress", 72), "pages[0].progress"),
         "tabs": [
             clean_text(page.get("tab", PAGE_IDS[index].upper()), f"pages[{index}].tab", 8)
             for index, page in enumerate(pages)
@@ -114,6 +144,9 @@ def render_header(config: dict) -> str:
 #define WALNUT_SCREEN_TAB_NETWORK {c_string(config["tabs"][3])}
 
 #define WALNUT_SCREEN_HOME_STATUS {c_string(config["homeStatus"])}
+#define WALNUT_SCREEN_HOME_TONE {c_string(config["homeTone"])}
+#define WALNUT_SCREEN_HOME_TONE_COLOR {tone_color(config["homeTone"])}
+#define WALNUT_SCREEN_HOME_PROGRESS {config["homeProgress"]}
 #define WALNUT_SCREEN_HOME_METRIC_1 {c_string(config["metrics"][0])}
 #define WALNUT_SCREEN_HOME_METRIC_2 {c_string(config["metrics"][1])}
 #define WALNUT_SCREEN_HOME_METRIC_3 {c_string(config["metrics"][2])}

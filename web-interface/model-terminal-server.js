@@ -478,7 +478,8 @@ function buildScreenRepairProposal(record) {
   }
 
   if (repairCandidate.stage === "manifest" && record.manifest) {
-    const manifestText = `${JSON.stringify(record.manifest, null, 2)}\n`;
+    const manifest = normalizeScreenManifest(record.manifest);
+    const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
     return {
       ...base,
       summary: "可以把这条记录中的 screen manifest 写回本地 manifest 文件，然后重新预览并手动同步。",
@@ -670,6 +671,8 @@ function screenRecordSummary(record) {
     pixelEvidenceStatus: record.screenEvidence?.pixelEvidence?.status || null,
     pixelEvidenceClaim: record.screenEvidence?.pixelEvidence?.claim || null,
     pixelSampleHash: record.screenEvidence?.pixelEvidence?.sampleHash || null,
+    webDevicePixelDiffStatus: record.webDevicePixelDiff?.status || null,
+    webDevicePixelDiffRatio: record.webDevicePixelDiff?.diffRatio ?? null,
     previewSignatureHash: record.screenEvidence?.semantic?.previewSignatureHash || null,
     deviceSignatureHash: record.screenEvidence?.semantic?.deviceSignatureHash || null,
     hasFramePng: Boolean(record.framePng),
@@ -710,6 +713,7 @@ function buildScreenRecord(result, commandResults = {}) {
     ),
     output: limitedOutput(String(result.output || ""), ACTION_OUTPUT_LIMIT),
     framePng: null,
+    webDevicePixelDiff: null,
   };
   record.repairHint = record.ok ? null : buildScreenRepairHint(record);
   return record;
@@ -924,6 +928,7 @@ function screenDeliveryAdapter(id = "ssh-local-agent") {
 const SCREEN_PAGE_IDS = ["home", "system", "ai", "network"];
 const SCREEN_TEXT_LIMIT = 48;
 const SCREEN_LINE_LIMIT = 72;
+const SCREEN_TONES = new Set(["ok", "warn", "error"]);
 
 const SCREEN_TEMPLATES = [
   {
@@ -971,6 +976,21 @@ const SCREEN_TEMPLATES = [
       ],
     },
   },
+  {
+    id: "health-alert",
+    label: "健康告警",
+    summary: "突出告警状态、风险指标和需要检查的项目。",
+    manifest: {
+      title: "WalnutAlert",
+      subtitle: "health watch",
+      pages: [
+        { id: "home", tab: "ALRT", status: "WARN", tone: "warn", progress: 62, metrics: ["CPU watch", "MEM high", "Disk ok"] },
+        { id: "system", tab: "SYS", title: "System Alerts", lines: ["CPU load watch", "Memory high", "Disk ok", "Check uptime"] },
+        { id: "ai", tab: "AI", title: "AI Assist", lines: ["Collect evidence", "Explain risk", "No auto repair", "Ask before writes"] },
+        { id: "network", tab: "NET", title: "Network Risk", lines: ["LAN reachable", "SSH guarded", "FRP check", "No public shell"] },
+      ],
+    },
+  },
 ];
 
 function rejectControlText(value, field) {
@@ -998,6 +1018,28 @@ function cleanTextList(values, field, maxItems, limit = SCREEN_LINE_LIMIT) {
   return items;
 }
 
+function cleanTone(value, field) {
+  const tone = String(value || "ok").trim().toLowerCase();
+  if (!SCREEN_TONES.has(tone)) throw new Error(`${field} must be ok, warn, or error`);
+  return tone;
+}
+
+function cleanProgress(value, field) {
+  if (value === undefined || value === null || value === "") return 72;
+  const progress = Number(value);
+  if (!Number.isFinite(progress) || progress < 0 || progress > 100) {
+    throw new Error(`${field} must be between 0 and 100`);
+  }
+  return Math.round(progress);
+}
+
+function toneFromText(value) {
+  const text = String(value || "");
+  if (/错误|失败|异常|危险|离线|error|fail|failed|down|offline|critical/i.test(text)) return "error";
+  if (/告警|警告|注意|偏高|等待|warn|warning|pending|busy|degraded/i.test(text)) return "warn";
+  return "ok";
+}
+
 function ensureFourScreenPages(manifest) {
   if (!Array.isArray(manifest.pages) || manifest.pages.length !== SCREEN_PAGE_IDS.length) {
     throw new Error(`screen manifest pages must contain exactly ${SCREEN_PAGE_IDS.length} pages`);
@@ -1020,6 +1062,8 @@ function normalizeScreenManifest(manifest) {
     };
     if (index === 0) {
       next.status = cleanText(page.status || "OK CORE", "pages[0].status", 24);
+      next.tone = cleanTone(page.tone || toneFromText(next.status), "pages[0].tone");
+      next.progress = cleanProgress(page.progress, "pages[0].progress");
       next.metrics = cleanTextList(page.metrics || ["IP loading", "MEM --", "DISK --"], "pages[0].metrics", 3, 24);
     } else {
       next.title = cleanText(page.title || next.tab, `pages[${index}].title`, 32);
@@ -1183,8 +1227,41 @@ function parseScreenIntent(text, currentManifest) {
   match = input.match(/(?:状态|核心状态)\s*(?:改成|改为|写成|写|是|:|：)\s*(.+)$/);
   if (match) {
     const pages = currentManifest.pages.map((page) => ({ id: page.id }));
-    pages[0] = { id: "home", status: match[1].trim() };
+    const status = match[1].trim();
+    pages[0] = { id: "home", status, tone: toneFromText(status) };
     return { pages };
+  }
+
+  match = input.match(/(?:进度|完成度)\s*(?:改成|改为|写成|是|:|：)?\s*(\d{1,3})\s*%?$/);
+  if (match) {
+    const pages = currentManifest.pages.map((page) => ({ id: page.id }));
+    pages[0] = { id: "home", progress: Number(match[1]) };
+    return { pages };
+  }
+
+  match = input.match(/(?:状态色|语义|告警级别|等级)\s*(?:改成|改为|写成|是|:|：)?\s*(正常|健康|ok|OK|告警|警告|warn|warning|错误|失败|error|ERROR)$/);
+  if (match) {
+    const raw = match[1];
+    const tone = /错误|失败|error/i.test(raw) ? "error" : /告警|警告|warn|warning/i.test(raw) ? "warn" : "ok";
+    const pages = currentManifest.pages.map((page) => ({ id: page.id }));
+    pages[0] = { id: "home", tone };
+    return { pages };
+  }
+
+  if (/告警|警告|异常|风险|错误|失败|报警|warn|error/i.test(input)) {
+    return SCREEN_TEMPLATES.find((template) => template.id === "health-alert")?.manifest || null;
+  }
+
+  if (/网络|联网|IP|ip|ssh|frp/i.test(input)) {
+    return SCREEN_TEMPLATES.find((template) => template.id === "network-panel")?.manifest || null;
+  }
+
+  if (/AI|ai|任务|助手|agent/i.test(input)) {
+    return SCREEN_TEMPLATES.find((template) => template.id === "ai-task-board")?.manifest || null;
+  }
+
+  if (/系统|状态|健康|内存|磁盘/.test(input)) {
+    return SCREEN_TEMPLATES.find((template) => template.id === "device-status")?.manifest || null;
   }
 
   match = input.match(/(?:指标|显示)\s*(?:改成|改为|写成|写|:|：)?\s*(.+)$/);
@@ -1205,18 +1282,6 @@ function parseScreenIntent(text, currentManifest) {
 
   match = input.match(/(?:网络页|网络)\s*(?:写|显示|:|：)\s*(.+)$/);
   if (match) return linePagePatch(3, "Network", splitIntentItems(match[1]), "NET");
-
-  if (/网络|联网|IP|ip|ssh|frp/i.test(input)) {
-    return SCREEN_TEMPLATES.find((template) => template.id === "network-panel")?.manifest || null;
-  }
-
-  if (/AI|ai|任务|助手|agent/i.test(input)) {
-    return SCREEN_TEMPLATES.find((template) => template.id === "ai-task-board")?.manifest || null;
-  }
-
-  if (/系统|状态|健康|内存|磁盘/.test(input)) {
-    return SCREEN_TEMPLATES.find((template) => template.id === "device-status")?.manifest || null;
-  }
 
   return null;
 }
@@ -1481,6 +1546,116 @@ async function handleScreenRecordList() {
   });
 }
 
+function cleanPixelDiffHash(value, field) {
+  const text = String(value || "").trim();
+  if (!/^[a-f0-9]{8}$/i.test(text) && !validSha256(text)) {
+    throw new Error(`${field} must be an 8-char FNV hash or SHA-256 hex`);
+  }
+  return text.toLowerCase();
+}
+
+function cleanPixelDiffNumber(value, field, min, max, digits = 6) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < min || number > max) {
+    throw new Error(`${field} must be between ${min} and ${max}`);
+  }
+  return Number(number.toFixed(digits));
+}
+
+function cleanPixelDiffInteger(value, field, min, max) {
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${field} must be an integer between ${min} and ${max}`);
+  }
+  return value;
+}
+
+function normalizeWebDevicePixelDiff(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("webDevicePixelDiff must be an object");
+  }
+  if (value.schema !== "walnutpi.webDevicePixelDiff.v1") {
+    throw new Error("webDevicePixelDiff schema must be walnutpi.webDevicePixelDiff.v1");
+  }
+  const status = String(value.status || "").trim();
+  if (!["matched", "different", "unavailable"].includes(status)) {
+    throw new Error("webDevicePixelDiff status is invalid");
+  }
+  const limitations = Array.isArray(value.limitations)
+    ? value.limitations.map((item) => String(item || "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 4)
+    : [];
+  const manifestHash = value.manifestHash ? String(value.manifestHash).trim() : null;
+  if (manifestHash && !validSha256(manifestHash)) {
+    throw new Error("manifestHash must be SHA-256 hex");
+  }
+  return {
+    schema: "walnutpi.webDevicePixelDiff.v1",
+    status,
+    claim: String(value.claim || "web-semantic-preview-compared-to-device-png").slice(0, 120),
+    manifestHash,
+    frameUrl: value.frameUrl ? String(value.frameUrl).slice(0, 240) : null,
+    previewHash: cleanPixelDiffHash(value.previewHash, "previewHash"),
+    devicePngHash: cleanPixelDiffHash(value.devicePngHash, "devicePngHash"),
+    width: cleanPixelDiffInteger(value.width, "width", 1, 4096),
+    height: cleanPixelDiffInteger(value.height, "height", 1, 4096),
+    threshold: cleanPixelDiffNumber(value.threshold, "threshold", 0, 1),
+    differentPixels: cleanPixelDiffInteger(value.differentPixels, "differentPixels", 0, 4096 * 4096),
+    diffRatio: cleanPixelDiffNumber(value.diffRatio, "diffRatio", 0, 1),
+    averageChannelDelta: cleanPixelDiffNumber(value.averageChannelDelta, "averageChannelDelta", 0, 255, 3),
+    limitations,
+    capturedAt: new Date().toISOString(),
+  };
+}
+
+async function handleScreenPixelDiff(req) {
+  let body;
+  try {
+    body = await readJsonRequest(req);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 400);
+  }
+
+  const buildId = String(body.buildId || "").trim();
+  const safeBuildId = safeRecordId(buildId);
+  if (!safeBuildId) {
+    return json({ ok: false, error: "invalid buildId", summary: "缺少有效的同步记录。" }, 400);
+  }
+
+  let webDevicePixelDiff;
+  try {
+    webDevicePixelDiff = normalizeWebDevicePixelDiff(body.webDevicePixelDiff);
+  } catch (error) {
+    return json({ ok: false, error: error.message, summary: "Web/device pixel diff 格式无效。" }, 400);
+  }
+
+  const existingRecord = await readScreenRecord(safeBuildId);
+  if (!existingRecord) {
+    return json({ ok: false, error: "screen record not found", summary: "找不到这次同步记录。" }, 404);
+  }
+  if (
+    webDevicePixelDiff.manifestHash
+    && existingRecord.manifestHash
+    && webDevicePixelDiff.manifestHash !== existingRecord.manifestHash
+  ) {
+    return json({
+      ok: false,
+      error: "stale pixel diff manifestHash",
+      summary: "Web/device pixel diff 对应的 manifest 和同步记录不一致，请重新打开设备截图。",
+      manifestHash: existingRecord.manifestHash,
+    }, 409);
+  }
+
+  const record = await updateScreenRecord(safeBuildId, (nextRecord) => {
+    nextRecord.webDevicePixelDiff = webDevicePixelDiff;
+    return nextRecord;
+  });
+
+  return json({
+    ok: true,
+    buildId: safeBuildId,
+    webDevicePixelDiff: record.webDevicePixelDiff,
+  });
+}
+
 async function handleScreenRepairPlan(req) {
   let body;
   try {
@@ -1625,8 +1800,8 @@ async function handleScreenRepairApply(req) {
     return json({ ok: false, error: "unsupported repair patch", summary: "修复补丁类型不受支持。" }, 400);
   }
 
-  validateScreenManifest(record.manifest);
-  const manifestText = `${JSON.stringify(record.manifest, null, 2)}\n`;
+  const manifest = normalizeScreenManifest(record.manifest);
+  const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
   if (!(targetPath === projectRoot || targetPath.startsWith(`${projectRoot}${path.sep}`))) {
     return json({ ok: false, error: "repair target is outside project root", summary: "修复目标不在当前项目内。" }, 400);
   }
@@ -1641,6 +1816,7 @@ async function handleScreenRepairApply(req) {
     buildId: safeBuildId,
     summary: "已应用本地 screen manifest 修复。请先预览确认，再手动同步到核桃派。",
     manifestHash: envelope.manifestHash,
+    manifest: envelope.manifest,
     repairProposal: proposal,
   });
 }
@@ -1726,7 +1902,7 @@ async function screenManifestEnvelope() {
   } catch (error) {
     throw new Error(`failed to read screen manifest ${SCREEN_MANIFEST_PATH}: ${error.message}`);
   }
-  validateScreenManifest(manifest);
+  manifest = normalizeScreenManifest(manifest);
   const serializedManifest = stableStringify(manifest);
   return {
     manifest,
@@ -2193,6 +2369,11 @@ const server = Bun.serve({
     if (url.pathname === "/api/screen/ai-summary") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       return handleScreenAiSummary(req);
+    }
+
+    if (url.pathname === "/api/screen/pixel-diff") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleScreenPixelDiff(req);
     }
 
     if (url.pathname === "/api/screen/records") {

@@ -108,13 +108,17 @@ The first delivery adapter is deliberately narrow:
 - activation: `sudo -n walnut screen start`
 - evidence: `walnut screen state` and `sudo -n walnut screen frame`
 - diagnostics image: `GET /api/screen/frame/<buildId>` calls read-only `walnut screen capture --png-base64` on demand; dynamic LVGL frames are allowed, and response headers include both current and sync-time raw frame hashes
+- diagnostics diff: opening developer diagnostics compares a browser-rendered 480x320 semantic preview canvas with the loaded device PNG and reports `walnutpi.webDevicePixelDiff.v1`; this is diagnostic-only, appears in sync history as a small diff badge, and is not LVGL headless rendering
 - sync history: `GET /api/screen/records` and `GET /api/screen/records/<buildId>` read local developer diagnostics records; cached `frame.png` is served from `GET /api/screen/records/<buildId>/frame.png` without reconnecting to the device
 - repair candidate: `POST /api/screen/repair-candidate` reads a stored local sync record and returns a structured `repairCandidate`; it does not run SSH, build, activation, capture, file writes, or automatic retry
 - repair proposal: `POST /api/screen/repair-proposal` reads a stored local sync record and returns a confirmation-gated local patch proposal; `POST /api/screen/repair-apply` requires the exact confirmation phrase and never auto-syncs after writing
 - AI summary: `POST /api/screen/ai-summary` reads a stored local sync record and returns an evidence-limited Chinese summary. It uses a local deterministic fallback by default and can call an OpenAI-compatible `/responses` endpoint when `OPENAI_API_KEY` is configured; it does not run SSH, build, activation, capture, file writes, or automatic retry
+- pixel diff record: `POST /api/screen/pixel-diff` stores the browser-computed `walnutpi.webDevicePixelDiff.v1` object into a local sync record when its manifest hash matches the record; it does not connect to WalnutPi, capture a frame, or change sync status
 
 Beginner UI only shows `未同步`, `同步中`, `已同步到核桃派`, or `同步失败`.
-`buildId`, screen manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, metadata-only pixel evidence, `visualMatch` / `visualChecks`, history, repair hints, repair candidates, repair proposals, AI-summary evidence, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.
+`buildId`, screen manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, metadata-only pixel evidence, diagnostic Web/device pixel diff, `visualMatch` / `visualChecks`, history, repair hints, repair candidates, repair proposals, AI-summary evidence, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.
+
+The manifest home page supports a small beginner-safe status vocabulary: `tone` (`ok`, `warn`, `error`) and `progress` (`0-100`). Web preview, diagnostic canvas preview, generated LVGL config, and LVGL runtime colors all consume those fields.
 
 Sync records are saved under `web-interface/screen-sync-records/` by default and are ignored by Git. Each record includes `record.json` and `summary.json`; opening the on-demand device frame caches `frame.png` into the same record. `WALNUT_SCREEN_RECORD_LIMIT` controls retention, defaulting to 50 records, and `WALNUT_SCREEN_RECORDS_DIR` can point records outside the repo.
 

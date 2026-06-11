@@ -19,6 +19,8 @@
       "id": "home",
       "tab": "HOME",
       "status": "OK CORE",
+      "tone": "ok",
+      "progress": 72,
       "metrics": ["IP loading", "MEM --", "DISK --"]
     },
     {

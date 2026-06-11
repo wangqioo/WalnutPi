@@ -8,6 +8,7 @@ const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
 const MANIFEST_PATH = path.join(ROOT_DIR, "lvgl_app", "screen-manifest.json");
 const OUTPUT_PATH = path.join(ROOT_DIR, "lvgl_app", "generated", "screen_config.h");
 const PAGE_IDS = ["home", "system", "ai", "network"];
+const TONES = new Set(["ok", "warn", "error"]);
 
 function fail(message) {
   throw new Error(message);
@@ -34,6 +35,27 @@ function cleanList(values, field, maxItems, limit) {
   return items;
 }
 
+function cleanTone(value, field) {
+  const tone = String(value || "ok").trim().toLowerCase();
+  if (!TONES.has(tone)) fail(`${field} must be ok, warn, or error`);
+  return tone;
+}
+
+function cleanProgress(value, field) {
+  if (value === undefined || value === null || value === "") return 72;
+  const progress = Number(value);
+  if (!Number.isFinite(progress) || progress < 0 || progress > 100) fail(`${field} must be between 0 and 100`);
+  return Math.round(progress);
+}
+
+function toneColor(tone) {
+  return {
+    ok: "C_GREEN",
+    warn: "C_AMBER",
+    error: "C_RED",
+  }[tone];
+}
+
 function validateManifest(manifest) {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) fail("screen manifest must be an object");
   if (manifest.schema !== "walnutpi.screen.v1") fail("screen manifest schema must be walnutpi.screen.v1");
@@ -55,6 +77,8 @@ function normalize(manifest) {
     title: cleanText(manifest.title || "WalnutPi", "title", 32),
     subtitle: cleanText(manifest.subtitle || "server screen", "subtitle", 40),
     homeStatus: cleanText(manifest.pages[0].status || "OK CORE", "pages[0].status", 24),
+    homeTone: cleanTone(manifest.pages[0].tone || "ok", "pages[0].tone"),
+    homeProgress: cleanProgress(manifest.pages[0].progress ?? 72, "pages[0].progress"),
     tabs: manifest.pages.map((page, index) => cleanText(page.tab || PAGE_IDS[index].toUpperCase(), `pages[${index}].tab`, 8)),
     metrics: cleanList(manifest.pages[0].metrics || ["IP loading", "MEM --", "DISK --"], "pages[0].metrics", 3, 24),
     textPages: manifest.pages.slice(1).map((page, index) => ({
@@ -89,6 +113,9 @@ function renderHeader(config) {
 #define WALNUT_SCREEN_TAB_NETWORK ${cString(config.tabs[3])}
 
 #define WALNUT_SCREEN_HOME_STATUS ${cString(config.homeStatus)}
+#define WALNUT_SCREEN_HOME_TONE ${cString(config.homeTone)}
+#define WALNUT_SCREEN_HOME_TONE_COLOR ${toneColor(config.homeTone)}
+#define WALNUT_SCREEN_HOME_PROGRESS ${config.homeProgress}
 #define WALNUT_SCREEN_HOME_METRIC_1 ${cString(config.metrics[0])}
 #define WALNUT_SCREEN_HOME_METRIC_2 ${cString(config.metrics[1])}
 #define WALNUT_SCREEN_HOME_METRIC_3 ${cString(config.metrics[2])}

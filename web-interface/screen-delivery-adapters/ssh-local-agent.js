@@ -277,6 +277,8 @@ function screenPreviewSignature(manifest) {
       tab: page.tab || "",
       title: page.title || "",
       status: page.status || "",
+      tone: page.tone || "",
+      progress: Number.isFinite(Number(page.progress)) ? Number(page.progress) : null,
       metrics: Array.isArray(page.metrics) ? page.metrics : [],
       lines: Array.isArray(page.lines) ? page.lines : [],
     })),

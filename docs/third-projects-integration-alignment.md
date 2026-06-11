@@ -200,7 +200,7 @@ Web 外部端先看到的界面
 - `unknown`：没有可用的 frame 回证。
 - `mismatch`：frame 存在，但结构性检查显示目标屏幕约束不一致。
 
-`visualChecks` 记录 manifest hash、artifact hash、preview signature hash、device signature hash、frame captured、尺寸、像素格式、字节数和非空等检查。`screenEvidence.semantic` 保留 manifest 可见字段形成的 preview signature，以及 manifest / artifact / frame metadata 形成的 device signature，供开发者诊断对齐。PNG 画面通过 `frameUrl` 指向 `/api/screen/frame/<buildId>`，只在开发者诊断展开时按需抓取，不进入默认同步 JSON。由于 LVGL 页面可能持续动画，按需 PNG 允许是后续动态帧；响应头保留当前 raw frame hash 和同步时 raw frame hash。
+`visualChecks` 记录 manifest hash、artifact hash、preview signature hash、device signature hash、frame captured、尺寸、像素格式、字节数和非空等检查。`screenEvidence.semantic` 保留 manifest 可见字段形成的 preview signature，以及 manifest / artifact / frame metadata 形成的 device signature，供开发者诊断对齐。PNG 画面通过 `frameUrl` 指向 `/api/screen/frame/<buildId>`，只在开发者诊断展开时按需抓取，不进入默认同步 JSON。由于 LVGL 页面可能持续动画，按需 PNG 允许是后续动态帧；响应头保留当前 raw frame hash 和同步时 raw frame hash。当前 Web 诊断层还会用同一个 manifest 画一张 480x320 语义预览 canvas，并与已加载的设备 PNG 做浏览器本地像素 diff；这个结果是 `walnutpi.webDevicePixelDiff.v1` 诊断，会通过 `POST /api/screen/pixel-diff` 写回本地同步记录，但不改变 `visualMatch` 或同步成功判定。
 
 允许延迟，但不接受长期分叉。也就是说，实时性可以让步，一致性不能让步。
 
@@ -367,9 +367,82 @@ vtcon1 bind                        0
 
 这比先做完整项目编辑器或完整代码生成更简单，但保留了 VibeBoard 的关键链路：artifact、manifest、delivery adapter、device evidence。后续 USB、eMMC、系统镜像或其他交付方式应作为新的 adapter 增加，而不是塞回 Web route。
 
-当前阶段已经把等价 screen frame 回证升级为结构性画面回证、语义签名回证和 metadata-only pixel evidence：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查、sample hash、nonzero ratio、preview/device signature hash 和按需 PNG 截图。后续如果要做更强一致性，可以继续加入 Web 预览与 LVGL framebuffer 的真实像素级 diff；当前 pixel evidence 不宣称已经 diff Web/LVGL 像素。
+当前阶段已经把等价 screen frame 回证升级为结构性画面回证、语义签名回证、metadata-only pixel evidence 和诊断级 Web/device pixel diff：Web 不只知道服务是 active，还能记录真实 framebuffer 原始帧的尺寸、字节数、SHA-256、非空检查、sample hash、nonzero ratio、preview/device signature hash、按需 PNG 截图，以及浏览器语义预览 canvas 与设备 PNG 的 diff ratio。当前 pixel diff 会进入本地同步记录，并在同步历史里显示一个小型 diff badge，方便历史诊断复查；它仍不宣称已经完成真实 LVGL headless preview，也不改变同步判定。
 
 当前修复循环已经到第三层：第一层是 `repairHint` 的失败归因和修复建议，第二层是只读 `repairCandidate` 的结构化候选方案，第三层是确认门控的 `repairProposal` / `repairApply`。它可以在有安全本地补丁时要求用户输入精确确认短语后应用，但仍然不自动 SSH、不自动重启服务、不自动重新同步。后续如果要做完整自动修复，应继续补“应用修改 -> 用户确认重新同步 -> 记录回证”的闭环。
+
+## 代码核对后的实际剩余项
+
+按当前代码核对，第一切片不是停在设计文档层面，而是已经有可运行实现：
+
+- `web-interface/model-terminal-server.js` 已提供 `GET /api/screen/manifest`、`POST /api/screen/sync`、模板更新、规则式意图更新、同步记录、修复候选 / 提案 / 应用和 AI 总结接口。
+- `web-interface/screen-delivery-adapters/ssh-local-agent.js` 已承担第一版 delivery adapter，负责远端构建、artifact hash、激活、screen state、framebuffer frame、delivery manifest / hash 和 evidence 分类。
+- `web-interface/model-terminal.html` 已提供 Web 端语义预览、模板按钮、自然语言小改动入口、同步按钮、同步历史、开发者诊断、按需设备截图、修复提案和 AI 总结。
+- `walnut-assistant/walnut` 已保留既有 `walnut screen` 行为，并新增只读 `frame` / `capture` 证据命令。
+- `walnut-ai-terminal/walnut_ai.py` 已加载 `walnut-ai-terminal/skills/walnutpi-*.md` 和 `walnut-ai-terminal/memory/default-memory.json`，第一批核桃派上下文已经存在。
+
+所以当前剩余工作不再是“把第一闭环做出来”，而是把第一闭环从窄切片推进成可靠产品能力。
+
+### 1. Web / LVGL 真实像素一致性
+
+当前 `pixelEvidence` 是 metadata-only。它记录 framebuffer 原始帧 hash、sample hash、nonzero ratio、尺寸、格式和字节数。Web 诊断层新增了 `walnutpi.webDevicePixelDiff.v1`，用同一个 manifest 生成 480x320 语义预览 canvas，再和设备 PNG 比较像素，并把结果写回本地同步记录。
+
+也就是说，现在已经能证明“设备有一帧符合目标屏幕结构的真实画面”，并能在开发者诊断里看到“当前 Web 语义预览和设备 PNG 的像素差异”。但它还不能证明真实 LVGL headless 预览和核桃派屏幕像素一致。
+
+后续更强一致性仍要二选一推进：
+
+- 做真实 LVGL headless preview，并把它作为 Web 预览来源。
+- 或继续保留 vanilla DOM 语义预览，把当前 canvas diff 升级成真实 DOM screenshot -> LVGL framebuffer PNG 的像素级 diff。
+
+### 2. 预览仍是语义近似，不是真实 LVGL 渲染
+
+当前前端 `renderScreenManifest()` 根据 manifest 渲染 header、tabs、home 状态、tone、progress 和 metrics。它是帮助小白理解效果的语义预览，不是完整 LVGL 页面，也不渲染所有 pages 的真实布局、动画和系统动态值。
+
+这条边界需要继续在产品和诊断里说清楚：当前同步保证 Web 和设备使用同一个 manifest / artifact / evidence 链路，不保证浏览器 DOM 预览已经等价于 LVGL framebuffer。
+
+### 3. 自然语言编辑还是规则式 intent
+
+当前 `/api/screen/intent` 已经能处理标题、副标题、状态、指标、系统页、AI 页、网络页和模板切换类输入。
+
+但它不是 AI 生成 LVGL 代码，也不是通用布局生成器。它只是把有限中文规则映射回 `lvgl_app/screen-manifest.json`。
+
+后续如果要做“描述需求 -> 生成小屏程序”，需要新增受约束的生成层，并继续让 manifest hash、构建、delivery manifest 和设备回证作为安全门。
+
+### 4. manifest 表达能力仍很窄
+
+当前 `scripts/generate-lvgl-screen-config.py` / `.js` 要求固定 480x320、RGB565、固定四页 `home` / `system` / `ai` / `network`，并生成 `lvgl_app/generated/screen_config.h`。home 页已经支持最小状态语义 `tone: ok | warn | error` 和 `progress: 0-100`，Web 预览、diagnostic canvas 和 LVGL UI 使用同一语义。
+
+这适合第一版状态页和任务页，但还不是通用 screen manifest。后续扩展 manifest 时，应优先增加小白能理解的组件 vocabulary，例如状态卡、文本页、指标组、列表、进度、告警，而不是直接暴露任意 C/LVGL 代码编辑。
+
+### 5. 修复提案不是通用自动修复
+
+当前 `repairProposal` 只在安全条件满足时生成本地 manifest 写回补丁。`repairApply` 必须输入精确确认短语，且只写本地 manifest，不会 SSH、构建、激活、抓图或重新同步。
+
+build 失败、C 编译错误、服务激活失败、framebuffer 权限、画面 mismatch 等仍然是候选建议和人工排障，不是自动修复。
+
+下一步应该补的是半自动闭环：
+
+```text
+应用本地修复
+-> Web 重新读取 manifest
+-> 用户确认预览
+-> 用户手动重新同步
+-> 写入新的同步记录和设备回证
+```
+
+不要直接把 repair apply 变成自动 SSH / 自动重启 / 自动重新同步。
+
+### 6. delivery adapter 仍只有 SSH / local-agent
+
+当前 adapter registry 只有 `ssh-local-agent`。USB、eMMC、系统镜像、外部 MCU 或其他交付方式还没有实现。
+
+后续新增交付方式时，应作为新的 adapter 增加，继续复用上层 manifest、artifact evidence、delivery manifest、risk 和 screen evidence，不要把新交付逻辑塞回 Web route。
+
+### 7. 自动化回归仍不足
+
+当前主要回归证据来自 `scripts/collect-screen-sync-evidence.ps1` 和本地 / 真机同步记录。屏幕同步链路还没有成体系的可读自动化测试源码覆盖。
+
+本轮文档更新不新增测试代码。后续如果要补回归，优先围绕现有脚本和 API 行为设计，不要为了测试引入大 fixtures、snapshots 或测试专用实现。
 
 ## 真机排障证据采集
 
@@ -447,31 +520,40 @@ screenFrameUrl: /api/screen/frame/screen-20260610161956-f51fbac3
 - root 登录默认目录是 `/root`，不能用 `$HOME/projects/WalnutPi` 推断 checkout。远端项目根必须显式使用 `/home/pi/projects/WalnutPi`，或通过 `WALNUT_REMOTE_PROJECT_ROOT` / `WALNUT_PROJECT_ROOT` 指定。
 - `build/lvgl_app` 正常应保持 `pi:pi`。如果出现 root-owned `Makefile`、`walnut-lvgl-screen` 或其他构建文件，先用 root 在远端执行 `chown -R pi:pi /home/pi/projects/WalnutPi/build/lvgl_app` 修复当前状态，再确认 Web sync 使用 `WALNUT_REMOTE_BUILD_USER=pi` 构建，避免下一次 root SSH 同步再次污染 owner。
 
-## 待确认问题
+## 已确认和待确认问题
 
-1. Web 端第一版预览是先用 screen manifest / React 语义渲染，还是直接做真实 LVGL headless preview？
-2. 第一版 delivery adapter 是通过本地 agent / SSH 写入核桃派，还是要直接设计 USB / eMMC / 镜像烧录 adapter？
-3. 屏幕同步第一版用 `/dev/fb0` framebuffer 截图回传，还是让 LVGL 程序主动上报 screen state 再由外部端重绘？
-4. 记忆是否统一放在 `~/walnut-memory/`，并让 Web 会话和 WalnutAI 共享长期事实？
-5. 核桃派 skills 第一批是否只保留板型、屏幕、GPIO、Python、LVGL、系统状态这些核心内容？
-6. 右侧终端是否只作为本地开发 / 局域网工具，默认不设计公网访问？
+已经由当前代码确认的事项：
+
+1. 第一版 Web 预览采用 screen manifest / vanilla DOM 语义渲染，不是真实 LVGL headless preview。
+2. 第一版 delivery adapter 采用 SSH / local-agent，代码入口是 `web-interface/screen-delivery-adapters/ssh-local-agent.js`。
+3. 第一版屏幕回证采用 `/dev/fb0` framebuffer 元数据和按需 PNG capture，不依赖 LVGL 主动上报完整 screen state。
+4. 第一批 WalnutPi skills / memory 已放在 `walnut-ai-terminal/skills/` 和 `walnut-ai-terminal/memory/default-memory.json`，并由 WalnutAI 加载。
+5. 右侧终端当前按本地开发 / 局域网工具理解；`?nossh` 会阻止 terminal、action 和 sync 进入 SSH / 设备路径。
+
+仍待确认或继续设计的事项：
+
+1. 下一步视觉一致性路线：做真实 LVGL headless preview，还是做 Web DOM screenshot 与设备 framebuffer PNG 的像素 diff？
+2. manifest vocabulary 如何扩展，才能支持更多小屏程序，同时不变成通用 IDE 或任意 C 代码编辑器？
+3. 自然语言生成是否只生成 manifest，还是允许生成受限 LVGL 代码？如果允许，代码生成、review、构建和设备写入的安全门怎么设计？
+4. Web 会话和 WalnutAI 的长期记忆是否要统一到 `~/walnut-memory/`，以及哪些事实可以跨会话共享？
+5. 修复闭环是否只做到“应用本地修复 -> 用户确认重新同步”，还是后续允许更强的确认门控自动重试？
+6. 新 delivery adapter 的优先级是 USB、eMMC / 镜像，还是继续只强化 SSH / local-agent 体验？
 
 ## 当前推荐
 
-优先级建议如下：
+基于当前代码状态，新的优先级建议如下：
 
 ```text
-1. 先定义小白用户流：Web 端看到界面 -> 同步到核桃派 -> 设备显示一致。
-2. 再按 VibeBoard 模式定义内部 WalnutPi delivery manifest。
-3. 定义 LVGL 构建 -> 烧录 / 交付 -> 激活 -> 屏幕同步的内部最小闭环。
-4. 用核桃派回传画面保证外部端与真实屏幕最终一致。
-5. 把构建证据、烧录进度、hash、回证放进开发者诊断层。
-6. 引入最小记忆和最小核桃派 skills。
-7. 再考虑模板选择、AI 生成 LVGL 代码、真实 LVGL preview 和修复循环。
+1. 保持现有第一闭环：manifest -> build -> delivery adapter -> activation -> device evidence。
+2. 先补强视觉一致性：真实 LVGL preview 或 Web/LVGL 像素 diff 二选一。
+3. 扩展 manifest vocabulary，让小白能表达更多小屏界面，但仍不暴露通用 IDE。
+4. 把修复提案补成半自动闭环：应用本地修复 -> 预览 -> 用户手动同步 -> 新回证。
+5. 再考虑 AI 生成 manifest 或受限 LVGL 代码，并让生成结果走同一套 hash / build / evidence 安全门。
+6. 最后再增加 USB、eMMC、镜像或其他 delivery adapter。
 ```
 
-第一件需要一起确认的事：
+第一件需要一起确认的事已经变化：
 
 ```text
-第一版 Web 端“已经显示好的界面”，先用 screen manifest / React 语义渲染快速做出来，还是直接投入真实 LVGL headless preview？
+下一步要优先做真实 LVGL headless preview，还是做现有 Web 语义预览与设备 framebuffer 截图的像素级 diff？
 ```

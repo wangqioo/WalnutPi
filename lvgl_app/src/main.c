@@ -32,6 +32,14 @@ static volatile bool running = true;
 #define C_AMBER 0xffc857
 #define C_RED 0xff6b6b
 
+#ifndef WALNUT_SCREEN_HOME_TONE_COLOR
+#define WALNUT_SCREEN_HOME_TONE_COLOR C_GREEN
+#endif
+
+#ifndef WALNUT_SCREEN_HOME_PROGRESS
+#define WALNUT_SCREEN_HOME_PROGRESS 72
+#endif
+
 typedef struct {
     lv_obj_t * mem_label;
     lv_obj_t * disk_label;
@@ -250,9 +258,6 @@ static void update_demo_status_values(demo_status_ui_t * ui)
         lv_label_set_text(ui->ip_label, WALNUT_SCREEN_HOME_METRIC_1);
     }
 
-    if(mem >= 0) {
-        lv_arc_set_value(ui->arc, mem);
-    }
 }
 
 static void update_demo_status(lv_timer_t * timer)
@@ -414,6 +419,13 @@ static void animate_arc_value(lv_obj_t * arc, int32_t start, int32_t end, uint32
     lv_anim_set_path_cb(&a, lv_anim_path_custom_bezier3);
     LV_ANIM_SET_EASE_IN_OUT_SINE(&a);
     lv_anim_start(&a);
+}
+
+static int clamp_percent(int value)
+{
+    if(value < 0) return 0;
+    if(value > 100) return 100;
+    return value;
 }
 
 static void animate_obj_y(lv_obj_t * obj, int32_t from, int32_t to, uint32_t delay)
@@ -719,23 +731,24 @@ static void build_demo_ui(void)
     lv_obj_set_size(arc, 168, 168);
     lv_obj_align(arc, LV_ALIGN_LEFT_MID, 24, 8);
     lv_arc_set_range(arc, 0, 100);
-    lv_arc_set_value(arc, 72);
+    int progress = clamp_percent(WALNUT_SCREEN_HOME_PROGRESS);
+    lv_arc_set_value(arc, progress);
     lv_arc_set_bg_angles(arc, 0, 360);
     lv_arc_set_angles(arc, 18, 286);
     lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
     lv_obj_set_style_arc_width(arc, 8, LV_PART_MAIN);
     lv_obj_set_style_arc_width(arc, 10, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(arc, lv_color_hex(C_PANEL_2), LV_PART_MAIN);
-    lv_obj_set_style_arc_color(arc, lv_color_hex(C_GREEN), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(WALNUT_SCREEN_HOME_TONE_COLOR), LV_PART_INDICATOR);
     animate_arc_rotation(arc);
-    animate_arc_value(arc, 46, 92, 1500);
+    animate_arc_value(arc, clamp_percent(progress - 18), clamp_percent(progress + 18), 1500);
     ui.status.arc = arc;
 
     lv_obj_t * core = lv_obj_create(ui.pages[0]);
     lv_obj_set_size(core, 96, 96);
     lv_obj_set_style_radius(core, 48, 0);
     lv_obj_set_style_bg_color(core, lv_color_hex(C_PANEL_2), 0);
-    lv_obj_set_style_border_color(core, lv_color_hex(C_CYAN), 0);
+    lv_obj_set_style_border_color(core, lv_color_hex(WALNUT_SCREEN_HOME_TONE_COLOR), 0);
     lv_obj_set_style_border_width(core, 2, 0);
     lv_obj_align_to(core, arc, LV_ALIGN_CENTER, 0, 0);
     animate_pulse(core, 0);
@@ -747,7 +760,7 @@ static void build_demo_ui(void)
     lv_obj_set_style_text_font(core_text, &lv_font_montserrat_18, 0);
     lv_obj_center(core_text);
 
-    demo_metric(ui.pages[0], 82, WALNUT_SCREEN_HOME_METRIC_1, lv_color_hex(C_GREEN), 120, &ui.status.ip_label);
+    demo_metric(ui.pages[0], 82, WALNUT_SCREEN_HOME_METRIC_1, lv_color_hex(WALNUT_SCREEN_HOME_TONE_COLOR), 120, &ui.status.ip_label);
     demo_metric(ui.pages[0], 122, WALNUT_SCREEN_HOME_METRIC_2, lv_color_hex(C_AMBER), 260, &ui.status.mem_label);
     demo_metric(ui.pages[0], 162, WALNUT_SCREEN_HOME_METRIC_3, lv_color_hex(C_RED), 400, &ui.status.disk_label);
 
