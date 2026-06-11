@@ -382,7 +382,9 @@ vtcon1 bind                        0
 - `walnut-ai-terminal/walnut_ai.py` 已升级为长期 memory + skills/corpus 检索形态：默认模型 `gpt-5.4-mini`，长期记忆默认 `~/walnut-memory/memory.json`，按请求检索 `walnut-ai-terminal/skills/` 与 `walnut-ai-terminal/corpus/` 后再回答。
 - `walnut-assistant/walnut` 已提供 Web-friendly local action JSON 入口：`walnut action run status|network|gpio|snapshot --json`，以及高风险动作的 prepare/commit 骨架；当前 confirmed execution 仍禁用。
 - `web-interface/model-terminal-server.js` 的状态、网络、GPIO 和设备快照动作已改为调用 `walnut action run ... --json`，并保留结构化 `actionEvidence` 供诊断和后续闭环使用。
-- Web 后端新增只读 project-memory API：`GET /api/memory`、`GET /api/retrieval?query=...`、`GET /api/project-memory?query=...`；成功 screen sync 会把 compact 证据追加到 `walnut-ai-terminal/corpus/screen-sync-successes.md`，不写命令日志、截图或 secrets。
+- Web 后端新增只读 project-memory API：`GET /api/memory`、`GET /api/retrieval?query=...`、`GET /api/project-memory?query=...`；Web 普通 AI 问答会把 project-memory 注入 WalnutAI prompt，返回 `contextUsed` 诊断，并关闭 WalnutAI 内部 session 重复落盘；成功 screen sync 会把 compact 证据追加到 `walnut-ai-terminal/corpus/screen-sync-successes.md`，不写命令日志、截图或 secrets。
+- Web 对话现在有 append-only 原始事件存储：浏览器持有 `walnut-web-session-id`，服务端把 user / assistant / action 事件写到 `web-interface/data/sessions/<sessionId>.jsonl`；长期 memory 应从这些完整会话后台蒸馏，而不是替代原始对话。
+- 新增 `walnut-ai-terminal/memory_distiller.py` / `walnut-memory-distill`，用于从已存储 JSONL 会话中保守提炼长期记忆。第一版不调用模型，只读取 user 事件，合并明确的长期偏好、环境、项目、工作流和目标，并跳过 API key、密码、token、私钥、Wi-Fi 密码等秘密。
 
 所以当前剩余工作不再是“把第一闭环做出来”，而是把第一闭环从窄切片推进成可靠产品能力。
 

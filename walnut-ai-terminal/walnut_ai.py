@@ -16,6 +16,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 APP_NAME = "WalnutAI"
 MODEL = os.getenv("WALNUT_AI_MODEL", "gpt-5.4-mini")
@@ -25,11 +26,16 @@ API_TIMEOUT = int(os.getenv("WALNUT_AI_TIMEOUT", "45"))
 REASONING_EFFORT = os.getenv("WALNUT_AI_REASONING_EFFORT", "none").strip()
 TEXT_VERBOSITY = os.getenv("WALNUT_AI_TEXT_VERBOSITY", "low").strip()
 DISABLE_MEMORY = os.getenv("WALNUT_AI_DISABLE_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}
+ENABLE_INLINE_MEMORY = os.getenv("WALNUT_AI_ENABLE_INLINE_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}
 FORCE_IPV4 = os.getenv("WALNUT_AI_FORCE_IPV4", "1").strip().lower() not in {"0", "false", "no", "off"}
 CHAT_ONLY = os.getenv("WALNUT_AI_CHAT_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}
+MEMORY_TEXT = os.getenv("WALNUT_AI_MEMORY_TEXT", "").strip()
 MEMORY_ROOT = Path(os.getenv("WALNUT_MEMORY_DIR", str(Path.home() / "walnut-memory"))).expanduser()
 MEMORY_FILE = Path(os.getenv("WALNUT_AI_MEMORY_FILE", str(MEMORY_ROOT / "memory.json"))).expanduser()
 NOTES_DIR = Path(os.getenv("WALNUT_AI_NOTES_DIR", str(MEMORY_ROOT / "daily"))).expanduser()
+SESSION_DIR = Path(os.getenv("WALNUT_AI_SESSIONS_DIR", str(MEMORY_ROOT / "sessions"))).expanduser()
+SESSION_ID_OVERRIDE = os.getenv("WALNUT_AI_SESSION_ID", "").strip()
+DISABLE_SESSION_LOG = os.getenv("WALNUT_AI_DISABLE_SESSION_LOG", "").strip().lower() in {"1", "true", "yes", "on"}
 HISTORY_LIMIT = 12
 DEVICE_PROFILE = os.getenv("WALNUT_AI_DEVICE_PROFILE", "核桃派 1B ZeroW").strip() or "核桃派 1B ZeroW"
 APP_DIR = Path(__file__).resolve().parent
@@ -41,6 +47,8 @@ RETRIEVAL_SOURCE_LIMIT = 6
 RETRIEVAL_CONTEXT_LIMIT = 14000
 API_HTTP_LOCK = threading.RLock()
 MEMORY_LOCK = threading.RLock()
+SESSION_LOCK = threading.RLock()
+CURRENT_SESSION_ID: str | None = None
 MEMORY_FIELDS = ("preferences", "environment", "projects", "workflows", "goals", "summary")
 MEMORY_TYPE_TO_FIELD = {
     "preference": "preferences",
@@ -464,6 +472,58 @@ def card(title: str, body: str) -> None:
     print()
 
 
+def safe_session_id(value: str) -> str | None:
+    text = str(value or "").strip()
+    if not re.fullmatch(r"[a-zA-Z0-9._-]{8,80}", text) or ".." in text or text.startswith("."):
+        return None
+    return text
+
+
+def current_session_id() -> str:
+    global CURRENT_SESSION_ID
+    if CURRENT_SESSION_ID:
+        return CURRENT_SESSION_ID
+    CURRENT_SESSION_ID = safe_session_id(SESSION_ID_OVERRIDE) or (
+        f"cli-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid4().hex[:8]}"
+    )
+    return CURRENT_SESSION_ID
+
+
+def append_session_event(
+    role: str,
+    content: str,
+    action: str | None = None,
+    ok: bool | None = None,
+    command: str | None = None,
+) -> None:
+    if DISABLE_SESSION_LOG:
+        return
+    role = role.strip()
+    if role not in {"user", "assistant", "system", "action"}:
+        return
+    text = str(content or "")
+    if not text and role != "action":
+        return
+    event = {
+        "id": uuid4().hex,
+        "at": datetime.now().astimezone().isoformat(),
+        "role": role,
+        "content": text,
+        "action": action,
+        "ok": ok,
+        "command": command,
+    }
+    with SESSION_LOCK:
+        SESSION_DIR.mkdir(parents=True, exist_ok=True)
+        path = SESSION_DIR / f"{current_session_id()}.jsonl"
+        with path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
+def session_user_text(text: str) -> str:
+    return MEMORY_TEXT or text
+
+
 def walnut_cli_command() -> list[str] | None:
     override = os.getenv("WALNUT_CLI", "").strip()
     if override:
@@ -689,7 +749,7 @@ def update_memory_after_turn(user_text: str, assistant_reply: str) -> None:
 
 
 def remember_after_turn(user_text: str, assistant_reply: str, wait: bool = False) -> None:
-    if DISABLE_MEMORY or not API_KEY:
+    if DISABLE_MEMORY or not ENABLE_INLINE_MEMORY or not API_KEY:
         return
     if wait:
         update_memory_after_turn(user_text, assistant_reply)
@@ -708,8 +768,9 @@ def should_wait_for_memory(text: str) -> bool:
 
 
 def remember_after_one_shot(user_text: str, assistant_reply: str) -> None:
-    if should_wait_for_memory(user_text):
-        remember_after_turn(user_text, assistant_reply, wait=True)
+    memory_text = MEMORY_TEXT or user_text
+    if should_wait_for_memory(memory_text):
+        remember_after_turn(memory_text, assistant_reply, wait=True)
 
 
 def might_need_local_route(text: str) -> bool:
@@ -927,17 +988,29 @@ def main() -> int:
             print("bye")
             return 0
         if user == "/help":
-            card("Help", help_text())
+            answer = help_text()
+            append_session_event("user", user)
+            append_session_event("assistant", answer)
+            card("Help", answer)
             continue
         if user == "/status":
-            card("Status", status())
+            answer = status()
+            append_session_event("user", user)
+            append_session_event("action", answer, action="status", ok=True)
+            card("Status", answer)
             continue
         if user == "/memory":
-            card("记忆", format_memory_for_display())
+            answer = format_memory_for_display()
+            append_session_event("user", user)
+            append_session_event("assistant", answer)
+            card("记忆", answer)
             continue
         if user == "/clear":
             history = [{"role": "system", "content": system_prompt()}]
-            card("Context", "已清空当前对话上下文。")
+            answer = "已清空当前对话上下文。"
+            append_session_event("user", user)
+            append_session_event("assistant", answer)
+            card("Context", answer)
             continue
         if user.startswith("/note"):
             text = user[len("/note"):].strip()
@@ -945,31 +1018,43 @@ def main() -> int:
                 text = input("note> ").strip()
             if text:
                 path = save_note(text)
+                append_session_event("user", user)
+                append_session_event("action", f"已保存到 {path}\n\n{text}", action="note_add", ok=True)
                 card("Note", f"已保存到 {path}\n\n{text}")
             continue
         if user.startswith("/polish"):
             text = user[len("/polish"):].strip() or input("text> ").strip()
             prompt = "请对下面文字做轻度润色，保留原意和说话风格，只输出润色结果：\n" + text
-            card("AI", call_ai([{"role": "system", "content": system_prompt(query=text)}, {"role": "user", "content": prompt}]))
+            answer = call_ai([{"role": "system", "content": system_prompt(query=text)}, {"role": "user", "content": prompt}])
+            append_session_event("user", user)
+            append_session_event("assistant", answer)
+            card("AI", answer)
             continue
         if user.startswith("/translate"):
             text = user[len("/translate"):].strip() or input("text> ").strip()
             prompt = "请翻译下面文字。中文翻译成英文，其他语言翻译成中文。只输出译文：\n" + text
-            card("AI", call_ai([{"role": "system", "content": system_prompt(query=text)}, {"role": "user", "content": prompt}]))
+            answer = call_ai([{"role": "system", "content": system_prompt(query=text)}, {"role": "user", "content": prompt}])
+            append_session_event("user", user)
+            append_session_event("assistant", answer)
+            card("AI", answer)
             continue
 
         local_answer = local_agent_answer(user)
         if local_answer is not None:
+            append_session_event("user", user)
+            append_session_event("action", local_answer, action="local_agent", ok=True)
             remember_after_turn(user, local_answer, wait=should_wait_for_memory(user))
             card("Agent", local_answer)
             continue
 
+        append_session_event("user", user)
         history[0] = {"role": "system", "content": system_prompt(query=user)}
         history.append({"role": "user", "content": user})
         recent = [history[0]] + history[-HISTORY_LIMIT:]
         print("AI thinking...", flush=True)
         answer = call_ai(recent)
         history.append({"role": "assistant", "content": answer})
+        append_session_event("assistant", answer)
         remember_after_turn(user, answer, wait=should_wait_for_memory(user))
         card("AI", answer)
 
@@ -981,13 +1066,22 @@ def one_shot(text: str) -> int:
         return 2
 
     if text == "/help":
-        print(help_text())
+        answer = help_text()
+        append_session_event("user", session_user_text(text))
+        append_session_event("assistant", answer)
+        print(answer)
         return 0
     if text == "/status":
-        print(status())
+        answer = status()
+        append_session_event("user", session_user_text(text))
+        append_session_event("action", answer, action="status", ok=True)
+        print(answer)
         return 0
     if text == "/memory":
-        print(format_memory_for_display())
+        answer = format_memory_for_display()
+        append_session_event("user", session_user_text(text))
+        append_session_event("assistant", answer)
+        print(answer)
         return 0
     if text.startswith("/note"):
         note = text[len("/note"):].strip()
@@ -995,7 +1089,10 @@ def one_shot(text: str) -> int:
             print("Usage: walnut-ai /note your text")
             return 2
         path = save_note(note)
-        print(f"已保存到 {path}\n\n{note}")
+        answer = f"已保存到 {path}\n\n{note}"
+        append_session_event("user", session_user_text(text))
+        append_session_event("action", answer, action="note_add", ok=True)
+        print(answer)
         return 0
 
     local_answer = None
@@ -1013,6 +1110,8 @@ def one_shot(text: str) -> int:
         local_answer = local_agent_answer(text)
 
     if local_answer is not None:
+        append_session_event("user", session_user_text(text))
+        append_session_event("action", local_answer, action="local_agent", ok=True)
         remember_after_one_shot(text, local_answer)
         print(local_answer)
         return 0
@@ -1022,6 +1121,8 @@ def one_shot(text: str) -> int:
         {"role": "user", "content": text},
     ]
     answer = call_ai(messages)
+    append_session_event("user", session_user_text(text))
+    append_session_event("assistant", answer)
     remember_after_one_shot(text, answer)
     print(answer)
     return 0

@@ -18,6 +18,7 @@ fi
 
 install -d /opt/walnut-ai
 install -m 0755 "$ROOT_DIR/walnut-ai-terminal/walnut_ai.py" /opt/walnut-ai/walnut_ai.py
+install -m 0755 "$ROOT_DIR/walnut-ai-terminal/memory_distiller.py" /opt/walnut-ai/memory_distiller.py
 rm -rf /opt/walnut-ai/skills /opt/walnut-ai/corpus
 cp -r "$ROOT_DIR/walnut-ai-terminal/skills" /opt/walnut-ai/
 cp -r "$ROOT_DIR/walnut-ai-terminal/corpus" /opt/walnut-ai/
@@ -36,6 +37,16 @@ set +a
 exec /opt/walnut-ai/walnut_ai.py "$@"
 SH
 chmod +x /usr/local/bin/walnut-ai
+
+cat > /usr/local/bin/walnut-memory-distill <<'SH'
+#!/bin/sh
+set -a
+profile="${HOME:-/root}/.profile"
+[ -f "$profile" ] && . "$profile"
+set +a
+exec /opt/walnut-ai/memory_distiller.py "$@"
+SH
+chmod +x /usr/local/bin/walnut-memory-distill
 
 cat > /usr/local/bin/walnut-ascii-video <<'SH'
 #!/bin/sh
@@ -84,3 +95,4 @@ SH
 chmod +x /usr/local/bin/walnut-ai-video-demo
 
 echo "Installed walnut-ai -> /usr/local/bin/walnut-ai"
+echo "Installed walnut-memory-distill -> /usr/local/bin/walnut-memory-distill"

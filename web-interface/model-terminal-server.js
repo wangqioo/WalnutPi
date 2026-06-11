@@ -47,6 +47,8 @@ const WALNUT_AI_PRIMARY_SKILL = process.env.WALNUT_AI_PRIMARY_SKILL || "walnutpi
 const MEMORY_FIELDS = ["preferences", "environment", "projects", "workflows", "goals", "summary"];
 const RETRIEVAL_FILE_LIMIT = 5000;
 const RETRIEVAL_RESULT_LIMIT = 8;
+const WEB_SESSIONS_DIR = process.env.WALNUT_WEB_SESSIONS_DIR || path.join(BASE_DIR, "data", "sessions");
+const WEB_SESSION_EVENT_LIMIT = Number(process.env.WALNUT_WEB_SESSION_EVENT_LIMIT || 300);
 
 const files = new Map([
   ["/", "model-terminal.html"],
@@ -209,6 +211,97 @@ async function retrieveWalnutContext(query) {
   return results.slice(0, RETRIEVAL_RESULT_LIMIT);
 }
 
+function safeSessionId(value) {
+  const text = String(value || "").trim();
+  if (!/^[a-zA-Z0-9._-]{8,80}$/.test(text) || text.includes("..") || text.startsWith(".")) return null;
+  return text;
+}
+
+function sessionPath(sessionId) {
+  const id = safeSessionId(sessionId);
+  if (!id) return null;
+  return path.join(WEB_SESSIONS_DIR, `${id}.jsonl`);
+}
+
+function normalizeSessionEvent(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const role = String(value.role || "").trim();
+  if (!["user", "assistant", "system", "action"].includes(role)) return null;
+  const content = sessionContent(value.content || "");
+  if (!content && role !== "action") return null;
+  return {
+    id: randomUUID(),
+    at: new Date().toISOString(),
+    role,
+    content,
+    action: value.action ? clippedText(value.action, 120) : null,
+    ok: typeof value.ok === "boolean" ? value.ok : null,
+    command: value.command ? clippedText(value.command, 1000) : null,
+    contextUsed: value.contextUsed && typeof value.contextUsed === "object" ? value.contextUsed : null,
+  };
+}
+
+async function appendSessionEvent(sessionId, event) {
+  const filePath = sessionPath(sessionId);
+  const normalized = normalizeSessionEvent(event);
+  if (!filePath || !normalized) return null;
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, `${JSON.stringify(normalized)}\n`, { encoding: "utf8", flag: "a" });
+  return normalized;
+}
+
+async function readSessionEvents(sessionId, limit = WEB_SESSION_EVENT_LIMIT) {
+  const filePath = sessionPath(sessionId);
+  if (!filePath) return null;
+  let data = "";
+  try {
+    data = await readFile(filePath, "utf8");
+  } catch {
+    return [];
+  }
+  const lines = data.split(/\r?\n/).filter(Boolean);
+  const events = [];
+  for (const line of lines.slice(-limit)) {
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed && typeof parsed === "object") events.push(parsed);
+    } catch {
+      // Ignore corrupt trailing lines; append-only history should still be readable.
+    }
+  }
+  return events;
+}
+
+async function handleSession(req, url) {
+  const sessionId = safeSessionId(url.searchParams.get("sessionId"));
+  if (!sessionId) return json({ ok: false, error: "invalid sessionId" }, 400);
+
+  if (req.method === "GET") {
+    const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit") || WEB_SESSION_EVENT_LIMIT) || WEB_SESSION_EVENT_LIMIT));
+    const events = await readSessionEvents(sessionId, limit);
+    return json({
+      ok: true,
+      schema: "walnutpi.webSession.v1",
+      sessionId,
+      events: events || [],
+    });
+  }
+
+  if (req.method === "POST") {
+    let body;
+    try {
+      body = await readJsonRequest(req);
+    } catch (error) {
+      return json({ ok: false, error: error.message }, 400);
+    }
+    const event = await appendSessionEvent(sessionId, body.event || body);
+    if (!event) return json({ ok: false, error: "invalid session event" }, 400);
+    return json({ ok: true, schema: "walnutpi.webSessionAppend.v1", sessionId, event });
+  }
+
+  return json({ ok: false, error: "Method not allowed" }, 405);
+}
+
 async function previewOnlyScreenSyncResult(req) {
   const startedAt = new Date();
   const buildId = `screen-${startedAt.toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
@@ -335,7 +428,38 @@ function clippedText(value, limit = AI_CONTEXT_TEXT_LIMIT) {
     .slice(0, limit);
 }
 
-function aiQuestionWithContext(text, messages = []) {
+function sessionContent(value) {
+  return String(value || "").replace(/\0/g, "").trim();
+}
+
+function compactMemoryForPrompt(memory) {
+  const labels = {
+    preferences: "用户偏好",
+    environment: "技术环境",
+    projects: "项目事实",
+    workflows: "工作流",
+    goals: "长期目标",
+    summary: "记忆摘要",
+  };
+  const lines = [];
+  for (const field of MEMORY_FIELDS) {
+    const values = Array.isArray(memory?.[field]) ? memory[field].slice(0, 5) : [];
+    if (!values.length) continue;
+    lines.push(`${labels[field]}：`);
+    for (const value of values) lines.push(`- ${clippedText(value, 260)}`);
+  }
+  return lines.length ? lines.join("\n") : "暂无长期记忆。";
+}
+
+function compactRetrievalForPrompt(results) {
+  if (!Array.isArray(results) || !results.length) return "无相关检索片段。";
+  return results.slice(0, 5).map((item) => [
+    `### ${item.path} (score=${item.score})`,
+    clippedText(item.preview, 1200),
+  ].join("\n")).join("\n\n");
+}
+
+function aiQuestionWithContext(text, messages = [], projectMemory = null) {
   const recent = Array.isArray(messages)
     ? messages
       .filter((message) => message && (message.role === "user" || message.role === "assistant"))
@@ -347,7 +471,14 @@ function aiQuestionWithContext(text, messages = []) {
   return [
     "你是 WalnutAI Web 入口，面向新手操作核桃派。",
     "回答要短、直接、中文。需要实时设备状态时，不要编造，建议使用 Web 本地动作。",
-    "常用入口：walnut status、walnut-ai、walnut play、walnut video color。",
+    "常用入口：walnut action run ... --json、walnut-ai、walnut screen、walnut play、walnut video color。",
+    "回答必须优先遵守项目记忆、skills 检索和成功代码语料；如果上下文没有证据，明确说需要检查。",
+    "",
+    "长期记忆：",
+    compactMemoryForPrompt(projectMemory?.memory),
+    "",
+    "检索到的 WalnutPi 上下文：",
+    compactRetrievalForPrompt(projectMemory?.retrieval),
     "",
     "最近对话：",
     recent.length ? recent.join("\n") : "（无）",
@@ -2548,13 +2679,25 @@ const ACTIONS = {
     title: "WalnutAI Agent",
     risk: "read",
     mode: "remote",
-    buildCommand(body) {
+    async buildCommand(body) {
       const text = String(body.text || "").trim();
       if (!text) throw new Error("缺少要问 WalnutAI 的内容。");
-      const prompt = aiQuestionWithContext(text, body.messages);
-      return `WALNUT_AI_TIMEOUT=${shellQuote(AI_TIMEOUT_SECONDS)} WALNUT_AI_DISABLE_MEMORY=1 WALNUT_AI_CHAT_ONLY=1 walnut-ai ${shellQuote(prompt)}`;
+      const projectMemory = {
+        memory: await readWalnutMemory(),
+        retrieval: await retrieveWalnutContext(text),
+      };
+      const prompt = aiQuestionWithContext(text, body.messages, projectMemory);
+      return {
+        command: `WALNUT_AI_TIMEOUT=${shellQuote(AI_TIMEOUT_SECONDS)} WALNUT_AI_CHAT_ONLY=1 WALNUT_AI_ENABLE_INLINE_MEMORY=0 WALNUT_AI_DISABLE_SESSION_LOG=1 walnut-ai ${shellQuote(prompt)}`,
+        contextUsed: {
+          schema: "walnutpi.webAiContext.v1",
+          memoryDistillCandidate: /记住|记着|以后|下次|我的偏好|我喜欢|我不喜欢|我习惯|我是|我叫|我用|我在用|我的项目|我的设备|所有对话|目标|默认/.test(text),
+          memoryFields: Object.fromEntries(MEMORY_FIELDS.map((field) => [field, projectMemory.memory[field]?.length || 0])),
+          retrieval: projectMemory.retrieval.map((item) => ({ path: item.path, score: item.score })),
+        },
+      };
     },
-    reply: "我会把普通问题交给 WalnutAI 回答；状态、网络和小屏生成由 Web 入口先分流到本地动作。",
+    reply: "我会带上项目记忆、skills 检索和成功代码语料，再把普通问题交给 WalnutAI 回答。",
     timeoutMs: (AI_TIMEOUT_SECONDS + 15) * 1000,
   },
   video: {
@@ -2597,20 +2740,40 @@ async function handleAction(req) {
   if (!action) {
     return json({ ok: false, error: "未知或未允许的动作。" }, 400);
   }
+  const sessionId = safeSessionId(body.sessionId);
 
   let command = action.command;
+  let contextUsed = null;
   try {
-    if (action.buildCommand) command = action.buildCommand(body);
+    if (action.buildCommand) {
+      const built = await action.buildCommand(body);
+      if (typeof built === "string") {
+        command = built;
+      } else if (built && typeof built === "object") {
+        command = built.command;
+        contextUsed = built.contextUsed || null;
+      }
+    }
   } catch (error) {
     return json({ ok: false, error: error.message }, 400);
   }
 
   if (action.mode === "terminal") {
-    return json({
+    const responseBody = {
       ok: true,
       ...actionSummary(action, id),
       command,
-    });
+    };
+    if (sessionId) {
+      await appendSessionEvent(sessionId, {
+        role: "action",
+        action: id,
+        content: action.reply || "",
+        command,
+        ok: true,
+      });
+    }
+    return json(responseBody);
   }
 
   const result = await runRemote(command, action.timeoutMs);
@@ -2631,7 +2794,7 @@ async function handleAction(req) {
       actionEvidence = null;
     }
   }
-  return json({
+  const responseBody = {
     ok: remoteOk && !outputFailed,
     ...actionSummary(action, id),
     command,
@@ -2640,7 +2803,19 @@ async function handleAction(req) {
     outputFailed,
     output,
     actionEvidence,
-  });
+    contextUsed,
+  };
+  if (sessionId) {
+    await appendSessionEvent(sessionId, {
+      role: "action",
+      action: id,
+      content: output || result.output || "",
+      command,
+      ok: responseBody.ok,
+      contextUsed,
+    });
+  }
+  return json(responseBody);
 }
 
 function startSsh(ws) {
@@ -2736,6 +2911,10 @@ const server = Bun.serve({
     if (url.pathname === "/api/project-memory") {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
       return handleProjectMemory(url);
+    }
+
+    if (url.pathname === "/api/session") {
+      return handleSession(req, url);
     }
 
     if (url.pathname === "/api/screen/manifest") {

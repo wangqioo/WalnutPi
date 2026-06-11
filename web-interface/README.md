@@ -56,6 +56,32 @@ Examples:
 
 The agent should run controlled local checks such as weather lookup, `walnut status`, network checks, notes lookup, `gpio pins`, `set-device status`, and `/boot/config.txt` reads, then summarize for a beginner.
 
+## Conversation Storage
+
+The browser keeps a `walnut-web-session-id` in local storage. The server stores the canonical append-only event log under:
+
+```text
+web-interface/data/sessions/<sessionId>.jsonl
+```
+
+Override the directory with `WALNUT_WEB_SESSIONS_DIR`. Events include user messages, assistant messages, and structured action evidence. This full log is the source for later background memory distillation; `~/walnut-memory/memory.json` is the compact memory derived from stored conversations, not a replacement for them.
+
+Distill compact memory from stored sessions with:
+
+```bash
+python ../walnut-ai-terminal/memory_distiller.py --dry-run
+python ../walnut-ai-terminal/memory_distiller.py
+```
+
+The distiller reads user-authored events only, merges durable non-secret facts into `~/walnut-memory/memory.json`, and leaves the JSONL session logs as the canonical conversation history. `web-interface/data/` is ignored by Git so local conversations are not committed by accident.
+
+Current APIs:
+
+```text
+GET  /api/session?sessionId=...
+POST /api/session?sessionId=...
+```
+
 ### Risky Actions
 
 Actions with side effects require confirmation before execution.

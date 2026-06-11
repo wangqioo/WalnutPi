@@ -54,6 +54,27 @@ Long-term memory defaults to:
 ~/walnut-memory/memory.json
 ```
 
+Raw conversations should be stored first, then distilled into compact long-term memory. Web conversations are stored as append-only JSONL session logs, and the distiller can merge durable non-secret facts into `memory.json`:
+
+```bash
+walnut-memory-distill --dry-run
+walnut-memory-distill
+```
+
+From the repository checkout, the same distiller can be run directly:
+
+```bash
+python walnut-ai-terminal/memory_distiller.py --dry-run
+```
+
+The distiller is intentionally conservative. It reads user-authored conversation events, extracts explicit durable preferences, project facts, workflows, environment notes, and goals, then skips likely secrets such as API keys, passwords, tokens, private keys, and Wi-Fi passwords.
+
+Direct `walnut-ai` terminal sessions are also stored as append-only JSONL by default:
+
+```text
+~/walnut-memory/sessions/<sessionId>.jsonl
+```
+
 WalnutAI also retrieves project context from:
 
 ```text
@@ -82,13 +103,18 @@ WALNUT_AI_MODEL             Model name, default gpt-5.4-mini
 WALNUT_AI_TIMEOUT           Request timeout, default 45 seconds
 WALNUT_AI_REASONING_EFFORT  Reasoning effort, default none
 WALNUT_AI_TEXT_VERBOSITY    Text verbosity, default low
+WALNUT_AI_ENABLE_INLINE_MEMORY  Experimental direct memory extraction, default off
+WALNUT_AI_DISABLE_MEMORY    Disable reading long-term memory into prompts
 WALNUT_AI_MEMORY_FILE       Memory file, default ~/walnut-memory/memory.json
 WALNUT_AI_NOTES_DIR         Daily notes directory, default ~/walnut-memory/daily
+WALNUT_AI_SESSIONS_DIR      Local CLI conversation logs, default ~/walnut-memory/sessions
+WALNUT_AI_DISABLE_SESSION_LOG   Disable CLI append-only session logging
 WALNUT_AI_DEVICE_PROFILE    Device identity, default 核桃派 1B ZeroW
 WALNUT_AI_SKILLS_DIR        Skills directory, default walnut_ai.py sibling skills/
 WALNUT_AI_PRIMARY_SKILL     Primary skill, default walnutpi-1b-zerow
 WALNUT_AI_CORPUS_DIR        Successful-code corpus, default walnut_ai.py sibling corpus/
 WALNUT_CLI                  Optional explicit walnut CLI path
+WALNUT_WEB_SESSIONS_DIR     Web conversation JSONL directory consumed by walnut-memory-distill
 ```
 
 ## Install
@@ -99,4 +125,4 @@ From the repository root:
 sudo ./scripts/install-walnut-ai.sh
 ```
 
-The installer copies `walnut_ai.py`, `skills/`, `corpus/`, and the `walnut` CLI into the board runtime.
+The installer copies `walnut_ai.py`, `memory_distiller.py`, `skills/`, `corpus/`, and the `walnut` CLI into the board runtime.

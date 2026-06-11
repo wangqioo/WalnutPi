@@ -1688,6 +1688,14 @@
       let currentPixelDiffManifest = null;
       let currentPixelDiffManifestHash = "";
       const PIXEL_DIFF_THRESHOLD = 0.02;
+      const SESSION_STORAGE_KEY = "walnut-web-session-id";
+      const sessionId = (() => {
+        const existing = localStorage.getItem(SESSION_STORAGE_KEY);
+        if (existing && /^[a-zA-Z0-9._-]{8,80}$/.test(existing)) return existing;
+        const created = `web-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        localStorage.setItem(SESSION_STORAGE_KEY, created);
+        return created;
+      })();
 
       const controlsById = {
         x: document.querySelector("#screenX"),
@@ -1837,6 +1845,38 @@
         chatDot.classList.toggle("is-closed", state === "closed");
       }
 
+      async function persistSessionEvent(event) {
+        try {
+          await fetch(withCurrentSearch(`/api/session?sessionId=${encodeURIComponent(sessionId)}`), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ event }),
+          });
+        } catch {
+          // Chat remains usable if local session persistence is temporarily unavailable.
+        }
+      }
+
+      async function loadSessionHistory() {
+        let data;
+        try {
+          const response = await fetch(withCurrentSearch(`/api/session?sessionId=${encodeURIComponent(sessionId)}&limit=80`));
+          data = await response.json();
+        } catch {
+          return;
+        }
+        if (!data.ok || !Array.isArray(data.events) || !data.events.length) return;
+        chatLog.innerHTML = "";
+        for (const event of data.events) {
+          if (event.role !== "user" && event.role !== "assistant") continue;
+          addMessage(event.role, event.content || "", {
+            persist: false,
+            command: event.command || "",
+            error: event.ok === false,
+          });
+        }
+      }
+
       function addMessage(role, text, options = {}) {
         const message = document.createElement("article");
         message.className = `message ${role}`;
@@ -1869,6 +1909,15 @@
 
         chatLog.append(message);
         chatLog.scrollTop = chatLog.scrollHeight;
+
+        if (options.persist !== false && (role === "user" || role === "assistant")) {
+          persistSessionEvent({
+            role,
+            content: text,
+            command: options.command || null,
+            ok: options.error === true ? false : null,
+          });
+        }
       }
 
       function recentChatMessages(limit = 8) {
@@ -2953,6 +3002,7 @@
 
         const payload = {
           action: action.id,
+          sessionId,
           ...(action.payload || {}),
         };
         if (action.id === "ai") {
@@ -2991,8 +3041,11 @@
         }
 
         if (result.id === "ai") {
+          const contextCount = Array.isArray(result.contextUsed?.retrieval) ? result.contextUsed.retrieval.length : 0;
+          const memoryHint = result.contextUsed?.memoryDistillCandidate ? "，可后台提炼" : "";
           addMessage("assistant", result.output || result.error || "WalnutAI 没有返回内容。", {
             error: !result.ok,
+            command: result.contextUsed ? `project-memory: ${contextCount} 条检索上下文${memoryHint}` : "",
           });
           if (result.output) writeTerminalBlock(result);
           return;
@@ -3215,6 +3268,7 @@
       }
 
       loadScreenTemplates();
+      loadSessionHistory();
       loadScreenManifest();
       loadScreenHistory(true);
       updateScreenTransform();
