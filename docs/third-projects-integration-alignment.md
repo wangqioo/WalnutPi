@@ -382,6 +382,7 @@ vtcon1 bind                        0
 - `walnut-ai-terminal/walnut_ai.py` 已升级为长期 memory + skills/corpus 检索形态：默认模型 `gpt-5.4-mini`，长期记忆默认 `~/walnut-memory/memory.json`，按请求检索 `walnut-ai-terminal/skills/` 与 `walnut-ai-terminal/corpus/` 后再回答。
 - `walnut-assistant/walnut` 已提供 Web-friendly local action JSON 入口：`walnut action run status|network|gpio|snapshot --json`，以及高风险动作的 prepare/commit 骨架；当前 confirmed execution 仍禁用。
 - `web-interface/model-terminal-server.js` 的状态、网络、GPIO 和设备快照动作已改为调用 `walnut action run ... --json`，并保留结构化 `actionEvidence` 供诊断和后续闭环使用。
+- Web 后端新增只读 project-memory API：`GET /api/memory`、`GET /api/retrieval?query=...`、`GET /api/project-memory?query=...`；成功 screen sync 会把 compact 证据追加到 `walnut-ai-terminal/corpus/screen-sync-successes.md`，不写命令日志、截图或 secrets。
 
 所以当前剩余工作不再是“把第一闭环做出来”，而是把第一闭环从窄切片推进成可靠产品能力。
 
@@ -529,7 +530,7 @@ screenFrameUrl: /api/screen/frame/screen-20260610161956-f51fbac3
 1. 第一版 Web 预览采用 screen manifest / vanilla DOM 语义渲染，不是真实 LVGL headless preview。
 2. 第一版 delivery adapter 采用 SSH / local-agent，代码入口是 `web-interface/screen-delivery-adapters/ssh-local-agent.js`。
 3. 第一版屏幕回证采用 `/dev/fb0` framebuffer 元数据和按需 PNG capture，不依赖 LVGL 主动上报完整 screen state。
-4. WalnutAI 现在从 `~/walnut-memory/memory.json` 读取长期记忆，从 `walnut-ai-terminal/skills/` 和 `walnut-ai-terminal/corpus/` 检索核桃派专属上下文与成功代码语料；`memory/default-memory.json` 只保留为非秘密 seed/reference。
+4. WalnutAI 现在从 `~/walnut-memory/memory.json` 读取长期记忆，从 `walnut-ai-terminal/skills/` 和 `walnut-ai-terminal/corpus/` 检索核桃派专属上下文与成功代码语料；`memory/default-memory.json` 只保留为非秘密 seed/reference。Web 端可通过只读 project-memory API 查看同一套上下文。
 5. 右侧终端当前按本地开发 / 局域网工具理解；`?nossh` 会阻止 terminal、action 和 sync 进入 SSH / 设备路径。
 
 仍待确认或继续设计的事项：

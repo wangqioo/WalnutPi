@@ -28,6 +28,8 @@ const SCREEN_RECORD_LIMIT = Number.isFinite(parsedScreenRecordLimit) && parsedSc
   ? Math.floor(parsedScreenRecordLimit)
   : 50;
 const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BASE_DIR, "screen-sync-records");
+const WALNUT_AI_CORPUS_DIR = process.env.WALNUT_AI_CORPUS_DIR || path.join(PROJECT_ROOT, "walnut-ai-terminal", "corpus");
+const SCREEN_SUCCESS_CORPUS_PATH = path.join(WALNUT_AI_CORPUS_DIR, "screen-sync-successes.md");
 const AI_MODEL = process.env.WALNUT_AI_MODEL || "gpt-5.4-mini";
 const AI_BASE_URL = (process.env.WALNUT_AI_BASE_URL || "https://rehdasu.cn/v1").replace(/\/+$/, "");
 const AI_API_KEY = process.env.OPENAI_API_KEY || "";
@@ -38,6 +40,13 @@ const SSH_CONTROLMASTER_ENABLED = process.platform !== "win32"
   && !["0", "false", "no", "off"].includes(String(process.env.WALNUT_SSH_CONTROLMASTER || "1").toLowerCase());
 const SSH_CONTROL_DIR = process.env.SSH_CONTROL_DIR || path.join(tmpdir(), `walnutpi-web-ssh-${process.getuid?.() || "user"}`);
 const screenFrameTickets = new Map();
+const WALNUT_MEMORY_DIR = process.env.WALNUT_MEMORY_DIR || path.join(process.env.HOME || process.env.USERPROFILE || PROJECT_ROOT, "walnut-memory");
+const WALNUT_AI_MEMORY_FILE = process.env.WALNUT_AI_MEMORY_FILE || path.join(WALNUT_MEMORY_DIR, "memory.json");
+const WALNUT_AI_SKILLS_DIR = process.env.WALNUT_AI_SKILLS_DIR || path.join(PROJECT_ROOT, "walnut-ai-terminal", "skills");
+const WALNUT_AI_PRIMARY_SKILL = process.env.WALNUT_AI_PRIMARY_SKILL || "walnutpi-1b-zerow";
+const MEMORY_FIELDS = ["preferences", "environment", "projects", "workflows", "goals", "summary"];
+const RETRIEVAL_FILE_LIMIT = 5000;
+const RETRIEVAL_RESULT_LIMIT = 8;
 
 const files = new Map([
   ["/", "model-terminal.html"],
@@ -77,6 +86,127 @@ function previewOnlyJson() {
     },
     403,
   );
+}
+
+function emptyMemory() {
+  return Object.fromEntries(MEMORY_FIELDS.map((field) => [field, []]));
+}
+
+function normalizeMemory(value) {
+  const normalized = emptyMemory();
+  if (!value || typeof value !== "object" || Array.isArray(value)) return normalized;
+  for (const field of MEMORY_FIELDS) {
+    if (!Array.isArray(value[field])) continue;
+    const seen = new Set();
+    for (const item of value[field]) {
+      const text = String(item || "").trim();
+      const key = text.toLowerCase();
+      if (!text || seen.has(key)) continue;
+      seen.add(key);
+      normalized[field].push(text);
+    }
+  }
+  return normalized;
+}
+
+async function readWalnutMemory() {
+  try {
+    return normalizeMemory(JSON.parse(await readFile(WALNUT_AI_MEMORY_FILE, "utf8")));
+  } catch {
+    return emptyMemory();
+  }
+}
+
+function tokenizeQuery(value) {
+  const text = String(value || "").toLowerCase();
+  const terms = new Set(text.match(/[a-z0-9_./:-]+|[\u4e00-\u9fff]{2,}/g) || []);
+  const synonyms = [
+    ["屏幕", ["screen", "lvgl", "fb0", "framebuffer"]],
+    ["小屏", ["screen", "lvgl", "fb0", "framebuffer"]],
+    ["同步", ["sync", "manifest", "delivery"]],
+    ["记忆", ["memory", "retrieval"]],
+    ["检索", ["retrieval", "skills", "corpus"]],
+    ["成功代码", ["corpus", "recipe", "example"]],
+    ["gpio", ["引脚", "排针"]],
+    ["i2c", ["传感器", "sensor"]],
+  ];
+  for (const [key, values] of synonyms) {
+    if (text.includes(key) || terms.has(key)) values.forEach((term) => terms.add(term));
+  }
+  return terms;
+}
+
+async function readTextFileLimited(filePath, limit = RETRIEVAL_FILE_LIMIT) {
+  const extension = path.extname(filePath).toLowerCase();
+  if (![".md", ".json", ".txt", ".py", ".c", ".h"].includes(extension)) return "";
+  try {
+    return (await readFile(filePath, "utf8")).trim().slice(0, limit);
+  } catch {
+    return "";
+  }
+}
+
+async function listRetrievalFiles() {
+  const files = [
+    path.join(WALNUT_AI_SKILLS_DIR, "walnutpi-core.md"),
+    path.join(WALNUT_AI_SKILLS_DIR, "walnutpi-screen.md"),
+    path.join(WALNUT_AI_SKILLS_DIR, WALNUT_AI_PRIMARY_SKILL, "SKILL.md"),
+    path.join(WALNUT_AI_CORPUS_DIR, "successful-code.md"),
+    SCREEN_SUCCESS_CORPUS_PATH,
+  ];
+  async function addDirectoryMarkdown(root, depth = 1) {
+    let entries;
+    try {
+      entries = await readdir(root, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(root, entry.name);
+      if (entry.isFile() && entry.name.endsWith(".md")) files.push(entryPath);
+      if (entry.isDirectory() && depth > 0) {
+        files.push(path.join(entryPath, "SKILL.md"));
+      }
+    }
+  }
+  await addDirectoryMarkdown(WALNUT_AI_SKILLS_DIR, 1);
+  await addDirectoryMarkdown(path.join(WALNUT_AI_SKILLS_DIR, WALNUT_AI_PRIMARY_SKILL), 0);
+  await addDirectoryMarkdown(WALNUT_AI_CORPUS_DIR, 0);
+  return [...new Set(files.map((file) => path.resolve(file)))];
+}
+
+function scoreRetrievalFile(filePath, data, terms) {
+  const lowerPath = filePath.toLowerCase();
+  const haystack = `${lowerPath}\n${data.slice(0, 2000).toLowerCase()}`;
+  let score = 0;
+  for (const term of terms) {
+    if (!term) continue;
+    if (lowerPath.includes(term)) score += 3;
+    else if (haystack.includes(term)) score += 1;
+  }
+  if (filePath.endsWith("walnutpi-core.md")) score += 1;
+  if (filePath.endsWith("walnutpi-screen.md") && [...terms].some((term) => ["screen", "lvgl", "fb0", "framebuffer"].includes(term))) score += 4;
+  if (filePath.endsWith("screen-sync-successes.md") && [...terms].some((term) => ["sync", "manifest", "delivery", "成功代码"].includes(term))) score += 4;
+  return score;
+}
+
+async function retrieveWalnutContext(query) {
+  const terms = tokenizeQuery(query);
+  const files = await listRetrievalFiles();
+  const results = [];
+  for (const filePath of files) {
+    const content = await readTextFileLimited(filePath);
+    if (!content) continue;
+    const score = scoreRetrievalFile(filePath, content, terms);
+    if (score <= 0 && !filePath.endsWith("walnutpi-core.md") && !filePath.endsWith("walnutpi-screen.md")) continue;
+    results.push({
+      path: path.relative(PROJECT_ROOT, filePath).replace(/\\/g, "/"),
+      score,
+      preview: content,
+    });
+  }
+  results.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+  return results.slice(0, RETRIEVAL_RESULT_LIMIT);
 }
 
 async function previewOnlyScreenSyncResult(req) {
@@ -800,6 +930,7 @@ async function persistScreenSyncResult(result, commandResults = {}, status = 200
     const record = buildScreenRecord(result, commandResults);
     if (!result.repairHint) result.repairHint = record.repairHint;
     await writeScreenRecord(record);
+    await rememberSuccessfulScreenSync(record);
   } catch (error) {
     result.recordWarning = `screen sync record was not saved: ${error.message}`;
   }
@@ -821,6 +952,53 @@ async function writeScreenRecord(record) {
   await writeJsonFile(path.join(dir, "record.json"), record);
   await writeJsonFile(path.join(dir, "summary.json"), summary);
   await trimScreenRecords();
+}
+
+function successfulScreenSyncEntry(record) {
+  const manifest = record.manifest || {};
+  const labels = Array.isArray(manifest.labels)
+    ? manifest.labels.map((item) => item?.text).filter(Boolean).slice(0, 6)
+    : [];
+  const cards = Array.isArray(manifest.cards)
+    ? manifest.cards.map((item) => item?.title).filter(Boolean).slice(0, 6)
+    : [];
+  const visualChecks = record.screenEvidence?.visualChecks || {};
+  const semantic = record.screenEvidence?.semantic || {};
+  const lines = [
+    `## ${record.buildId}`,
+    "",
+    "- kind: screen-sync-success",
+    `- finishedAt: ${record.finishedAt || ""}`,
+    `- manifestHash: ${record.manifestHash || ""}`,
+    `- artifactHash: ${record.artifactHash || ""}`,
+    `- deliveryHash: ${record.deliveryHash || ""}`,
+    `- visualMatch: ${record.screenEvidence?.visualMatch || "unknown"}`,
+    `- frameHash: ${record.screenEvidence?.frame?.sha256 || ""}`,
+    `- previewSignatureHash: ${semantic.previewSignatureHash || ""}`,
+    `- deviceSignatureHash: ${semantic.deviceSignatureHash || ""}`,
+    `- checks: width=${visualChecks.width || ""} height=${visualChecks.height || ""} nonblank=${visualChecks.frameNonblank ?? ""}`,
+    `- labels: ${labels.join(" | ") || "none"}`,
+    `- cards: ${cards.join(" | ") || "none"}`,
+    `- summary: ${String(record.summary || "").replace(/\s+/g, " ").slice(0, 500)}`,
+    "",
+    "Reuse this pattern for manifest-driven LVGL screen sync: require current manifestHash, build with scripts/build-lvgl-app.sh, activate with sudo -n walnut screen start, verify with walnut screen state and sudo -n walnut screen frame.",
+    "",
+  ];
+  return `${lines.join("\n")}\n`;
+}
+
+async function rememberSuccessfulScreenSync(record) {
+  if (!record?.ok) return;
+  if (!record.buildId || record.mode === "preview") return;
+  await mkdir(WALNUT_AI_CORPUS_DIR, { recursive: true });
+  let existing = "";
+  try {
+    existing = await readFile(SCREEN_SUCCESS_CORPUS_PATH, "utf8");
+  } catch {
+    existing = "# WalnutPi Screen Sync Successes\n\nThis file is auto-appended by the Web screen sync flow. It stores compact successful patterns only, not command logs or image bytes.\n\n";
+  }
+  if (existing.includes(`## ${record.buildId}`)) return;
+  await writeFile(SCREEN_SUCCESS_CORPUS_PATH, `${existing.trimEnd()}\n\n${successfulScreenSyncEntry(record)}`, "utf8");
 }
 
 async function updateScreenRecord(buildId, updater) {
@@ -1848,6 +2026,47 @@ async function handleScreenPixelDiff(req) {
   });
 }
 
+async function handleMemory() {
+  const memory = await readWalnutMemory();
+  return json({
+    ok: true,
+    schema: "walnutpi.memoryView.v1",
+    memoryFile: WALNUT_AI_MEMORY_FILE,
+    memory,
+  });
+}
+
+async function handleRetrieval(url) {
+  const query = url.searchParams.get("query") || "";
+  const results = await retrieveWalnutContext(query);
+  return json({
+    ok: true,
+    schema: "walnutpi.retrievalView.v1",
+    query,
+    skillsDir: WALNUT_AI_SKILLS_DIR,
+    corpusDir: WALNUT_AI_CORPUS_DIR,
+    results,
+  });
+}
+
+async function handleProjectMemory(url) {
+  const query = url.searchParams.get("query") || "";
+  const [memory, retrieval] = await Promise.all([
+    readWalnutMemory(),
+    retrieveWalnutContext(query),
+  ]);
+  return json({
+    ok: true,
+    schema: "walnutpi.projectMemoryView.v1",
+    query,
+    memoryFile: WALNUT_AI_MEMORY_FILE,
+    skillsDir: WALNUT_AI_SKILLS_DIR,
+    corpusDir: WALNUT_AI_CORPUS_DIR,
+    memory,
+    retrieval,
+  });
+}
+
 async function handleScreenRepairPlan(req) {
   let body;
   try {
@@ -2502,6 +2721,21 @@ const server = Bun.serve({
         target: `${SSH_USER}@${SSH_HOST}`,
         actions: Object.fromEntries(Object.entries(ACTIONS).map(([id, action]) => [id, actionSummary(action, id)])),
       });
+    }
+
+    if (url.pathname === "/api/memory") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleMemory();
+    }
+
+    if (url.pathname === "/api/retrieval") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleRetrieval(url);
+    }
+
+    if (url.pathname === "/api/project-memory") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleProjectMemory(url);
     }
 
     if (url.pathname === "/api/screen/manifest") {

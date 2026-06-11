@@ -63,6 +63,14 @@ walnut-ai-terminal/corpus/
 
 The first corpus file, `corpus/successful-code.md`, records working WalnutPi patterns such as the LVGL screen sync slice and local action JSON shape.
 
+The Web screen sync flow also appends compact successful sync evidence to:
+
+```text
+walnut-ai-terminal/corpus/screen-sync-successes.md
+```
+
+That generated corpus stores hashes, semantic labels, checks, and a short summary. It does not store command logs, screenshots, image bytes, or secrets.
+
 Do not store secrets in memory or corpus: API keys, Wi-Fi passwords, SSH passwords, tokens, private keys, or full logs.
 
 ## Configuration
@@ -92,4 +100,3 @@ sudo ./scripts/install-walnut-ai.sh
 ```
 
 The installer copies `walnut_ai.py`, `skills/`, `corpus/`, and the `walnut` CLI into the board runtime.
-
