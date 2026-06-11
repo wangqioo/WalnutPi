@@ -209,6 +209,7 @@ export function createSshLocalAgentAdapter({
       };
       const output = limitedOutput(
         [
+          preflightBlockResult(sliceResult, buildResult, validateResult, artifactResult, activateResult, stateResult, frameResult),
           commandBlockResult("screen-slice", sliceResult),
           commandBlockResult("build", buildResult),
           commandBlockResult("validate", validateResult),
@@ -311,6 +312,18 @@ function buildRemoteSliceScript({ remoteProjectRoot, remoteBuildUser, files }) {
   }
   lines.push("printf 'screen slice delivered: %s files\\n' " + shSingleQuote(String(files.length)));
   return lines.join("\n");
+}
+
+function preflightBlockResult(...results) {
+  const outputs = [];
+  const seen = new Set();
+  for (const result of results) {
+    const output = result?.preflightOutput;
+    if (!output || seen.has(output)) continue;
+    seen.add(output);
+    outputs.push(output);
+  }
+  return outputs.length ? commandBlockResult("walnut-cli-preflight", { ok: true, code: 0, output: outputs.join("\n") }) : "";
 }
 
 function shSingleQuote(value) {

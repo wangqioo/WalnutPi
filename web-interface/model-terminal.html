@@ -1956,52 +1956,10 @@
           .filter((message) => message.content);
       }
 
-      function actionForText(text) {
-        const trimmed = text.trim();
-        const lower = trimmed.toLowerCase();
-        const aiQuestion = trimmed.match(/^(?:问一下|问ai|问 ai|ai[:：]?|聊天[:：]?)(.+)/i);
-
-        if (aiQuestion && aiQuestion[1].trim()) {
-          return {
-            id: "ai",
-            payload: { text: aiQuestion[1].trim() },
-            reply: "我会把这句话交给 WalnutAI 回答。",
-          };
-        }
-
-        if (/清屏|clear/.test(trimmed)) return actions.clear;
-        if (/重连|断开|ssh|连接/.test(lower)) return actions.reconnect;
-        if (/同步|部署|推送|运行到|显示到|sync/.test(lower) && /核桃派|设备|板子|小屏|屏幕|lvgl|screen/.test(lower)) {
-          return actions.syncScreen;
-        }
-        if (/总结|summary/i.test(trimmed) && /同步|证据|小屏|屏幕|screen/i.test(trimmed)) {
-          return actions.aiSummary;
-        }
-        if (/状态|健康|还好吗|怎么样|status|系统|服务|docker|内存|存储|磁盘|空间/.test(lower)) {
-          return actions.status;
-        }
-        if (/快照|snapshot|release|os-release|kernel|内核|hostname|启动配置|boot|设备信息|板子信息|硬件信息/.test(lower)) {
-          return actions.snapshot;
-        }
-        if (/网络|联网|wifi|wi-fi|ip\b|路由|route|network/.test(lower)) return actions.network;
-        if (/gpio|引脚|针脚|i2c|spi|uart|pwm|总线|bus|set-device/.test(lower)) return actions.gpio;
-        if (/今天.*(笔记|记录)|笔记.*今天|记了什么|notes|today/.test(lower)) return actions.notes;
-        if (/^(?:记一下|记录|note)\s*[:：]?\s*(.+)/i.test(trimmed)) {
-          const noteText = trimmed.replace(/^(?:记一下|记录|note)\s*[:：]?\s*/i, "").trim();
-          return {
-            id: "note",
-            payload: { text: noteText },
-            reply: "我会把这句话写进核桃派本地笔记。",
-          };
-        }
-        if (/视频|彩色|ascii|demo/.test(lower)) return actions.video;
-        if (/玩具|播放|演示|效果|动画|play/.test(lower)) return actions.video;
-
-        return {
-          id: "ai",
-          payload: { text: trimmed },
-          reply: "我会把这句话交给 WalnutAI 回答。",
-        };
+      function wantsScreenDelivery(text) {
+        const value = String(text || "").trim().toLowerCase();
+        return /同步|部署|推送|运行到|显示到|烧录|sync|deploy|flash/.test(value)
+          && (/核桃派|设备|板子|小屏|屏幕|lvgl|screen|派/.test(value) || looksLikeScreenEdit(value));
       }
 
       function looksLikeScreenEdit(text) {
@@ -2009,7 +1967,13 @@
         if (!value) return false;
 
         if (/^(设备状态|AI\s*任务板|网络面板|健康告警)$/i.test(value)) return true;
-        if (/(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个).*(?:软件|应用|app|程序|小程序|小工具|播放器|面板)|(?:软件|应用|app|程序|小程序|小工具|播放器|面板).*(?:做|创建|生成|开发|写|造|设计|弄)/i.test(value)) {
+        if (/(小屏|屏幕|界面|lvgl|screen|程序|应用|app|面板|工具)/i.test(value) && /(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个)/i.test(value)) {
+          return true;
+        }
+        if (/(?:直接)?(?:开始|继续|按这个|就这个|照这个|生成|创建|设计|做|弄)/i.test(value) && /(界面|UI|ui|小屏|屏幕|面板|页面|风格|按钮|旋钮|信号灯|指示灯|控件|卡片|布局|仪表盘|状态栏|播放按钮)/i.test(value)) {
+          return true;
+        }
+        if (/(?:给我|帮我)?\s*(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个)\s*\S{2,}/i.test(value)) {
           return true;
         }
         if (/^(标题|副标题|状态|进度|完成度|状态色|语义|告警级别|等级|指标|系统页|AI页|网络页)\s*(改成|改为|写成|写|显示|是|:|：)/i.test(value)) {
@@ -2019,6 +1983,167 @@
           return /(改|换|显示|写|设置|变成|更新|调整|标题|副标题|状态|进度|完成度|指标|面板|任务板|告警|网络|系统)/i.test(value);
         }
         return false;
+      }
+
+      function deviceReadActionForText(text) {
+        const trimmed = text.trim();
+        const lower = trimmed.toLowerCase();
+
+        if (/状态|健康|还好吗|status|系统|服务|docker|内存|存储|磁盘|空间/.test(lower) || (/怎么样/.test(lower) && /核桃派|设备|板子|系统|服务/.test(lower))) {
+          return actions.status;
+        }
+        if (/快照|snapshot|release|os-release|kernel|内核|hostname|启动配置|boot|设备信息|板子信息|硬件信息/.test(lower)) {
+          return actions.snapshot;
+        }
+        if (/网络|联网|wifi|wi-fi|ip\b|路由|route|network/.test(lower)) return actions.network;
+        if (/gpio|引脚|针脚|i2c|spi|uart|pwm|总线|bus|set-device/.test(lower)) return actions.gpio;
+        if (/今天.*(笔记|记录)|笔记.*今天|记了什么|notes|today/.test(lower)) return actions.notes;
+        return null;
+      }
+
+      function terminalToolActionForText(text) {
+        const lower = text.trim().toLowerCase();
+        if (/播放\s*(按钮|键|控件)/.test(lower)) return null;
+        if (/walnut\s+(video|play)|视频|彩色\s*ascii|ascii\s*(视频|动画)?|demo/.test(lower)) return actions.video;
+        if (/(运行|执行|打开|播放).*(玩具|演示|效果|动画|play)/.test(lower)) return actions.video;
+        return null;
+      }
+
+      function localClassifyUserIntent(text) {
+        const trimmed = text.trim();
+        const lower = trimmed.toLowerCase();
+        const aiQuestion = trimmed.match(/^(?:问一下|问ai|问 ai|ai[:：]?|聊天[:：]?)(.+)/i);
+        const noteMatch = trimmed.match(/^(?:记一下|记录|note)\s*[:：]?\s*(.+)/i);
+
+        if (aiQuestion && aiQuestion[1].trim()) {
+          return {
+            type: "ai.chat",
+            action: {
+              id: "ai",
+              payload: { text: aiQuestion[1].trim() },
+              reply: "我会把这句话交给 WalnutAI 回答。",
+            },
+          };
+        }
+
+        if (/清屏|clear/.test(trimmed)) return { type: "terminal.tool", action: actions.clear };
+        if (/重连|断开|ssh|连接/.test(lower)) return { type: "terminal.tool", action: actions.reconnect };
+        if (/总结|summary/i.test(trimmed) && /同步|证据|小屏|屏幕|screen/i.test(trimmed)) {
+          return { type: "screen.summary", action: actions.aiSummary };
+        }
+
+        if (looksLikeScreenEdit(trimmed)) {
+          return {
+            type: "screen.generate",
+            syncAfterGenerate: wantsScreenDelivery(trimmed),
+          };
+        }
+
+        if (wantsScreenDelivery(trimmed)) {
+          return { type: "screen.sync", action: actions.syncScreen };
+        }
+
+        if (noteMatch && noteMatch[1].trim()) {
+          return {
+            type: "device.write-low",
+            action: {
+              id: "note",
+              payload: { text: noteMatch[1].trim() },
+              reply: "我会把这句话写进核桃派本地笔记。",
+            },
+          };
+        }
+
+        const readAction = deviceReadActionForText(trimmed);
+        if (readAction) return { type: "device.read", action: readAction };
+
+        const terminalAction = terminalToolActionForText(trimmed);
+        if (terminalAction) return { type: "terminal.tool", action: terminalAction };
+
+        return {
+          type: "ai.chat",
+          action: {
+            id: "ai",
+            payload: { text: trimmed },
+            reply: /天气|weather/.test(lower) ? "我会把天气问题交给 WalnutAI 回答。" : "我会把这句话交给 WalnutAI 回答。",
+          },
+        };
+      }
+
+      const intentActionByType = {
+        "screen.sync": () => ({ type: "screen.sync", action: actions.syncScreen }),
+        "screen.summary": () => ({ type: "screen.summary", action: actions.aiSummary }),
+        "device.status.read": () => ({ type: "device.read", action: actions.status }),
+        "device.snapshot.read": () => ({ type: "device.read", action: actions.snapshot }),
+        "device.network.read": () => ({ type: "device.read", action: actions.network }),
+        "device.gpio.read": () => ({ type: "device.read", action: actions.gpio }),
+        "device.notes.read": () => ({ type: "device.read", action: actions.notes }),
+        "terminal.open": (classification) => {
+          const local = localClassifyUserIntent(classification.subject || "");
+          return local.type === "terminal.tool" ? local : { type: "terminal.tool", action: actions.reconnect };
+        },
+        "terminal.tool": (classification) => {
+          const local = terminalToolActionForText(classification.subject || "");
+          return { type: "terminal.tool", action: local || actions.video };
+        },
+      };
+
+      function intentFromClassification(classification, originalText) {
+        const normalized = classification || {};
+        const intent = normalized.intent || "";
+        const subject = normalized.subject || originalText;
+
+        if (intent === "screen.generate") {
+          return {
+            type: "screen.generate",
+            subject,
+            syncAfterGenerate: normalized.delivery === "sync_after_preview" || wantsScreenDelivery(originalText),
+            classification: normalized,
+          };
+        }
+
+        if (intent === "device.note.write") {
+          return {
+            type: "device.write-low",
+            action: {
+              id: "note",
+              payload: { text: subject },
+              reply: "我会把这句话写进核桃派本地笔记。",
+            },
+            classification: normalized,
+          };
+        }
+
+        if (intent === "ai.chat") {
+          return {
+            type: "ai.chat",
+            action: {
+              id: "ai",
+              payload: { text: subject },
+              reply: /天气|weather/.test(originalText.toLowerCase()) ? "我会把天气问题交给 WalnutAI 回答。" : "我会把这句话交给 WalnutAI 回答。",
+            },
+            classification: normalized,
+          };
+        }
+
+        const map = intentActionByType[intent];
+        return map ? { ...map(normalized), classification: normalized } : localClassifyUserIntent(originalText);
+      }
+
+      async function classifyUserIntent(text) {
+        const localIntent = localClassifyUserIntent(text);
+        try {
+          const response = await fetch(withCurrentSearch("/api/intent/classify"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text }),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok || !data.classification) return localIntent;
+          return intentFromClassification(data.classification, text);
+        } catch {
+          return localIntent;
+        }
       }
 
       function writeTerminalBlock(result) {
@@ -3336,13 +3461,23 @@
         assistantInput.value = "";
         addMessage("user", text);
 
-        if (looksLikeScreenEdit(text)) {
+        const intent = await classifyUserIntent(text);
+
+        if (intent.type === "screen.generate") {
           addMessage("assistant", "我先生成上面的小屏预览。");
-          await applyScreenIntent(text, { addChat: true });
+          const data = await applyScreenIntent(text, { addChat: true });
+          if (data && intent.syncAfterGenerate) {
+            await syncScreenToDevice({ addUserMessage: false });
+          }
           return;
         }
 
-        const action = actionForText(text);
+        if (intent.type === "screen.sync" || intent.type === "screen.summary" || intent.action) {
+          runAction(intent.action);
+          return;
+        }
+
+        const action = intent.action;
         if (!action) {
           addMessage("assistant", "我还没把这句话识别成安全操作。可以换成：查状态、GPIO、网络、记一下。");
           return;

@@ -44,11 +44,14 @@ const WALNUT_MEMORY_DIR = process.env.WALNUT_MEMORY_DIR || path.join(process.env
 const WALNUT_AI_MEMORY_FILE = process.env.WALNUT_AI_MEMORY_FILE || path.join(WALNUT_MEMORY_DIR, "memory.json");
 const WALNUT_AI_SKILLS_DIR = process.env.WALNUT_AI_SKILLS_DIR || path.join(PROJECT_ROOT, "walnut-ai-terminal", "skills");
 const WALNUT_AI_PRIMARY_SKILL = process.env.WALNUT_AI_PRIMARY_SKILL || "walnutpi-1b-zerow";
+const WALNUT_CLI_SOURCE_PATH = path.join(PROJECT_ROOT, "walnut-assistant", "walnut");
 const MEMORY_FIELDS = ["preferences", "environment", "projects", "workflows", "goals", "summary"];
 const RETRIEVAL_FILE_LIMIT = 5000;
 const RETRIEVAL_RESULT_LIMIT = 8;
 const WEB_SESSIONS_DIR = process.env.WALNUT_WEB_SESSIONS_DIR || path.join(BASE_DIR, "data", "sessions");
 const WEB_SESSION_EVENT_LIMIT = Number(process.env.WALNUT_WEB_SESSION_EVENT_LIMIT || 300);
+let walnutCliEnsurePromise = null;
+let walnutCliEnsureHash = null;
 
 const files = new Map([
   ["/", "model-terminal.html"],
@@ -919,6 +922,199 @@ function parseResponsesOutput(data) {
   return chunks.join("\n").trim();
 }
 
+const INTENT_TYPES = new Set([
+  "screen.generate",
+  "screen.sync",
+  "device.status.read",
+  "device.snapshot.read",
+  "device.network.read",
+  "device.gpio.read",
+  "device.notes.read",
+  "device.note.write",
+  "terminal.open",
+  "terminal.tool",
+  "screen.summary",
+  "ai.chat",
+]);
+const INTENT_DELIVERIES = new Set(["none", "sync_after_preview", "sync_existing"]);
+
+function wantsScreenDeliveryIntent(text) {
+  const value = String(text || "").trim().toLowerCase();
+  return /同步|部署|推送|运行到|显示到|烧录|sync|deploy|flash/.test(value);
+}
+
+function screenIntentSubject(input) {
+  return screenProgramSubject(input);
+}
+
+function ruleBasedIntentClassification(text) {
+  const trimmed = String(text || "").trim();
+  const lower = trimmed.toLowerCase();
+  const aiQuestion = trimmed.match(/^(?:问一下|问ai|问 ai|ai[:：]?|聊天[:：]?)(.+)/i);
+  const noteMatch = trimmed.match(/^(?:记一下|记录|note)\s*[:：]?\s*(.+)/i);
+
+  if (aiQuestion && aiQuestion[1].trim()) {
+    return normalizeIntentClassification({
+      intent: "ai.chat",
+      subject: aiQuestion[1].trim(),
+      delivery: "none",
+      confidence: 0.96,
+      source: "rule",
+    }, trimmed);
+  }
+
+  if (/清屏|clear|重连|断开|ssh|连接/.test(lower)) {
+    return normalizeIntentClassification({ intent: "terminal.open", subject: trimmed, confidence: 0.92, source: "rule" }, trimmed);
+  }
+
+  if (/总结|summary/i.test(trimmed) && /同步|证据|小屏|屏幕|screen/i.test(trimmed)) {
+    return normalizeIntentClassification({ intent: "screen.summary", subject: trimmed, confidence: 0.9, source: "rule" }, trimmed);
+  }
+
+  if (looksLikeScreenProgramRequest(trimmed)) {
+    return normalizeIntentClassification({
+      intent: "screen.generate",
+      subject: screenIntentSubject(trimmed),
+      delivery: wantsScreenDeliveryIntent(trimmed) ? "sync_after_preview" : "none",
+      confidence: 0.9,
+      source: "rule",
+    }, trimmed);
+  }
+
+  if (wantsScreenDeliveryIntent(trimmed) && /核桃派|设备|板子|小屏|屏幕|lvgl|screen|派/.test(lower)) {
+    return normalizeIntentClassification({ intent: "screen.sync", subject: trimmed, delivery: "sync_existing", confidence: 0.86, source: "rule" }, trimmed);
+  }
+
+  if (noteMatch && noteMatch[1].trim()) {
+    return normalizeIntentClassification({ intent: "device.note.write", subject: noteMatch[1].trim(), confidence: 0.9, source: "rule" }, trimmed);
+  }
+
+  if (/状态|健康|还好吗|status|系统|服务|docker|内存|存储|磁盘|空间/.test(lower) || (/怎么样/.test(lower) && /核桃派|设备|板子|系统|服务/.test(lower))) {
+    return normalizeIntentClassification({ intent: "device.status.read", subject: trimmed, confidence: 0.86, source: "rule" }, trimmed);
+  }
+  if (/快照|snapshot|release|os-release|kernel|内核|hostname|启动配置|boot|设备信息|板子信息|硬件信息/.test(lower)) {
+    return normalizeIntentClassification({ intent: "device.snapshot.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
+  }
+  if (/网络|联网|wifi|wi-fi|ip\b|路由|route|network/.test(lower)) {
+    return normalizeIntentClassification({ intent: "device.network.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
+  }
+  if (/gpio|引脚|针脚|i2c|spi|uart|pwm|总线|bus|set-device/.test(lower)) {
+    return normalizeIntentClassification({ intent: "device.gpio.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
+  }
+  if (/今天.*(笔记|记录)|笔记.*今天|记了什么|notes|today/.test(lower)) {
+    return normalizeIntentClassification({ intent: "device.notes.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
+  }
+
+  if (!/播放\s*(按钮|键|控件)/.test(lower) && (/walnut\s+(video|play)|视频|彩色\s*ascii|ascii\s*(视频|动画)?|demo/.test(lower) || /(运行|执行|打开|播放).*(玩具|演示|效果|动画|play)/.test(lower))) {
+    return normalizeIntentClassification({ intent: "terminal.tool", subject: trimmed, confidence: 0.78, source: "rule" }, trimmed);
+  }
+
+  return normalizeIntentClassification({ intent: "ai.chat", subject: trimmed, confidence: 0.62, source: "rule" }, trimmed);
+}
+
+function normalizeIntentClassification(value, fallbackText = "") {
+  const fallback = String(fallbackText || "").trim();
+  const intent = INTENT_TYPES.has(value?.intent) ? value.intent : "ai.chat";
+  const delivery = INTENT_DELIVERIES.has(value?.delivery) ? value.delivery : "none";
+  const confidence = Math.max(0, Math.min(1, Number(value?.confidence ?? 0.5)));
+  const subject = String(value?.subject || fallback).trim().slice(0, 120) || fallback || "";
+  return {
+    schema: "walnutpi.intent.classification.v1",
+    intent,
+    subject,
+    delivery,
+    confidence: Number(confidence.toFixed(2)),
+    source: value?.source === "ai" ? "ai" : "rule",
+  };
+}
+
+function parseIntentJson(text) {
+  const raw = String(text || "").trim();
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : raw.match(/\{[\s\S]*\}/)?.[0] || raw;
+  return JSON.parse(candidate);
+}
+
+function intentClassificationSystemPrompt() {
+  return [
+    "You classify WalnutPi Web user input into a strict JSON object.",
+    "Return JSON only. Do not return shell commands.",
+    "Allowed intent values: screen.generate, screen.sync, device.status.read, device.snapshot.read, device.network.read, device.gpio.read, device.notes.read, device.note.write, terminal.open, terminal.tool, screen.summary, ai.chat.",
+    "Allowed delivery values: none, sync_after_preview, sync_existing.",
+    "Workflow priority: explicit AI/chat first; generation/design/create/build any object is screen.generate; sync/flash/deploy to WalnutPi is screen sync or sync_after_preview when generation is also present; device status/network/GPIO are readonly device intents; terminal tools only when explicitly asking terminal/video/demo/play command.",
+    "CLI tools are executors only. Never choose terminal.tool just because generated UI mentions broadcast, play button, effect, or animation style.",
+  ].join("\n");
+}
+
+async function aiIntentClassification(text, ruleIntent) {
+  if (!AI_API_KEY) return null;
+  const response = await fetch(`${AI_BASE_URL}/responses`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${AI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: AI_MODEL,
+      input: [
+        { role: "system", content: intentClassificationSystemPrompt() },
+        {
+          role: "user",
+          content: JSON.stringify({
+            text,
+            ruleFallback: ruleIntent,
+            outputSchema: {
+              intent: "one allowed intent string",
+              subject: "short object/topic text",
+              delivery: "none | sync_after_preview | sync_existing",
+              confidence: "0..1 number",
+            },
+          }, null, 2),
+        },
+      ],
+    }),
+  });
+  if (!response.ok) return null;
+  const data = await response.json();
+  const parsed = parseIntentJson(parseResponsesOutput(data));
+  return normalizeIntentClassification({ ...parsed, source: "ai" }, text);
+}
+
+function intentClassificationAllowed(aiIntent, ruleIntent, text) {
+  if (!aiIntent || aiIntent.confidence < 0.72) return false;
+  if (ruleIntent.intent === "screen.generate" && aiIntent.intent !== "screen.generate") return false;
+  if (ruleIntent.intent === "screen.sync" && !["screen.sync", "screen.generate"].includes(aiIntent.intent)) return false;
+  if (ruleIntent.intent.startsWith("device.") && aiIntent.intent === "terminal.tool") return false;
+  if (wantsScreenDeliveryIntent(text) && aiIntent.intent === "ai.chat") return false;
+  return true;
+}
+
+async function classifyIntent(text) {
+  const ruleIntent = ruleBasedIntentClassification(text);
+  try {
+    const aiIntent = await aiIntentClassification(text, ruleIntent);
+    if (intentClassificationAllowed(aiIntent, ruleIntent, text)) {
+      return { ...aiIntent, fallback: ruleIntent };
+    }
+  } catch {
+    // Rule-based classification remains the safety boundary if the AI classifier fails.
+  }
+  return ruleIntent;
+}
+
+async function handleIntentClassify(req) {
+  let body;
+  try {
+    body = await readJsonRequest(req);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 400);
+  }
+  const text = String(body.text || "").trim();
+  if (!text) return json({ ok: false, error: "missing text" }, 400);
+  const classification = await classifyIntent(text);
+  return json({ ok: true, classification });
+}
+
 async function callScreenSummaryAi(evidence) {
   if (!AI_API_KEY) return { text: null, error: null, apiUsed: false };
   const prompt = [
@@ -1218,7 +1414,7 @@ async function trimScreenRecords() {
   }
 }
 
-function runRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+function runRawRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
   return new Promise((resolve) => {
     const target = `${SSH_USER}@${SSH_HOST}`;
     const child = spawn(
@@ -1282,7 +1478,7 @@ function runRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMI
   });
 }
 
-function runRemoteScript(script, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+function runRawRemoteScript(script, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
   return new Promise((resolve) => {
     const target = `${SSH_USER}@${SSH_HOST}`;
     const child = spawn(
@@ -1344,6 +1540,123 @@ function runRemoteScript(script, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT
     });
     child.stdin.end(String(script || "").replace(/\r\n/g, "\n"));
   });
+}
+
+async function localWalnutCliHash() {
+  const source = await readFile(WALNUT_CLI_SOURCE_PATH, "utf8");
+  return sha256(source.replace(/\r\n/g, "\n"));
+}
+
+function walnutCliInstallScript({ expectedHash, content }) {
+  const base64 = Buffer.from(String(content || "").replace(/\r\n/g, "\n"), "utf8").toString("base64");
+  return [
+    "set -e",
+    `EXPECTED=${shellQuote(expectedHash)}`,
+    `ROOT=${shellQuote(REMOTE_PROJECT_ROOT)}`,
+    "REMOTE=$(command -v walnut 2>/dev/null || true)",
+    "REMOTE_HASH=",
+    'if [ -n "$REMOTE" ] && [ -f "$REMOTE" ]; then REMOTE_HASH=$(sha256sum "$REMOTE" | awk \'{print $1}\'); fi',
+    'if [ "$REMOTE_HASH" = "$EXPECTED" ]; then',
+    '  printf "walnut cli ok: %s\\n" "$REMOTE_HASH"',
+    "  exit 0",
+    "fi",
+    'install -d "$ROOT/walnut-assistant"',
+    "base64 -d > \"$ROOT/walnut-assistant/walnut\" <<'WALNUT_CLI_FILE'",
+    base64,
+    "WALNUT_CLI_FILE",
+    'chmod 0755 "$ROOT/walnut-assistant/walnut"',
+    'if command -v sudo >/dev/null 2>&1; then sudo -n install -m 0755 "$ROOT/walnut-assistant/walnut" /usr/local/bin/walnut; else install -m 0755 "$ROOT/walnut-assistant/walnut" /usr/local/bin/walnut; fi',
+    'INSTALLED_HASH=$(sha256sum /usr/local/bin/walnut | awk \'{print $1}\')',
+    'if [ "$INSTALLED_HASH" != "$EXPECTED" ]; then',
+    '  printf "walnut cli install hash mismatch: expected=%s installed=%s\\n" "$EXPECTED" "$INSTALLED_HASH" >&2',
+    "  exit 1",
+    "fi",
+    'printf "walnut cli installed: %s -> /usr/local/bin/walnut\\n" "$INSTALLED_HASH"',
+  ].join("\n");
+}
+
+async function ensureRemoteWalnutCli({ force = false } = {}) {
+  const expectedHash = await localWalnutCliHash();
+  if (!force && walnutCliEnsureHash === expectedHash) {
+    return { ok: true, code: 0, output: `walnut cli ok: ${expectedHash}`, ensured: false };
+  }
+  if (!force && walnutCliEnsurePromise) return walnutCliEnsurePromise;
+
+  walnutCliEnsurePromise = (async () => {
+    const content = await readFile(WALNUT_CLI_SOURCE_PATH, "utf8");
+    const result = await runRawRemoteScript(
+      walnutCliInstallScript({ expectedHash, content }),
+      20_000,
+      ACTION_OUTPUT_LIMIT,
+    );
+    if (result.ok) walnutCliEnsureHash = expectedHash;
+    return {
+      ...result,
+      ensured: result.ok && /installed/.test(result.output),
+      expectedHash,
+    };
+  })();
+
+  try {
+    return await walnutCliEnsurePromise;
+  } finally {
+    walnutCliEnsurePromise = null;
+  }
+}
+
+async function runRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+  const ensure = await ensureRemoteWalnutCli();
+  if (!ensure.ok) {
+    return {
+      ok: false,
+      code: ensure.code,
+      output: limitedOutput(
+        [
+          "[walnut cli preflight failed]",
+          ensure.output,
+          "",
+          "[command skipped]",
+          command,
+        ].join("\n"),
+        outputLimit,
+      ),
+    };
+  }
+  const result = await runRawRemote(command, timeoutMs, outputLimit);
+  if (ensure.ensured) {
+    return {
+      ...result,
+      preflightOutput: ensure.output,
+    };
+  }
+  return result;
+}
+
+async function runRemoteScript(script, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+  const ensure = await ensureRemoteWalnutCli();
+  if (!ensure.ok) {
+    return {
+      ok: false,
+      code: ensure.code,
+      output: limitedOutput(
+        [
+          "[walnut cli preflight failed]",
+          ensure.output,
+          "",
+          "[remote script skipped]",
+        ].join("\n"),
+        outputLimit,
+      ),
+    };
+  }
+  const result = await runRawRemoteScript(script, timeoutMs, outputLimit);
+  if (ensure.ensured) {
+    return {
+      ...result,
+      preflightOutput: ensure.output,
+    };
+  }
+  return result;
 }
 
 function validSha256(value) {
@@ -1975,35 +2288,51 @@ function pageComponentPatch(pageIndex, tab, component) {
 function looksLikeScreenProgramRequest(input) {
   const text = String(input || "").trim();
   if (!text) return false;
-  if (/(小屏|屏幕|界面|lvgl|screen)/i.test(text) && /(做|创建|生成|开发|写|造|设计|弄|来一个)/i.test(text)) {
+  if (/(小屏|屏幕|界面|lvgl|screen|程序|应用|app|面板|工具)/i.test(text) && /(做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个)/i.test(text)) {
     return true;
   }
-  return /(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个).*(?:软件|应用|app|程序|小程序|小工具|播放器|面板)|(?:软件|应用|app|程序|小程序|小工具|播放器|面板).*(?:做|创建|生成|开发|写|造|设计|弄)/i.test(text);
+  if (/(?:直接)?(?:开始|继续|按这个|就这个|照这个|生成|创建|设计|做|弄)/i.test(text) && /(界面|UI|ui|小屏|屏幕|面板|页面|风格|按钮|旋钮|信号灯|指示灯|控件|卡片|布局|仪表盘|状态栏|播放按钮)/i.test(text)) {
+    return true;
+  }
+  return /(?:给我|帮我)?\s*(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个)\s*\S{2,}/i.test(text);
+}
+
+function screenProgramSubject(input) {
+  let subject = String(input || "").trim();
+  subject = subject
+    .replace(/^(?:请|麻烦|帮我|给我|你|我要|我想|直接开始|直接|先|开始|继续|现在|按这个|就这个|照这个)\s*/i, "")
+    .replace(/(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个)\s*/i, "")
+    .replace(/(?:然后|并且|并|再)?\s*(?:同步|部署|推送|烧录|运行到|显示到)\s*(?:到|至)?\s*(?:核桃派|设备|板子|小屏|屏幕|lvgl|screen)?/ig, "")
+    .replace(/[，。,.!！?？；;：:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return subject || "小屏程序";
+}
+
+function titleFromProgramSubject(subject) {
+  const asciiWords = String(subject || "").match(/[a-z0-9]+/gi);
+  if (asciiWords && asciiWords.length) {
+    return cleanText(asciiWords.slice(0, 2).join(" ").replace(/\b\w/g, (char) => char.toUpperCase()), "generated.title", 32);
+  }
+  return cleanText(subject, "generated.title", 32);
 }
 
 function screenProgramIntentPatch(input) {
   if (!looksLikeScreenProgramRequest(input)) return null;
 
-  if (/音乐|歌曲|歌单|播放器|音频|声音|music|audio|player/i.test(input)) {
-    const template = SCREEN_TEMPLATES.find((item) => item.id === "music-player");
-    return template
-      ? {
-        ...template.manifest,
-        intentSummary: "已把音乐软件生成成小屏播放器预览。可以继续说要改哪里，或说“同步到核桃派”。",
-      }
-      : null;
-  }
-
+  const subject = screenProgramSubject(input);
+  const title = titleFromProgramSubject(subject);
+  const subjectLine = cleanText(subject, "generated.subject", 48);
   return {
-    title: "WalnutApp",
-    subtitle: "app preview",
+    title,
+    subtitle: "generated preview",
     pages: [
-      { id: "home", tab: "APP", status: "APP DRAFT", tone: "ok", progress: 40, metrics: ["Preview ready", "Sync safe", "Edit by chat"] },
-      { id: "system", tab: "UI", title: "Screen UI", lines: ["Main screen", "Status area", "Action list", "Evidence ready"] },
-      { id: "ai", tab: "AI", title: "Build Intent", lines: ["Natural language", "Safe local actions", "Ask before writes", "Beginner first"] },
-      { id: "network", tab: "NEXT", title: "Next Steps", lines: ["Refine preview", "Sync to WalnutPi", "Check frame", "Keep diagnostics hidden"] },
+      { id: "home", tab: "APP", status: "DRAFT READY", tone: "ok", progress: 35, metrics: ["Intent ready", "Preview safe", "Sync next"] },
+      { id: "system", tab: "SPEC", title: "Generated Intent", lines: [subjectLine, "Manifest only", "Preview first", "No unsafe writes"] },
+      { id: "ai", tab: "FLOW", title: "Build Flow", lines: ["Generate preview", "Check screen", "Sync on request", "Record evidence"] },
+      { id: "network", tab: "SYNC", title: "WalnutPi Sync", lines: ["Use manifest hash", "Build LVGL", "Activate screen", "Capture frame"] },
     ],
-    intentSummary: "已生成一个小屏应用预览。可以继续说要改哪里，或说“同步到核桃派”。",
+    intentSummary: "已按你的描述生成小屏预览。确认效果后，可以点击或说“同步到核桃派”。",
   };
 }
 
@@ -3069,7 +3398,7 @@ const ACTIONS = {
     title: "查状态",
     risk: "read",
     mode: "remote",
-    command: "walnut action run status --json",
+    command: "if walnut action --help >/dev/null 2>&1; then walnut action run status --json; else walnut status; fi",
     parseJsonOutput: true,
     reply: "我会读取系统、网络、存储、服务和音频状态。",
     timeoutMs: 20_000,
@@ -3078,7 +3407,7 @@ const ACTIONS = {
     title: "设备快照",
     risk: "read",
     mode: "remote",
-    command: "walnut action run snapshot --json",
+    command: "if walnut action --help >/dev/null 2>&1; then walnut action run snapshot --json; else hostname; uname -a; cat /etc/os-release 2>/dev/null | head -n 6; walnut screen state 2>/dev/null || true; fi",
     parseJsonOutput: true,
     reply: "我会先做只读设备快照，确认板子、系统、引脚和 overlay 状态。",
     timeoutMs: 20_000,
@@ -3087,7 +3416,7 @@ const ACTIONS = {
     title: "网络检查",
     risk: "read",
     mode: "remote",
-    command: "walnut action run network --json",
+    command: "if walnut action --help >/dev/null 2>&1; then walnut action run network --json; else ip -brief addr; ip route; command -v nmcli >/dev/null 2>&1 && nmcli -t -f DEVICE,STATE,CONNECTION device status || true; fi",
     parseJsonOutput: true,
     reply: "我会检查 IP、默认路由和 Wi-Fi 状态。",
     timeoutMs: 12_000,
@@ -3096,7 +3425,7 @@ const ACTIONS = {
     title: "GPIO 检查",
     risk: "read",
     mode: "remote",
-    command: "walnut action run gpio --json",
+    command: "if walnut action --help >/dev/null 2>&1; then walnut action run gpio --json; elif command -v gpio >/dev/null 2>&1; then gpio pins; gpio pin i2c; gpio pin spi; gpio pin uart; else echo 'gpio unavailable'; fi",
     parseJsonOutput: true,
     reply: "我会只读检查引脚、总线和 overlay，避免误占用 GPIO。",
     timeoutMs: 20_000,
@@ -3205,10 +3534,30 @@ async function handleAction(req) {
   }
 
   if (action.mode === "terminal") {
+    const ensure = await ensureRemoteWalnutCli();
+    if (!ensure.ok) {
+      return json({
+        ok: false,
+        ...actionSummary(action, id),
+        command,
+        code: ensure.code,
+        remoteOk: false,
+        output: limitedOutput(
+          [
+            "[walnut cli preflight failed]",
+            ensure.output,
+            "",
+            "[terminal command skipped]",
+            command,
+          ].join("\n"),
+        ),
+      }, 500);
+    }
     const responseBody = {
       ok: true,
       ...actionSummary(action, id),
       command,
+      preflightOutput: ensure.ensured ? ensure.output : "",
     };
     if (sessionId) {
       await appendSessionEvent(sessionId, {
@@ -3266,6 +3615,37 @@ async function handleAction(req) {
 
 function startSsh(ws) {
   const target = `${SSH_USER}@${SSH_HOST}`;
+  const send = (chunk) => {
+    try {
+      ws.send(chunk);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  ws.data.child = null;
+  send(`\r\n[local] checking walnut CLI on ${target}\r\n`);
+
+  ensureRemoteWalnutCli()
+    .then((ensure) => {
+      if (!ensure.ok) {
+        send(`\r\n[local] walnut CLI preflight failed\r\n${ensure.output}\r\n`);
+        ws.close();
+        return;
+      }
+      if (ensure.ensured) {
+        send(`\r\n[local] ${ensure.output}\r\n`);
+      }
+      openSshSession(ws, target);
+    })
+    .catch((error) => {
+      send(`\r\n[local] walnut CLI preflight error: ${error.message}\r\n`);
+      ws.close();
+    });
+}
+
+function openSshSession(ws, target) {
   const child = spawn(
     "sshpass",
     [
@@ -3361,6 +3741,11 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/session") {
       return handleSession(req, url);
+    }
+
+    if (url.pathname === "/api/intent/classify") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleIntentClassify(req);
     }
 
     if (url.pathname === "/api/screen/manifest") {
