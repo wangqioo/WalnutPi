@@ -18,6 +18,10 @@ fi
 
 install -d /opt/walnut-ai
 install -m 0755 "$ROOT_DIR/walnut-ai-terminal/walnut_ai.py" /opt/walnut-ai/walnut_ai.py
+rm -rf /opt/walnut-ai/skills /opt/walnut-ai/corpus
+cp -r "$ROOT_DIR/walnut-ai-terminal/skills" /opt/walnut-ai/
+cp -r "$ROOT_DIR/walnut-ai-terminal/corpus" /opt/walnut-ai/
+install -m 0755 "$ROOT_DIR/walnut-assistant/walnut" /usr/local/bin/walnut
 
 rm -rf /opt/walnut-ai-video
 install -d /opt/walnut-ai-video

@@ -28,7 +28,7 @@ const SCREEN_RECORD_LIMIT = Number.isFinite(parsedScreenRecordLimit) && parsedSc
   ? Math.floor(parsedScreenRecordLimit)
   : 50;
 const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BASE_DIR, "screen-sync-records");
-const AI_MODEL = process.env.WALNUT_AI_MODEL || "gpt-5.5";
+const AI_MODEL = process.env.WALNUT_AI_MODEL || "gpt-5.4-mini";
 const AI_BASE_URL = (process.env.WALNUT_AI_BASE_URL || "https://rehdasu.cn/v1").replace(/\/+$/, "");
 const AI_API_KEY = process.env.OPENAI_API_KEY || "";
 const AI_CONTEXT_LIMIT = 4;
@@ -2273,7 +2273,8 @@ const ACTIONS = {
     title: "查状态",
     risk: "read",
     mode: "remote",
-    command: "walnut status",
+    command: "walnut action run status --json",
+    parseJsonOutput: true,
     reply: "我会读取系统、网络、存储、服务和音频状态。",
     timeoutMs: 20_000,
   },
@@ -2281,15 +2282,8 @@ const ACTIONS = {
     title: "设备快照",
     risk: "read",
     mode: "remote",
-    command: [
-      "hostname",
-      "uname -a",
-      "cat /etc/WalnutPi-release 2>/dev/null || true",
-      "cat /etc/os-release 2>/dev/null || true",
-      "sed -n '1,160p' /boot/config.txt 2>/dev/null || true",
-      "gpio pins 2>/dev/null || true",
-      "set-device status 2>/dev/null || true",
-    ].join("; "),
+    command: "walnut action run snapshot --json",
+    parseJsonOutput: true,
     reply: "我会先做只读设备快照，确认板子、系统、引脚和 overlay 状态。",
     timeoutMs: 20_000,
   },
@@ -2297,11 +2291,8 @@ const ACTIONS = {
     title: "网络检查",
     risk: "read",
     mode: "remote",
-    command: [
-      "ip -br addr",
-      "ip route show default",
-      "nmcli -t -f ACTIVE,SSID,SIGNAL dev wifi 2>/dev/null || true",
-    ].join("; "),
+    command: "walnut action run network --json",
+    parseJsonOutput: true,
     reply: "我会检查 IP、默认路由和 Wi-Fi 状态。",
     timeoutMs: 12_000,
   },
@@ -2309,15 +2300,8 @@ const ACTIONS = {
     title: "GPIO 检查",
     risk: "read",
     mode: "remote",
-    command: [
-      "gpio pins",
-      "gpio pin i2c 2>/dev/null || true",
-      "gpio pin spi 2>/dev/null || true",
-      "gpio pin uart 2>/dev/null || true",
-      "gpio pin pwm 2>/dev/null || true",
-      "set-device status 2>/dev/null || true",
-      "sed -n '1,160p' /boot/config.txt 2>/dev/null || true",
-    ].join("; "),
+    command: "walnut action run gpio --json",
+    parseJsonOutput: true,
     reply: "我会只读检查引脚、总线和 overlay，避免误占用 GPIO。",
     timeoutMs: 20_000,
   },
@@ -2412,14 +2396,31 @@ async function handleAction(req) {
 
   const result = await runRemote(command, action.timeoutMs);
   const outputFailed = id === "ai" && aiActionOutputFailed(result.output);
+  let actionEvidence = null;
+  let output = result.output;
+  let remoteOk = result.ok;
+  if (action.parseJsonOutput && result.output) {
+    try {
+      actionEvidence = JSON.parse(result.output);
+      if (typeof actionEvidence?.output === "string") {
+        output = actionEvidence.output;
+      }
+      if (typeof actionEvidence?.ok === "boolean") {
+        remoteOk = result.ok && actionEvidence.ok;
+      }
+    } catch {
+      actionEvidence = null;
+    }
+  }
   return json({
-    ok: result.ok && !outputFailed,
+    ok: remoteOk && !outputFailed,
     ...actionSummary(action, id),
     command,
     code: result.code,
-    remoteOk: result.ok,
+    remoteOk,
     outputFailed,
-    output: result.output,
+    output,
+    actionEvidence,
   });
 }
 

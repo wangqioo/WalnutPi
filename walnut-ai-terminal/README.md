@@ -1,43 +1,87 @@
 # WalnutAI Terminal V0
 
-A tiny cloud-AI terminal for headless Linux devices such as WalnutPi.
+WalnutAI is the local agent layer for WalnutPi. It is not only a chat wrapper: it can use safe local actions, long-term memory, WalnutPi skills, and a small successful-code corpus before answering.
 
 ## Usage
 
 ```bash
 walnut-ai
+walnut-ai "上海天气怎么样"
+walnut-ai /memory
 ```
 
 ## Commands
 
 ```text
-/status              Show device, service, Docker, memory, and disk status
-/note text           Save a note to Markdown
-/polish text         Lightly polish text using cloud AI
-/translate text      Translate between Chinese and English
-/clear               Clear current chat context
-/help                Show help
-/exit                Exit
+/status              查看核桃派状态
+/memory              查看长期记忆
+/note 内容           记录想法到 Markdown
+/polish 内容         润色文字
+/translate 内容      翻译文字，中英互译
+/clear               清空当前聊天
+/help                显示帮助
+/exit                退出
 ```
 
-Plain text input starts a normal AI chat.
+## Local Action Flow
+
+WalnutAI routes requests through this shape:
+
+```text
+natural language
+-> intent classification
+-> safe local action or normal chat
+-> structured evidence
+-> concise Chinese summary
+```
+
+Read actions use `walnut action run ... --json`:
+
+```bash
+walnut action run status --json
+walnut action run network --json
+walnut action run gpio --json
+walnut action run snapshot --json
+```
+
+High-risk operations such as GPIO output, overlay changes, package installs, service changes, reboot, shutdown, deletes, flashing, firmware, or eMMC writes must not run directly.
+
+## Memory And Retrieval
+
+Long-term memory defaults to:
+
+```text
+~/walnut-memory/memory.json
+```
+
+WalnutAI also retrieves project context from:
+
+```text
+walnut-ai-terminal/skills/
+walnut-ai-terminal/corpus/
+```
+
+The first corpus file, `corpus/successful-code.md`, records working WalnutPi patterns such as the LVGL screen sync slice and local action JSON shape.
+
+Do not store secrets in memory or corpus: API keys, Wi-Fi passwords, SSH passwords, tokens, private keys, or full logs.
 
 ## Configuration
 
-The script reads these environment variables:
-
 ```bash
-OPENAI_API_KEY       Required API key
-WALNUT_AI_BASE_URL   OpenAI-compatible base URL, default: https://rehdasu.cn/v1
-WALNUT_AI_MODEL      Model name, default: gpt-5.5
-WALNUT_AI_NOTES_DIR  Notes directory, default: /root/walnut-ai-notes
-WALNUT_AI_CONTEXT_DIR  WalnutPi context skills, default: walnut-ai-terminal/skills
-WALNUT_AI_MEMORY_FILE  Non-secret memory seed, default: walnut-ai-terminal/memory/default-memory.json
+OPENAI_API_KEY              Required for cloud AI calls
+WALNUT_AI_BASE_URL          OpenAI-compatible base URL, default https://rehdasu.cn/v1
+WALNUT_AI_MODEL             Model name, default gpt-5.4-mini
+WALNUT_AI_TIMEOUT           Request timeout, default 45 seconds
+WALNUT_AI_REASONING_EFFORT  Reasoning effort, default none
+WALNUT_AI_TEXT_VERBOSITY    Text verbosity, default low
+WALNUT_AI_MEMORY_FILE       Memory file, default ~/walnut-memory/memory.json
+WALNUT_AI_NOTES_DIR         Daily notes directory, default ~/walnut-memory/daily
+WALNUT_AI_DEVICE_PROFILE    Device identity, default 核桃派 1B ZeroW
+WALNUT_AI_SKILLS_DIR        Skills directory, default walnut_ai.py sibling skills/
+WALNUT_AI_PRIMARY_SKILL     Primary skill, default walnutpi-1b-zerow
+WALNUT_AI_CORPUS_DIR        Successful-code corpus, default walnut_ai.py sibling corpus/
+WALNUT_CLI                  Optional explicit walnut CLI path
 ```
-
-On the WalnutPi prototype, the launcher sources `/root/.profile` so it can reuse the existing `OPENAI_API_KEY`.
-
-The default context bundle is intentionally small and non-secret. It includes WalnutPi product direction, screen workflow facts, and safety boundaries. Do not put API keys, Wi-Fi passwords, SSH passwords, tokens, private keys, or logs into the memory file.
 
 ## Install
 
@@ -46,3 +90,6 @@ From the repository root:
 ```bash
 sudo ./scripts/install-walnut-ai.sh
 ```
+
+The installer copies `walnut_ai.py`, `skills/`, `corpus/`, and the `walnut` CLI into the board runtime.
+

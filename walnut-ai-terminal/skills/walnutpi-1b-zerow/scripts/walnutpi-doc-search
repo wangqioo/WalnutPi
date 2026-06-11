@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/../../.." && pwd)"
+root="${WALNUTPI_DOC_ROOT:-}"
+
+if [[ -z "$root" || ! -d "$root" ]]; then
+  echo "WalnutPi docs are not bundled in this repository; only skills are bundled." >&2
+  echo "Set WALNUTPI_DOC_ROOT to a local docs/walnutpi_1 path if you need doc search." >&2
+  exit 2
+fi
+
+if [[ $# -eq 0 ]]; then
+  find "$root" -type f -name '*.md' -print | sort | while IFS= read -r file; do
+    title="$(awk '/^# /{sub(/^# /,""); print; exit}' "$file")"
+    rel="${file#$root/}"
+    printf '%-60s %s\n' "$rel" "$title"
+  done
+  exit 0
+fi
+
+query="$*"
+
+if command -v rg >/dev/null 2>&1; then
+  rg -n --ignore-case --glob '*.md' -- "$query" "$root"
+else
+  grep -RIn --include='*.md' -i -- "$query" "$root"
+fi

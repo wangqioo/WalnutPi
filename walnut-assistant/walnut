@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import json
 import os
+import secrets
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -45,6 +49,13 @@ MUSIC_DIR_CANDIDATES = [
 AIRPODS_MAC = "34:0E:22:C0:C7:CC"
 BROWSER_URL = "https://lite.duckduckgo.com/lite/"
 MUSIC_EXTENSIONS = {".mp3", ".ogg", ".oga", ".flac", ".wav"}
+ACTION_OUTPUT_LIMIT = 24000
+PENDING_ACTION_TTL_SECONDS = 300
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 
 def run(cmd: list[str], check: bool = False) -> subprocess.CompletedProcess[str]:
@@ -105,7 +116,10 @@ def clear_screen() -> None:
 
 def one_line(cmd: list[str], fallback: str = "-") -> str:
     try:
-        out = run(cmd).stdout.strip()
+        result = run(cmd)
+        if result.returncode != 0:
+            return fallback
+        out = result.stdout.strip()
         return out if out else fallback
     except Exception:
         return fallback
@@ -423,6 +437,293 @@ def status(_: argparse.Namespace | None = None) -> int:
     return 0
 
 
+def clipped_action_output(value: str) -> str:
+    if len(value) <= ACTION_OUTPUT_LIMIT:
+        return value
+    return value[:ACTION_OUTPUT_LIMIT] + "\n\n[walnut action] output truncated"
+
+
+def captured_function_output(func, args: argparse.Namespace | None = None) -> tuple[int | None, str]:
+    buffer = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
+            code = func(args)
+    except Exception as error:
+        return None, f"[walnut action] {error}"
+    output = buffer.getvalue().strip() or "ok"
+    return code, clipped_action_output(output)
+
+
+def action_network(_: argparse.Namespace | None = None) -> int:
+    section("Network")
+    print("hostname -I:")
+    print(one_line(["hostname", "-I"], "unavailable"))
+    print("ip -br addr:")
+    print(one_line(["ip", "-br", "addr"], "unavailable"))
+    print("default route:")
+    print(one_line(["ip", "route", "show", "default"], "unavailable"))
+    if exists("nmcli"):
+        print("wifi:")
+        print(one_line(["nmcli", "-t", "-f", "ACTIVE,SSID,SIGNAL", "dev", "wifi"]))
+    return 0
+
+
+def action_gpio(_: argparse.Namespace | None = None) -> int:
+    section("GPIO")
+    if exists("gpio"):
+        for cmd in [
+            ["gpio", "pins"],
+            ["gpio", "pin", "i2c"],
+            ["gpio", "pin", "spi"],
+            ["gpio", "pin", "uart"],
+            ["gpio", "pin", "pwm"],
+        ]:
+            print(f"$ {' '.join(cmd)}")
+            print(one_line(cmd))
+    else:
+        print("gpio unavailable")
+
+    section("set-device")
+    print(one_line(["set-device", "status"], "set-device unavailable"))
+
+    config = Path("/boot/config.txt")
+    section("/boot/config.txt")
+    if config.exists():
+        try:
+            print("\n".join(config.read_text(encoding="utf-8", errors="replace").splitlines()[:160]))
+        except OSError as error:
+            print(f"read failed: {error}")
+    else:
+        print("missing")
+    return 0
+
+
+def action_snapshot(_: argparse.Namespace | None = None) -> int:
+    section("Device")
+    print(one_line(["hostname"]))
+    print(one_line(["uname", "-a"]))
+
+    for label, path in [
+        ("/etc/WalnutPi-release", Path("/etc/WalnutPi-release")),
+        ("/etc/os-release", Path("/etc/os-release")),
+        ("framebuffer size", Path("/sys/class/graphics/fb0/virtual_size")),
+        ("framebuffer name", Path("/sys/class/graphics/fb0/name")),
+        ("/boot/config.txt", Path("/boot/config.txt")),
+    ]:
+        section(label)
+        if path.exists():
+            try:
+                data = path.read_text(encoding="utf-8", errors="replace").strip()
+            except OSError as error:
+                data = f"read failed: {error}"
+            if label == "/boot/config.txt":
+                data = "\n".join(data.splitlines()[:160])
+            print(data or "empty")
+        else:
+            print("missing")
+
+    action_gpio(None)
+    return 0
+
+
+READ_ACTIONS = {
+    "status": {
+        "title": "查状态",
+        "risk": "read",
+        "mode": "read",
+        "handler": status,
+    },
+    "network": {
+        "title": "网络检查",
+        "risk": "read",
+        "mode": "read",
+        "handler": action_network,
+    },
+    "gpio": {
+        "title": "GPIO 检查",
+        "risk": "read",
+        "mode": "read",
+        "handler": action_gpio,
+    },
+    "snapshot": {
+        "title": "设备快照",
+        "risk": "read",
+        "mode": "read",
+        "handler": action_snapshot,
+    },
+}
+
+
+PREPARE_ACTIONS = {
+    "reboot": {
+        "title": "重启 WalnutPi",
+        "risk": "high",
+        "mode": "confirmable",
+        "command": "reboot",
+        "explanation": "这会断开当前终端和 Web Agent Console，会中断正在运行的任务。",
+    },
+}
+
+
+def action_result(action_id: str, spec: dict[str, object], code: int | None, output: str) -> dict[str, object]:
+    return {
+        "ok": code == 0,
+        "id": action_id,
+        "title": spec["title"],
+        "risk": spec["risk"],
+        "mode": spec["mode"],
+        "code": code,
+        "output": output,
+    }
+
+
+def print_action_result(result: dict[str, object], as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return
+
+    print(f"== {result['title']} ==")
+    print(f"risk: {result['risk']}")
+    print()
+    print(result.get("output") or "")
+
+
+def action_run(args: argparse.Namespace) -> int:
+    action_id = args.action
+    spec = READ_ACTIONS.get(action_id)
+    if spec is None:
+        print(f"Unknown read action: {action_id}", file=sys.stderr)
+        print("Available: " + ", ".join(sorted(READ_ACTIONS)), file=sys.stderr)
+        return 2
+
+    code, output = captured_function_output(spec["handler"])
+    result = action_result(action_id, spec, code, output)
+    print_action_result(result, args.json)
+    return 0 if result["ok"] else 1
+
+
+def pending_action(action_id: str, spec: dict[str, object]) -> dict[str, object]:
+    now = int(time.time())
+    return {
+        "schema": "walnut.pending-local-action.v1",
+        "id": action_id,
+        "title": spec["title"],
+        "risk": spec["risk"],
+        "mode": spec["mode"],
+        "command": spec["command"],
+        "explanation": spec["explanation"],
+        "token": secrets.token_urlsafe(18),
+        "created_at": now,
+        "expires_at": now + PENDING_ACTION_TTL_SECONDS,
+        "state": "pending",
+    }
+
+
+def print_pending_action(pending: dict[str, object], as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(pending, ensure_ascii=False, indent=2))
+        return
+
+    print(f"== {pending['title']} ==")
+    print(f"risk: {pending['risk']}")
+    print(f"command: {pending['command']}")
+    print()
+    print(pending["explanation"])
+    print()
+    print("This action is prepared only. Confirm it from the active WalnutAI or Web Agent Console session.")
+
+
+def action_prepare(args: argparse.Namespace) -> int:
+    action_id = args.action
+    spec = PREPARE_ACTIONS.get(action_id)
+    if spec is None:
+        print(f"Unknown confirmable action: {action_id}", file=sys.stderr)
+        print("Available: " + ", ".join(sorted(PREPARE_ACTIONS)), file=sys.stderr)
+        return 2
+
+    print_pending_action(pending_action(action_id, spec), args.json)
+    return 0
+
+
+def read_pending_action() -> dict[str, object] | None:
+    try:
+        data = json.loads(sys.stdin.read())
+    except json.JSONDecodeError as error:
+        print(f"Invalid pending action JSON: {error}", file=sys.stderr)
+        return None
+    if not isinstance(data, dict):
+        print("Invalid pending action JSON: expected object", file=sys.stderr)
+        return None
+    return data
+
+
+def validate_pending_action(data: dict[str, object]) -> str | None:
+    if data.get("schema") != "walnut.pending-local-action.v1":
+        return "pending action schema is not supported"
+    action_id = str(data.get("id", ""))
+    spec = PREPARE_ACTIONS.get(action_id)
+    if spec is None:
+        return "pending action id is not allowed"
+    for key in ("title", "risk", "mode", "command", "explanation"):
+        if data.get(key) != spec[key]:
+            return f"pending action {key} no longer matches the allowed action"
+    token = str(data.get("token", ""))
+    if not token:
+        return "pending action token is missing"
+    try:
+        expires_at = int(data.get("expires_at", 0))
+    except (TypeError, ValueError):
+        return "pending action expiry is invalid"
+    if expires_at < int(time.time()):
+        return "pending action has expired"
+    return None
+
+
+def action_commit(args: argparse.Namespace) -> int:
+    data = read_pending_action()
+    if data is None:
+        return 2
+
+    error = validate_pending_action(data)
+    if error:
+        result = {
+            "ok": False,
+            "id": data.get("id"),
+            "title": data.get("title", "Pending Local Action"),
+            "risk": data.get("risk", "high"),
+            "mode": "confirmable",
+            "code": None,
+            "command": data.get("command"),
+            "output": error,
+        }
+        print_action_result(result, args.json)
+        return 2
+
+    result = {
+        "ok": False,
+        "id": data["id"],
+        "title": data["title"],
+        "risk": data["risk"],
+        "mode": "confirmable",
+        "code": None,
+        "command": data["command"],
+        "output": "Confirmed execution is not enabled in this WalnutPi Local Action slice.",
+    }
+    print_action_result(result, args.json)
+    return 1
+
+
+def action_cli(args: argparse.Namespace) -> int:
+    if args.action_cmd == "run":
+        return action_run(args)
+    if args.action_cmd == "prepare":
+        return action_prepare(args)
+    if args.action_cmd == "commit":
+        return action_commit(args)
+    print("Missing action command. Use run, prepare, or commit.", file=sys.stderr)
+    return 2
+
+
 def screen_service_state(service: str) -> str:
     return run(root_cmd(["systemctl", "is-active", service])).stdout.strip() or "unknown"
 
@@ -637,9 +938,10 @@ def today(_: argparse.Namespace | None = None) -> int:
     return 0
 
 
-def open_ai(_: argparse.Namespace | None = None) -> int:
+def open_ai(args: argparse.Namespace | None = None) -> int:
     if exists("walnut-ai"):
-        return stream(["walnut-ai"])
+        text = getattr(args, "text", []) if args is not None else []
+        return stream(["walnut-ai", *text] if text else ["walnut-ai"])
     print("walnut-ai is missing")
     return 1
 
@@ -709,9 +1011,29 @@ def build_parser() -> argparse.ArgumentParser:
     }
     for name, func in commands.items():
         p = sub.add_parser(name)
+        if name == "ai":
+            p.add_argument("text", nargs=argparse.REMAINDER)
         if name == "video":
             p.add_argument("mode", nargs="?", choices=["color", "gray", "still-color", "still-gray"], default="color")
         p.set_defaults(func=func)
+
+    p_action = sub.add_parser("action")
+    p_action.set_defaults(func=action_cli)
+    action_sub = p_action.add_subparsers(dest="action_cmd")
+
+    p_action_run = action_sub.add_parser("run")
+    p_action_run.add_argument("action", choices=sorted(READ_ACTIONS))
+    p_action_run.add_argument("--json", action="store_true")
+    p_action_run.set_defaults(func=action_cli)
+
+    p_action_prepare = action_sub.add_parser("prepare")
+    p_action_prepare.add_argument("action", choices=sorted(PREPARE_ACTIONS))
+    p_action_prepare.add_argument("--json", action="store_true")
+    p_action_prepare.set_defaults(func=action_cli)
+
+    p_action_commit = action_sub.add_parser("commit")
+    p_action_commit.add_argument("--json", action="store_true")
+    p_action_commit.set_defaults(func=action_cli)
 
     p_screen = sub.add_parser("screen")
     screen_sub = p_screen.add_subparsers(dest="screen_cmd")
