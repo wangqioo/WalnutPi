@@ -1,13 +1,11 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
-  SCREEN_PAGE_IDS,
-  cleanProgress,
   cleanText,
   firstScreenComponent,
   metricItemFromText,
@@ -42,9 +40,21 @@ const SCREEN_RECORD_LIMIT = Number.isFinite(parsedScreenRecordLimit) && parsedSc
 const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BASE_DIR, "screen-sync-records");
 const WALNUT_AI_CORPUS_DIR = process.env.WALNUT_AI_CORPUS_DIR || path.join(PROJECT_ROOT, "walnut-ai-terminal", "corpus");
 const SCREEN_SUCCESS_CORPUS_PATH = path.join(WALNUT_AI_CORPUS_DIR, "screen-sync-successes.md");
+function localCodexOpenAiApiKey() {
+  if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
+  const home = process.env.USERPROFILE || process.env.HOME || "";
+  if (!home) return "";
+  try {
+    const auth = JSON.parse(readFileSync(path.join(home, ".codex", "auth.json"), "utf8"));
+    return typeof auth.OPENAI_API_KEY === "string" ? auth.OPENAI_API_KEY.trim() : "";
+  } catch {
+    return "";
+  }
+}
+
 const AI_MODEL = process.env.WALNUT_AI_MODEL || "gpt-5.4-mini";
 const AI_BASE_URL = (process.env.WALNUT_AI_BASE_URL || "https://rehdasu.cn/v1").replace(/\/+$/, "");
-const AI_API_KEY = process.env.OPENAI_API_KEY || "";
+const AI_API_KEY = localCodexOpenAiApiKey();
 const AI_CONTEXT_LIMIT = 4;
 const AI_CONTEXT_TEXT_LIMIT = 900;
 const AI_TIMEOUT_SECONDS = Number(process.env.WALNUT_WEB_AI_TIMEOUT || 20);
@@ -849,6 +859,25 @@ function parseResponsesOutput(data) {
   return chunks.join("\n").trim();
 }
 
+function parseJsonObjectText(text) {
+  const raw = String(text || "").trim();
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1].trim() : raw.match(/\{[\s\S]*\}/)?.[0] || raw;
+  const parsed = JSON.parse(candidate);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("AI response must be a JSON object");
+  }
+  return parsed;
+}
+
+function aiFetchSignal() {
+  const timeoutMs = Math.max(1, AI_TIMEOUT_SECONDS) * 1000;
+  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(timeoutMs);
+  }
+  return undefined;
+}
+
 const INTENT_TYPES = new Set([
   "screen.generate",
   "screen.sync",
@@ -872,6 +901,34 @@ function wantsScreenDeliveryIntent(text) {
 
 function screenIntentSubject(input) {
   return screenProgramSubject(input);
+}
+
+function asciiScreenTitle(value, fallback = "Walnut App") {
+  const words = String(value || "").match(/[a-z0-9]+/gi);
+  if (words && words.length) {
+    return cleanText(words.slice(0, 2).join(" ").replace(/\b\w/g, (char) => char.toUpperCase()), "generated.title", 32);
+  }
+  if (/漫画|卡通|comic|cartoon/i.test(value)) return "WalnutBang";
+  if (/音乐|播放器|music|player/i.test(value)) return "WalnutMusic";
+  if (/网络|network|wifi|wi-?fi/i.test(value)) return "WalnutNet";
+  if (/状态|健康|status|health/i.test(value)) return "WalnutStatus";
+  if (/任务|待办|todo|task/i.test(value)) return "WalnutTask";
+  return fallback;
+}
+
+function asciiScreenSubject(value, fallback = "Controlled screen preview") {
+  if (/漫画|卡通|comic|cartoon/i.test(value)) return "Comic style preview";
+  if (/音乐|播放器|music|player/i.test(value)) return "Music screen preview";
+  if (/网络|network|wifi|wi-?fi/i.test(value)) return "Network status preview";
+  if (/状态|健康|status|health/i.test(value)) return "Device status preview";
+  if (/任务|待办|todo|task/i.test(value)) return "Task board preview";
+  const words = String(value || "").match(/[a-z0-9]+/gi);
+  if (words && words.length) return cleanText(words.slice(0, 6).join(" "), "generated.subject", 48);
+  return fallback;
+}
+
+function screenProgramIntentSummary(subject) {
+  return "已按你的描述生成小屏预览。确认效果后，可以点击或说“同步到核桃派”。";
 }
 
 function ruleBasedIntentClassification(text) {
@@ -956,10 +1013,7 @@ function normalizeIntentClassification(value, fallbackText = "") {
 }
 
 function parseIntentJson(text) {
-  const raw = String(text || "").trim();
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1].trim() : raw.match(/\{[\s\S]*\}/)?.[0] || raw;
-  return JSON.parse(candidate);
+  return parseJsonObjectText(text);
 }
 
 function intentClassificationSystemPrompt() {
@@ -968,7 +1022,7 @@ function intentClassificationSystemPrompt() {
     "Return JSON only. Do not return shell commands.",
     "Allowed intent values: screen.generate, screen.sync, device.status.read, device.snapshot.read, device.network.read, device.gpio.read, device.notes.read, device.note.write, terminal.open, terminal.tool, screen.summary, ai.chat.",
     "Allowed delivery values: none, sync_after_preview, sync_existing.",
-    "Workflow priority: explicit AI/chat first; generation/design/create/build any object is screen.generate; sync/flash/deploy to WalnutPi is screen sync or sync_after_preview when generation is also present; device status/network/GPIO are readonly device intents; terminal tools only when explicitly asking terminal/video/demo/play command.",
+    "Workflow priority: explicit AI/chat first; generation/design/create/build any object is screen.generate; sync/flash/deploy to WalnutPi is screen sync or sync_after_preview when generation is also present; only explicit Web shortcuts become device status/network/GPIO intents; open-ended realtime questions stay ai.chat so device-side WalnutAI can choose tools.",
     "CLI tools are executors only. Never choose terminal.tool just because generated UI mentions broadcast, play button, effect, or animation style.",
   ].join("\n");
 }
@@ -1465,19 +1519,70 @@ const screenSyncWorkflow = createScreenSyncWorkflow({
   newBuildId: newScreenBuildId,
 });
 
+function statusPage({ id = "main", tab = "MAIN", status = "READY", tone = "ok", detail = "Ready", progress = 72, metrics = [] } = {}) {
+  const metricItems = (metrics.length ? metrics : ["State ready", "Sync next", "Evidence on"])
+    .slice(0, 3)
+    .map((metric, index) => typeof metric === "object" ? metric : metricItemFromText(metric, index));
+  return {
+    id,
+    tab,
+    components: [
+      { type: "statusCard", label: "Status", value: status, tone, detail },
+      { type: "progress", label: "Progress", value: progress, max: 100, tone },
+      { type: "metricGroup", items: metricItems },
+    ],
+  };
+}
+
+function textPage({ id, tab, title, lines }) {
+  return {
+    id,
+    tab,
+    components: [
+      {
+        type: "textPage",
+        title,
+        lines,
+      },
+    ],
+  };
+}
+
+function generatedPage({ id = "main", tab = "PAGE", style = "panel", title = "Walnut App", kicker = "WalnutAI", headline = "READY", body = "Generated screen", badge = "LIVE", accent = "cyan", progress = 64, items = [] } = {}) {
+  return {
+    id,
+    tab,
+    components: [
+      {
+        type: "generatedPage",
+        style,
+        kicker,
+        headline,
+        body,
+        badge,
+        accent,
+        progress,
+        items: items.slice(0, 3),
+      },
+    ],
+  };
+}
+
+function pageStub(page, index) {
+  return { id: page?.id || `page-${index + 1}` };
+}
+
 const SCREEN_TEMPLATES = [
   {
     id: "device-status",
     label: "设备状态",
-    summary: "显示核桃派核心状态、系统、AI 和网络。",
+    summary: "显示核桃派核心状态和检查项。",
     manifest: {
       title: "WalnutPi",
       subtitle: "server screen",
       pages: [
-        { id: "home", tab: "HOME", status: "OK CORE", metrics: ["IP loading", "MEM --", "DISK --"] },
-        { id: "system", tab: "SYS", title: "System", lines: ["CPU load", "Memory", "Disk", "Uptime"] },
-        { id: "ai", tab: "AI", title: "AI Agent", lines: ["Local shell online", "Cloud model ready", "Screen cards active"] },
-        { id: "network", tab: "NET", title: "Network", lines: ["IP", "FRP", "SSH", "Display fbdev"] },
+        statusPage({ id: "status", tab: "STAT", status: "OK CORE", metrics: ["IP loading", "MEM --", "DISK --"] }),
+        textPage({ id: "checks", tab: "CHK", title: "Checks", lines: ["CPU load", "Memory", "Disk", "Uptime"] }),
       ],
     },
   },
@@ -1489,10 +1594,8 @@ const SCREEN_TEMPLATES = [
       title: "WalnutAI",
       subtitle: "task board",
       pages: [
-        { id: "home", tab: "TASK", status: "AI READY", metrics: ["Plan ready", "Sync safe", "Logs open"] },
-        { id: "system", tab: "RUN", title: "Runtime", lines: ["Agent online", "Shell ready", "Screen active", "Evidence saved"] },
-        { id: "ai", tab: "AI", title: "Current Task", lines: ["Waiting for intent", "Will ask before risk", "Summaries use evidence"] },
-        { id: "network", tab: "NEXT", title: "Next Steps", lines: ["Preview first", "Sync after confirm", "Check frame evidence"] },
+        statusPage({ id: "task", tab: "TASK", status: "AI READY", metrics: ["Plan ready", "Sync safe", "Logs open"] }),
+        textPage({ id: "next", tab: "NEXT", title: "Next Steps", lines: ["Waiting for intent", "Ask before risk", "Run local tools", "Summarize evidence"] }),
       ],
     },
   },
@@ -1504,10 +1607,8 @@ const SCREEN_TEMPLATES = [
       title: "WalnutNet",
       subtitle: "network panel",
       pages: [
-        { id: "home", tab: "NET", status: "LINK OK", metrics: ["IP loading", "SSH ready", "FRP check"] },
-        { id: "system", tab: "SYS", title: "System Link", lines: ["Screen active", "Agent ready", "Logs available", "Safe sync"] },
-        { id: "ai", tab: "AI", title: "Remote Agent", lines: ["Local actions gated", "Evidence first", "No public root shell"] },
-        { id: "network", tab: "LAN", title: "Network", lines: ["IP", "Default route", "FRP", "SSH"] },
+        statusPage({ id: "network", tab: "NET", status: "LINK OK", metrics: ["IP loading", "SSH ready", "FRP check"] }),
+        textPage({ id: "lan", tab: "LAN", title: "Network", lines: ["IP", "Default route", "FRP", "SSH"] }),
       ],
     },
   },
@@ -1519,10 +1620,15 @@ const SCREEN_TEMPLATES = [
       title: "WalnutAlert",
       subtitle: "health watch",
       pages: [
-        { id: "home", tab: "ALRT", status: "WARN", tone: "warn", progress: 62, metrics: ["CPU watch", "MEM high", "Disk ok"] },
-        { id: "system", tab: "SYS", title: "System Alerts", lines: ["CPU load watch", "Memory high", "Disk ok", "Check uptime"] },
-        { id: "ai", tab: "AI", title: "AI Assist", lines: ["Collect evidence", "Explain risk", "No auto repair", "Ask before writes"] },
-        { id: "network", tab: "NET", title: "Network Risk", lines: ["LAN reachable", "SSH guarded", "FRP check", "No public shell"] },
+        statusPage({ id: "alert", tab: "ALRT", status: "WARN", tone: "warn", progress: 62, metrics: ["CPU watch", "MEM high", "Disk ok"] }),
+        {
+          id: "detail",
+          tab: "WHY",
+          components: [
+            { type: "alert", title: "System Alerts", body: "Memory high; check CPU and uptime.", tone: "warn" },
+            { type: "list", title: "Next", items: ["Collect evidence", "Explain risk", "Ask before writes"] },
+          ],
+        },
       ],
     },
   },
@@ -1534,10 +1640,9 @@ const SCREEN_TEMPLATES = [
       title: "WalnutMusic",
       subtitle: "music player",
       pages: [
-        { id: "home", tab: "PLAY", status: "MUSIC READY", tone: "ok", progress: 38, metrics: ["Track queue", "Vol --", "Local audio"] },
-        { id: "system", tab: "LIB", title: "Music Library", lines: ["Scan music-library", "MP3 FLAC WAV", "Playlist ready", "No cloud needed"] },
-        { id: "ai", tab: "CTL", title: "Player Controls", lines: ["Play pause next", "Volume guarded", "Use walnut play", "Terminal fallback"] },
-        { id: "network", tab: "SYNC", title: "WalnutPi Sync", lines: ["Preview first", "Sync to fbdev", "Evidence frame", "Ask before writes"] },
+        statusPage({ id: "player", tab: "PLAY", status: "MUSIC READY", tone: "ok", progress: 38, metrics: ["Track queue", "Vol --", "Local audio"] }),
+        textPage({ id: "library", tab: "LIB", title: "Music Library", lines: ["Scan music-library", "MP3 FLAC WAV", "Playlist ready", "No cloud needed"] }),
+        textPage({ id: "control", tab: "CTL", title: "Player Controls", lines: ["Play pause next", "Volume guarded", "Use walnut play", "Terminal fallback"] }),
       ],
     },
   },
@@ -1575,23 +1680,23 @@ function mergePageComponents(basePage, mutablePage) {
   if (mutablePage.components !== undefined) {
     return mergeScreenComponents(basePage?.components, mutablePage.components);
   }
-  const replacesComponentBackedFields = ["status", "tone", "progress", "metrics", "title", "lines"]
-    .some((field) => Object.prototype.hasOwnProperty.call(mutablePage, field));
-  return replacesComponentBackedFields ? undefined : basePage?.components;
+  return basePage?.components;
 }
 
 function applyMutableManifest(baseManifest, mutable) {
   const basePages = baseManifest.pages || [];
-  const mutablePages = mutable.pages || [];
+  const hasPagePatch = Array.isArray(mutable.pages);
+  const mutablePages = hasPagePatch ? mutable.pages : basePages.map(pageStub);
+  const replacePages = Boolean(mutable.replacePages);
   return normalizeScreenManifest({
     ...baseManifest,
     title: mutable.title ?? baseManifest.title,
     subtitle: mutable.subtitle ?? baseManifest.subtitle,
-    pages: SCREEN_PAGE_IDS.map((id, index) => ({
-      ...(basePages[index] || { id }),
+    pages: mutablePages.map((mutablePage, index) => ({
+      ...(replacePages ? {} : basePages[index] || pageStub(mutablePage, index)),
       ...(mutablePages[index] || {}),
       components: mergePageComponents(basePages[index], mutablePages[index]),
-      id,
+      id: mutablePage?.id || basePages[index]?.id || `page-${index + 1}`,
     })),
   });
 }
@@ -1611,7 +1716,7 @@ function templatePreviewManifest(template) {
       lvglEntry: "lvgl_app/src/main.c",
       command: "walnut screen start",
     },
-    pages: SCREEN_PAGE_IDS.map((id) => ({ id })),
+    pages: template.manifest.pages.map(pageStub),
   };
   return applyMutableManifest(base, template.manifest);
 }
@@ -1706,34 +1811,47 @@ function splitGroupedIntentItems(value, maxItems) {
   return splitIntentItems(text).slice(0, maxItems);
 }
 
-function linePagePatch(pageIndex, title, lines, tab) {
-  const pages = SCREEN_PAGE_IDS.map((id) => ({ id }));
-  pages[pageIndex] = {
-    id: SCREEN_PAGE_IDS[pageIndex],
+function patchPages(currentManifest, updater) {
+  const pages = (currentManifest.pages || []).map(pageStub);
+  updater(pages);
+  return { pages };
+}
+
+function linePagePatch(currentManifest, pageIndex, title, lines, tab) {
+  return patchPages(currentManifest, (pages) => {
+    const current = currentManifest.pages?.[pageIndex] || {};
+    pages[pageIndex] = {
+      id: current.id || `page-${pageIndex + 1}`,
+      tab,
+      components: [
+        {
+          type: "textPage",
+          title,
+          lines,
+        },
+      ],
+    };
+  });
+}
+
+function componentPage(id, tab, component) {
+  return {
+    id,
     tab,
-    title,
-    lines,
     components: [
-      {
-        type: "textPage",
-        title,
-        lines,
-      },
+      component,
     ],
   };
-  return { pages };
 }
 
-function homeComponentPatch(component) {
-  const pages = SCREEN_PAGE_IDS.map((id) => ({ id }));
-  pages[0] = {
-    id: "home",
-    components: [component],
-  };
-  return { pages };
+function firstPageComponentPatch(currentManifest, component) {
+  return patchPages(currentManifest, (pages) => {
+    const first = currentManifest.pages?.[0] || {};
+    pages[0] = componentPage(first.id || "main", first.tab || "MAIN", component);
+  });
 }
 
-function currentHomeComponent(currentManifest, type) {
+function currentFirstComponent(currentManifest, type) {
   return firstScreenComponent(currentManifest.pages?.[0]?.components || [], type);
 }
 
@@ -1741,14 +1859,11 @@ function currentTextComponent(currentManifest, pageIndex, type) {
   return firstScreenComponent(currentManifest.pages?.[pageIndex]?.components || [], type);
 }
 
-function pageComponentPatch(pageIndex, tab, component) {
-  const pages = SCREEN_PAGE_IDS.map((id) => ({ id }));
-  pages[pageIndex] = {
-    id: SCREEN_PAGE_IDS[pageIndex],
-    tab,
-    components: [component],
-  };
-  return { pages };
+function pageComponentPatch(currentManifest, pageIndex, tab, component) {
+  return patchPages(currentManifest, (pages) => {
+    const current = currentManifest.pages?.[pageIndex] || {};
+    pages[pageIndex] = componentPage(current.id || `page-${pageIndex + 1}`, current.tab || tab, component);
+  });
 }
 
 function looksLikeScreenProgramRequest(input) {
@@ -1776,29 +1891,390 @@ function screenProgramSubject(input) {
 }
 
 function titleFromProgramSubject(subject) {
-  const asciiWords = String(subject || "").match(/[a-z0-9]+/gi);
-  if (asciiWords && asciiWords.length) {
-    return cleanText(asciiWords.slice(0, 2).join(" ").replace(/\b\w/g, (char) => char.toUpperCase()), "generated.title", 32);
+  return asciiScreenTitle(subject);
+}
+
+function generatedScreenSpec(subject) {
+  const text = String(subject || "");
+  const title = titleFromProgramSubject(text);
+  if (/漫画|卡通|comic|cartoon|manga|pop/i.test(text)) {
+    return {
+      title,
+      subtitle: "single generated page",
+      page: generatedPage({
+        style: "comic",
+        kicker: "WalnutAI",
+        headline: "POW! WALNUT",
+        body: "One screen command center, bold panel and speech bubble.",
+        badge: "BOOM",
+        accent: "amber",
+        progress: 72,
+        items: [
+          { label: "Mode", value: "comic", unit: "", tone: "ok" },
+          { label: "Panel", value: "single", unit: "", tone: "ok" },
+          { label: "Sync", value: "ready", unit: "", tone: "ok" },
+        ],
+      }),
+    };
   }
-  return cleanText(subject, "generated.title", 32);
+  if (/音乐|播放器|播放|music|player|audio/i.test(text)) {
+    return {
+      title,
+      subtitle: "single generated page",
+      page: generatedPage({
+        style: "music",
+        kicker: "Now Playing",
+        headline: "LOCAL MIX",
+        body: "Queue ready, local audio first, guarded controls.",
+        badge: "PLAY",
+        accent: "pink",
+        progress: 38,
+        items: [
+          { label: "Track", value: "queue", unit: "", tone: "ok" },
+          { label: "Vol", value: "--", unit: "", tone: "ok" },
+          { label: "Out", value: "local", unit: "", tone: "ok" },
+        ],
+      }),
+    };
+  }
+  if (/网络|联网|wifi|wi-?fi|ip|ssh|frp|network|net/i.test(text)) {
+    return {
+      title,
+      subtitle: "single generated page",
+      page: generatedPage({
+        style: "network",
+        kicker: "Link Watch",
+        headline: "LAN ONLINE",
+        body: "IP, SSH and FRP status grouped for quick scanning.",
+        badge: "NET",
+        accent: "cyan",
+        progress: 68,
+        items: [
+          { label: "IP", value: "loading", unit: "", tone: "ok" },
+          { label: "SSH", value: "guarded", unit: "", tone: "ok" },
+          { label: "FRP", value: "check", unit: "", tone: "warn" },
+        ],
+      }),
+    };
+  }
+  if (/告警|警告|报警|异常|风险|错误|失败|alert|warn|error/i.test(text)) {
+    return {
+      title,
+      subtitle: "single generated page",
+      page: generatedPage({
+        style: "alert",
+        kicker: "Watch",
+        headline: "CHECK NOW",
+        body: "Important signal first, next step visible, no auto repair.",
+        badge: "WARN",
+        accent: "red",
+        progress: 62,
+        items: [
+          { label: "CPU", value: "watch", unit: "", tone: "warn" },
+          { label: "Mem", value: "high", unit: "", tone: "warn" },
+          { label: "Disk", value: "ok", unit: "", tone: "ok" },
+        ],
+      }),
+    };
+  }
+  if (/任务|待办|todo|task|计划|步骤|agent/i.test(text)) {
+    return {
+      title,
+      subtitle: "single generated page",
+      page: generatedPage({
+        style: "task",
+        kicker: "WalnutAI",
+        headline: "TASK READY",
+        body: "Current intent, safe next action and evidence loop.",
+        badge: "TODO",
+        accent: "green",
+        progress: 55,
+        items: [
+          { label: "Plan", value: "ready", unit: "", tone: "ok" },
+          { label: "Risk", value: "gated", unit: "", tone: "ok" },
+          { label: "Frame", value: "after", unit: "", tone: "ok" },
+        ],
+      }),
+    };
+  }
+  if (/状态|健康|系统|内存|磁盘|status|health|system/i.test(text)) {
+    return {
+      title,
+      subtitle: "single generated page",
+      page: generatedPage({
+        style: "status",
+        kicker: "Device",
+        headline: "CORE OK",
+        body: "System health summary with the most useful checks.",
+        badge: "OK",
+        accent: "green",
+        progress: 76,
+        items: [
+          { label: "IP", value: "loading", unit: "", tone: "ok" },
+          { label: "Mem", value: "--", unit: "", tone: "ok" },
+          { label: "Disk", value: "--", unit: "", tone: "ok" },
+        ],
+      }),
+    };
+  }
+  if (/极简|简洁|minimal|simple/i.test(text)) {
+    return {
+      title,
+      subtitle: "single generated page",
+      page: generatedPage({
+        style: "minimal",
+        kicker: "WalnutAI",
+        headline: "READY",
+        body: asciiScreenSubject(text, "Clean generated page"),
+        badge: "LIVE",
+        accent: "paper",
+        progress: 50,
+        items: [
+          { label: "Intent", value: "set", unit: "", tone: "ok" },
+          { label: "Page", value: "one", unit: "", tone: "ok" },
+          { label: "Sync", value: "next", unit: "", tone: "ok" },
+        ],
+      }),
+    };
+  }
+  return {
+    title,
+    subtitle: "single generated page",
+    page: generatedPage({
+      style: "panel",
+      kicker: "WalnutAI",
+      headline: "PREVIEW",
+      body: asciiScreenSubject(text, "Generated screen page"),
+      badge: "GEN",
+      accent: "blue",
+      progress: 50,
+      items: [
+        { label: "Intent", value: "ready", unit: "", tone: "ok" },
+        { label: "Page", value: "one", unit: "", tone: "ok" },
+        { label: "Sync", value: "next", unit: "", tone: "ok" },
+      ],
+    }),
+  };
+}
+
+function screenManifestGenerationSystemPrompt() {
+  return [
+    "You generate a WalnutPi small-screen UI as controlled Screen Manifest patch JSON.",
+    "Return JSON only. Do not return Markdown, React, LVGL C, shell commands, SSH commands, sudo commands, or device instructions.",
+    "The JSON object must be a mutable manifest patch with this shape:",
+    "{ \"title\": string, \"subtitle\": string, \"replacePages\": true, \"pages\": [page], \"intentSummary\": string }.",
+    "Each page: { \"id\": slug, \"tab\": ASCII label <= 8 chars, \"components\": [component] }.",
+    "Use 1 page by default. Use at most 3 pages and at most 4 components per page.",
+    "All manifest text fields must be ASCII only because the current WalnutPi LVGL font slice does not support CJK glyphs yet.",
+    "intentSummary may be Chinese and is only for the Web chat, not for the device manifest.",
+    "Allowed component types and fields:",
+    "statusCard: type,label,value,tone(ok|warn|error),detail.",
+    "metricGroup: type,items; each item has label,value,unit,tone.",
+    "list: type,title,items.",
+    "progress: type,label,value(0..100),max(100),tone.",
+    "alert: type,title,body,tone.",
+    "textPage: type,title,lines.",
+    "generatedPage: type,style(panel|comic|music|network|task|status|alert|minimal),kicker,headline,body,badge,accent(cyan|green|amber|red|blue|pink|paper),progress,items.",
+    "If the request exceeds the vocabulary, map it to the closest controlled components or say the limitation inside a textPage; never invent new component types or commands.",
+  ].join("\n");
+}
+
+function aiScreenManifestUserPayload(text, currentManifest) {
+  return {
+    request: text,
+    currentManifest: mutableManifestView(currentManifest),
+    device: {
+      width: 480,
+      height: 320,
+      runtime: "lvgl-fbdev",
+      display: "/dev/fb0",
+      color: "RGB565",
+    },
+    constraints: [
+      "Output only a JSON object.",
+      "Do not include schema, target, source, build, delivery, SSH, shell, sudo, filesystem, GPIO, reboot, flash, or arbitrary code fields.",
+      "Use the allowed component vocabulary exactly.",
+      "Keep text short enough for a 480x320 screen.",
+      "Prefer one polished page over internal tabs for simple generated screens.",
+    ],
+  };
+}
+
+function isPlainObject(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function pickTextFields(source, fields) {
+  const target = {};
+  for (const field of fields) {
+    if (source[field] !== undefined) target[field] = source[field];
+  }
+  return target;
+}
+
+function sanitizeAiComponent(component) {
+  if (!isPlainObject(component)) return { type: "" };
+  const type = String(component.type || "").trim();
+  if (type === "statusCard") return { type, ...pickTextFields(component, ["label", "value", "tone", "detail"]) };
+  if (type === "metricGroup") return { type, items: Array.isArray(component.items) ? component.items.slice(0, 3) : [] };
+  if (type === "list") return { type, title: component.title, items: Array.isArray(component.items) ? component.items.slice(0, 4) : [] };
+  if (type === "progress") return { type, ...pickTextFields(component, ["label", "value", "max", "tone"]) };
+  if (type === "alert") return { type, ...pickTextFields(component, ["title", "body", "tone"]) };
+  if (type === "textPage") return { type, title: component.title, lines: Array.isArray(component.lines) ? component.lines.slice(0, 4) : [] };
+  if (type === "generatedPage") {
+    return {
+      type,
+      ...pickTextFields(component, ["style", "kicker", "headline", "body", "badge", "accent", "progress"]),
+      items: Array.isArray(component.items) ? component.items.slice(0, 3) : [],
+    };
+  }
+  return { type };
+}
+
+function assertAsciiManifestPatch(value, field = "patch") {
+  if (typeof value === "string") {
+    if (/[^\x20-\x7e]/.test(value)) {
+      throw new Error(`${field} must be ASCII until CJK font support is added`);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertAsciiManifestPatch(item, `${field}[${index}]`));
+    return;
+  }
+  if (isPlainObject(value)) {
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "intentSummary") continue;
+      assertAsciiManifestPatch(item, `${field}.${key}`);
+    }
+  }
+}
+
+function sanitizeAiScreenManifestPatch(value) {
+  const source = isPlainObject(value?.patch)
+    ? value.patch
+    : isPlainObject(value?.manifest)
+      ? value.manifest
+      : value;
+  if (!isPlainObject(source)) throw new Error("AI manifest patch must be an object");
+  const pages = Array.isArray(source.pages) ? source.pages.slice(0, 6) : [];
+  const patch = {
+    replacePages: true,
+    pages: pages.map((page, index) => {
+      const pageObject = isPlainObject(page) ? page : {};
+      return {
+        id: pageObject.id || (index === 0 ? "main" : `page-${index + 1}`),
+        tab: pageObject.tab || (index === 0 ? "PAGE" : `P${index + 1}`),
+        components: Array.isArray(pageObject.components)
+          ? pageObject.components.slice(0, 6).map(sanitizeAiComponent)
+          : [],
+      };
+    }),
+  };
+  if (source.title !== undefined) patch.title = source.title;
+  if (source.subtitle !== undefined) patch.subtitle = source.subtitle;
+  if (value.intentSummary !== undefined) patch.intentSummary = String(value.intentSummary || "").trim().slice(0, 160);
+  else if (source.intentSummary !== undefined) patch.intentSummary = String(source.intentSummary || "").trim().slice(0, 160);
+  if (patch.pages.length === 0) throw new Error("AI manifest patch must include pages");
+  assertAsciiManifestPatch(patch);
+  return patch;
+}
+
+function applyGeneratedManifestPatch(baseManifest, patch) {
+  return normalizeScreenManifest({
+    ...baseManifest,
+    title: patch.title ?? baseManifest.title,
+    subtitle: patch.subtitle ?? baseManifest.subtitle,
+    pages: patch.pages.map((page, index) => ({
+      id: page.id || (index === 0 ? "main" : `page-${index + 1}`),
+      tab: page.tab || (index === 0 ? "PAGE" : `P${index + 1}`),
+      components: page.components,
+    })),
+  });
+}
+
+async function buildAiScreenManifestCandidate(text, currentManifest) {
+  if (!AI_API_KEY) {
+    return {
+      manifest: null,
+      patch: null,
+      generation: {
+        schema: "walnutpi.screenGeneration.v1",
+        source: "rule",
+        apiUsed: false,
+        model: null,
+        fallbackReason: "OPENAI_API_KEY is not configured",
+      },
+    };
+  }
+
+  const startedAt = Date.now();
+  try {
+    const response = await fetch(`${AI_BASE_URL}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${AI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      signal: aiFetchSignal(),
+      body: JSON.stringify({
+        model: AI_MODEL,
+        input: [
+          { role: "system", content: screenManifestGenerationSystemPrompt() },
+          { role: "user", content: JSON.stringify(aiScreenManifestUserPayload(text, currentManifest), null, 2) },
+        ],
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`API HTTP ${response.status}: ${detail.slice(0, 500)}`);
+    }
+    const data = await response.json();
+    const outputText = parseResponsesOutput(data);
+    if (!outputText) throw new Error("API response did not include output text");
+    const patch = sanitizeAiScreenManifestPatch(parseJsonObjectText(outputText));
+    const manifest = applyGeneratedManifestPatch(currentManifest, patch);
+    return {
+      manifest,
+      patch,
+      generation: {
+        schema: "walnutpi.screenGeneration.v1",
+        source: "ai",
+        apiUsed: true,
+        model: AI_MODEL,
+        latencyMs: Date.now() - startedAt,
+      },
+    };
+  } catch (error) {
+    return {
+      manifest: null,
+      patch: null,
+      generation: {
+        schema: "walnutpi.screenGeneration.v1",
+        source: "ai-fallback",
+        apiUsed: true,
+        model: AI_MODEL,
+        latencyMs: Date.now() - startedAt,
+        fallbackSource: "rule",
+        fallbackReason: error.message,
+      },
+    };
+  }
 }
 
 function screenProgramIntentPatch(input) {
   if (!looksLikeScreenProgramRequest(input)) return null;
 
   const subject = screenProgramSubject(input);
-  const title = titleFromProgramSubject(subject);
-  const subjectLine = cleanText(subject, "generated.subject", 48);
+  const spec = generatedScreenSpec(subject);
   return {
-    title,
-    subtitle: "generated preview",
+    title: spec.title,
+    subtitle: spec.subtitle,
+    replacePages: true,
     pages: [
-      { id: "home", tab: "APP", status: "DRAFT READY", tone: "ok", progress: 35, metrics: ["Intent ready", "Preview safe", "Sync next"] },
-      { id: "system", tab: "SPEC", title: "Generated Intent", lines: [subjectLine, "Manifest only", "Preview first", "No unsafe writes"] },
-      { id: "ai", tab: "FLOW", title: "Build Flow", lines: ["Generate preview", "Check screen", "Sync on request", "Record evidence"] },
-      { id: "network", tab: "SYNC", title: "WalnutPi Sync", lines: ["Use manifest hash", "Build LVGL", "Activate screen", "Capture frame"] },
+      spec.page,
     ],
-    intentSummary: "已按你的描述生成小屏预览。确认效果后，可以点击或说“同步到核桃派”。",
+    intentSummary: screenProgramIntentSummary(subject),
   };
 }
 
@@ -1817,79 +2293,80 @@ function parseScreenIntent(text, currentManifest) {
 
   match = input.match(/(?:状态|核心状态)\s*(?:改成|改为|写成|写|是|:|：)\s*(.+)$/);
   if (match) {
-    const pages = currentManifest.pages.map((page) => ({ id: page.id }));
     const status = match[1].trim();
     const tone = toneFromText(status);
-    pages[0] = {
-      id: "home",
-      status,
-      tone,
-      components: [
+    return patchPages(currentManifest, (pages) => {
+      const first = currentManifest.pages?.[0] || {};
+      pages[0] = {
+        id: first.id || "main",
+        tab: first.tab || "MAIN",
+        components: [
         {
           type: "statusCard",
-          label: firstScreenComponent(currentManifest.pages[0]?.components || [], "statusCard")?.label || "Status",
+          label: currentFirstComponent(currentManifest, "statusCard")?.label || "Status",
           value: status,
           tone,
-          detail: firstScreenComponent(currentManifest.pages[0]?.components || [], "statusCard")?.detail || "Ready",
+          detail: currentFirstComponent(currentManifest, "statusCard")?.detail || "Ready",
         },
       ],
-    };
-    return { pages };
+      };
+    });
   }
 
   match = input.match(/(?:状态标签|状态卡标签|状态名)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
   if (match) {
-    const statusCard = currentHomeComponent(currentManifest, "statusCard") || {};
-    return homeComponentPatch({
+    const statusCard = currentFirstComponent(currentManifest, "statusCard") || {};
+    return firstPageComponentPatch(currentManifest, {
       type: "statusCard",
       label: match[1].trim(),
-      value: currentManifest.pages[0]?.status || statusCard.value || "OK CORE",
-      tone: currentManifest.pages[0]?.tone || statusCard.tone || "ok",
+      value: statusCard.value || "Ready",
+      tone: statusCard.tone || "ok",
       detail: statusCard.detail || "Ready",
     });
   }
 
   match = input.match(/(?:状态详情|状态说明|详情)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
   if (match) {
-    const statusCard = currentHomeComponent(currentManifest, "statusCard") || {};
-    return homeComponentPatch({
+    const statusCard = currentFirstComponent(currentManifest, "statusCard") || {};
+    return firstPageComponentPatch(currentManifest, {
       type: "statusCard",
       label: statusCard.label || "Status",
-      value: currentManifest.pages[0]?.status || statusCard.value || "OK CORE",
-      tone: currentManifest.pages[0]?.tone || statusCard.tone || "ok",
+      value: statusCard.value || "Ready",
+      tone: statusCard.tone || "ok",
       detail: match[1].trim(),
     });
   }
 
   match = input.match(/(?:进度|完成度)\s*(?:改成|改为|写成|是|:|：)?\s*(\d{1,3})\s*%?$/);
   if (match) {
-    const pages = currentManifest.pages.map((page) => ({ id: page.id }));
     const value = Number(match[1]);
-    pages[0] = {
-      id: "home",
-      progress: value,
-      components: [
+    return patchPages(currentManifest, (pages) => {
+      const first = currentManifest.pages?.[0] || {};
+      pages[0] = {
+        id: first.id || "main",
+        tab: first.tab || "MAIN",
+        components: [
         {
           type: "progress",
-          label: firstScreenComponent(currentManifest.pages[0]?.components || [], "progress")?.label || "Progress",
+          label: currentFirstComponent(currentManifest, "progress")?.label || "Progress",
           value,
           max: 100,
-          tone: currentManifest.pages[0]?.tone || "ok",
+          tone: currentFirstComponent(currentManifest, "progress")?.tone || "ok",
         },
       ],
-    };
-    return { pages };
+      };
+    });
   }
 
   match = input.match(/(?:进度标签|进度名|进度说明)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
   if (match) {
-    const progress = currentHomeComponent(currentManifest, "progress") || {};
-    return homeComponentPatch({
+    const progress = currentFirstComponent(currentManifest, "progress") || {};
+    return firstPageComponentPatch(currentManifest, {
       type: "progress",
       label: match[1].trim(),
-      value: currentManifest.pages[0]?.progress ?? progress.value ?? 72,
+      value: progress.value ?? 72,
       max: progress.max || 100,
-      tone: currentManifest.pages[0]?.tone || progress.tone || "ok",
+      tone: progress.tone || "ok",
     });
   }
 
@@ -1897,33 +2374,34 @@ function parseScreenIntent(text, currentManifest) {
   if (match) {
     const raw = match[1];
     const tone = /错误|失败|error/i.test(raw) ? "error" : /告警|警告|warn|warning/i.test(raw) ? "warn" : "ok";
-    const pages = currentManifest.pages.map((page) => ({ id: page.id }));
-    pages[0] = {
-      id: "home",
-      tone,
-      components: [
+    return patchPages(currentManifest, (pages) => {
+      const first = currentManifest.pages?.[0] || {};
+      pages[0] = {
+        id: first.id || "main",
+        tab: first.tab || "MAIN",
+        components: [
         {
           type: "statusCard",
-          label: firstScreenComponent(currentManifest.pages[0]?.components || [], "statusCard")?.label || "Status",
-          value: currentManifest.pages[0]?.status || "OK CORE",
+          label: currentFirstComponent(currentManifest, "statusCard")?.label || "Status",
+          value: currentFirstComponent(currentManifest, "statusCard")?.value || "Ready",
           tone,
-          detail: firstScreenComponent(currentManifest.pages[0]?.components || [], "statusCard")?.detail || "Ready",
+          detail: currentFirstComponent(currentManifest, "statusCard")?.detail || "Ready",
         },
         {
           type: "progress",
-          label: firstScreenComponent(currentManifest.pages[0]?.components || [], "progress")?.label || "Progress",
-          value: currentManifest.pages[0]?.progress ?? 72,
+          label: currentFirstComponent(currentManifest, "progress")?.label || "Progress",
+          value: currentFirstComponent(currentManifest, "progress")?.value ?? 72,
           max: 100,
           tone,
         },
       ],
-    };
-    return { pages };
+      };
+    });
   }
 
   match = input.match(/(?:告警|警告|提示)\s*(?:改成|改为|写成|写|是|:|：)\s*(.+)$/);
   if (match) {
-    return pageComponentPatch(1, currentManifest.pages[1]?.tab || "SYS", {
+    return pageComponentPatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), currentManifest.pages[1]?.tab || "WARN", {
       type: "alert",
       title: "Alert",
       body: match[1].trim(),
@@ -1935,7 +2413,7 @@ function parseScreenIntent(text, currentManifest) {
   if (match) {
     const metrics = splitGroupedIntentItems(match[1], 3);
     if (metrics.length > 0) {
-      return homeComponentPatch({
+      return firstPageComponentPatch(currentManifest, {
         type: "metricGroup",
         items: metrics.map(metricItemFromText),
       });
@@ -1946,7 +2424,7 @@ function parseScreenIntent(text, currentManifest) {
   if (match) {
     const items = splitIntentItems(match[1]).slice(0, 4);
     if (items.length > 0) {
-      return pageComponentPatch(1, currentManifest.pages[1]?.tab || "LIST", {
+      return pageComponentPatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), currentManifest.pages[1]?.tab || "LIST", {
         type: "list",
         title: currentTextComponent(currentManifest, 1, "list")?.title || "List",
         items,
@@ -1957,10 +2435,10 @@ function parseScreenIntent(text, currentManifest) {
   match = input.match(/(?:列表标题|清单标题|步骤标题)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
   if (match) {
     const list = currentTextComponent(currentManifest, 1, "list") || {};
-    return pageComponentPatch(1, currentManifest.pages[1]?.tab || "LIST", {
+    return pageComponentPatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), currentManifest.pages[1]?.tab || "LIST", {
       type: "list",
       title: match[1].trim(),
-      items: list.items || currentManifest.pages[1]?.lines || ["Item"],
+      items: list.items || ["Item"],
     });
   }
 
@@ -1984,29 +2462,30 @@ function parseScreenIntent(text, currentManifest) {
   if (match) {
     const metrics = splitGroupedIntentItems(match[1], 3);
     if (metrics.length > 0) {
-      const pages = currentManifest.pages.map((page) => ({ id: page.id }));
-      pages[0] = {
-        id: "home",
-        metrics,
-        components: [
+      return patchPages(currentManifest, (pages) => {
+        const first = currentManifest.pages?.[0] || {};
+        pages[0] = {
+          id: first.id || "main",
+          tab: first.tab || "MAIN",
+          components: [
           {
             type: "metricGroup",
             items: metrics.map(metricItemFromText),
           },
         ],
-      };
-      return { pages };
+        };
+      });
     }
   }
 
   match = input.match(/(?:系统页|系统)\s*(?:写|显示|:|：)\s*(.+)$/);
-  if (match) return linePagePatch(1, "System", splitIntentItems(match[1]), "SYS");
+  if (match) return linePagePatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), "System", splitIntentItems(match[1]), "SYS");
 
   match = input.match(/(?:AI页|AI|ai)\s*(?:写|显示|:|：)\s*(.+)$/);
-  if (match) return linePagePatch(2, "AI Agent", splitIntentItems(match[1]), "AI");
+  if (match) return linePagePatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), "AI Agent", splitIntentItems(match[1]), "AI");
 
   match = input.match(/(?:网络页|网络)\s*(?:写|显示|:|：)\s*(.+)$/);
-  if (match) return linePagePatch(3, "Network", splitIntentItems(match[1]), "NET");
+  if (match) return linePagePatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), "Network", splitIntentItems(match[1]), "NET");
 
   return null;
 }
@@ -2062,21 +2541,56 @@ async function handleScreenIntent(req) {
   if (current.error) return current.error;
 
   const text = String(body.text || "").trim();
+  const aiCandidate = looksLikeScreenProgramRequest(text)
+    ? await buildAiScreenManifestCandidate(text, current.manifest)
+    : null;
+  if (aiCandidate?.manifest) {
+    try {
+      const envelope = await writeScreenManifest(aiCandidate.manifest);
+      return json({
+        ok: true,
+        summary: aiCandidate.patch?.intentSummary || screenProgramIntentSummary(screenProgramSubject(text)),
+        generation: aiCandidate.generation,
+        ...envelope,
+      });
+    } catch (error) {
+      aiCandidate.generation = {
+        ...(aiCandidate.generation || {}),
+        source: "ai-fallback",
+        fallbackSource: "rule",
+        fallbackReason: error.message,
+      };
+    }
+  }
+
   const patch = parseScreenIntent(text, current.manifest);
   if (!patch) {
     return json({
       ok: false,
       error: "unrecognized screen intent",
       summary: "无法理解这次修改。",
+      generation: aiCandidate?.generation || {
+        schema: "walnutpi.screenGeneration.v1",
+        source: "rule",
+        apiUsed: false,
+        model: null,
+      },
     }, 400);
   }
 
   try {
     const next = applyMutableManifest(current.manifest, patch);
     const envelope = await writeScreenManifest(next);
+    const generation = aiCandidate?.generation || {
+      schema: "walnutpi.screenGeneration.v1",
+      source: "rule",
+      apiUsed: false,
+      model: null,
+    };
     return json({
       ok: true,
       summary: patch.intentSummary || "已更新预览。",
+      generation,
       ...envelope,
     });
   } catch (error) {
@@ -2086,6 +2600,12 @@ async function handleScreenIntent(req) {
         error: "screen manifest update failed",
         summary: "无法更新小屏预览。",
         output: error.message,
+        generation: aiCandidate?.generation || {
+          schema: "walnutpi.screenGeneration.v1",
+          source: "rule",
+          apiUsed: false,
+          model: null,
+        },
       },
       500,
     );
@@ -2687,22 +3207,17 @@ const ACTIONS = {
     async buildCommand(body) {
       const text = String(body.text || "").trim();
       if (!text) throw new Error("缺少要问 WalnutAI 的内容。");
-      const projectMemory = {
-        memory: await readWalnutMemory(),
-        retrieval: await retrieveWalnutContext(text),
-      };
-      const prompt = aiQuestionWithContext(text, body.messages, projectMemory);
       return {
-        command: `WALNUT_AI_TIMEOUT=${shellQuote(AI_TIMEOUT_SECONDS)} WALNUT_AI_CHAT_ONLY=1 WALNUT_AI_ENABLE_INLINE_MEMORY=0 WALNUT_AI_DISABLE_SESSION_LOG=1 walnut-ai ${shellQuote(prompt)}`,
+        command: `WALNUT_AI_TIMEOUT=${shellQuote(AI_TIMEOUT_SECONDS)} WALNUT_AI_ENABLE_INLINE_MEMORY=0 WALNUT_AI_DISABLE_SESSION_LOG=1 walnut-ai ${shellQuote(text)}`,
         contextUsed: {
-          schema: "walnutpi.webAiContext.v1",
+          schema: "walnutpi.webAiDelegation.v1",
+          delegatedTo: "walnut-ai",
+          toolRouting: "device-side",
           memoryDistillCandidate: /记住|记着|以后|下次|我的偏好|我喜欢|我不喜欢|我习惯|我是|我叫|我用|我在用|我的项目|我的设备|所有对话|目标|默认/.test(text),
-          memoryFields: Object.fromEntries(MEMORY_FIELDS.map((field) => [field, projectMemory.memory[field]?.length || 0])),
-          retrieval: projectMemory.retrieval.map((item) => ({ path: item.path, score: item.score })),
         },
       };
     },
-    reply: "我会带上项目记忆、skills 检索和成功代码语料，再把普通问题交给 WalnutAI 回答。",
+    reply: "",
     timeoutMs: (AI_TIMEOUT_SECONDS + 15) * 1000,
   },
   video: {

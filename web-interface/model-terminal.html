@@ -244,6 +244,219 @@
         color: var(--paper);
       }
 
+      .lvgl-preview.is-generated {
+        position: relative;
+        display: block;
+        overflow: hidden;
+        padding: 0;
+        background: #101417;
+        color: #f8f1d7;
+      }
+
+      .lvgl-preview.is-generated::before {
+        position: absolute;
+        inset: 0;
+        background:
+          radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.16) 0 1px, transparent 2px),
+          radial-gradient(circle at 82% 18%, rgba(255, 255, 255, 0.12), transparent 22%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 42%);
+        background-size: 11px 11px, auto, auto;
+        content: "";
+        pointer-events: none;
+      }
+
+      .lvgl-preview.is-generated.is-style-comic {
+        background: #f7e9b9;
+        color: #111111;
+      }
+
+      .lvgl-preview.is-generated.is-style-music {
+        background:
+          linear-gradient(140deg, rgba(255, 111, 179, 0.22), transparent 35%),
+          #100f17;
+        color: #fff4fb;
+      }
+
+      .lvgl-preview.is-generated.is-style-network {
+        background:
+          linear-gradient(90deg, rgba(103, 214, 255, 0.1) 1px, transparent 1px),
+          linear-gradient(0deg, rgba(103, 214, 255, 0.08) 1px, transparent 1px),
+          #071014;
+        background-size: 24px 24px;
+      }
+
+      .lvgl-preview.is-generated.is-style-minimal {
+        background: #f1efe4;
+        color: #171717;
+      }
+
+      .generated-shell {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        height: 100%;
+        grid-template-rows: auto minmax(0, 1fr) auto;
+        gap: 5px;
+        padding: 10px 12px 9px;
+      }
+
+      .generated-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .generated-kicker,
+      .generated-badge {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .generated-kicker {
+        max-width: 260px;
+        color: color-mix(in srgb, var(--generated-accent, #67d6ff) 80%, currentColor);
+        font-size: 8px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .generated-badge {
+        max-width: 86px;
+        border: 2px solid currentColor;
+        border-radius: 5px;
+        padding: 2px 6px;
+        background: var(--generated-accent, #67d6ff);
+        color: #0b0f11;
+        font-size: 8px;
+        font-weight: 900;
+      }
+
+      .generated-main {
+        position: relative;
+        display: grid;
+        min-height: 0;
+        align-content: center;
+        gap: 5px;
+      }
+
+      .generated-headline {
+        max-width: 250px;
+        overflow: hidden;
+        color: currentColor;
+        font-size: 21px;
+        font-weight: 950;
+        line-height: 0.95;
+        text-transform: uppercase;
+        text-wrap: balance;
+      }
+
+      .generated-body {
+        max-width: 245px;
+        overflow: hidden;
+        border: 2px solid rgba(255, 255, 255, 0.16);
+        border-radius: 7px;
+        padding: 6px 8px;
+        background: rgba(255, 255, 255, 0.08);
+        color: color-mix(in srgb, currentColor 82%, transparent);
+        font-size: 9px;
+        font-weight: 720;
+        line-height: 1.18;
+      }
+
+      .generated-progress {
+        width: min(210px, 82%);
+        height: 8px;
+        overflow: hidden;
+        border: 2px solid currentColor;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.16);
+      }
+
+      .generated-progress-fill {
+        width: var(--generated-progress, 64%);
+        height: 100%;
+        background: var(--generated-accent, #67d6ff);
+      }
+
+      .generated-items {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 5px;
+      }
+
+      .generated-item {
+        min-width: 0;
+        border: 2px solid rgba(255, 255, 255, 0.16);
+        border-radius: 6px;
+        padding: 4px 6px;
+        background: rgba(0, 0, 0, 0.15);
+      }
+
+      .generated-item-label,
+      .generated-item-value {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .generated-item-label {
+        color: color-mix(in srgb, currentColor 62%, transparent);
+        font-size: 6px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .generated-item-value {
+        padding-top: 1px;
+        color: currentColor;
+        font-size: 9px;
+        font-weight: 900;
+      }
+
+      .lvgl-preview.is-style-comic .generated-shell {
+        padding: 10px 12px;
+      }
+
+      .lvgl-preview.is-style-comic .generated-main {
+        min-height: 0;
+        border: 3px solid #111111;
+        border-radius: 6px;
+        padding: 10px 12px 8px;
+        background:
+          radial-gradient(circle at 70% 35%, rgba(255, 200, 87, 0.55), transparent 25%),
+          #fff6cf;
+        box-shadow: 5px 5px 0 #111111;
+      }
+
+      .lvgl-preview.is-style-comic .generated-headline {
+        text-shadow: 1px 1px 0 #ffffff, 3px 3px 0 var(--generated-accent, #ffc857);
+      }
+
+      .lvgl-preview.is-style-comic .generated-body {
+        width: fit-content;
+        max-width: 220px;
+        border: 2px solid #111111;
+        border-radius: 999px;
+        background: #ffffff;
+        color: #111111;
+      }
+
+      .lvgl-preview.is-style-comic .generated-item,
+      .lvgl-preview.is-style-comic .generated-progress {
+        border-color: #111111;
+        background: #ffffff;
+      }
+
+      .lvgl-preview.is-style-minimal .generated-body,
+      .lvgl-preview.is-style-minimal .generated-item {
+        border-color: rgba(0, 0, 0, 0.18);
+        background: rgba(255, 255, 255, 0.58);
+      }
+
       .lvgl-header {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -1770,7 +1983,7 @@
         },
         syncScreen: {
           reply: "我会把当前小屏界面同步到核桃派。",
-          run: () => syncScreenToDevice({ addUserMessage: false }),
+          run: () => syncScreenToDevice({ addUserMessage: false, addStartMessage: false }),
         },
         aiSummary: {
           reply: "我会根据最近一次同步证据生成总结。",
@@ -1857,6 +2070,8 @@
       let pendingCommand = "";
       let renderFrame = 0;
       let renderBurstUntil = 0;
+      let lastPixelDiffKey = "";
+      let pixelDiffBusy = false;
 
       term.loadAddon(fitAddon);
       term.open(terminalElement);
@@ -2021,7 +2236,7 @@
             action: {
               id: "ai",
               payload: { text: aiQuestion[1].trim() },
-              reply: "我会把这句话交给 WalnutAI 回答。",
+              reply: "",
             },
           };
         }
@@ -2031,6 +2246,9 @@
         if (/总结|summary/i.test(trimmed) && /同步|证据|小屏|屏幕|screen/i.test(trimmed)) {
           return { type: "screen.summary", action: actions.aiSummary };
         }
+
+        const readAction = deviceReadActionForText(trimmed);
+        if (readAction) return { type: "device.read", action: readAction };
 
         if (looksLikeScreenEdit(trimmed)) {
           return {
@@ -2054,9 +2272,6 @@
           };
         }
 
-        const readAction = deviceReadActionForText(trimmed);
-        if (readAction) return { type: "device.read", action: readAction };
-
         const terminalAction = terminalToolActionForText(trimmed);
         if (terminalAction) return { type: "terminal.tool", action: terminalAction };
 
@@ -2065,7 +2280,7 @@
           action: {
             id: "ai",
             payload: { text: trimmed },
-            reply: /天气|weather/.test(lower) ? "我会把天气问题交给 WalnutAI 回答。" : "我会把这句话交给 WalnutAI 回答。",
+            reply: "",
           },
         };
       }
@@ -2120,7 +2335,7 @@
             action: {
               id: "ai",
               payload: { text: subject },
-              reply: /天气|weather/.test(originalText.toLowerCase()) ? "我会把天气问题交给 WalnutAI 回答。" : "我会把这句话交给 WalnutAI 回答。",
+              reply: "",
             },
             classification: normalized,
           };
@@ -2350,6 +2565,7 @@
         diagDeviceFrame.dataset.frameUrl = nextUrl;
         currentDeviceFrameUrl = nextUrl;
         currentDeviceFrameLoadId += 1;
+        lastPixelDiffKey = "";
         diagDeviceFrameSection.hidden = !nextUrl;
         if (!nextUrl) {
           diagDeviceFrame.removeAttribute("src");
@@ -2384,18 +2600,18 @@
       }
 
       function screenTone(manifest) {
-        const home = (Array.isArray(manifest?.pages) ? manifest.pages : []).find((page) => page.id === "home") || {};
-        const statusCard = firstManifestComponent(home, "statusCard");
-        const alert = firstManifestComponent(home, "alert");
-        const progress = firstManifestComponent(home, "progress");
-        const tone = statusCard?.tone || alert?.tone || progress?.tone || home.tone;
+        const page = (Array.isArray(manifest?.pages) ? manifest.pages : [])[0] || {};
+        const statusCard = firstManifestComponent(page, "statusCard");
+        const alert = firstManifestComponent(page, "alert");
+        const progress = firstManifestComponent(page, "progress");
+        const tone = statusCard?.tone || alert?.tone || progress?.tone || "ok";
         return ["ok", "warn", "error"].includes(tone) ? tone : "ok";
       }
 
       function screenProgress(manifest) {
-        const home = (Array.isArray(manifest?.pages) ? manifest.pages : []).find((page) => page.id === "home") || {};
-        const progressComponent = firstManifestComponent(home, "progress");
-        const progress = Number(progressComponent?.value ?? home.progress ?? 72);
+        const page = (Array.isArray(manifest?.pages) ? manifest.pages : [])[0] || {};
+        const progressComponent = firstManifestComponent(page, "progress");
+        const progress = Number(progressComponent?.value ?? 72);
         if (!Number.isFinite(progress)) return 72;
         return Math.max(0, Math.min(100, Math.round(progress)));
       }
@@ -2571,6 +2787,8 @@
       }
 
       async function computePixelDiffFromDeviceImage(image, frameUrl) {
+        const diffKey = `${currentSummaryBuildId}|${currentPixelDiffManifestHash}|${frameUrl}`;
+        if (pixelDiffBusy || diffKey === lastPixelDiffKey) return;
         if (!currentPixelDiffManifest) {
           renderPixelDiffUnavailable("missing-manifest", "没有当前同步记录的 manifest，无法生成 Web 预览像素。");
           return;
@@ -2580,6 +2798,7 @@
           return;
         }
 
+        pixelDiffBusy = true;
         try {
           const previewCanvas = await renderPreviewDomCanvas();
           const previewData = previewCanvas.getContext("2d", { willReadFrequently: true })
@@ -2610,9 +2829,12 @@
             ],
           };
           diagPixelDiff.textContent = formatDiagnosticJson(webDevicePixelDiff);
-          persistPixelDiff(currentSummaryBuildId, webDevicePixelDiff);
+          lastPixelDiffKey = diffKey;
+          await persistPixelDiff(currentSummaryBuildId, webDevicePixelDiff);
         } catch (error) {
           renderPixelDiffUnavailable("compare-failed", error.message);
+        } finally {
+          pixelDiffBusy = false;
         }
       }
 
@@ -2870,7 +3092,7 @@
         currentManifestHash = data.manifestHash || "";
         diagManifestHash.textContent = shortHash(currentManifestHash);
         renderScreenManifest(data.manifest);
-        if (currentDeviceFrameUrl && diagDeviceFrame.complete && diagDeviceFrame.naturalWidth) {
+        if (diagnostics.open && currentDeviceFrameUrl && diagDeviceFrame.complete && diagDeviceFrame.naturalWidth) {
           computePixelDiffFromDeviceImage(diagDeviceFrame, currentDeviceFrameUrl);
         }
         syncScreen.disabled = false;
@@ -2928,6 +3150,11 @@
         return data;
       }
 
+      function formatScreenGenerationDiagnostics(data) {
+        if (!data?.generation) return "";
+        return JSON.stringify(data.generation, null, 2);
+      }
+
       async function applyScreenTemplate(templateId) {
         if (!templateId || !currentManifestHash) return;
         setScreenEditorBusy(true);
@@ -2960,6 +3187,7 @@
           markActiveTemplate("");
           screenIntentInput.value = "";
           syncSummary.textContent = data.summary || "已更新预览。";
+          diagOutput.textContent = formatScreenGenerationDiagnostics(data) || diagOutput.textContent;
           setSyncState("未同步", "pending");
           if (options.addChat) {
             addMessage("assistant", data.summary || "已更新上面的小屏预览。");
@@ -2990,18 +3218,14 @@
           return metricGroup.items.slice(0, 3).map((item) => ({
             label: item.label || "Metric",
             value: `${item.value || "--"} ${item.unit || ""}`.trim(),
-            tone: item.tone || page.tone || "ok",
+            tone: item.tone || "ok",
           }));
         }
-        return (page.metrics || []).slice(0, 3).map((metric) => ({
-          label: "",
-          value: metric,
-          tone: page.tone || "ok",
-        }));
+        return [];
       }
 
       function previewPageLines(manifest) {
-        const pages = (manifest.pages || []).filter((page) => page.id !== "home");
+        const pages = (manifest.pages || []).slice(1);
         const selected = pages.find((page) => firstManifestComponent(page, "alert"))
           || pages.find((page) => firstManifestComponent(page, "list"))
           || pages.find((page) => firstManifestComponent(page, "textPage"))
@@ -3011,35 +3235,119 @@
         if (alert) {
           return {
             tone: alert.tone || "warn",
-            title: alert.title || selected.title || selected.tab || "Alert",
+            title: alert.title || selected.tab || "Alert",
             lines: [alert.body || "Check status"],
           };
         }
         const list = firstManifestComponent(selected, "list");
         if (list) {
           return {
-            tone: selected.tone || "ok",
-            title: list.title || selected.title || selected.tab || "List",
-            lines: list.items || selected.lines || [],
+            tone: "ok",
+            title: list.title || selected.tab || "List",
+            lines: list.items || [],
           };
         }
         const textPage = firstManifestComponent(selected, "textPage");
         if (textPage) {
           return {
-            tone: selected.tone || "ok",
-            title: textPage.title || selected.title || selected.tab || "Page",
-            lines: textPage.lines || selected.lines || [],
+            tone: "ok",
+            title: textPage.title || selected.tab || "Page",
+            lines: textPage.lines || [],
           };
         }
         return {
-          tone: selected.tone || "ok",
-          title: selected.title || selected.tab || "Page",
-          lines: selected.lines || [],
+          tone: "ok",
+          title: selected.tab || "Page",
+          lines: [],
         };
+      }
+
+      function generatedAccentColor(accent) {
+        return {
+          cyan: "#67d6ff",
+          green: "#33d6a6",
+          amber: "#ffc857",
+          red: "#ff6b6b",
+          blue: "#7aa8d8",
+          pink: "#ff6fb3",
+          paper: "#f7e9b9",
+        }[accent] || "#67d6ff";
+      }
+
+      function generatedStyleClass(style) {
+        return String(style || "panel").toLowerCase().replace(/[^a-z0-9_-]/g, "");
+      }
+
+      function renderGeneratedPageInto(target, manifest, page, component) {
+        const style = generatedStyleClass(component.style || "panel");
+        target.className = `lvgl-preview is-generated is-style-${style}`;
+        target.style.setProperty("--generated-accent", generatedAccentColor(component.accent));
+        target.style.setProperty("--generated-progress", `${Math.max(0, Math.min(100, Number(component.progress) || 0))}%`);
+
+        const shell = document.createElement("div");
+        shell.className = "generated-shell";
+
+        const top = document.createElement("div");
+        top.className = "generated-top";
+
+        const kicker = document.createElement("div");
+        kicker.className = "generated-kicker";
+        kicker.textContent = component.kicker || manifest.title || "WalnutAI";
+
+        const badge = document.createElement("div");
+        badge.className = "generated-badge";
+        badge.textContent = component.badge || page.tab || "LIVE";
+        top.append(kicker, badge);
+
+        const main = document.createElement("div");
+        main.className = "generated-main";
+
+        const headline = document.createElement("div");
+        headline.className = "generated-headline";
+        headline.textContent = component.headline || manifest.title || "READY";
+
+        const body = document.createElement("div");
+        body.className = "generated-body";
+        body.textContent = component.body || manifest.subtitle || "Generated screen";
+
+        const progress = document.createElement("div");
+        progress.className = "generated-progress";
+        const fill = document.createElement("div");
+        fill.className = "generated-progress-fill";
+        progress.append(fill);
+        main.append(headline, body, progress);
+
+        const items = document.createElement("div");
+        items.className = "generated-items";
+        for (const item of (component.items || []).slice(0, 3)) {
+          const node = document.createElement("div");
+          node.className = `generated-item is-${item.tone || "ok"}`;
+          const label = document.createElement("span");
+          label.className = "generated-item-label";
+          label.textContent = item.label || "Item";
+          const value = document.createElement("span");
+          value.className = "generated-item-value";
+          value.textContent = `${item.value || "--"} ${item.unit || ""}`.trim();
+          node.append(label, value);
+          items.append(node);
+        }
+        shell.append(top, main, items);
+        target.append(shell);
       }
 
       function renderScreenManifestInto(target, manifest) {
         target.replaceChildren();
+        target.className = "lvgl-preview";
+        target.style.removeProperty("--generated-accent");
+        target.style.removeProperty("--generated-progress");
+
+        const previewPages = manifest.pages || [];
+        const primaryPage = previewPages[0] || {};
+        const generatedPage = firstManifestComponent(primaryPage, "generatedPage");
+        if (generatedPage) {
+          renderGeneratedPageInto(target, manifest, primaryPage, generatedPage);
+          return;
+        }
 
         const header = document.createElement("div");
         header.className = "lvgl-header";
@@ -3058,25 +3366,26 @@
 
         const tabs = document.createElement("div");
         tabs.className = "lvgl-tabs";
-        for (const page of manifest.pages || []) {
-          const tab = document.createElement("span");
-          tab.className = "lvgl-tab";
-          tab.textContent = page.tab || page.id;
-          tabs.append(tab);
+        if (previewPages.length > 1) {
+          for (const page of previewPages) {
+            const tab = document.createElement("span");
+            tab.className = "lvgl-tab";
+            tab.textContent = page.tab || page.id;
+            tabs.append(tab);
+          }
         }
 
         const body = document.createElement("div");
         body.className = "lvgl-body";
 
-        const homePage = (manifest.pages || []).find((page) => page.id === "home") || {};
-        const statusCard = firstManifestComponent(homePage, "statusCard");
-        const progressComponent = firstManifestComponent(homePage, "progress");
-        const alert = firstManifestComponent(homePage, "alert");
+        const statusCard = firstManifestComponent(primaryPage, "statusCard");
+        const progressComponent = firstManifestComponent(primaryPage, "progress");
+        const alert = firstManifestComponent(primaryPage, "alert");
         const tone = screenTone(manifest);
         const core = document.createElement("div");
         core.className = `lvgl-core is-${tone}`;
         core.style.setProperty("--screen-progress", `${progressComponent?.value ?? screenProgress(manifest)}%`);
-        core.textContent = statusCard?.value || homePage.status || "OK CORE";
+        core.textContent = statusCard?.value || primaryPage.tab || "READY";
 
         const metrics = document.createElement("div");
         metrics.className = "lvgl-metrics";
@@ -3092,7 +3401,7 @@
           item.append(label, value);
           metrics.append(item);
         }
-        for (const metric of previewMetricItems(homePage)) {
+        for (const metric of previewMetricItems(primaryPage)) {
           const item = document.createElement("div");
           item.className = `lvgl-metric is-${metric.tone || tone}`;
           if (metric.label) {
@@ -3152,6 +3461,7 @@
         currentSummaryBuildId = result.buildId || "";
         currentPixelDiffManifest = result.manifest || currentScreenManifest || null;
         currentPixelDiffManifestHash = result.manifestHash || currentManifestHash || "";
+        lastPixelDiffKey = "";
         aiSummaryButton.disabled = !currentSummaryBuildId;
         aiSummaryButton.textContent = "生成 AI 总结";
         diagBuildId.textContent = result.buildId || "-";
@@ -3207,6 +3517,7 @@
 
       async function syncScreenToDevice(options = {}) {
         if (options.addUserMessage !== false) addMessage("user", "同步到核桃派");
+        const addStartMessage = options.addStartMessage !== false;
 
         if (previewOnly) {
           setSyncState("未同步", "pending");
@@ -3219,7 +3530,6 @@
         clearRepairPanel();
         syncSummary.textContent = "正在同步到核桃派。";
         syncScreen.disabled = true;
-        addMessage("assistant", "我会把当前小屏界面同步到核桃派。");
 
         let result;
         try {
@@ -3267,10 +3577,9 @@
 
       async function runAction(action, userLabel = "") {
         if (userLabel) addMessage("user", userLabel);
-        addMessage("assistant", action.reply);
 
         if (action.run) {
-          action.run();
+          await action.run();
           return;
         }
 
@@ -3315,11 +3624,8 @@
         }
 
         if (result.id === "ai") {
-          const contextCount = Array.isArray(result.contextUsed?.retrieval) ? result.contextUsed.retrieval.length : 0;
-          const memoryHint = result.contextUsed?.memoryDistillCandidate ? "，可后台提炼" : "";
           addMessage("assistant", result.output || result.error || "WalnutAI 没有返回内容。", {
             error: !result.ok,
-            command: result.contextUsed ? `project-memory: ${contextCount} 条检索上下文${memoryHint}` : "",
           });
           if (result.output) writeTerminalBlock(result);
           return;
@@ -3464,7 +3770,6 @@
         const intent = await classifyUserIntent(text);
 
         if (intent.type === "screen.generate") {
-          addMessage("assistant", "我先生成上面的小屏预览。");
           const data = await applyScreenIntent(text, { addChat: true });
           if (data && intent.syncAfterGenerate) {
             await syncScreenToDevice({ addUserMessage: false });
@@ -3537,7 +3842,7 @@
         renderFrame = 0;
         renderScene();
         if (performance.now() < renderBurstUntil) {
-          requestRender();
+          window.setTimeout(requestRender, 33);
         }
       }
 

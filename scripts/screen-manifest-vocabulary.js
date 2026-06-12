@@ -1,10 +1,13 @@
 import { createHash } from "node:crypto";
 
-export const SCREEN_PAGE_IDS = ["home", "system", "ai", "network"];
+export const SCREEN_MAX_PAGES = 6;
+export const SCREEN_MAX_COMPONENTS = 6;
 export const SCREEN_TEXT_LIMIT = 48;
 export const SCREEN_LINE_LIMIT = 72;
 export const SCREEN_TONES = new Set(["ok", "warn", "error"]);
-export const SCREEN_COMPONENT_TYPES = new Set(["statusCard", "metricGroup", "list", "progress", "alert", "textPage"]);
+export const SCREEN_COMPONENT_TYPES = new Set(["statusCard", "metricGroup", "list", "progress", "alert", "textPage", "generatedPage"]);
+export const SCREEN_GENERATED_STYLES = new Set(["panel", "comic", "music", "network", "task", "status", "alert", "minimal"]);
+export const SCREEN_ACCENTS = new Set(["cyan", "green", "amber", "red", "blue", "pink", "paper"]);
 
 export function stableStringify(value) {
   if (Array.isArray(value)) {
@@ -33,18 +36,14 @@ export function cleanText(value, field, limit = SCREEN_TEXT_LIMIT) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
   rejectControlText(text, field);
   if (!text) throw new Error(`${field} is required`);
-  if ([...text].length > limit) {
-    throw new Error(`${field} is too long`);
-  }
+  if ([...text].length > limit) throw new Error(`${field} is too long`);
   return text;
 }
 
 export function cleanOptionalText(value, field, limit = SCREEN_TEXT_LIMIT) {
   const text = String(value ?? "").replace(/\s+/g, " ").trim();
   rejectControlText(text, field);
-  if ([...text].length > limit) {
-    throw new Error(`${field} is too long`);
-  }
+  if ([...text].length > limit) throw new Error(`${field} is too long`);
   return text;
 }
 
@@ -55,6 +54,14 @@ export function cleanTextList(values, field, maxItems, limit = SCREEN_LINE_LIMIT
     throw new Error(`${field} must contain 1-${maxItems} items`);
   }
   return items;
+}
+
+function cleanPageId(value, field) {
+  const id = cleanText(value, field, 32);
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(id)) {
+    throw new Error(`${field} must be a simple slug`);
+  }
+  return id;
 }
 
 export function cleanTone(value, field) {
@@ -72,6 +79,37 @@ export function cleanProgress(value, field) {
   return Math.round(progress);
 }
 
+export function cleanGeneratedStyle(value, field = "generatedPage.style") {
+  const style = String(value || "panel").trim().toLowerCase();
+  if (!SCREEN_GENERATED_STYLES.has(style)) {
+    throw new Error(`${field} must be one of ${[...SCREEN_GENERATED_STYLES].join(", ")}`);
+  }
+  return style;
+}
+
+export function cleanAccent(value, field = "generatedPage.accent") {
+  const accent = String(value || "cyan").trim().toLowerCase();
+  if (!SCREEN_ACCENTS.has(accent)) {
+    throw new Error(`${field} must be one of ${[...SCREEN_ACCENTS].join(", ")}`);
+  }
+  return accent;
+}
+
+function cleanGeneratedItems(values, field) {
+  if (values === undefined || values === null) return [];
+  if (!Array.isArray(values)) throw new Error(`${field} must be an array`);
+  if (values.length > 3) throw new Error(`${field} must contain at most 3 items`);
+  return values.map((item, index) => {
+    const itemObject = item && typeof item === "object" && !Array.isArray(item) ? item : null;
+    return {
+      label: cleanText(itemObject ? itemObject.label || `M${index + 1}` : item, `${field}[${index}].label`, 12),
+      value: cleanText(itemObject ? itemObject.value || "--" : "--", `${field}[${index}].value`, 16),
+      unit: cleanOptionalText(itemObject ? itemObject.unit || "" : "", `${field}[${index}].unit`, 8),
+      tone: cleanTone(itemObject ? itemObject.tone || "ok" : "ok", `${field}[${index}].tone`),
+    };
+  });
+}
+
 function cleanScreenComponent(component, field) {
   if (!component || typeof component !== "object" || Array.isArray(component)) {
     throw new Error(`${field} must be an object`);
@@ -83,7 +121,7 @@ function cleanScreenComponent(component, field) {
     return {
       type,
       label: cleanText(component.label || "Status", `${field}.label`, 12),
-      value: cleanText(component.value || "OK CORE", `${field}.value`, 24),
+      value: cleanText(component.value || "Ready", `${field}.value`, 24),
       tone: cleanTone(component.tone || "ok", `${field}.tone`),
       detail: cleanText(component.detail || "Ready", `${field}.detail`, 24),
     };
@@ -135,6 +173,20 @@ function cleanScreenComponent(component, field) {
     };
   }
 
+  if (type === "generatedPage") {
+    return {
+      type,
+      style: cleanGeneratedStyle(component.style || "panel", `${field}.style`),
+      kicker: cleanText(component.kicker || "WalnutAI", `${field}.kicker`, 20),
+      headline: cleanText(component.headline || component.title || "Ready", `${field}.headline`, 24),
+      body: cleanText(component.body || component.detail || "Generated screen", `${field}.body`, 56),
+      badge: cleanText(component.badge || "LIVE", `${field}.badge`, 12),
+      accent: cleanAccent(component.accent || "cyan", `${field}.accent`),
+      progress: cleanProgress(component.progress ?? 64, `${field}.progress`),
+      items: cleanGeneratedItems(component.items, `${field}.items`),
+    };
+  }
+
   return {
     type,
     title: cleanText(component.title || "Page", `${field}.title`, 32),
@@ -143,130 +195,26 @@ function cleanScreenComponent(component, field) {
 }
 
 function normalizeScreenComponents(page, pageIndex) {
-  if (page.components === undefined) return [];
   if (!Array.isArray(page.components)) throw new Error(`pages[${pageIndex}].components must be an array`);
-  if (page.components.length > 6) throw new Error(`pages[${pageIndex}].components must contain at most 6 items`);
-  const normalized = page.components.map((component, index) => cleanScreenComponent(component, `pages[${pageIndex}].components[${index}]`));
-  const seenTypes = new Set();
-  for (const component of normalized) {
-    if (seenTypes.has(component.type)) throw new Error(`pages[${pageIndex}].components must not repeat ${component.type}`);
-    seenTypes.add(component.type);
+  if (page.components.length === 0 || page.components.length > SCREEN_MAX_COMPONENTS) {
+    throw new Error(`pages[${pageIndex}].components must contain 1-${SCREEN_MAX_COMPONENTS} items`);
   }
-  return normalized;
+  return page.components.map((component, index) => cleanScreenComponent(component, `pages[${pageIndex}].components[${index}]`));
 }
 
 export function firstScreenComponent(components, type) {
   return components.find((component) => component.type === type) || null;
 }
 
-function screenMetricText(item) {
-  const value = `${item.value} ${item.unit || ""}`.trim();
-  return cleanText(`${item.label} ${value}`.trim(), "metricGroup.item", 24);
-}
-
-export function metricItemFromText(value, index) {
-  const text = cleanText(value, `pages[0].metrics[${index}]`, 24);
+export function metricItemFromText(value, index = 0) {
+  const text = cleanText(value, `metricText[${index}]`, 24);
   const [label, ...rest] = text.split(/\s+/);
   return {
-    label: cleanText(label || `M${index + 1}`, `pages[0].metrics[${index}].label`, 12),
-    value: cleanText(rest.join(" ") || "--", `pages[0].metrics[${index}].value`, 16),
+    label: cleanText(label || `M${index + 1}`, `metricText[${index}].label`, 12),
+    value: cleanText(rest.join(" ") || "--", `metricText[${index}].value`, 16),
     unit: "",
     tone: "ok",
   };
-}
-
-function componentLines(page, components, pageIndex) {
-  const alert = firstScreenComponent(components, "alert");
-  const textPage = firstScreenComponent(components, "textPage");
-  const listComponent = firstScreenComponent(components, "list");
-  if (alert) {
-    return {
-      title: alert.title,
-      lines: cleanTextList([alert.body], `pages[${pageIndex}].componentLines`, 4, 48),
-    };
-  }
-  if (listComponent) {
-    return {
-      title: listComponent.title,
-      lines: cleanTextList(listComponent.items.slice(0, 4), `pages[${pageIndex}].componentLines`, 4, 48),
-    };
-  }
-  if (textPage) {
-    return {
-      title: textPage.title,
-      lines: cleanTextList(textPage.lines.slice(0, 4), `pages[${pageIndex}].componentLines`, 4, 48),
-    };
-  }
-  const title = cleanText(page.title || page.tab || SCREEN_PAGE_IDS[pageIndex], `pages[${pageIndex}].title`, 32);
-  return {
-    title,
-    lines: cleanTextList(page.lines || [title], `pages[${pageIndex}].lines`, 4, 48),
-  };
-}
-
-function buildHomeComponents(status, tone, progress, metrics, existingComponents) {
-  const components = existingComponents.filter((component) => !["statusCard", "progress", "metricGroup"].includes(component.type));
-  const existingStatusCard = firstScreenComponent(existingComponents, "statusCard");
-  const existingProgress = firstScreenComponent(existingComponents, "progress");
-  const existingMetricGroup = firstScreenComponent(existingComponents, "metricGroup");
-  components.unshift({
-    type: "metricGroup",
-    items: existingMetricGroup?.items || metrics.map(metricItemFromText),
-  });
-  components.unshift({
-    type: "progress",
-    label: existingProgress?.label || "Progress",
-    value: progress,
-    max: existingProgress?.max || 100,
-    tone,
-  });
-  components.unshift({
-    type: "statusCard",
-    label: existingStatusCard?.label || "Status",
-    value: status,
-    tone,
-    detail: existingStatusCard?.detail || "Ready",
-  });
-  return components;
-}
-
-function buildTextPageComponents(title, lines, existingComponents) {
-  const existingAlert = firstScreenComponent(existingComponents, "alert");
-  const components = existingComponents.filter((component) => !["alert", "textPage", "list"].includes(component.type));
-  const existingTextPage = firstScreenComponent(existingComponents, "textPage");
-  const existingList = firstScreenComponent(existingComponents, "list");
-  if (existingAlert) {
-    components.unshift(existingList ? {
-      type: "list",
-      title: existingList.title,
-      items: existingList.items,
-    } : {
-      type: "textPage",
-      title: existingTextPage?.title || title,
-      lines: existingTextPage?.lines || lines,
-    });
-    components.unshift({
-      type: "alert",
-      title,
-      body: lines[0] || "Check status",
-      tone: existingAlert.tone || "warn",
-    });
-    return components;
-  }
-  if (existingList) {
-    components.unshift({
-      type: "list",
-      title,
-      items: lines,
-    });
-    return components;
-  }
-  components.unshift({
-    type: "textPage",
-    title,
-    lines,
-  });
-  return components;
 }
 
 export function toneFromText(value) {
@@ -313,54 +261,32 @@ export function validateScreenManifest(manifest) {
   if (manifest.source.command !== "walnut screen start") {
     throw new Error("screen manifest source.command must be walnut screen start");
   }
-  if (!Array.isArray(manifest.pages) || manifest.pages.length !== SCREEN_PAGE_IDS.length) {
-    throw new Error(`screen manifest pages must contain exactly ${SCREEN_PAGE_IDS.length} pages`);
-  }
-  for (const [index, expectedId] of SCREEN_PAGE_IDS.entries()) {
-    const page = manifest.pages[index];
-    if (!page || typeof page !== "object" || Array.isArray(page)) {
-      throw new Error(`screen manifest pages[${index}] must be an object`);
-    }
-    if (page.id !== expectedId) {
-      throw new Error(`screen manifest pages[${index}].id must be ${expectedId}`);
-    }
+  if (!Array.isArray(manifest.pages) || manifest.pages.length === 0 || manifest.pages.length > SCREEN_MAX_PAGES) {
+    throw new Error(`screen manifest pages must contain 1-${SCREEN_MAX_PAGES} pages`);
   }
   return manifest;
 }
 
 export function normalizeScreenManifest(manifest) {
   validateScreenManifest(manifest);
-
+  const seenIds = new Set();
   const pages = manifest.pages.map((page, index) => {
-    const components = normalizeScreenComponents(page, index);
-    const next = {
-      id: SCREEN_PAGE_IDS[index],
-      tab: cleanText(page.tab || SCREEN_PAGE_IDS[index].toUpperCase(), `pages[${index}].tab`, 8),
-    };
-    if (index === 0) {
-      const statusCard = firstScreenComponent(components, "statusCard");
-      const progressComponent = firstScreenComponent(components, "progress");
-      const metricGroup = firstScreenComponent(components, "metricGroup");
-      const alert = firstScreenComponent(components, "alert");
-      next.status = cleanText(statusCard ? statusCard.value : page.status || "OK CORE", "pages[0].status", 24);
-      next.tone = cleanTone(
-        statusCard ? statusCard.tone : alert ? alert.tone : progressComponent ? progressComponent.tone : page.tone || toneFromText(next.status),
-        "pages[0].tone",
-      );
-      next.progress = cleanProgress(progressComponent ? progressComponent.value : page.progress, "pages[0].progress");
-      next.metrics = metricGroup
-        ? metricGroup.items.map(screenMetricText)
-        : cleanTextList(page.metrics || ["IP loading", "MEM --", "DISK --"], "pages[0].metrics", 3, 24);
-      while (next.metrics.length < 3) next.metrics.push("--");
-      next.metrics = next.metrics.slice(0, 3);
-      next.components = buildHomeComponents(next.status, next.tone, next.progress, next.metrics, components);
-    } else {
-      const text = componentLines(page, components, index);
-      next.title = text.title;
-      next.lines = text.lines;
-      next.components = buildTextPageComponents(next.title, next.lines, components);
+    if (!page || typeof page !== "object" || Array.isArray(page)) {
+      throw new Error(`screen manifest pages[${index}] must be an object`);
     }
-    return next;
+    for (const field of ["status", "tone", "progress", "metrics", "title", "lines"]) {
+      if (Object.hasOwn(page, field)) {
+        throw new Error(`pages[${index}].${field} is not supported; use pages[${index}].components`);
+      }
+    }
+    const id = cleanPageId(page.id || `page-${index + 1}`, `pages[${index}].id`);
+    if (seenIds.has(id)) throw new Error(`pages[${index}].id must be unique`);
+    seenIds.add(id);
+    return {
+      id,
+      tab: cleanText(page.tab || id.toUpperCase(), `pages[${index}].tab`, 8),
+      components: normalizeScreenComponents(page, index),
+    };
   });
 
   return {
@@ -371,51 +297,31 @@ export function normalizeScreenManifest(manifest) {
   };
 }
 
-function pageKind(components) {
-  if (firstScreenComponent(components, "alert")) return "alert";
-  if (firstScreenComponent(components, "list")) return "list";
-  return "textPage";
-}
-
 export function toneColor(tone) {
   return {
-    ok: "C_GREEN",
-    warn: "C_AMBER",
-    error: "C_RED",
-  }[tone];
+    ok: "0x33d6a6",
+    warn: "0xffc857",
+    error: "0xff6b6b",
+  }[cleanTone(tone, "tone")];
+}
+
+export function accentColor(accent) {
+  return {
+    cyan: "0x67d6ff",
+    green: "0x33d6a6",
+    amber: "0xffc857",
+    red: "0xff6b6b",
+    blue: "0x7aa8d8",
+    pink: "0xff6fb3",
+    paper: "0xf7e9b9",
+  }[cleanAccent(accent, "accent")];
 }
 
 export function screenManifestRuntimeConfig(manifest) {
   const normalized = normalizeScreenManifest(manifest);
-  const homePage = normalized.pages[0];
-  const statusCard = firstScreenComponent(homePage.components, "statusCard");
-  const progressComponent = firstScreenComponent(homePage.components, "progress");
-  const metricGroup = firstScreenComponent(homePage.components, "metricGroup");
-  const metricItems = metricGroup
-    ? [...metricGroup.items]
-    : homePage.metrics.map(metricItemFromText);
-
-  while (metricItems.length < 3) {
-    metricItems.push({ label: "Metric", value: "--", unit: "", tone: "ok" });
-  }
-
   return {
     title: normalized.title,
     subtitle: normalized.subtitle,
-    homeStatusLabel: cleanText(statusCard?.label || "Status", "pages[0].statusCard.label", 12),
-    homeStatus: homePage.status,
-    homeStatusDetail: cleanText(statusCard?.detail || "Ready", "pages[0].statusCard.detail", 24),
-    homeTone: homePage.tone,
-    homeProgressLabel: cleanText(progressComponent?.label || "Progress", "pages[0].progress.label", 16),
-    homeProgress: homePage.progress,
-    homeProgressMax: cleanProgress(progressComponent?.max ?? 100, "pages[0].progress.max"),
-    tabs: normalized.pages.map((page) => page.tab),
-    metrics: homePage.metrics.slice(0, 3),
-    metricItems: metricItems.slice(0, 3),
-    textPages: normalized.pages.slice(1).map((page) => ({
-      kind: pageKind(page.components),
-      title: page.title,
-      lines: page.lines,
-    })),
+    pages: normalized.pages,
   };
 }

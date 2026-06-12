@@ -157,6 +157,24 @@ try {
     Assert-True ($previewSync.Data.output -match "disables SSH, build, delivery, activation") "nossh sync output should document blocked device paths."
     Assert-PreDeviceSyncRejection $previewSync "nossh sync"
 
+    $templateManifestBefore = Get-Content -LiteralPath $manifestPath -Raw
+    $template = Invoke-JsonPost "$baseUri/api/screen/template?nossh" @{
+        manifestHash = $manifest.manifestHash
+        templateId = "device-status"
+    }
+    Assert-Status $template 403 "nossh template"
+    Assert-True ($template.Data.failedStage -eq "preview") "nossh template should return preview block."
+    Assert-True ((Get-Content -LiteralPath $manifestPath -Raw) -eq $templateManifestBefore) "nossh template unexpectedly modified the manifest."
+
+    $intentManifestBefore = Get-Content -LiteralPath $manifestPath -Raw
+    $intent = Invoke-JsonPost "$baseUri/api/screen/intent?nossh" @{
+        manifestHash = $manifest.manifestHash
+        text = "标题 WalnutPi"
+    }
+    Assert-Status $intent 403 "nossh intent"
+    Assert-True ($intent.Data.failedStage -eq "preview") "nossh intent should return preview block."
+    Assert-True ((Get-Content -LiteralPath $manifestPath -Raw) -eq $intentManifestBefore) "nossh intent unexpectedly modified the manifest."
+
     $terminal = Invoke-JsonGet "$baseUri/terminal?nossh"
     Assert-Status $terminal 403 "nossh terminal"
     Assert-True ($terminal.Raw -match "SSH disabled for preview") "nossh terminal should block SSH."

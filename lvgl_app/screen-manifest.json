@@ -1,8 +1,8 @@
 {
   "schema": "walnutpi.screen.v1",
   "id": "walnutpi-lvgl-status",
-  "title": "WalnutMusic",
-  "subtitle": "music player",
+  "title": "Night Desk",
+  "subtitle": "lofi focus player",
   "target": {
     "runtime": "lvgl-fbdev",
     "display": "/dev/fb0",
@@ -16,48 +16,39 @@
   },
   "pages": [
     {
-      "id": "home",
-      "tab": "PLAY",
-      "status": "MUSIC READY",
-      "tone": "ok",
-      "progress": 38,
-      "metrics": [
-        "Track queue",
-        "Vol --",
-        "Local audio"
-      ]
-    },
-    {
-      "id": "system",
-      "tab": "LIB",
-      "title": "Music Library",
-      "lines": [
-        "Scan music-library",
-        "MP3 FLAC WAV",
-        "Playlist ready",
-        "No cloud needed"
-      ]
-    },
-    {
-      "id": "ai",
-      "tab": "CTL",
-      "title": "Player Controls",
-      "lines": [
-        "Play pause next",
-        "Volume guarded",
-        "Use walnut play",
-        "Terminal fallback"
-      ]
-    },
-    {
-      "id": "network",
-      "tab": "SYNC",
-      "title": "WalnutPi Sync",
-      "lines": [
-        "Preview first",
-        "Sync to fbdev",
-        "Evidence frame",
-        "Ask before writes"
+      "id": "main",
+      "tab": "MAIN",
+      "components": [
+        {
+          "type": "generatedPage",
+          "style": "music",
+          "kicker": "Now Playing",
+          "headline": "MIDNIGHT LOFI",
+          "body": "Soft beats for a quiet desk. Stay in flow.",
+          "badge": "PLAY",
+          "accent": "blue",
+          "progress": 42,
+          "items": [
+            {
+              "label": "Track",
+              "value": "Night Desk",
+              "unit": "",
+              "tone": "ok"
+            },
+            {
+              "label": "Vol",
+              "value": "36",
+              "unit": "%",
+              "tone": "ok"
+            },
+            {
+              "label": "Out",
+              "value": "Desk Spk",
+              "unit": "",
+              "tone": "ok"
+            }
+          ]
+        }
       ]
     }
   ]

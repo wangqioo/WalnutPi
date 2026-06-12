@@ -49,7 +49,7 @@ export function createSshLocalAgentAdapter({
       const artifactCommand = remoteBuildShell(
         `set -e; ROOT=${shellQuote(remoteProjectRoot)}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk '{print $1}'`,
       );
-      const activateCommand = "sudo -n walnut screen start";
+      const activateCommand = "sudo -n systemctl restart walnut-screen.service";
       const stateCommand = "walnut screen state";
       const frameCommand = "sudo -n walnut screen frame";
 
@@ -428,12 +428,28 @@ function screenPreviewSignature(manifest) {
     pages: pages.map((page) => ({
       id: page.id || "",
       tab: page.tab || "",
-      title: page.title || "",
-      status: page.status || "",
-      tone: page.tone || "",
-      progress: Number.isFinite(Number(page.progress)) ? Number(page.progress) : null,
-      metrics: Array.isArray(page.metrics) ? page.metrics : [],
-      lines: Array.isArray(page.lines) ? page.lines : [],
+      components: Array.isArray(page.components)
+        ? page.components.map((component) => ({
+            type: component?.type || "",
+            style: component?.style || "",
+            kicker: component?.kicker || "",
+            headline: component?.headline || "",
+            badge: component?.badge || "",
+            accent: component?.accent || "",
+            label: component?.label || "",
+            title: component?.title || "",
+            value: component?.value ?? null,
+            tone: component?.tone || "",
+            detail: component?.detail || "",
+            body: component?.body || "",
+            progress: component?.type === "generatedPage"
+              ? Number(component?.progress ?? 0)
+              : Number.isFinite(Number(component?.value)) && component?.type === "progress" ? Number(component.value) : null,
+            max: Number.isFinite(Number(component?.max)) && component?.type === "progress" ? Number(component.max) : null,
+            lines: Array.isArray(component?.lines) ? component.lines : [],
+            items: Array.isArray(component?.items) ? component.items : [],
+          }))
+        : [],
     })),
   };
 }

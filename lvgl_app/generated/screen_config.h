@@ -2,65 +2,52 @@
 #ifndef WALNUT_SCREEN_CONFIG_H
 #define WALNUT_SCREEN_CONFIG_H
 
-#define WALNUT_SCREEN_MANIFEST_HASH "fc1821341680497f49704d6264f69de5f5c153295144513f0420e7496db38026"
+#define WALNUT_SCREEN_MANIFEST_HASH "bc5e14d847fa0c816e7e3572c7b1bb7de27309c3c65f774d9e1fbc574f15d5d7"
+#define WALNUT_SCREEN_TITLE "Night Desk"
+#define WALNUT_SCREEN_SUBTITLE "lofi focus player"
+#define WALNUT_SCREEN_PAGE_COUNT 1
+#define WALNUT_SCREEN_COMPONENT_COUNT 1
 
-#define WALNUT_SCREEN_TITLE "WalnutMusic"
-#define WALNUT_SCREEN_SUBTITLE "music player"
+typedef struct {
+    const char * id;
+    const char * tab;
+    int index;
+} walnut_screen_page_config_t;
 
-#define WALNUT_SCREEN_TAB_HOME "PLAY"
-#define WALNUT_SCREEN_TAB_SYSTEM "LIB"
-#define WALNUT_SCREEN_TAB_AI "CTL"
-#define WALNUT_SCREEN_TAB_NETWORK "SYNC"
+typedef struct {
+    int page_index;
+    const char * type;
+    const char * style;
+    const char * title;
+    const char * text;
+    const char * kicker;
+    const char * badge;
+    const char * items;
+    unsigned int tone_color;
+    int progress;
+} walnut_screen_component_config_t;
 
-#define WALNUT_SCREEN_HOME_STATUS_LABEL "Status"
-#define WALNUT_SCREEN_HOME_STATUS "MUSIC READY"
-#define WALNUT_SCREEN_HOME_STATUS_DETAIL "Ready"
-#define WALNUT_SCREEN_HOME_TONE "ok"
-#define WALNUT_SCREEN_HOME_TONE_COLOR C_GREEN
-#define WALNUT_SCREEN_HOME_PROGRESS_LABEL "Progress"
-#define WALNUT_SCREEN_HOME_PROGRESS 38
-#define WALNUT_SCREEN_HOME_PROGRESS_MAX 100
-#define WALNUT_SCREEN_HOME_METRIC_1 "Track queue"
-#define WALNUT_SCREEN_HOME_METRIC_2 "Vol --"
-#define WALNUT_SCREEN_HOME_METRIC_3 "Local audio"
-#define WALNUT_SCREEN_HOME_METRIC_1_LABEL "Track"
-#define WALNUT_SCREEN_HOME_METRIC_1_VALUE "queue"
-#define WALNUT_SCREEN_HOME_METRIC_1_UNIT ""
-#define WALNUT_SCREEN_HOME_METRIC_1_TONE "ok"
-#define WALNUT_SCREEN_HOME_METRIC_1_TONE_COLOR C_GREEN
-#define WALNUT_SCREEN_HOME_METRIC_2_LABEL "Vol"
-#define WALNUT_SCREEN_HOME_METRIC_2_VALUE "--"
-#define WALNUT_SCREEN_HOME_METRIC_2_UNIT ""
-#define WALNUT_SCREEN_HOME_METRIC_2_TONE "ok"
-#define WALNUT_SCREEN_HOME_METRIC_2_TONE_COLOR C_GREEN
-#define WALNUT_SCREEN_HOME_METRIC_3_LABEL "Local"
-#define WALNUT_SCREEN_HOME_METRIC_3_VALUE "audio"
-#define WALNUT_SCREEN_HOME_METRIC_3_UNIT ""
-#define WALNUT_SCREEN_HOME_METRIC_3_TONE "ok"
-#define WALNUT_SCREEN_HOME_METRIC_3_TONE_COLOR C_GREEN
+static const walnut_screen_page_config_t walnut_screen_pages[WALNUT_SCREEN_PAGE_COUNT] = {
+  {
+    "main",
+    "MAIN",
+    0
+  }
+};
 
-#define WALNUT_SCREEN_SYSTEM_KIND "textPage"
-#define WALNUT_SCREEN_SYSTEM_TITLE "Music Library"
-#define WALNUT_SCREEN_SYSTEM_LINE_1 "Scan music-library"
-#define WALNUT_SCREEN_SYSTEM_LINE_2 "MP3 FLAC WAV"
-#define WALNUT_SCREEN_SYSTEM_LINE_3 "Playlist ready"
-#define WALNUT_SCREEN_SYSTEM_LINE_4 "No cloud needed"
-#define WALNUT_SCREEN_SYSTEM_TEXT "Music Library\n\nScan music-library\nMP3 FLAC WAV\nPlaylist ready\nNo cloud needed"
-
-#define WALNUT_SCREEN_AI_KIND "textPage"
-#define WALNUT_SCREEN_AI_TITLE "Player Controls"
-#define WALNUT_SCREEN_AI_LINE_1 "Play pause next"
-#define WALNUT_SCREEN_AI_LINE_2 "Volume guarded"
-#define WALNUT_SCREEN_AI_LINE_3 "Use walnut play"
-#define WALNUT_SCREEN_AI_LINE_4 "Terminal fallback"
-#define WALNUT_SCREEN_AI_TEXT "Player Controls\n\nPlay pause next\nVolume guarded\nUse walnut play\nTerminal fallback"
-
-#define WALNUT_SCREEN_NETWORK_KIND "textPage"
-#define WALNUT_SCREEN_NETWORK_TITLE "WalnutPi Sync"
-#define WALNUT_SCREEN_NETWORK_LINE_1 "Preview first"
-#define WALNUT_SCREEN_NETWORK_LINE_2 "Sync to fbdev"
-#define WALNUT_SCREEN_NETWORK_LINE_3 "Evidence frame"
-#define WALNUT_SCREEN_NETWORK_LINE_4 "Ask before writes"
-#define WALNUT_SCREEN_NETWORK_TEXT "WalnutPi Sync\n\nPreview first\nSync to fbdev\nEvidence frame\nAsk before writes"
+static const walnut_screen_component_config_t walnut_screen_components[WALNUT_SCREEN_COMPONENT_COUNT] = {
+  {
+    0,
+    "generatedPage",
+    "music",
+    "MIDNIGHT LOFI",
+    "Soft beats for a quiet desk. Stay in flow.",
+    "Now Playing",
+    "PLAY",
+    "Track Night Desk\nVol 36 %\nOut Desk Spk",
+    0x7aa8d8,
+    42
+  }
+};
 
 #endif
