@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -41,21 +41,10 @@ const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BA
 const LVGL_PREVIEW_TIMEOUT_MS = Number(process.env.WALNUT_LVGL_PREVIEW_TIMEOUT_MS || 180_000);
 const WALNUT_AI_CORPUS_DIR = process.env.WALNUT_AI_CORPUS_DIR || path.join(PROJECT_ROOT, "walnut-ai-terminal", "corpus");
 const SCREEN_SUCCESS_CORPUS_PATH = path.join(WALNUT_AI_CORPUS_DIR, "screen-sync-successes.md");
-function localCodexOpenAiApiKey() {
-  if (process.env.OPENAI_API_KEY) return process.env.OPENAI_API_KEY;
-  const home = process.env.USERPROFILE || process.env.HOME || "";
-  if (!home) return "";
-  try {
-    const auth = JSON.parse(readFileSync(path.join(home, ".codex", "auth.json"), "utf8"));
-    return typeof auth.OPENAI_API_KEY === "string" ? auth.OPENAI_API_KEY.trim() : "";
-  } catch {
-    return "";
-  }
-}
 
 const AI_MODEL = process.env.WALNUT_AI_MODEL || "gpt-5.4-mini";
 const AI_BASE_URL = (process.env.WALNUT_AI_BASE_URL || "https://rehdasu.cn/v1").replace(/\/+$/, "");
-const AI_API_KEY = localCodexOpenAiApiKey();
+const AI_API_KEY = String(process.env.WALNUT_AI_API_KEY || process.env.OPENAI_API_KEY || "").trim();
 const AI_CONTEXT_LIMIT = 4;
 const AI_CONTEXT_TEXT_LIMIT = 900;
 const AI_TIMEOUT_SECONDS = Number(process.env.WALNUT_WEB_AI_TIMEOUT || 20);
@@ -549,7 +538,7 @@ function buildScreenRepairHint(record) {
       title: "屏幕服务激活失败",
       summary: "程序已构建，但没有成功启动核桃派屏幕服务。",
       beginnerReason: "核桃派没有把新的小屏程序启动起来。",
-      developerDiagnosis: firstError || "sudo -n walnut screen start 没有成功。",
+      developerDiagnosis: firstError || "sudo -n systemctl restart walnut-screen.service 没有成功。",
       suggestedActions: ["确认 walnut screen start 在设备上可运行。", "检查 sudo -n 是否允许当前 SSH 用户启动 walnut-screen.service。", "查看 walnut-screen.service 状态和日志。"],
     },
     evidence: {
@@ -670,7 +659,7 @@ function buildScreenRepairCandidate(record) {
     activate: {
       confidence: "medium",
       actions: [
-        action("device-check", "检查屏幕服务", "确认 walnut-screen.service 已安装，且 sudo -n walnut screen start 可以运行。"),
+        action("device-check", "检查屏幕服务", "确认 walnut-screen.service 已安装，且 sudo -n systemctl restart walnut-screen.service 可以运行。"),
         action("manual-check", "查看服务日志", "在设备上查看 walnut-screen.service 状态和最近日志，定位启动失败原因。"),
       ],
     },
@@ -1211,7 +1200,7 @@ function successfulScreenSyncEntry(record) {
     `- cards: ${cards.join(" | ") || "none"}`,
     `- summary: ${String(record.summary || "").replace(/\s+/g, " ").slice(0, 500)}`,
     "",
-    "Reuse this pattern for manifest-driven LVGL screen sync: require current manifestHash, build with scripts/build-lvgl-app.sh, activate with sudo -n walnut screen start, verify with walnut screen state and sudo -n walnut screen frame.",
+    "Reuse this pattern for manifest-driven LVGL screen sync: require current manifestHash, build with scripts/build-lvgl-app.sh, activate with sudo -n systemctl restart walnut-screen.service, verify with walnut screen state and sudo -n walnut screen frame.",
     "",
   ];
   return `${lines.join("\n")}\n`;

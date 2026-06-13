@@ -219,7 +219,7 @@ http://127.0.0.1:4173/?nossh
 - `POST /api/screen/repair-candidate`：读取本地同步记录并返回结构化修复候选方案；不会 SSH、构建、激活、抓图、写文件或自动重试。
 - `POST /api/screen/repair-proposal`：读取本地同步记录并生成确认门控的本地修复提案；生成提案不会写文件、SSH、构建、激活、抓图或重试。
 - `POST /api/screen/repair-apply`：只在输入精确确认短语后应用服务器生成的安全本地补丁；Web 随后重新读取 manifest 和预览，但不会自动同步到核桃派。
-- `POST /api/screen/ai-summary`：读取本地同步记录并生成证据受限的中文总结；默认本地规则生成，配置 `OPENAI_API_KEY` 后可调用 OpenAI-compatible `/responses`，失败会回退本地总结；不会 SSH、构建、激活、抓图、写文件或自动重试。
+- `POST /api/screen/ai-summary`：读取本地同步记录并生成证据受限的中文总结；默认本地规则生成，在本地 `.env` 配置 `WALNUT_AI_API_KEY`、`WALNUT_AI_BASE_URL` 和 `WALNUT_AI_MODEL` 后可调用 OpenAI-compatible `/responses`，失败会回退本地总结；不会 SSH、构建、激活、抓图、写文件或自动重试。
 - `POST /api/screen/pixel-diff`：只把浏览器算出的 `walnutpi.webDevicePixelDiff.v2` 写回本地同步记录；manifest hash 必须和记录一致；记录固定 480x320 Web DOM 预览快照与设备 PNG 的尺寸、像素数和差异比例；不会连接核桃派、抓图、构建、激活或改变同步状态。
 
 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、metadata-only pixel evidence、诊断级 Web/device pixel diff、历史记录、修复提示、修复候选方案、修复提案、AI 总结证据和按需设备截图只放在开发者诊断层。
@@ -233,7 +233,7 @@ http://127.0.0.1:4173/?nossh
 当前真机闭环已经通过一次验证：
 
 ```text
-Web manifest -> POST /api/screen/sync -> LVGL build -> sudo -n walnut screen start -> walnut screen state -> sudo -n walnut screen frame -> diagnostics-only walnut screen capture
+Web manifest -> POST /api/screen/sync -> LVGL build -> sudo -n systemctl restart walnut-screen.service -> walnut screen state -> sudo -n walnut screen frame -> diagnostics-only walnut screen capture
 ```
 
 验证时 `artifactHash` 和 `deliveryHash` 都是 64 位 SHA-256/hex，设备回证显示 `walnut-screen.service` 为 `active`。Web 同步会把远端 checkout 显式设为 `WALNUT_REMOTE_PROJECT_ROOT`，默认是 `/home/pi/projects/WalnutPi`，避免 root 登录时误进 `/root/projects/WalnutPi`。
@@ -432,7 +432,7 @@ sudo walnut screen ai "WalnutPi screen AI page is live"
 Web 同步第一版复用现有 LVGL 运行边界，不改变 `walnut screen` 命令：
 
 - 构建：`scripts/build-lvgl-app.sh`
-- 激活：`sudo -n walnut screen start`
+- 激活：`sudo -n systemctl restart walnut-screen.service`。这是当前 Web delivery adapter 已验证的真机路径；`walnut screen start` 仍保留为用户可见 CLI 入口。
 - 回证：`walnut screen state` + `sudo -n walnut screen frame`
 - 诊断截图：`walnut screen capture`，通过 `/api/screen/frame/<buildId>` 按需返回 PNG
 - 修复候选：`POST /api/screen/repair-candidate`，只读分析本地同步记录，不自动应用修复
