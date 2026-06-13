@@ -1,6 +1,8 @@
 #include "lvgl.h"
 #include "generated/screen_config.h"
+#ifndef WALNUT_LVGL_NO_FBDEV
 #include "src/drivers/display/fb/lv_linux_fbdev.h"
+#endif
 
 #include <fcntl.h>
 #include <linux/input.h>
@@ -394,7 +396,7 @@ static void build_tabs(screen_ui_t * ui, lv_obj_t * scr)
     }
 }
 
-static void build_screen_ui(void)
+void walnut_build_screen_ui(void)
 {
     static screen_ui_t ui;
     memset(&ui, 0, sizeof(ui));
@@ -431,6 +433,7 @@ static void build_screen_ui(void)
     if(ui.input_fd >= 0) lv_timer_create(input_poll_cb, 60, &ui);
 }
 
+#ifndef WALNUT_LVGL_NO_FBDEV
 int main(int argc, char ** argv)
 {
     (void)walnut_screen_manifest_hash;
@@ -452,7 +455,7 @@ int main(int argc, char ** argv)
     lv_linux_fbdev_set_file(disp, fbdev);
     lv_linux_fbdev_set_force_refresh(disp, true);
 
-    build_screen_ui();
+    walnut_build_screen_ui();
 
     while(running) {
         lv_tick_inc(5);
@@ -462,3 +465,4 @@ int main(int argc, char ** argv)
 
     return 0;
 }
+#endif

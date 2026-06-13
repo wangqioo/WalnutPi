@@ -38,6 +38,7 @@ const SCREEN_RECORD_LIMIT = Number.isFinite(parsedScreenRecordLimit) && parsedSc
   ? Math.floor(parsedScreenRecordLimit)
   : 50;
 const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BASE_DIR, "screen-sync-records");
+const LVGL_PREVIEW_TIMEOUT_MS = Number(process.env.WALNUT_LVGL_PREVIEW_TIMEOUT_MS || 180_000);
 const WALNUT_AI_CORPUS_DIR = process.env.WALNUT_AI_CORPUS_DIR || path.join(PROJECT_ROOT, "walnut-ai-terminal", "corpus");
 const SCREEN_SUCCESS_CORPUS_PATH = path.join(WALNUT_AI_CORPUS_DIR, "screen-sync-successes.md");
 function localCodexOpenAiApiKey() {
@@ -1291,6 +1292,146 @@ function runRawRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_L
       const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok", outputLimit);
       resolve({ ok: code === 0, code, output });
     });
+  });
+}
+
+function runLocal(command, args, options = {}) {
+  const {
+    timeoutMs = 15_000,
+    outputLimit = ACTION_OUTPUT_LIMIT,
+    cwd = PROJECT_ROOT,
+  } = options;
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      child.kill("SIGTERM");
+      resolve({
+        ok: false,
+        code: null,
+        output: limitedOutput(`${stdout}${stderr}\n[local] command timed out`.trim(), outputLimit),
+      });
+    }, timeoutMs);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ ok: false, code: null, output: `[local] ${error.message}` });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        ok: code === 0,
+        code,
+        output: limitedOutput(`${stdout}${stderr}`.trim() || "ok", outputLimit),
+      });
+    });
+  });
+}
+
+function bashPath(value) {
+  return String(value).replace(/\\/g, "/").replace(/^([A-Za-z]):/, (_, drive) => `/mnt/${drive.toLowerCase()}`);
+}
+
+async function handleScreenLvglPreview(url) {
+  const envelope = await screenManifestEnvelope();
+  const expectedHash = (url.searchParams.get("manifestHash") || "").trim();
+  if (expectedHash && expectedHash !== envelope.manifestHash) {
+    return json(
+      {
+        ok: false,
+        error: "stale manifestHash",
+        summary: "Web LVGL 预览请求使用了过期 manifestHash，请刷新 manifest 后重试。",
+        manifestHash: envelope.manifestHash,
+      },
+      409,
+    );
+  }
+
+  const previewDir = path.join(tmpdir(), "walnutpi-lvgl-preview");
+  const previewPath = path.join(previewDir, `${envelope.manifestHash}.bmp`);
+  await mkdir(previewDir, { recursive: true });
+  const cachedBody = Bun.file(previewPath);
+  if (await cachedBody.exists()) {
+    return new Response(cachedBody, {
+      headers: {
+        "content-type": "image/bmp",
+        "cache-control": "no-store",
+        "x-walnut-screen-manifest-hash": envelope.manifestHash,
+        "x-walnut-preview-renderer": "lvgl-offscreen",
+        "x-walnut-preview-cache": "hit",
+      },
+    });
+  }
+
+  const output = await runLocal(
+    "bash",
+    [
+      "-lc",
+      [
+        `cd ${shellQuote(bashPath(PROJECT_ROOT))}`,
+        "./scripts/build-lvgl-app.sh >/dev/null",
+        `./build/lvgl_app/walnut-lvgl-preview ${shellQuote(bashPath(previewPath))}`,
+      ].join(" && "),
+    ],
+    {
+      timeoutMs: LVGL_PREVIEW_TIMEOUT_MS,
+      outputLimit: 12_000,
+    },
+  );
+  if (!output.ok) {
+    return json(
+      {
+        ok: false,
+        error: "lvgl preview render failed",
+        summary: "本地 LVGL 预览渲染失败。",
+        output: output.output,
+        manifestHash: envelope.manifestHash,
+      },
+      500,
+    );
+  }
+
+  const body = Bun.file(previewPath);
+  if (!(await body.exists())) {
+    return json(
+      {
+        ok: false,
+        error: "lvgl preview image missing",
+        summary: "LVGL 预览命令成功，但没有产出 BMP。",
+        output: output.output,
+        manifestHash: envelope.manifestHash,
+      },
+      500,
+    );
+  }
+
+  return new Response(body, {
+    headers: {
+      "content-type": "image/bmp",
+      "cache-control": "no-store",
+      "x-walnut-screen-manifest-hash": envelope.manifestHash,
+      "x-walnut-preview-renderer": "lvgl-offscreen",
+    },
   });
 }
 
@@ -2814,8 +2955,8 @@ function normalizeWebDevicePixelDiff(value) {
   return {
     schema,
     status,
-    claim: String(value.claim || "web-semantic-preview-compared-to-device-png").slice(0, 120),
-    source: String(value.source || (schema.endsWith(".v2") ? "actual-preview-dom-snapshot" : "semantic-canvas-preview"))
+    claim: String(value.claim || "web-lvgl-preview-compared-to-device-png").slice(0, 120),
+    source: String(value.source || (schema.endsWith(".v2") ? "actual-lvgl-offscreen-bmp" : "semantic-canvas-preview"))
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 80),
@@ -3451,6 +3592,7 @@ function stopSsh(ws) {
 const server = Bun.serve({
   hostname: HOST,
   port: PORT,
+  idleTimeout: Math.min(255, Math.ceil(LVGL_PREVIEW_TIMEOUT_MS / 1000) + 15),
   async fetch(req, server) {
     const url = new URL(req.url);
 
@@ -3502,6 +3644,23 @@ const server = Bun.serve({
             ok: false,
             error: "screen manifest invalid",
             summary: "screen manifest 无法读取或格式无效，请先修复小屏 contract。",
+            output: error.message,
+          },
+          500,
+        );
+      }
+    }
+
+    if (url.pathname === "/api/screen/preview/lvgl.bmp") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      try {
+        return await handleScreenLvglPreview(url);
+      } catch (error) {
+        return json(
+          {
+            ok: false,
+            error: "lvgl preview failed",
+            summary: "无法生成真实 LVGL Web 预览。",
             output: error.message,
           },
           500,

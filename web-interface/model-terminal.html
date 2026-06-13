@@ -244,6 +244,15 @@
         color: var(--paper);
       }
 
+      .lvgl-preview-image {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        image-rendering: auto;
+        background: #05080b;
+      }
+
       .lvgl-preview.is-generated {
         position: relative;
         display: block;
@@ -1586,7 +1595,8 @@
           </div>
 
           <div class="screen-preview-frame">
-            <div class="lvgl-preview" id="screenPreview"></div>
+            <img class="lvgl-preview-image" id="screenPreviewImage" alt="LVGL 小屏预览" />
+            <div class="lvgl-preview" id="screenPreview" hidden></div>
           </div>
 
           <div class="screen-editor" aria-label="小屏界面编辑" hidden>
@@ -1879,6 +1889,7 @@
       const assistantInput = document.querySelector("#assistantInput");
       const panel = document.querySelector("#panel");
       const screenPreview = document.querySelector("#screenPreview");
+      const screenPreviewImage = document.querySelector("#screenPreviewImage");
       const syncState = document.querySelector("#syncState");
       const syncSummary = document.querySelector("#syncSummary");
       const aiSummaryButton = document.querySelector("#aiSummaryButton");
@@ -2582,10 +2593,10 @@
           status: "unavailable",
           reason: status,
           summary: reason,
-          claim: "web-dom-preview-not-compared",
+          claim: "web-lvgl-preview-not-compared",
           limitations: [
             "Web preview pixels are diagnostic only and do not change sync status.",
-            "The browser preview is semantic DOM rendering, not LVGL headless rendering.",
+            "The Web preview is rendered by the local LVGL offscreen preview binary.",
           ],
         });
       }
@@ -2616,122 +2627,19 @@
         return Math.max(0, Math.min(100, Math.round(progress)));
       }
 
-      function cssValue(style, property, fallback = "") {
-        return style.getPropertyValue(property) || fallback;
-      }
-
-      function inlinePreviewDomStyles(root) {
-        const clone = root.cloneNode(true);
-        const sourceNodes = [root, ...root.querySelectorAll("*")];
-        const cloneNodes = [clone, ...clone.querySelectorAll("*")];
-        for (let index = 0; index < sourceNodes.length; index += 1) {
-          const source = sourceNodes[index];
-          const target = cloneNodes[index];
-          const style = window.getComputedStyle(source);
-          const declarations = [
-            ["display", style.display],
-            ["box-sizing", "border-box"],
-            ["width", style.width],
-            ["height", style.height],
-            ["min-width", style.minWidth],
-            ["min-height", style.minHeight],
-            ["grid-template-columns", style.gridTemplateColumns],
-            ["grid-template-rows", style.gridTemplateRows],
-            ["gap", style.gap],
-            ["align-items", style.alignItems],
-            ["justify-items", style.justifyItems],
-            ["place-items", style.placeItems],
-            ["align-self", style.alignSelf],
-            ["justify-self", style.justifySelf],
-            ["padding", style.padding],
-            ["border", style.border],
-            ["border-top-color", style.borderTopColor],
-            ["border-right-color", style.borderRightColor],
-            ["border-radius", style.borderRadius],
-            ["background", style.background],
-            ["color", style.color],
-            ["font", style.font],
-            ["font-size", style.fontSize],
-            ["font-weight", style.fontWeight],
-            ["line-height", style.lineHeight],
-            ["text-align", style.textAlign],
-            ["white-space", style.whiteSpace],
-            ["overflow", style.overflow],
-            ["text-overflow", style.textOverflow],
-            ["aspect-ratio", style.aspectRatio],
-          ];
-          const progress = cssValue(style, "--screen-progress");
-          if (progress) declarations.push(["--screen-progress", progress]);
-          target.removeAttribute("class");
-          target.removeAttribute("style");
-          for (const [name, value] of declarations) {
-            if (value) target.style.setProperty(name, value);
-          }
+      async function renderPreviewImageCanvas() {
+        if (screenPreviewImage.hidden || !screenPreviewImage.complete || !screenPreviewImage.naturalWidth) {
+          throw new Error("LVGL preview image is not loaded");
         }
-        return clone;
-      }
-
-      async function renderPreviewDomCanvas() {
-        if (!screenPreview.children.length) {
-          throw new Error("screen preview DOM is empty");
-        }
-
         const canvas = document.createElement("canvas");
         canvas.width = 480;
         canvas.height = 320;
         const ctx = canvas.getContext("2d", { willReadFrequently: true });
         if (!ctx) throw new Error("canvas unavailable");
-
-        const host = document.createElement("div");
-        host.style.cssText = [
-          "position:fixed",
-          "left:-10000px",
-          "top:0",
-          "width:480px",
-          "height:320px",
-          "opacity:0",
-          "pointer-events:none",
-          "z-index:-1",
-        ].join(";");
-        const measurementRoot = document.createElement("div");
-        measurementRoot.className = "lvgl-preview";
-        measurementRoot.style.width = "480px";
-        measurementRoot.style.height = "320px";
-        renderScreenManifestInto(measurementRoot, currentPixelDiffManifest || currentScreenManifest || {});
-        host.append(measurementRoot);
-        document.body.append(host);
-
-        try {
-          if (document.fonts?.ready) await document.fonts.ready;
-          await new Promise((resolve) => window.requestAnimationFrame(resolve));
-          const clone = inlinePreviewDomStyles(measurementRoot);
-          clone.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
-          const serialized = new XMLSerializer().serializeToString(clone);
-          const svg = [
-            `<svg xmlns="http://www.w3.org/2000/svg" width="480" height="320">`,
-            `<foreignObject width="480" height="320">${serialized}</foreignObject>`,
-            `</svg>`,
-          ].join("");
-          const url = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml;charset=utf-8" }));
-          try {
-            const image = new Image();
-            image.decoding = "async";
-            const loaded = new Promise((resolve, reject) => {
-              image.onload = resolve;
-              image.onerror = () => reject(new Error("DOM preview snapshot image failed to load"));
-            });
-            image.src = url;
-            await loaded;
-            ctx.fillStyle = "#05080b";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-            return canvas;
-          } finally {
-            URL.revokeObjectURL(url);
-          }
-        } finally {
-          host.remove();
-        }
+        ctx.fillStyle = "#05080b";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(screenPreviewImage, 0, 0, canvas.width, canvas.height);
+        return canvas;
       }
 
       function imageDataFromImage(image, width, height) {
@@ -2800,7 +2708,7 @@
 
         pixelDiffBusy = true;
         try {
-          const previewCanvas = await renderPreviewDomCanvas();
+          const previewCanvas = await renderPreviewImageCanvas();
           const previewData = previewCanvas.getContext("2d", { willReadFrequently: true })
             .getImageData(0, 0, previewCanvas.width, previewCanvas.height);
           const deviceData = imageDataFromImage(image, previewCanvas.width, previewCanvas.height);
@@ -2811,8 +2719,8 @@
           const webDevicePixelDiff = {
             schema: "walnutpi.webDevicePixelDiff.v2",
             status,
-            claim: "web-dom-preview-compared-to-device-png",
-            source: "actual-preview-dom-snapshot",
+            claim: "web-lvgl-preview-compared-to-device-png",
+            source: "actual-lvgl-offscreen-bmp",
             manifestHash: currentPixelDiffManifestHash || null,
             frameUrl,
             previewHash,
@@ -2822,8 +2730,7 @@
             threshold: PIXEL_DIFF_THRESHOLD,
             ...comparison,
             limitations: [
-              "This compares the browser DOM preview snapshot, not LVGL headless rendering.",
-              "SVG foreignObject rendering can differ slightly between browsers.",
+              "This compares the Web LVGL offscreen preview image against the device PNG.",
               "The device PNG can be a later dynamic frame than the sync-time raw framebuffer.",
               "This diagnostic does not change visualMatch or sync success.",
             ],
@@ -3436,9 +3343,35 @@
         target.append(header, body);
       }
 
+      function renderScreenManifestFallback(manifest) {
+        screenPreviewImage.hidden = true;
+        screenPreviewImage.removeAttribute("src");
+        screenPreview.hidden = false;
+        renderScreenManifestInto(screenPreview, manifest);
+      }
+
+      function renderScreenManifestImage(manifest) {
+        screenPreview.replaceChildren();
+        screenPreview.hidden = true;
+        screenPreviewImage.hidden = false;
+        screenPreviewImage.alt = "正在生成 LVGL 小屏预览";
+        const hash = encodeURIComponent(currentManifestHash || "");
+        const cacheKey = encodeURIComponent(`${currentManifestHash || "nohash"}-${Date.now()}`);
+        const imageUrl = withCurrentSearch(`/api/screen/preview/lvgl.bmp?manifestHash=${hash}&v=${cacheKey}`);
+        screenPreviewImage.onload = () => {
+          screenPreviewImage.alt = "LVGL 小屏预览";
+          renderPixelDiffUnavailable("waiting-device-frame", "Web 预览已使用真实 LVGL 离屏渲染。等待设备 PNG 后可比较。");
+        };
+        screenPreviewImage.onerror = () => {
+          renderScreenManifestFallback(manifest);
+          renderPixelDiffUnavailable("lvgl-preview-failed", "真实 LVGL 预览图加载失败，已临时回退到 DOM 语义预览。");
+        };
+        screenPreviewImage.src = imageUrl;
+      }
+
       function renderScreenManifest(manifest) {
         currentScreenManifest = manifest;
-        renderScreenManifestInto(screenPreview, manifest);
+        renderScreenManifestImage(manifest);
       }
 
       async function loadScreenManifest() {

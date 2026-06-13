@@ -41,6 +41,6 @@ else
 fi
 
 cmake -S "$ROOT_DIR/lvgl_app" -B "$ROOT_DIR/build/lvgl_app"
-cmake --build "$ROOT_DIR/build/lvgl_app" --target walnut-lvgl-screen -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
+cmake --build "$ROOT_DIR/build/lvgl_app" --target walnut-lvgl-screen walnut-lvgl-preview -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 
 echo "$ROOT_DIR/build/lvgl_app/walnut-lvgl-screen"

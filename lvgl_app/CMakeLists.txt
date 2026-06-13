@@ -31,3 +31,11 @@ add_executable(walnut-lvgl-screen
 )
 
 target_link_libraries(walnut-lvgl-screen PRIVATE lvgl m)
+
+add_executable(walnut-lvgl-preview
+  src/main.c
+  src/preview_main.c
+)
+
+target_compile_definitions(walnut-lvgl-preview PRIVATE WALNUT_LVGL_NO_FBDEV=1)
+target_link_libraries(walnut-lvgl-preview PRIVATE lvgl m)
