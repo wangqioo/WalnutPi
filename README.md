@@ -1,10 +1,18 @@
 # WalnutPi
 
-WalnutPi 是一个把小型无桌面 Linux 板子做成便携式云端 AI 终端的实验仓库。
+WalnutPi 当前主线是一个 beginner-first 的小屏同步闭环：
+
+```text
+自然语言或 guided intent
+-> Web 预览小屏 Screen Manifest
+-> 用户显式同步到 WalnutPi
+-> WalnutPi 屏幕运行同一个界面
+-> Web 展示状态、执行证据和 AI 可读总结
+```
 
 本文档以中文为主，命令名、软件名和少数技术术语保留英文原名。
 
-这个仓库不是单一应用，而是这块 WalnutPi 设备的总工作区：终端界面实验、音频笔记、部署配置、系统脚本，以及后续的 AI 原生软硬件原型。
+这个仓库仍然保存终端界面、音频、部署配置和硬件实验，但当前产品判断以 Screen Manifest + Web preview + Sync + Evidence 为主线。其他目录是设备执行面、支持记忆、历史实验或第三方参考，不代表要把 WalnutPi 做成 generic IDE、桌面应用平台、ESP32 烧录平台或 VibeBoard clone。
 
 ## 这台设备是什么
 
@@ -24,6 +32,20 @@ WalnutPi 是一个把小型无桌面 Linux 板子做成便携式云端 AI 终端
 - 远程访问：frpc 连接到已有 frps 服务
 
 这台设备被刻意当作轻量本地交互载体，而不是本地大模型推理机器。
+
+## 当前产品主线
+
+当前要优先维护的用户路径是：
+
+- Web 读取 `GET /api/screen/manifest` 并渲染 480x320 小屏预览。
+- 用户确认后调用 `POST /api/screen/sync`，请求必须携带当前 `manifestHash`。
+- 后端用 `scripts/build-lvgl-app.sh` 构建设备端 LVGL 程序。
+- Web delivery adapter 激活已验证路径 `sudo -n systemctl restart walnut-screen.service`。
+- 设备证据来自 `walnut screen state` 和 `sudo -n walnut screen frame`。
+- 初学者 UI 只显示 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。
+- `buildId`、hash、命令输出、delivery manifest、frame route、截图字节、repair 和 AI summary evidence 都留在开发者诊断层。
+
+`?nossh` 是 preview-only 模式：它不能触发 build、SSH、delivery、activation、截图或设备写入。
 
 ## 核心思路
 
@@ -129,21 +151,26 @@ AirPods 播放是可用的，但 AirPods 麦克风捕获在这块板子的板载
 
 ```text
 WalnutPi/
-├── hardware/                # 观察到的硬件和屏幕记录
-├── framebuffer_ui/          # 直接写 /dev/fb0 的无桌面屏幕 UI 实验
-├── lvgl_app/                # LVGL + Linux fbdev 的嵌入式屏幕 UI 原型
-├── walnut-assistant/        # Walnut Home 命令中心
-├── walnut-ai-terminal/      # WalnutAI Terminal V0
-├── web-interface/           # 本地 Web agent 控制台和 3D/终端展示
-├── terminal-toys/           # Walnut Play 使用的纯终端工具
-├── console-chinese/         # 本地 framebuffer 中文显示说明
-├── audio/
-│   └── airpods-linux/       # AirPods / Linux 播放与麦克风调查
-├── scripts/                 # 安装和辅助脚本
-└── README.md                # 项目总览
+├── web-interface/           # Product spine: Web preview, sync API, evidence diagnostics
+├── lvgl_app/                # Product spine: manifest-driven LVGL fbdev app
+├── scripts/                 # Product spine scripts plus device install helpers
+├── walnut-assistant/        # Device execution surface: walnut CLI and screen commands
+├── framebuffer_ui/          # Device execution surface: framebuffer experiments and install path
+├── walnut-ai-terminal/      # Support / memory / agent experiments
+├── terminal-toys/           # Support: Walnut Play terminal tools
+├── console-chinese/         # Support: framebuffer Chinese console notes
+├── hardware/                # Support: observed hardware and screen records
+├── ai_video/                # Experiment
+├── voice-keyboard/          # Experiment
+├── investor-brief/          # Experiment / presentation material
+├── third/                   # Reference projects only
+├── third_party/             # Vendored or external reference material
+└── README.md                # Project overview
 ```
 
-未来的模块都应该作为独立子目录加入这个仓库，根目录只保留索引和总览。
+`third/VibeBoard` 只是产品架构参考，可以借鉴 artifact manifest、delivery adapter、build evidence、device evidence 等概念；不要复制它的 React app、ESP-IDF 假设、OTA/flash 流程、board profile 或服务。`third/walnutpi` 只是 WalnutPi 体验参考，可以借鉴 device presence、rich terminal evidence、memory 和 WalnutPi-specific skills；不要用它整体替换当前项目。
+
+未来新增模块先判断是否服务 Screen Sync 主线；如果不是，先放在 support、experiment 或 reference 身份下，不进入产品主线。
 
 ## 项目分区
 
@@ -188,6 +215,8 @@ Web 端读取 screen manifest
 ```
 
 当前小屏 contract 保存在 `lvgl_app/screen-manifest.json`。Web 预览、`manifestHash` 校验和 delivery manifest 都从这个文件派生；可用 `WALNUT_SCREEN_MANIFEST_PATH` 指向另一个 manifest 进行本地验证。
+
+Screen Manifest 的 schema、字段清洗、`generatedPage`、`accent`、`tone` 和 hash 规则以 `scripts/screen-manifest-vocabulary.js` 为事实来源。`scripts/generate-lvgl-screen-config.js` 是 canonical LVGL 配置生成器；`scripts/generate-lvgl-screen-config.py` 只保留为兼容入口，会委托给 JS 生成器，不再维护第二套规则。
 
 运行本地控制台：
 

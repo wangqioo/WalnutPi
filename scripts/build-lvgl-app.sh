@@ -27,16 +27,16 @@ if [ ! -d "$ROOT_DIR/third_party/lvgl" ]; then
   "$ROOT_DIR/scripts/fetch-lvgl.sh"
 fi
 
-if command -v python3 >/dev/null 2>&1; then
-  python3 "$ROOT_DIR/scripts/generate-lvgl-screen-config.py"
-elif command -v python >/dev/null 2>&1; then
-  python "$ROOT_DIR/scripts/generate-lvgl-screen-config.py"
-elif command -v node >/dev/null 2>&1; then
+if command -v node >/dev/null 2>&1; then
   node "$ROOT_DIR/scripts/generate-lvgl-screen-config.js"
 elif command -v bun >/dev/null 2>&1; then
   bun "$ROOT_DIR/scripts/generate-lvgl-screen-config.js"
+elif command -v python3 >/dev/null 2>&1; then
+  python3 "$ROOT_DIR/scripts/generate-lvgl-screen-config.py"
+elif command -v python >/dev/null 2>&1; then
+  python "$ROOT_DIR/scripts/generate-lvgl-screen-config.py"
 else
-  echo "python3, python, node, or bun is required to generate LVGL screen config" >&2
+  echo "node or bun is required to generate LVGL screen config" >&2
   exit 1
 fi
 

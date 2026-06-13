@@ -1,21 +1,24 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   cleanText,
-  firstScreenComponent,
   metricItemFromText,
   normalizeScreenManifest,
   stableStringify,
-  toneFromText,
 } from "../scripts/screen-manifest-vocabulary.js";
 import { createScreenEvidenceLedger } from "./screen-evidence-ledger.js";
+import { createScreenEvidenceReview } from "./screen-evidence-review.js";
 import { createSshLocalAgentAdapter } from "./screen-delivery-adapters/ssh-local-agent.js";
 import { createScreenSyncWorkflow } from "./screen-sync-workflow.js";
+import { createWebSessionLedger } from "./web-session-ledger.js";
+import { createLvglPreviewRenderer } from "./lvgl-preview-renderer.js";
+import { createWalnutRemoteAdapter } from "./walnut-remote-adapter.js";
+import { createScreenManifestStore } from "./screen-manifest-store.js";
+import { createScreenManifestEditor } from "./screen-manifest-editor.js";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PORT || 4173);
@@ -62,8 +65,10 @@ const RETRIEVAL_FILE_LIMIT = 5000;
 const RETRIEVAL_RESULT_LIMIT = 8;
 const WEB_SESSIONS_DIR = process.env.WALNUT_WEB_SESSIONS_DIR || path.join(BASE_DIR, "data", "sessions");
 const WEB_SESSION_EVENT_LIMIT = Number(process.env.WALNUT_WEB_SESSION_EVENT_LIMIT || 300);
-let walnutCliEnsurePromise = null;
-let walnutCliEnsureHash = null;
+const webSessionLedger = createWebSessionLedger({
+  sessionsDir: WEB_SESSIONS_DIR,
+  eventLimit: WEB_SESSION_EVENT_LIMIT,
+});
 
 const files = new Map([
   ["/", "model-terminal.html"],
@@ -226,74 +231,13 @@ async function retrieveWalnutContext(query) {
   return results.slice(0, RETRIEVAL_RESULT_LIMIT);
 }
 
-function safeSessionId(value) {
-  const text = String(value || "").trim();
-  if (!/^[a-zA-Z0-9._-]{8,80}$/.test(text) || text.includes("..") || text.startsWith(".")) return null;
-  return text;
-}
-
-function sessionPath(sessionId) {
-  const id = safeSessionId(sessionId);
-  if (!id) return null;
-  return path.join(WEB_SESSIONS_DIR, `${id}.jsonl`);
-}
-
-function normalizeSessionEvent(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const role = String(value.role || "").trim();
-  if (!["user", "assistant", "system", "action"].includes(role)) return null;
-  const content = sessionContent(value.content || "");
-  if (!content && role !== "action") return null;
-  return {
-    id: randomUUID(),
-    at: new Date().toISOString(),
-    role,
-    content,
-    action: value.action ? clippedText(value.action, 120) : null,
-    ok: typeof value.ok === "boolean" ? value.ok : null,
-    command: value.command ? clippedText(value.command, 1000) : null,
-    contextUsed: value.contextUsed && typeof value.contextUsed === "object" ? value.contextUsed : null,
-  };
-}
-
-async function appendSessionEvent(sessionId, event) {
-  const filePath = sessionPath(sessionId);
-  const normalized = normalizeSessionEvent(event);
-  if (!filePath || !normalized) return null;
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(normalized)}\n`, { encoding: "utf8", flag: "a" });
-  return normalized;
-}
-
-async function readSessionEvents(sessionId, limit = WEB_SESSION_EVENT_LIMIT) {
-  const filePath = sessionPath(sessionId);
-  if (!filePath) return null;
-  let data = "";
-  try {
-    data = await readFile(filePath, "utf8");
-  } catch {
-    return [];
-  }
-  const lines = data.split(/\r?\n/).filter(Boolean);
-  const events = [];
-  for (const line of lines.slice(-limit)) {
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed && typeof parsed === "object") events.push(parsed);
-    } catch {
-      // Ignore corrupt trailing lines; append-only history should still be readable.
-    }
-  }
-  return events;
-}
-
 async function handleSession(req, url) {
-  const sessionId = safeSessionId(url.searchParams.get("sessionId"));
+  const sessionId = webSessionLedger.safeSessionId(url.searchParams.get("sessionId"));
   if (!sessionId) return json({ ok: false, error: "invalid sessionId" }, 400);
 
   if (req.method === "GET") {
     const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit") || WEB_SESSION_EVENT_LIMIT) || WEB_SESSION_EVENT_LIMIT));
-    const events = await readSessionEvents(sessionId, limit);
+    const events = await webSessionLedger.readEvents(sessionId, limit);
     return json({
       ok: true,
       schema: "walnutpi.webSession.v1",
@@ -309,7 +253,7 @@ async function handleSession(req, url) {
     } catch (error) {
       return json({ ok: false, error: error.message }, 400);
     }
-    const event = await appendSessionEvent(sessionId, body.event || body);
+    const event = await webSessionLedger.appendEvent(sessionId, body.event || body);
     if (!event) return json({ ok: false, error: "invalid session event" }, 400);
     return json({ ok: true, schema: "walnutpi.webSessionAppend.v1", sessionId, event });
   }
@@ -321,10 +265,6 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function shortHash(value) {
-  return typeof value === "string" && value.length >= 12 ? value.slice(0, 12) : null;
-}
-
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
@@ -334,43 +274,30 @@ function remoteBuildShell(command) {
   return `sudo -n -u ${shellQuote(REMOTE_BUILD_USER)} sh -lc ${shellQuote(command)}`;
 }
 
-function sshConnectionOptions() {
-  const options = [
-    "-o",
-    "StrictHostKeyChecking=no",
-    "-o",
-    "UserKnownHostsFile=/dev/null",
-    "-o",
-    "LogLevel=ERROR",
-  ];
-  if (SSH_CONTROLMASTER_ENABLED) {
-    mkdirSync(SSH_CONTROL_DIR, { recursive: true, mode: 0o700 });
-    options.push(
-      "-o",
-      "ControlMaster=auto",
-      "-o",
-      "ControlPersist=600",
-      "-o",
-      `ControlPath=${path.join(SSH_CONTROL_DIR, "%C")}`,
-    );
-  }
-  return options;
-}
-
 function limitedOutput(value, limit = ACTION_OUTPUT_LIMIT) {
   if (value.length <= limit) return value;
   return `${value.slice(0, limit)}\n\n[local] output truncated`;
 }
+
+const walnutRemote = createWalnutRemoteAdapter({
+  sshHost: SSH_HOST,
+  sshUser: SSH_USER,
+  sshPassword: SSH_PASSWORD,
+  remoteProjectRoot: REMOTE_PROJECT_ROOT,
+  walnutCliSourcePath: WALNUT_CLI_SOURCE_PATH,
+  outputLimit: ACTION_OUTPUT_LIMIT,
+  captureOutputLimit: CAPTURE_OUTPUT_LIMIT,
+  sha256,
+  limitedOutput,
+  controlMasterEnabled: SSH_CONTROLMASTER_ENABLED,
+  controlDir: SSH_CONTROL_DIR,
+});
 
 function clippedText(value, limit = AI_CONTEXT_TEXT_LIMIT) {
   return String(value || "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, limit);
-}
-
-function sessionContent(value) {
-  return String(value || "").replace(/\0/g, "").trim();
 }
 
 function compactMemoryForPrompt(memory) {
@@ -429,169 +356,12 @@ function aiQuestionWithContext(text, messages = [], projectMemory = null) {
   ].join("\n");
 }
 
-function firstDiagnosticLine(value) {
-  const text = String(value || "");
-  const preferred = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => /error|failed|fatal|denied|missing|not found|permission|timeout|cmake|make|gcc|sudo/i.test(line));
-  if (preferred) return preferred.slice(0, 500);
-  const fallback = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean);
-  return fallback ? fallback.slice(0, 500) : "";
-}
+const screenEvidenceReview = createScreenEvidenceReview({
+  screenManifestPath: SCREEN_MANIFEST_PATH,
+  projectRoot: PROJECT_ROOT,
+});
 
-function repairCommandOutput(record, commandName) {
-  return record.commandResults?.[commandName]?.output || "";
-}
-
-function repairCandidateAction(kind, label, detail) {
-  return { kind, label, detail };
-}
-
-function repairCandidateBase(record) {
-  const stage = record.failedStage || (record.ok ? "ok" : "unknown");
-  return {
-    schema: "walnutpi.screenRepairCandidate.v1",
-    buildId: record.buildId,
-    stage,
-    confidence: "low",
-    beginnerSummary: record.summary || "同步记录需要人工检查。",
-    developerDiagnosis: firstDiagnosticLine(record.output) || record.output || "missing diagnostic output",
-    proposedActions: [],
-    requiresConfirmation: true,
-    canAutoApply: false,
-    autoApplyReason: "第一版只生成修复候选方案，不自动修改文件或触发设备动作。",
-  };
-}
-
-function buildScreenRepairHint(record) {
-  const stage = record.failedStage || (record.ok ? "ok" : "unknown");
-  const visualChecks = record.screenEvidence?.visualChecks || null;
-  const commandByStage = {
-    "screen-slice": "screen-slice",
-    build: "build",
-    validate: "validate",
-    artifact: "artifact",
-    activate: "activate",
-    evidence: "evidence",
-    frame: "frame",
-    visual: "frame",
-  };
-  const commandName = commandByStage[stage] || "";
-  const firstError = firstDiagnosticLine(commandName ? repairCommandOutput(record, commandName) : record.output);
-  const baseEvidence = {
-    buildId: record.buildId,
-    failedStage: stage,
-    command: commandName || null,
-    firstError,
-    visualMatch: record.screenEvidence?.visualMatch || "unknown",
-    visualChecks,
-  };
-
-  const plans = {
-    ok: {
-      title: "不需要修复",
-      summary: "这条同步记录已经成功。",
-      beginnerReason: "核桃派已经完成同步。",
-      developerDiagnosis: "record.ok=true，没有失败阶段。",
-      suggestedActions: ["继续编辑小屏内容，或查看开发者诊断里的同步证据。"],
-    },
-    preview: {
-      title: "预览模式不会同步",
-      summary: "当前页面处于预览模式，所以不会连接核桃派。",
-      beginnerReason: "预览模式只看 Web 效果，不会构建、SSH、激活或写设备。",
-      developerDiagnosis: "URL 带有 ?nossh，后端在 sync 前返回 preview 阶段。",
-      suggestedActions: ["去掉 URL 里的 ?nossh 后再点击同步。", "如果只想本地预览，可以忽略这条失败记录。"],
-    },
-    manifest: {
-      title: "小屏配置需要刷新或修复",
-      summary: "同步请求里的 screen manifest 不可用或已经过期。",
-      beginnerReason: "Web 预览和服务器上的小屏配置不是同一个版本。",
-      developerDiagnosis: firstError || "manifest 读取失败、JSON 无效、hash 缺失、hash 格式错误或 stale manifestHash。",
-      suggestedActions: ["刷新页面，重新读取当前小屏预览。", "如果仍失败，检查 lvgl_app/screen-manifest.json 是否是有效 JSON。", "确认同步请求带的是最新 manifestHash。"],
-    },
-    "screen-slice": {
-      title: "小屏程序下发失败",
-      summary: "当前 Web 的小屏构建片段没有成功写到核桃派。",
-      beginnerReason: "核桃派还没有拿到这次预览对应的小屏程序文件。",
-      developerDiagnosis: firstError || "screen-slice 阶段没有成功写入 LVGL 源码、构建脚本、生成器或 manifest。",
-      suggestedActions: ["检查 SSH 连接和远端 /home/pi/projects/WalnutPi 写入权限。", "确认 WALNUT_REMOTE_PROJECT_ROOT 指向真实 checkout。", "修复权限后重新同步。"],
-    },
-    build: {
-      title: "LVGL 构建失败",
-      summary: "设备端没有成功编译小屏程序。",
-      beginnerReason: "核桃派还没有生成可以运行的小屏程序。",
-      developerDiagnosis: firstError || "构建命令没有返回可识别的第一处错误。",
-      suggestedActions: ["先查看 command output 里的 build 段第一处错误。", "如果提示缺少 cmake、gcc、make 或系统头文件，在设备上运行 scripts/install-lvgl-build-deps.sh。", "如果是 C 编译错误，先修复 lvgl_app/src/main.c 或生成的 screen_config.h。"],
-    },
-    artifact: {
-      title: "构建产物不可用",
-      summary: "构建后没有拿到绑定当前预览的 LVGL 程序。",
-      beginnerReason: "同步需要确认小屏程序文件真实存在，而且就是这次 Web 预览对应的版本。",
-      developerDiagnosis: firstError || "artifact/validate 没有返回合法 SHA-256，或二进制没有包含当前 manifest hash。",
-      suggestedActions: ["确认 lvgl_app/generated/screen_config.h 包含当前 manifest hash。", "确认 build/lvgl_app/walnut-lvgl-screen 存在且 strings 能看到当前 manifest hash。", "检查远端项目根是否指向 /home/pi/projects/WalnutPi。"],
-    },
-    activate: {
-      title: "屏幕服务激活失败",
-      summary: "程序已构建，但没有成功启动核桃派屏幕服务。",
-      beginnerReason: "核桃派没有把新的小屏程序启动起来。",
-      developerDiagnosis: firstError || "sudo -n systemctl restart walnut-screen.service 没有成功。",
-      suggestedActions: ["确认 walnut screen start 在设备上可运行。", "检查 sudo -n 是否允许当前 SSH 用户启动 walnut-screen.service。", "查看 walnut-screen.service 状态和日志。"],
-    },
-    evidence: {
-      title: "屏幕状态回证失败",
-      summary: "屏幕启动后，状态命令没有返回可信证据。",
-      beginnerReason: "系统无法确认屏幕服务是否真的在运行。",
-      developerDiagnosis: firstError || "walnut screen state 没有成功。",
-      suggestedActions: ["在设备上运行 walnut screen state 查看状态。", "确认 walnut-screen.service 存在且 active。", "如果服务刚启动，稍等几秒后重新同步。"],
-    },
-    frame: {
-      title: "屏幕画面回证失败",
-      summary: "无法读取到有效的 framebuffer 画面证据。",
-      beginnerReason: "系统没有看到核桃派真实屏幕画面。",
-      developerDiagnosis: firstError || "sudo -n walnut screen frame 没有返回合法 frame 元数据。",
-      suggestedActions: ["确认 /dev/fb0 可读，且 walnut screen frame 能返回 JSON 元数据。", "确认 walnut-screen.service 正在占用小屏，而不是被其他 framebuffer 程序覆盖。", "检查 sudo -n walnut screen frame 权限。"],
-    },
-    visual: {
-      title: "屏幕画面结构不一致",
-      summary: "framebuffer 可读，但尺寸、格式、字节数或非空检查没有通过。",
-      beginnerReason: "核桃派返回了画面，但不像当前目标小屏画面。",
-      developerDiagnosis: visualChecks ? JSON.stringify(visualChecks, null, 2) : firstError || "visual checks 不完整。",
-      suggestedActions: ["确认目标屏幕仍是 480x320 RGB565。", "确认 framebuffer 返回的 byteLength 等于 expectedByteLength。", "如果 frame 是空白，重启 walnut-screen.service 后再同步。"],
-    },
-    delivery: {
-      title: "交付适配器失败",
-      summary: "同步流程在 delivery adapter 内部异常退出。",
-      beginnerReason: "同步程序自己出错了，还没有进入完整的构建和回证流程。",
-      developerDiagnosis: firstError || record.output || "adapter exception without output",
-      suggestedActions: ["查看 command output 里的异常堆栈。", "确认 sshpass、SSH 配置和 adapter 参数可用。", "修复 adapter 错误后重新同步。"],
-    },
-    unknown: {
-      title: "同步失败原因不明确",
-      summary: "同步记录没有提供明确的失败阶段。",
-      beginnerReason: "系统知道同步失败，但还不能判断具体卡在哪里。",
-      developerDiagnosis: firstError || record.output || "missing failedStage",
-      suggestedActions: ["查看 developer diagnostics 里的 command output。", "保留 buildId，按输出里最早失败的命令继续排查。"],
-    },
-  };
-
-  const selected = plans[stage] || plans.unknown;
-  return {
-    schema: "walnutpi.screenRepairHint.v1",
-    buildId: record.buildId,
-    stage,
-    title: selected.title,
-    summary: selected.summary,
-    beginnerReason: selected.beginnerReason,
-    developerDiagnosis: selected.developerDiagnosis,
-    suggestedActions: selected.suggestedActions,
-    evidence: baseEvidence,
-    autoRepairAvailable: false,
-  };
-}
+const buildScreenRepairHint = screenEvidenceReview.buildRepairHint;
 
 const screenEvidenceLedger = createScreenEvidenceLedger({
   recordsDir: SCREEN_RECORDS_DIR,
@@ -606,235 +376,10 @@ const readScreenRecord = screenEvidenceLedger.readRecord;
 const updateScreenRecord = screenEvidenceLedger.updateRecord;
 const listScreenRecords = screenEvidenceLedger.listRecords;
 
-function buildScreenRepairCandidate(record) {
-  const hint = record.repairHint || buildScreenRepairHint(record);
-  const candidate = {
-    ...repairCandidateBase(record),
-    stage: hint.stage,
-    beginnerSummary: hint.beginnerReason || hint.summary,
-    developerDiagnosis: hint.developerDiagnosis,
-  };
-  const action = repairCandidateAction;
-  const stagePlans = {
-    ok: {
-      confidence: "high",
-      actions: [
-        action("manual-check", "不需要修复", "这条同步记录已经成功，可以继续编辑小屏内容。"),
-      ],
-    },
-    preview: {
-      confidence: "high",
-      actions: [
-        action("refresh-and-retry", "退出预览模式", "去掉 URL 里的 ?nossh 后重新打开页面，再手动点击同步。"),
-      ],
-    },
-    manifest: {
-      confidence: "high",
-      actions: [
-        action("refresh-and-retry", "刷新小屏预览", "重新读取 /api/screen/manifest，确保同步请求携带最新 manifestHash。"),
-        action("local-edit-plan", "检查 manifest JSON", "检查 lvgl_app/screen-manifest.json 是否是合法 JSON，schema 是否仍是 walnutpi.screen.v1。"),
-      ],
-    },
-    "screen-slice": {
-      confidence: "medium",
-      actions: [
-        action("device-check", "检查远端项目权限", "确认 WALNUT_REMOTE_PROJECT_ROOT 指向真实 checkout，且构建用户可以写入 lvgl_app 和 scripts。"),
-        action("manual-check", "查看 screen-slice 输出", "在开发者诊断 command output 的 screen-slice 段查看最早失败的 install、base64 或 chmod 行。"),
-      ],
-    },
-    build: {
-      confidence: "medium",
-      actions: [
-        action("manual-check", "查看 build 段第一处错误", "在开发者诊断 command output 的 build 段查找第一条 error、failed、fatal 或 permission 行。"),
-        action("local-edit-plan", "检查生成配置和 LVGL 源码", "如果是 C 或生成头文件错误，检查 lvgl_app/generated/screen_config.h 和 lvgl_app/src/main.c。"),
-      ],
-    },
-    artifact: {
-      confidence: "medium",
-      actions: [
-        action("device-check", "检查 LVGL 产物", "确认远端 build/lvgl_app/walnut-lvgl-screen 存在且可执行，并包含当前 manifest hash。"),
-        action("manual-check", "确认远端项目根", "确认 WALNUT_REMOTE_PROJECT_ROOT 指向 /home/pi/projects/WalnutPi 或真实 checkout。"),
-      ],
-    },
-    activate: {
-      confidence: "medium",
-      actions: [
-        action("device-check", "检查屏幕服务", "确认 walnut-screen.service 已安装，且 sudo -n systemctl restart walnut-screen.service 可以运行。"),
-        action("manual-check", "查看服务日志", "在设备上查看 walnut-screen.service 状态和最近日志，定位启动失败原因。"),
-      ],
-    },
-    evidence: {
-      confidence: "medium",
-      actions: [
-        action("device-check", "检查屏幕状态命令", "在设备上运行 walnut screen state，确认 walnut-screen.service 是 active。"),
-        action("refresh-and-retry", "等待后重新同步", "如果服务刚启动，等待几秒后手动重新同步。"),
-      ],
-    },
-    frame: {
-      confidence: "medium",
-      actions: [
-        action("device-check", "检查 framebuffer 证据命令", "在设备上运行 sudo -n walnut screen frame，确认返回 JSON 元数据。"),
-        action("manual-check", "检查 /dev/fb0 权限", "确认 /dev/fb0 可读，且没有其他 framebuffer 程序覆盖小屏。"),
-      ],
-    },
-    visual: {
-      confidence: "medium",
-      actions: [
-        action("manual-check", "检查画面结构字段", "查看 visualChecks，确认 480x320、RGB565、byteLength 和 nonblank 检查是否通过。"),
-        action("device-check", "检查是否空白帧", "如果 frameNonblank=false，确认 walnut-screen.service 是否真的在绘制当前 LVGL 程序。"),
-      ],
-    },
-    delivery: {
-      confidence: "medium",
-      actions: [
-        action("manual-check", "查看 adapter 异常", "查看 command output 里的异常堆栈或 adapter 参数错误。"),
-        action("manual-check", "检查 SSH 工具和参数", "确认 sshpass、SSH_HOST、SSH_USER、WALNUT_REMOTE_PROJECT_ROOT 和 WALNUT_REMOTE_BUILD_USER 配置可用。"),
-      ],
-    },
-    unknown: {
-      confidence: "low",
-      actions: [
-        action("manual-check", "按最早失败输出排查", "保留 buildId，查看 command output 中最早出现的 error、failed、fatal、permission 或 timeout 行。"),
-      ],
-    },
-  };
-  const plan = stagePlans[candidate.stage] || stagePlans.unknown;
-  candidate.confidence = plan.confidence;
-  candidate.proposedActions = plan.actions;
-  candidate.evidence = candidate.stage === "ok"
-    ? { ...hint.evidence, firstError: "" }
-    : hint.evidence;
-  return candidate;
-}
-
-function screenRepairConfirmationPhrase(buildId) {
-  return `APPLY SCREEN REPAIR ${buildId}`;
-}
-
-function buildScreenRepairProposal(record) {
-  const repairCandidate = buildScreenRepairCandidate(record);
-  const confirmationPhrase = screenRepairConfirmationPhrase(record.buildId);
-  const repairTargetPath = path.resolve(SCREEN_MANIFEST_PATH);
-  const projectRoot = path.resolve(PROJECT_ROOT);
-  const repairTargetInsideProject = repairTargetPath === projectRoot || repairTargetPath.startsWith(`${projectRoot}${path.sep}`);
-  const repairRelativePath = path.relative(PROJECT_ROOT, repairTargetPath).replace(/\\/g, "/");
-  const base = {
-    schema: "walnutpi.screenRepairProposal.v1",
-    buildId: record.buildId,
-    stage: repairCandidate.stage,
-    title: "屏幕修复提案",
-    summary: "当前没有可安全自动应用的本地补丁。",
-    canApply: false,
-    requiresConfirmation: true,
-    confirmationPhrase,
-    proposedPatch: null,
-    notes: [
-      "生成修复提案不会 SSH、构建、激活、抓图、写文件或重新同步。",
-      "只有输入精确确认短语后，才允许应用本地文件补丁。",
-    ],
-  };
-
-  if (!repairTargetInsideProject) {
-    return {
-      ...base,
-      notes: [
-        ...base.notes,
-        "当前 screen manifest 路径不在项目目录内，不能生成可应用补丁。",
-      ],
-    };
-  }
-
-  if (repairCandidate.stage === "manifest" && record.manifest) {
-    const manifest = normalizeScreenManifest(record.manifest);
-    const manifestText = `${JSON.stringify(manifest, null, 2)}\n`;
-    return {
-      ...base,
-      summary: "可以把这条记录中的 screen manifest 写回本地 manifest 文件，然后重新预览并手动同步。",
-      canApply: true,
-      proposedPatch: {
-        schema: "walnutpi.screenRepairPatch.v1",
-        kind: "replace-file",
-        risk: "write-low",
-        path: repairRelativePath,
-        bytes: Buffer.byteLength(manifestText, "utf8"),
-        sha256: sha256(manifestText),
-        preview: manifestText.slice(0, 4000),
-      },
-      notes: [
-        ...base.notes,
-        "应用后只更新本地 manifest 文件，不会自动构建、连接核桃派或重新同步。",
-      ],
-    };
-  }
-
-  return {
-    ...base,
-    notes: [
-      ...base.notes,
-      "这条记录的失败阶段不适合自动生成本地补丁，请按 repairCandidate 的建议人工处理。",
-    ],
-  };
-}
-
-function screenSummaryEvidence(record) {
-  const stage = record.failedStage || (record.ok ? "ok" : "unknown");
-  const commandByStage = {
-    build: "build",
-    artifact: "artifact",
-    activate: "activate",
-    evidence: "evidence",
-    frame: "frame",
-    visual: "frame",
-  };
-  const commandName = commandByStage[stage] || "";
-  const repairCandidate = buildScreenRepairCandidate(record);
-  return {
-    buildId: record.buildId,
-    ok: Boolean(record.ok),
-    failedStage: record.failedStage || null,
-    summary: record.summary || "",
-    manifestHashShort: shortHash(record.manifestHash),
-    artifactHashShort: shortHash(record.artifactHash),
-    deliveryHashShort: shortHash(record.deliveryHash),
-    visualMatch: record.screenEvidence?.visualMatch || "unknown",
-    visualChecks: record.screenEvidence?.visualChecks || null,
-    repairHint: record.repairHint
-      ? {
-          stage: record.repairHint.stage,
-          title: record.repairHint.title,
-          summary: record.repairHint.summary,
-          beginnerReason: record.repairHint.beginnerReason,
-        }
-      : null,
-    repairCandidate: {
-      stage: repairCandidate.stage,
-      confidence: repairCandidate.confidence,
-      beginnerSummary: repairCandidate.beginnerSummary,
-      proposedActions: repairCandidate.proposedActions,
-      canAutoApply: repairCandidate.canAutoApply,
-    },
-    firstDiagnosticLine: firstDiagnosticLine(commandName ? repairCommandOutput(record, commandName) : record.output),
-  };
-}
-
-function localScreenAiSummary(evidence) {
-  if (evidence.ok) {
-    if (evidence.visualMatch === "captured") {
-      return "已同步到核桃派。设备返回了有效的小屏画面证据，Web 预览和设备运行使用同一个 screen manifest。";
-    }
-    return "同步记录显示已完成，但画面证据还需要在开发者诊断里确认。";
-  }
-
-  const stage = evidence.failedStage || "unknown";
-  const nextAction = evidence.repairCandidate?.proposedActions?.[0]?.label
-    || evidence.repairHint?.summary
-    || "查看开发者诊断里的 command output";
-  const reason = evidence.repairCandidate?.beginnerSummary
-    || evidence.repairHint?.beginnerReason
-    || evidence.summary
-    || "同步失败，原因还需要进一步确认。";
-  return `同步失败，卡在 ${stage} 阶段。${reason} 下一步建议：${nextAction}。`;
-}
+const buildScreenRepairCandidate = screenEvidenceReview.buildRepairCandidate;
+const buildScreenRepairProposal = screenEvidenceReview.buildRepairProposal;
+const screenSummaryEvidence = screenEvidenceReview.summaryEvidence;
+const localScreenAiSummary = screenEvidenceReview.localAiSummary;
 
 function parseResponsesOutput(data) {
   if (typeof data?.output_text === "string" && data.output_text.trim()) return data.output_text.trim();
@@ -1167,12 +712,6 @@ async function persistScreenSyncResult(result, commandResults = {}, status = 200
   return json(result, status);
 }
 
-async function writeJsonFile(filePath, value) {
-  await writeFile(`${filePath}.tmp`, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-  await rm(filePath, { force: true });
-  await rename(`${filePath}.tmp`, filePath);
-}
-
 function successfulScreenSyncEntry(record) {
   const manifest = record.manifest || {};
   const labels = Array.isArray(manifest.labels)
@@ -1218,70 +757,6 @@ async function rememberSuccessfulScreenSync(record) {
   }
   if (existing.includes(`## ${record.buildId}`)) return;
   await writeFile(SCREEN_SUCCESS_CORPUS_PATH, `${existing.trimEnd()}\n\n${successfulScreenSyncEntry(record)}`, "utf8");
-}
-
-function runRawRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
-  return new Promise((resolve) => {
-    const target = `${SSH_USER}@${SSH_HOST}`;
-    const child = spawn(
-      "sshpass",
-      [
-        "-e",
-        "ssh",
-        "-T",
-        ...sshConnectionOptions(),
-        "-o",
-        "ConnectTimeout=8",
-        "-o",
-        "ConnectionAttempts=1",
-        target,
-        `sh -lc ${shellQuote(command)}`,
-      ],
-      {
-        env: {
-          ...process.env,
-          SSHPASS: SSH_PASSWORD,
-          TERM: "xterm-256color",
-        },
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill("SIGTERM");
-      resolve({
-        ok: false,
-        code: null,
-        output: limitedOutput(`${stdout}${stderr}\n[local] action timed out`.trim(), outputLimit),
-      });
-    }, timeoutMs);
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ ok: false, code: null, output: `[local] ${error.message}` });
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok", outputLimit);
-      resolve({ ok: code === 0, code, output });
-    });
-  });
 }
 
 function runLocal(command, args, options = {}) {
@@ -1341,273 +816,32 @@ function bashPath(value) {
   return String(value).replace(/\\/g, "/").replace(/^([A-Za-z]):/, (_, drive) => `/mnt/${drive.toLowerCase()}`);
 }
 
-async function handleScreenLvglPreview(url) {
-  const envelope = await screenManifestEnvelope();
-  const expectedHash = (url.searchParams.get("manifestHash") || "").trim();
-  if (expectedHash && expectedHash !== envelope.manifestHash) {
-    return json(
-      {
-        ok: false,
-        error: "stale manifestHash",
-        summary: "Web LVGL 预览请求使用了过期 manifestHash，请刷新 manifest 后重试。",
-        manifestHash: envelope.manifestHash,
-      },
-      409,
-    );
-  }
-
-  const previewDir = path.join(tmpdir(), "walnutpi-lvgl-preview");
-  const previewPath = path.join(previewDir, `${envelope.manifestHash}.bmp`);
-  await mkdir(previewDir, { recursive: true });
-  const cachedBody = Bun.file(previewPath);
-  if (await cachedBody.exists()) {
-    return new Response(cachedBody, {
-      headers: {
-        "content-type": "image/bmp",
-        "cache-control": "no-store",
-        "x-walnut-screen-manifest-hash": envelope.manifestHash,
-        "x-walnut-preview-renderer": "lvgl-offscreen",
-        "x-walnut-preview-cache": "hit",
-      },
-    });
-  }
-
-  const output = await runLocal(
-    "bash",
-    [
-      "-lc",
-      [
-        `cd ${shellQuote(bashPath(PROJECT_ROOT))}`,
-        "./scripts/build-lvgl-app.sh >/dev/null",
-        `./build/lvgl_app/walnut-lvgl-preview ${shellQuote(bashPath(previewPath))}`,
-      ].join(" && "),
-    ],
-    {
-      timeoutMs: LVGL_PREVIEW_TIMEOUT_MS,
-      outputLimit: 12_000,
-    },
-  );
-  if (!output.ok) {
-    return json(
-      {
-        ok: false,
-        error: "lvgl preview render failed",
-        summary: "本地 LVGL 预览渲染失败。",
-        output: output.output,
-        manifestHash: envelope.manifestHash,
-      },
-      500,
-    );
-  }
-
-  const body = Bun.file(previewPath);
-  if (!(await body.exists())) {
-    return json(
-      {
-        ok: false,
-        error: "lvgl preview image missing",
-        summary: "LVGL 预览命令成功，但没有产出 BMP。",
-        output: output.output,
-        manifestHash: envelope.manifestHash,
-      },
-      500,
-    );
-  }
-
-  return new Response(body, {
-    headers: {
-      "content-type": "image/bmp",
-      "cache-control": "no-store",
-      "x-walnut-screen-manifest-hash": envelope.manifestHash,
-      "x-walnut-preview-renderer": "lvgl-offscreen",
-    },
-  });
-}
-
-function runRawRemoteScript(script, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
-  return new Promise((resolve) => {
-    const target = `${SSH_USER}@${SSH_HOST}`;
-    const child = spawn(
-      "sshpass",
-      [
-        "-e",
-        "ssh",
-        "-T",
-        ...sshConnectionOptions(),
-        "-o",
-        "ConnectTimeout=8",
-        "-o",
-        "ConnectionAttempts=1",
-        target,
-        "sh",
-      ],
-      {
-        env: {
-          ...process.env,
-          SSHPASS: SSH_PASSWORD,
-        },
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      child.kill("SIGTERM");
-      resolve({
-        ok: false,
-        code: null,
-        output: limitedOutput(`${stdout}${stderr}\n[local] remote script timed out after ${timeoutMs}ms`.trim(), outputLimit),
-      });
-    }, timeoutMs);
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString("utf8");
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString("utf8");
-    });
-    child.stdin.on("error", () => {});
-    child.on("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve({ ok: false, code: null, output: `[local] ${error.message}` });
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok", outputLimit);
-      resolve({ ok: code === 0, code, output });
-    });
-    child.stdin.end(String(script || "").replace(/\r\n/g, "\n"));
-  });
-}
-
-async function localWalnutCliHash() {
-  const source = await readFile(WALNUT_CLI_SOURCE_PATH, "utf8");
-  return sha256(source.replace(/\r\n/g, "\n"));
-}
-
-function walnutCliInstallScript({ expectedHash, content }) {
-  const base64 = Buffer.from(String(content || "").replace(/\r\n/g, "\n"), "utf8").toString("base64");
-  return [
-    "set -e",
-    `EXPECTED=${shellQuote(expectedHash)}`,
-    `ROOT=${shellQuote(REMOTE_PROJECT_ROOT)}`,
-    "REMOTE=$(command -v walnut 2>/dev/null || true)",
-    "REMOTE_HASH=",
-    'if [ -n "$REMOTE" ] && [ -f "$REMOTE" ]; then REMOTE_HASH=$(sha256sum "$REMOTE" | awk \'{print $1}\'); fi',
-    'if [ "$REMOTE_HASH" = "$EXPECTED" ]; then',
-    '  printf "walnut cli ok: %s\\n" "$REMOTE_HASH"',
-    "  exit 0",
-    "fi",
-    'install -d "$ROOT/walnut-assistant"',
-    "base64 -d > \"$ROOT/walnut-assistant/walnut\" <<'WALNUT_CLI_FILE'",
-    base64,
-    "WALNUT_CLI_FILE",
-    'chmod 0755 "$ROOT/walnut-assistant/walnut"',
-    'if command -v sudo >/dev/null 2>&1; then sudo -n install -m 0755 "$ROOT/walnut-assistant/walnut" /usr/local/bin/walnut; else install -m 0755 "$ROOT/walnut-assistant/walnut" /usr/local/bin/walnut; fi',
-    'INSTALLED_HASH=$(sha256sum /usr/local/bin/walnut | awk \'{print $1}\')',
-    'if [ "$INSTALLED_HASH" != "$EXPECTED" ]; then',
-    '  printf "walnut cli install hash mismatch: expected=%s installed=%s\\n" "$EXPECTED" "$INSTALLED_HASH" >&2',
-    "  exit 1",
-    "fi",
-    'printf "walnut cli installed: %s -> /usr/local/bin/walnut\\n" "$INSTALLED_HASH"',
-  ].join("\n");
-}
-
-async function ensureRemoteWalnutCli({ force = false } = {}) {
-  const expectedHash = await localWalnutCliHash();
-  if (!force && walnutCliEnsureHash === expectedHash) {
-    return { ok: true, code: 0, output: `walnut cli ok: ${expectedHash}`, ensured: false };
-  }
-  if (!force && walnutCliEnsurePromise) return walnutCliEnsurePromise;
-
-  walnutCliEnsurePromise = (async () => {
-    const content = await readFile(WALNUT_CLI_SOURCE_PATH, "utf8");
-    const result = await runRawRemoteScript(
-      walnutCliInstallScript({ expectedHash, content }),
-      20_000,
-      ACTION_OUTPUT_LIMIT,
-    );
-    if (result.ok) walnutCliEnsureHash = expectedHash;
-    return {
-      ...result,
-      ensured: result.ok && /installed/.test(result.output),
-      expectedHash,
-    };
-  })();
-
-  try {
-    return await walnutCliEnsurePromise;
-  } finally {
-    walnutCliEnsurePromise = null;
-  }
-}
+const handleScreenLvglPreview = createLvglPreviewRenderer({
+  projectRoot: PROJECT_ROOT,
+  timeoutMs: LVGL_PREVIEW_TIMEOUT_MS,
+  readManifestEnvelope: screenManifestEnvelope,
+  runLocal,
+  shellQuote,
+  bashPath,
+  json,
+});
 
 async function runRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
-  const ensure = await ensureRemoteWalnutCli();
-  if (!ensure.ok) {
-    return {
-      ok: false,
-      code: ensure.code,
-      output: limitedOutput(
-        [
-          "[walnut cli preflight failed]",
-          ensure.output,
-          "",
-          "[command skipped]",
-          command,
-        ].join("\n"),
-        outputLimit,
-      ),
-    };
-  }
-  const result = await runRawRemote(command, timeoutMs, outputLimit);
-  if (ensure.ensured) {
-    return {
-      ...result,
-      preflightOutput: ensure.output,
-    };
-  }
-  return result;
+  return walnutRemote.run(command, timeoutMs, outputLimit);
 }
 
 async function runRemoteScript(script, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
-  const ensure = await ensureRemoteWalnutCli();
-  if (!ensure.ok) {
-    return {
-      ok: false,
-      code: ensure.code,
-      output: limitedOutput(
-        [
-          "[walnut cli preflight failed]",
-          ensure.output,
-          "",
-          "[remote script skipped]",
-        ].join("\n"),
-        outputLimit,
-      ),
-    };
-  }
-  const result = await runRawRemoteScript(script, timeoutMs, outputLimit);
-  if (ensure.ensured) {
-    return {
-      ...result,
-      preflightOutput: ensure.output,
-    };
-  }
-  return result;
+  return walnutRemote.runScript(script, timeoutMs, outputLimit);
 }
 
 function validSha256(value) {
   return /^[a-f0-9]{64}$/i.test(String(value || "").trim());
 }
+
+const screenManifestStore = createScreenManifestStore({
+  manifestPath: SCREEN_MANIFEST_PATH,
+  validSha256,
+});
 
 const screenDeliveryAdapters = new Map([
   [
@@ -1698,10 +932,6 @@ function generatedPage({ id = "main", tab = "PAGE", style = "panel", title = "Wa
   };
 }
 
-function pageStub(page, index) {
-  return { id: page?.id || `page-${index + 1}` };
-}
-
 const SCREEN_TEMPLATES = [
   {
     id: "device-status",
@@ -1786,214 +1016,12 @@ function mutableManifestView(manifest) {
   };
 }
 
-function mergeScreenComponents(baseComponents, patchComponents) {
-  if (patchComponents === undefined) return baseComponents;
-  if (!Array.isArray(patchComponents)) return patchComponents;
-  const merged = Array.isArray(baseComponents) ? [...baseComponents] : [];
-  for (const component of patchComponents) {
-    const type = component?.type;
-    const existingIndex = merged.findIndex((item) => item?.type === type);
-    if (type && existingIndex >= 0) {
-      merged[existingIndex] = {
-        ...merged[existingIndex],
-        ...component,
-      };
-    } else {
-      merged.push(component);
-    }
-  }
-  return merged;
-}
-
-function mergePageComponents(basePage, mutablePage) {
-  if (!mutablePage) return basePage?.components;
-  if (mutablePage.components !== undefined) {
-    return mergeScreenComponents(basePage?.components, mutablePage.components);
-  }
-  return basePage?.components;
-}
-
-function applyMutableManifest(baseManifest, mutable) {
-  const basePages = baseManifest.pages || [];
-  const hasPagePatch = Array.isArray(mutable.pages);
-  const mutablePages = hasPagePatch ? mutable.pages : basePages.map(pageStub);
-  const replacePages = Boolean(mutable.replacePages);
-  return normalizeScreenManifest({
-    ...baseManifest,
-    title: mutable.title ?? baseManifest.title,
-    subtitle: mutable.subtitle ?? baseManifest.subtitle,
-    pages: mutablePages.map((mutablePage, index) => ({
-      ...(replacePages ? {} : basePages[index] || pageStub(mutablePage, index)),
-      ...(mutablePages[index] || {}),
-      components: mergePageComponents(basePages[index], mutablePages[index]),
-      id: mutablePage?.id || basePages[index]?.id || `page-${index + 1}`,
-    })),
-  });
-}
-
-function templatePreviewManifest(template) {
-  const base = {
-    schema: "walnutpi.screen.v1",
-    id: `preview-${template.id}`,
-    target: {
-      runtime: "lvgl-fbdev",
-      display: "/dev/fb0",
-      width: 480,
-      height: 320,
-      color: "RGB565",
-    },
-    source: {
-      lvglEntry: "lvgl_app/src/main.c",
-      command: "walnut screen start",
-    },
-    pages: template.manifest.pages.map(pageStub),
-  };
-  return applyMutableManifest(base, template.manifest);
-}
-
-function screenTemplateSummary(template) {
-  return {
-    id: template.id,
-    label: template.label,
-    summary: template.summary,
-    manifest: mutableManifestView(templatePreviewManifest(template)),
-  };
-}
-
 async function readJsonRequest(req) {
   try {
     return await req.json();
   } catch {
     throw new Error("请求不是有效 JSON。");
   }
-}
-
-async function currentManifestForWrite(body) {
-  let envelope;
-  try {
-    envelope = await screenManifestEnvelope();
-  } catch (error) {
-    return {
-      error: json(
-        {
-          ok: false,
-          error: "screen manifest invalid",
-          summary: "screen manifest 无法读取或格式无效，请先修复小屏 contract。",
-          output: error.message,
-        },
-        500,
-      ),
-    };
-  }
-  const clientHash = typeof body.manifestHash === "string" ? body.manifestHash : "";
-  if (!validSha256(clientHash)) {
-    return {
-      error: json(
-        {
-          ok: false,
-          error: "invalid manifestHash",
-          summary: clientHash
-            ? "同步请求包含无效的 screen manifest hash，请刷新页面后再试。"
-            : "同步请求缺少 screen manifest hash，请刷新页面后再试。",
-          manifestHash: envelope.manifestHash,
-        },
-        400,
-      ),
-    };
-  }
-  if (clientHash !== envelope.manifestHash) {
-    return {
-      error: json(
-        {
-          ok: false,
-          error: "stale manifestHash",
-          summary: "Web 预览和服务器 screen manifest 不一致，请刷新后再试。",
-          manifestHash: envelope.manifestHash,
-        },
-        409,
-      ),
-    };
-  }
-  return envelope;
-}
-
-async function writeScreenManifest(manifest) {
-  const normalized = normalizeScreenManifest(manifest);
-  await writeJsonFile(SCREEN_MANIFEST_PATH, normalized);
-  return screenManifestEnvelope();
-}
-
-function splitIntentItems(value) {
-  return String(value || "")
-    .split(/[，,、\s]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 4);
-}
-
-function splitGroupedIntentItems(value, maxItems) {
-  const text = String(value || "");
-  const grouped = text
-    .split(/[，,、;；\n]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-  if (grouped.length > 1) return grouped.slice(0, maxItems);
-  return splitIntentItems(text).slice(0, maxItems);
-}
-
-function patchPages(currentManifest, updater) {
-  const pages = (currentManifest.pages || []).map(pageStub);
-  updater(pages);
-  return { pages };
-}
-
-function linePagePatch(currentManifest, pageIndex, title, lines, tab) {
-  return patchPages(currentManifest, (pages) => {
-    const current = currentManifest.pages?.[pageIndex] || {};
-    pages[pageIndex] = {
-      id: current.id || `page-${pageIndex + 1}`,
-      tab,
-      components: [
-        {
-          type: "textPage",
-          title,
-          lines,
-        },
-      ],
-    };
-  });
-}
-
-function componentPage(id, tab, component) {
-  return {
-    id,
-    tab,
-    components: [
-      component,
-    ],
-  };
-}
-
-function firstPageComponentPatch(currentManifest, component) {
-  return patchPages(currentManifest, (pages) => {
-    const first = currentManifest.pages?.[0] || {};
-    pages[0] = componentPage(first.id || "main", first.tab || "MAIN", component);
-  });
-}
-
-function currentFirstComponent(currentManifest, type) {
-  return firstScreenComponent(currentManifest.pages?.[0]?.components || [], type);
-}
-
-function currentTextComponent(currentManifest, pageIndex, type) {
-  return firstScreenComponent(currentManifest.pages?.[pageIndex]?.components || [], type);
-}
-
-function pageComponentPatch(currentManifest, pageIndex, tab, component) {
-  return patchPages(currentManifest, (pages) => {
-    const current = currentManifest.pages?.[pageIndex] || {};
-    pages[pageIndex] = componentPage(current.id || `page-${pageIndex + 1}`, current.tab || tab, component);
-  });
 }
 
 function looksLikeScreenProgramRequest(input) {
@@ -2408,339 +1436,17 @@ function screenProgramIntentPatch(input) {
   };
 }
 
-function parseScreenIntent(text, currentManifest) {
-  const input = String(text || "").trim();
-  if (!input) return null;
-
-  const programPatch = screenProgramIntentPatch(input);
-  if (programPatch) return programPatch;
-
-  let match = input.match(/(?:副标题|说明)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
-  if (match) return { subtitle: match[1].trim() };
-
-  match = input.match(/(?:标题|名字|名称)\s*(?:改成|改为|写成|叫|是|:|：)\s*(.+)$/);
-  if (match) return { title: match[1].trim() };
-
-  match = input.match(/(?:状态|核心状态)\s*(?:改成|改为|写成|写|是|:|：)\s*(.+)$/);
-  if (match) {
-    const status = match[1].trim();
-    const tone = toneFromText(status);
-    return patchPages(currentManifest, (pages) => {
-      const first = currentManifest.pages?.[0] || {};
-      pages[0] = {
-        id: first.id || "main",
-        tab: first.tab || "MAIN",
-        components: [
-        {
-          type: "statusCard",
-          label: currentFirstComponent(currentManifest, "statusCard")?.label || "Status",
-          value: status,
-          tone,
-          detail: currentFirstComponent(currentManifest, "statusCard")?.detail || "Ready",
-        },
-      ],
-      };
-    });
-  }
-
-  match = input.match(/(?:状态标签|状态卡标签|状态名)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
-  if (match) {
-    const statusCard = currentFirstComponent(currentManifest, "statusCard") || {};
-    return firstPageComponentPatch(currentManifest, {
-      type: "statusCard",
-      label: match[1].trim(),
-      value: statusCard.value || "Ready",
-      tone: statusCard.tone || "ok",
-      detail: statusCard.detail || "Ready",
-    });
-  }
-
-  match = input.match(/(?:状态详情|状态说明|详情)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
-  if (match) {
-    const statusCard = currentFirstComponent(currentManifest, "statusCard") || {};
-    return firstPageComponentPatch(currentManifest, {
-      type: "statusCard",
-      label: statusCard.label || "Status",
-      value: statusCard.value || "Ready",
-      tone: statusCard.tone || "ok",
-      detail: match[1].trim(),
-    });
-  }
-
-  match = input.match(/(?:进度|完成度)\s*(?:改成|改为|写成|是|:|：)?\s*(\d{1,3})\s*%?$/);
-  if (match) {
-    const value = Number(match[1]);
-    return patchPages(currentManifest, (pages) => {
-      const first = currentManifest.pages?.[0] || {};
-      pages[0] = {
-        id: first.id || "main",
-        tab: first.tab || "MAIN",
-        components: [
-        {
-          type: "progress",
-          label: currentFirstComponent(currentManifest, "progress")?.label || "Progress",
-          value,
-          max: 100,
-          tone: currentFirstComponent(currentManifest, "progress")?.tone || "ok",
-        },
-      ],
-      };
-    });
-  }
-
-  match = input.match(/(?:进度标签|进度名|进度说明)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
-  if (match) {
-    const progress = currentFirstComponent(currentManifest, "progress") || {};
-    return firstPageComponentPatch(currentManifest, {
-      type: "progress",
-      label: match[1].trim(),
-      value: progress.value ?? 72,
-      max: progress.max || 100,
-      tone: progress.tone || "ok",
-    });
-  }
-
-  match = input.match(/(?:状态色|语义|告警级别|等级)\s*(?:改成|改为|写成|是|:|：)?\s*(正常|健康|ok|OK|告警|警告|warn|warning|错误|失败|error|ERROR)$/);
-  if (match) {
-    const raw = match[1];
-    const tone = /错误|失败|error/i.test(raw) ? "error" : /告警|警告|warn|warning/i.test(raw) ? "warn" : "ok";
-    return patchPages(currentManifest, (pages) => {
-      const first = currentManifest.pages?.[0] || {};
-      pages[0] = {
-        id: first.id || "main",
-        tab: first.tab || "MAIN",
-        components: [
-        {
-          type: "statusCard",
-          label: currentFirstComponent(currentManifest, "statusCard")?.label || "Status",
-          value: currentFirstComponent(currentManifest, "statusCard")?.value || "Ready",
-          tone,
-          detail: currentFirstComponent(currentManifest, "statusCard")?.detail || "Ready",
-        },
-        {
-          type: "progress",
-          label: currentFirstComponent(currentManifest, "progress")?.label || "Progress",
-          value: currentFirstComponent(currentManifest, "progress")?.value ?? 72,
-          max: 100,
-          tone,
-        },
-      ],
-      };
-    });
-  }
-
-  match = input.match(/(?:告警|警告|提示)\s*(?:改成|改为|写成|写|是|:|：)\s*(.+)$/);
-  if (match) {
-    return pageComponentPatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), currentManifest.pages[1]?.tab || "WARN", {
-      type: "alert",
-      title: "Alert",
-      body: match[1].trim(),
-      tone: toneFromText(match[1]),
-    });
-  }
-
-  match = input.match(/(?:指标组|组件指标)\s*(?:改成|改为|写成|写|:|：)?\s*(.+)$/);
-  if (match) {
-    const metrics = splitGroupedIntentItems(match[1], 3);
-    if (metrics.length > 0) {
-      return firstPageComponentPatch(currentManifest, {
-        type: "metricGroup",
-        items: metrics.map(metricItemFromText),
-      });
-    }
-  }
-
-  match = input.match(/(?:列表|清单|步骤)\s*(?:改成|改为|写成|写|显示|:|：)\s*(.+)$/);
-  if (match) {
-    const items = splitIntentItems(match[1]).slice(0, 4);
-    if (items.length > 0) {
-      return pageComponentPatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), currentManifest.pages[1]?.tab || "LIST", {
-        type: "list",
-        title: currentTextComponent(currentManifest, 1, "list")?.title || "List",
-        items,
-      });
-    }
-  }
-
-  match = input.match(/(?:列表标题|清单标题|步骤标题)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
-  if (match) {
-    const list = currentTextComponent(currentManifest, 1, "list") || {};
-    return pageComponentPatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), currentManifest.pages[1]?.tab || "LIST", {
-      type: "list",
-      title: match[1].trim(),
-      items: list.items || ["Item"],
-    });
-  }
-
-  if (/告警|警告|异常|风险|错误|失败|报警|warn|error/i.test(input)) {
-    return SCREEN_TEMPLATES.find((template) => template.id === "health-alert")?.manifest || null;
-  }
-
-  if (/网络|联网|IP|ip|ssh|frp/i.test(input)) {
-    return SCREEN_TEMPLATES.find((template) => template.id === "network-panel")?.manifest || null;
-  }
-
-  if (/AI|ai|任务|助手|agent/i.test(input)) {
-    return SCREEN_TEMPLATES.find((template) => template.id === "ai-task-board")?.manifest || null;
-  }
-
-  if (/系统|状态|健康|内存|磁盘/.test(input)) {
-    return SCREEN_TEMPLATES.find((template) => template.id === "device-status")?.manifest || null;
-  }
-
-  match = input.match(/(?:指标|显示)\s*(?:改成|改为|写成|写|:|：)?\s*(.+)$/);
-  if (match) {
-    const metrics = splitGroupedIntentItems(match[1], 3);
-    if (metrics.length > 0) {
-      return patchPages(currentManifest, (pages) => {
-        const first = currentManifest.pages?.[0] || {};
-        pages[0] = {
-          id: first.id || "main",
-          tab: first.tab || "MAIN",
-          components: [
-          {
-            type: "metricGroup",
-            items: metrics.map(metricItemFromText),
-          },
-        ],
-        };
-      });
-    }
-  }
-
-  match = input.match(/(?:系统页|系统)\s*(?:写|显示|:|：)\s*(.+)$/);
-  if (match) return linePagePatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), "System", splitIntentItems(match[1]), "SYS");
-
-  match = input.match(/(?:AI页|AI|ai)\s*(?:写|显示|:|：)\s*(.+)$/);
-  if (match) return linePagePatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), "AI Agent", splitIntentItems(match[1]), "AI");
-
-  match = input.match(/(?:网络页|网络)\s*(?:写|显示|:|：)\s*(.+)$/);
-  if (match) return linePagePatch(currentManifest, Math.min(1, currentManifest.pages.length - 1), "Network", splitIntentItems(match[1]), "NET");
-
-  return null;
-}
-
-async function handleScreenTemplate(req) {
-  let body;
-  try {
-    body = await readJsonRequest(req);
-  } catch (error) {
-    return json({ ok: false, error: error.message }, 400);
-  }
-
-  const current = await currentManifestForWrite(body);
-  if (current.error) return current.error;
-
-  const templateId = String(body.templateId || "");
-  const template = SCREEN_TEMPLATES.find((item) => item.id === templateId);
-  if (!template) {
-    return json({ ok: false, error: "invalid templateId", summary: "未知的小屏模板。" }, 400);
-  }
-
-  try {
-    const next = applyMutableManifest(current.manifest, template.manifest);
-    const envelope = await writeScreenManifest(next);
-    return json({
-      ok: true,
-      summary: "已更新预览。",
-      template: screenTemplateSummary(template),
-      ...envelope,
-    });
-  } catch (error) {
-    return json(
-      {
-        ok: false,
-        error: "screen manifest update failed",
-        summary: "无法更新小屏预览。",
-        output: error.message,
-      },
-      500,
-    );
-  }
-}
-
-async function handleScreenIntent(req) {
-  let body;
-  try {
-    body = await readJsonRequest(req);
-  } catch (error) {
-    return json({ ok: false, error: error.message }, 400);
-  }
-
-  const current = await currentManifestForWrite(body);
-  if (current.error) return current.error;
-
-  const text = String(body.text || "").trim();
-  const aiCandidate = looksLikeScreenProgramRequest(text)
-    ? await buildAiScreenManifestCandidate(text, current.manifest)
-    : null;
-  if (aiCandidate?.manifest) {
-    try {
-      const envelope = await writeScreenManifest(aiCandidate.manifest);
-      return json({
-        ok: true,
-        summary: aiCandidate.patch?.intentSummary || screenProgramIntentSummary(screenProgramSubject(text)),
-        generation: aiCandidate.generation,
-        ...envelope,
-      });
-    } catch (error) {
-      aiCandidate.generation = {
-        ...(aiCandidate.generation || {}),
-        source: "ai-fallback",
-        fallbackSource: "rule",
-        fallbackReason: error.message,
-      };
-    }
-  }
-
-  const patch = parseScreenIntent(text, current.manifest);
-  if (!patch) {
-    return json({
-      ok: false,
-      error: "unrecognized screen intent",
-      summary: "无法理解这次修改。",
-      generation: aiCandidate?.generation || {
-        schema: "walnutpi.screenGeneration.v1",
-        source: "rule",
-        apiUsed: false,
-        model: null,
-      },
-    }, 400);
-  }
-
-  try {
-    const next = applyMutableManifest(current.manifest, patch);
-    const envelope = await writeScreenManifest(next);
-    const generation = aiCandidate?.generation || {
-      schema: "walnutpi.screenGeneration.v1",
-      source: "rule",
-      apiUsed: false,
-      model: null,
-    };
-    return json({
-      ok: true,
-      summary: patch.intentSummary || "已更新预览。",
-      generation,
-      ...envelope,
-    });
-  } catch (error) {
-    return json(
-      {
-        ok: false,
-        error: "screen manifest update failed",
-        summary: "无法更新小屏预览。",
-        output: error.message,
-        generation: aiCandidate?.generation || {
-          schema: "walnutpi.screenGeneration.v1",
-          source: "rule",
-          apiUsed: false,
-          model: null,
-        },
-      },
-      500,
-    );
-  }
-}
+const screenManifestEditor = createScreenManifestEditor({
+  templates: SCREEN_TEMPLATES,
+  manifestStore: screenManifestStore,
+  json,
+  readJsonRequest,
+  looksLikeScreenProgramRequest,
+  buildAiScreenManifestCandidate,
+  screenProgramIntentSummary,
+  screenProgramIntentPatch,
+  screenProgramSubject,
+});
 
 function frameUrl(buildId) {
   return `/api/screen/frame/${encodeURIComponent(buildId)}`;
@@ -2802,7 +1508,7 @@ async function handleScreenFrame(buildId) {
     );
   }
 
-  const captureResult = await runRemote("sudo -n walnut screen capture --png-base64", 30_000, CAPTURE_OUTPUT_LIMIT);
+  const captureResult = await walnutRemote.capturePngBase64();
   const parsed = parseCaptureResult(captureResult);
   if (!parsed) {
     return json(
@@ -3251,18 +1957,7 @@ async function handleScreenAiSummary(req) {
 }
 
 async function screenManifestEnvelope() {
-  let manifest;
-  try {
-    manifest = JSON.parse(await readFile(SCREEN_MANIFEST_PATH, "utf8"));
-  } catch (error) {
-    throw new Error(`failed to read screen manifest ${SCREEN_MANIFEST_PATH}: ${error.message}`);
-  }
-  manifest = normalizeScreenManifest(manifest);
-  const serializedManifest = stableStringify(manifest);
-  return {
-    manifest,
-    manifestHash: sha256(serializedManifest),
-  };
+  return screenManifestStore.envelope();
 }
 
 async function handleScreenSync(req) {
@@ -3390,7 +2085,7 @@ async function handleAction(req) {
   if (!action) {
     return json({ ok: false, error: "未知或未允许的动作。" }, 400);
   }
-  const sessionId = safeSessionId(body.sessionId);
+  const sessionId = webSessionLedger.safeSessionId(body.sessionId);
 
   let command = action.command;
   let contextUsed = null;
@@ -3409,7 +2104,7 @@ async function handleAction(req) {
   }
 
   if (action.mode === "terminal") {
-    const ensure = await ensureRemoteWalnutCli();
+    const ensure = await walnutRemote.ensureWalnutCli();
     if (!ensure.ok) {
       return json({
         ok: false,
@@ -3435,7 +2130,7 @@ async function handleAction(req) {
       preflightOutput: ensure.ensured ? ensure.output : "",
     };
     if (sessionId) {
-      await appendSessionEvent(sessionId, {
+      await webSessionLedger.appendEvent(sessionId, {
         role: "action",
         action: id,
         content: action.reply || "",
@@ -3476,7 +2171,7 @@ async function handleAction(req) {
     contextUsed,
   };
   if (sessionId) {
-    await appendSessionEvent(sessionId, {
+    await webSessionLedger.appendEvent(sessionId, {
       role: "action",
       action: id,
       content: output || result.output || "",
@@ -3502,7 +2197,7 @@ function startSsh(ws) {
   ws.data.child = null;
   send(`\r\n[local] checking walnut CLI on ${target}\r\n`);
 
-  ensureRemoteWalnutCli()
+  walnutRemote.ensureWalnutCli()
     .then((ensure) => {
       if (!ensure.ok) {
         send(`\r\n[local] walnut CLI preflight failed\r\n${ensure.output}\r\n`);
@@ -3521,24 +2216,7 @@ function startSsh(ws) {
 }
 
 function openSshSession(ws, target) {
-  const child = spawn(
-    "sshpass",
-    [
-      "-e",
-      "ssh",
-      "-tt",
-      ...sshConnectionOptions(),
-      target,
-    ],
-    {
-      env: {
-        ...process.env,
-        SSHPASS: SSH_PASSWORD,
-        TERM: "xterm-256color",
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-    },
-  );
+  const child = walnutRemote.openInteractiveSession();
 
   ws.data.child = child;
 
@@ -3659,22 +2337,22 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/screen/templates") {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
-      return json({
-        ok: true,
-        templates: SCREEN_TEMPLATES.map(screenTemplateSummary),
-      });
-    }
+        return json({
+          ok: true,
+          templates: screenManifestEditor.templateSummaries(),
+        });
+      }
 
     if (url.pathname === "/api/screen/template") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       if (previewOnly(url)) return previewOnlyJson();
-      return handleScreenTemplate(req);
+      return screenManifestEditor.handleTemplate(req);
     }
 
     if (url.pathname === "/api/screen/intent") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       if (previewOnly(url)) return previewOnlyJson();
-      return handleScreenIntent(req);
+      return screenManifestEditor.handleIntent(req);
     }
 
     if (url.pathname === "/api/screen/sync") {
