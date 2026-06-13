@@ -37,6 +37,8 @@ elif command -v python >/dev/null 2>&1; then
   python "$ROOT_DIR/scripts/generate-lvgl-screen-config.py"
 else
   echo "node or bun is required to generate LVGL screen config" >&2
+  echo "Install them on Debian/Ubuntu/WalnutPi with:" >&2
+  echo "  sudo $ROOT_DIR/scripts/install-lvgl-build-deps.sh" >&2
   exit 1
 fi
 

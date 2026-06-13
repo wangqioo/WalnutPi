@@ -1,0 +1,7 @@
+{
+  "type": "module",
+  "scripts": {
+    "web": "bun web-interface/model-terminal-server.js",
+    "screen:safety": "pwsh ./scripts/test-screen-api-safety.ps1"
+  }
+}

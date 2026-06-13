@@ -182,3 +182,21 @@ Reuse this pattern for manifest-driven LVGL screen sync: require current manifes
 
 Reuse this pattern for manifest-driven LVGL screen sync: require current manifestHash, build with scripts/build-lvgl-app.sh, activate with sudo -n walnut screen start, verify with walnut screen state and sudo -n walnut screen frame.
 
+## screen-20260613102134-92b5abea
+
+- kind: screen-sync-success
+- finishedAt: 2026-06-13T10:23:09.640Z
+- manifestHash: bc5e14d847fa0c816e7e3572c7b1bb7de27309c3c65f774d9e1fbc574f15d5d7
+- artifactHash: 3715ad5e1306b3a67749fe721b39946160b31ba7e44212086f2ac846d246b0f5
+- deliveryHash: e430cbe0cc6cc200c96381fd5c3ce163aa83ad00dba60e2b7b5c367a4780c022
+- visualMatch: captured
+- frameHash: 118f443cc92b944f581d17bfd9568d63a3fa191ea20c673fed36334207b6eb8d
+- previewSignatureHash: 79ad04383111ea40aa261a1711abb4234943b38ac70bec1ccd83f60c66ff4dc1
+- deviceSignatureHash: 28ac0cbc953d616df5cdacea0090e84eba5001d2a83b377587c13e8f3c43b332
+- checks: width= height= nonblank=true
+- labels: none
+- cards: none
+- summary: 已同步到核桃派。Web 预览和设备运行使用同一个 screen manifest。
+
+Reuse this pattern for manifest-driven LVGL screen sync: require current manifestHash, build with scripts/build-lvgl-app.sh, activate with sudo -n systemctl restart walnut-screen.service, verify with walnut screen state and sudo -n walnut screen frame.
+

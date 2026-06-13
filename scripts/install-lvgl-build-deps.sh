@@ -22,6 +22,7 @@ apt-get install -y --no-install-recommends \
   cmake \
   git \
   linux-libc-dev \
+  nodejs \
   pkg-config \
   python3
 

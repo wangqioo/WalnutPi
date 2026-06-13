@@ -251,6 +251,7 @@ export function createSshLocalAgentAdapter({
 }
 
 const SCREEN_SLICE_FILES = [
+  "package.json",
   "scripts/build-lvgl-app.sh",
   "scripts/fetch-lvgl.sh",
   "scripts/generate-lvgl-screen-config.py",

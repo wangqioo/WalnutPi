@@ -154,13 +154,22 @@ try {
     Show-KeyValue "manifestHash" $manifest.manifestHash
 
     $syncResult = Invoke-JsonPost "$baseUri/api/screen/sync" @{ manifestHash = $manifest.manifestHash }
+    Show-KeyValue "ok" $syncResult.ok
     Show-KeyValue "buildId" $syncResult.buildId
+    Show-KeyValue "failedStage" $syncResult.failedStage
+    Show-KeyValue "summary" $syncResult.summary
     Show-KeyValue "artifactHash" $syncResult.artifactHash
     Show-KeyValue "deliveryHash" $syncResult.deliveryHash
     Show-KeyValue "visualMatch" $syncResult.screenEvidence.visualMatch
     Show-KeyValue "frameSha256" $syncResult.screenEvidence.frame.sha256
     Show-KeyValue "screenFrameUrl" $syncResult.screenFrameUrl
     Show-KeyValue "frameUrl" $syncResult.frameUrl
+
+    if ($syncResult.PSObject.Properties.Name -contains "ok" -and -not $syncResult.ok) {
+        $stage = if ($syncResult.failedStage) { $syncResult.failedStage } else { "unknown" }
+        $summary = if ($syncResult.summary) { $syncResult.summary } else { "Screen sync API returned ok=false." }
+        throw "Screen sync failed at stage '$stage': $summary"
+    }
 } finally {
     if ($null -ne $server -and -not $server.HasExited) {
         Stop-Process -Id $server.Id -Force
