@@ -259,6 +259,7 @@ const SCREEN_SLICE_FILES = [
   "lvgl_app/CMakeLists.txt",
   "lvgl_app/lv_conf.h",
   "lvgl_app/src/main.c",
+  "lvgl_app/src/preview_main.c",
   "lvgl_app/systemd/walnut-screen.service",
 ];
 
