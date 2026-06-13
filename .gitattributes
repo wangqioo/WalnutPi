@@ -10,6 +10,10 @@
 *.sh text eol=lf
 *.txt text eol=lf
 CMakeLists.txt text eol=lf
+console-chinese/walnut-cn text eol=lf
+console-chinese/walnut-login-choice text eol=lf
+terminal-toys/walnut-fun text eol=lf
+walnut-ai-terminal/skills/walnutpi-1b-zerow/scripts/walnutpi-doc-search text eol=lf
 walnut-assistant/walnut text eol=lf
 scripts/walnut-voice-cli text eol=lf
 

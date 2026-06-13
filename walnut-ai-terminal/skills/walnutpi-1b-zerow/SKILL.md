@@ -1,6 +1,6 @@
 ---
 name: walnutpi-1b-zerow
-description: Work with WalnutPi 1st-generation boards, especially 1B and ZeroW, from the official docs plus optional live board checks. Use when the user mentions WalnutPi, 核桃派, 1B, ZeroW, SSH, GPIO, Blinka, set-device, config.txt, sensors, PyQt5, OpenCV, Home Assistant, MQTT, walnutpi-build, or Android TV.
+description: Work with WalnutPi 1st-generation boards, especially 1B and ZeroW, from the official docs plus optional live board checks. Use when the user mentions WalnutPi, 核桃派, 1B, ZeroW, SSH, GPIO, audio, speakers, 扬声器, Blinka, set-device, config.txt, sensors, PyQt5, OpenCV, Home Assistant, MQTT, walnutpi-build, or Android TV.
 ---
 
 # WalnutPi 1B / ZeroW

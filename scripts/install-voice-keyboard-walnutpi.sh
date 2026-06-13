@@ -38,13 +38,16 @@ fi
 
 sed "s/^User=.*/User=$SERVICE_USER/" \
   "$ROOT_DIR/voice-keyboard/packaging/linux/voice-keyboard-walnutpi.service" \
+  | tr -d '\r' \
   > "/etc/systemd/system/$SERVICE_NAME"
 
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 
 sed "s#/opt/walnut-voice-keyboard#$APP_DIR#g" \
-  "$ROOT_DIR/scripts/walnut-voice-cli" > /usr/local/bin/walnut-voice-cli
+  "$ROOT_DIR/scripts/walnut-voice-cli" \
+  | tr -d '\r' \
+  > /usr/local/bin/walnut-voice-cli
 chmod +x /usr/local/bin/walnut-voice-cli
 
 echo "Installed $SERVICE_NAME for user $SERVICE_USER"

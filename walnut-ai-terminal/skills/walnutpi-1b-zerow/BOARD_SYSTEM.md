@@ -47,6 +47,40 @@ set-device status
 - Audio path should be verified with `aplay -l`.
 - IR receiver work starts with `ir-keytable`.
 
+## Audio And Speakers
+
+Live checks on one WalnutPi Debian server board found these playback devices:
+
+```text
+card 0: audiocodec       CDC PCM Codec-0
+card 2: ahubhdmi         HDMI audio
+card 3: USB2.0 Device    USB Audio
+```
+
+Before any audible test, inspect and lower mixer volume. This board was too loud at `LINEOUT volume` 26/31 and USB `PCM` 75%.
+
+```sh
+aplay -l
+cat /proc/asound/cards
+amixer -c audiocodec sget 'LINEOUT volume' 2>/dev/null || true
+amixer -c Device sget PCM 2>/dev/null || true
+amixer -c audiocodec sset 'LINEOUT volume' 8 2>/dev/null || true
+amixer -c Device sset PCM 25% 2>/dev/null || true
+```
+
+Use short, low-volume tests only after warning the user:
+
+```sh
+timeout 3 speaker-test -D default -c 2 -t sine -f 440 -l 1
+timeout 3 speaker-test -D plughw:CARD=Device,DEV=0 -c 2 -t sine -f 520 -l 1
+```
+
+Interpretation:
+
+- `default` currently opens the onboard `audiocodec` path.
+- `plughw:CARD=Device,DEV=0` targets the connected USB audio peripheral.
+- If the user hears the tone and ALSA reports no error, the speaker path is callable.
+
 ## Disruptive Commands
 
 Explain impact and ask before:

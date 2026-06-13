@@ -224,9 +224,9 @@ http://127.0.0.1:4173/?nossh
 
 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、metadata-only pixel evidence、诊断级 Web/device pixel diff、历史记录、修复提示、修复候选方案、修复提案、AI 总结证据和按需设备截图只放在开发者诊断层。
 
-小屏 manifest 的 home 页支持 `tone`（`ok` / `warn` / `error`）和 `progress`（`0-100`）。当前还支持一个兼容型 `components` vocabulary：`statusCard`、`metricGroup`、`list`、`progress`、`alert`、`textPage`。这些组件只表示小屏内容，会被归一化回现有四页固定 LVGL 布局，并生成设备端可消费的受限元数据；它们不能请求 shell、SSH、sudo、build、delivery、GPIO、重启、刷写或任意 LVGL/C 代码。Web 预览、诊断 DOM 快照、生成的 LVGL 配置和设备端 LVGL 颜色共用这些受限字段。
+小屏 manifest 是通用小屏程序模型：`pages` 是 1-6 个自定义页面，每页必须显式声明 `components`。当前组件 vocabulary 是 `statusCard`、`metricGroup`、`list`、`progress`、`alert`、`textPage`。这些组件只表示小屏内容，不是命令或代码；它们不能请求 shell、SSH、sudo、build、delivery、GPIO、重启、刷写或任意 LVGL/C 代码。Web 预览、诊断 DOM 快照、生成的 LVGL 配置和设备端 LVGL runtime 共用这些受限字段。
 
-自然语言小屏编辑仍是规则式 manifest 编辑，不是任意代码生成；当前只允许改标题、副标题、状态、状态标签/详情、tone、进度、进度标签、指标、列表、告警和文本页内容。`schema`、`target`、`source`、page id、构建、SSH、sudo、delivery 和设备命令不接受自然语言修改。
+自然语言小屏编辑仍是规则式 manifest 编辑，不是任意代码生成；当前只允许改标题、副标题、状态卡、tone、进度、指标、列表、告警和文本页内容。`schema`、`target`、`source`、page id、构建、SSH、sudo、delivery 和设备命令不接受自然语言修改。
 
 同步记录默认保存在 `web-interface/screen-sync-records/`，该目录不进入 Git。每条记录保存 `record.json`、`summary.json`，开发者展开诊断截图后还会缓存 `frame.png`。默认保留最近 50 条，可用 `WALNUT_SCREEN_RECORD_LIMIT` 调整，也可用 `WALNUT_SCREEN_RECORDS_DIR` 改变保存目录。`?nossh` 模式仍然不会连接核桃派或触发构建 / 激活 / 设备写入；它只会在本地记录一次 preview 拒绝结果，方便确认同步路径被拦截。
 

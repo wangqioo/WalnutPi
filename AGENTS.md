@@ -22,8 +22,6 @@ Do not turn this repository into a generic IDE, desktop app, ESP32 board platfor
 
 `third/walnutpi` is a WalnutPi experience reference only. Reuse ideas such as device presence, rich terminal evidence, memory, and WalnutPi-specific skills. Do not wholesale replace the current project with it.
 
-The active alignment document is `docs/third-projects-integration-alignment.md`.
-
 ## Current Screen Sync Slice
 
 The implemented first slice is intentionally narrow:

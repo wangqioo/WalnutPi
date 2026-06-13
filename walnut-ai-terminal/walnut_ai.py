@@ -28,7 +28,6 @@ TEXT_VERBOSITY = os.getenv("WALNUT_AI_TEXT_VERBOSITY", "low").strip()
 DISABLE_MEMORY = os.getenv("WALNUT_AI_DISABLE_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}
 ENABLE_INLINE_MEMORY = os.getenv("WALNUT_AI_ENABLE_INLINE_MEMORY", "").strip().lower() in {"1", "true", "yes", "on"}
 FORCE_IPV4 = os.getenv("WALNUT_AI_FORCE_IPV4", "1").strip().lower() not in {"0", "false", "no", "off"}
-CHAT_ONLY = os.getenv("WALNUT_AI_CHAT_ONLY", "").strip().lower() in {"1", "true", "yes", "on"}
 MEMORY_TEXT = os.getenv("WALNUT_AI_MEMORY_TEXT", "").strip()
 MEMORY_ROOT = Path(os.getenv("WALNUT_MEMORY_DIR", str(Path.home() / "walnut-memory"))).expanduser()
 MEMORY_FILE = Path(os.getenv("WALNUT_AI_MEMORY_FILE", str(MEMORY_ROOT / "memory.json"))).expanduser()
@@ -230,6 +229,8 @@ def tokenize_query(text: str) -> set[str]:
         "记忆": {"memory", "retrieval"},
         "检索": {"retrieval", "skills", "corpus"},
         "成功代码": {"corpus", "recipe", "example"},
+        "硬件cursor": {"hardware", "cursor", "corpus", "retrieval"},
+        "硬件版": {"hardware", "cursor", "corpus", "retrieval"},
         "gpio": {"引脚", "排针"},
         "i2c": {"传感器", "sensor"},
     }
@@ -793,6 +794,14 @@ def quick_local_route(text: str) -> dict[str, object] | None:
         return {"action": "status", "risk": "read", "args": {}, "reason": "查询设备状态"}
     if any(hint in lowered for hint in ("网络", "联网", "wifi", "wi-fi", "ip地址", "本机ip", "查ip", "路由", "network")):
         return {"action": "network", "risk": "read", "args": {}, "reason": "查询网络状态"}
+    if any(hint in lowered for hint in ("天气", "气温", "下雨", "weather")):
+        location = text
+        location = re.sub(r"(今天天气|天气怎么样|天气|气温|下雨|weather|怎么样|如何|查询|查一下|帮我|请)", " ", location, flags=re.IGNORECASE)
+        location = re.sub(r"[？?。,.，!！:：]", " ", location)
+        location = " ".join(location.split())
+        return {"action": "weather", "risk": "read", "args": {"location": location}, "reason": "查询实时天气"}
+    if any(hint in lowered for hint in ("几点", "时间", "日期", "今天几号", "time", "date")):
+        return {"action": "time", "risk": "read", "args": {}, "reason": "查询本地时间"}
     if any(hint in lowered for hint in ("gpio", "引脚", "排针", "i2c", "spi", "uart", "pwm", "overlay", "总线")):
         return {"action": "gpio_read", "risk": "read", "args": {}, "reason": "只读检查 GPIO 和总线状态"}
     if any(hint in lowered for hint in ("板子", "型号", "什么设备", "什么系统", "内核", "屏幕", "你是什么")):
@@ -946,7 +955,7 @@ def local_agent_answer(text: str) -> str | None:
     if not action:
         return None
     title, output, ok = action
-    if route.get("action") in {"snapshot", "music_library"}:
+    if route.get("action") in {"weather", "time", "snapshot", "music_library"}:
         if not ok:
             return summarize_local_result(text, title, output, ok)
         return output
@@ -1095,19 +1104,7 @@ def one_shot(text: str) -> int:
         print(answer)
         return 0
 
-    local_answer = None
-    if CHAT_ONLY and might_need_local_route(text):
-        route = quick_local_route(text) or classify_intent(text)
-        if route and (route.get("action") == "risky" or route.get("risk") == "high"):
-            reason = str(route.get("reason", "")).strip()
-            detail = f"\n模型判断：{reason}" if reason else ""
-            local_answer = (
-                "这个请求可能会改动系统或硬件状态，我不会直接执行。\n"
-                "请先说明你要改什么、为什么要改，以及是否已经备份；确认后再由高风险操作流程处理。"
-                f"{detail}"
-            )
-    elif not CHAT_ONLY:
-        local_answer = local_agent_answer(text)
+    local_answer = local_agent_answer(text)
 
     if local_answer is not None:
         append_session_event("user", session_user_text(text))

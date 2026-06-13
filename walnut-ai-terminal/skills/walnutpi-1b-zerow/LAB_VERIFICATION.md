@@ -11,6 +11,7 @@ These notes are practical caveats from one WalnutPi 1B Debian server board. They
 - Python OpenCV is cleaner as a venv dependency than a mixed apt/global-pip setup.
 - PyQt5 may be easier through the board image's system packages than through a clean venv.
 - A `/dev/video*` node may be a platform video device rather than a USB camera; verify with `v4l2-ctl --list-devices` and a capture check.
+- ALSA playback was verified on `audiocodec`, HDMI, and a connected `USB2.0 Device`; lower `LINEOUT volume` and USB `PCM` before using `speaker-test`.
 - Mosquitto can be validated with a local publish/subscribe loopback before involving Home Assistant.
 
 ## Caveats

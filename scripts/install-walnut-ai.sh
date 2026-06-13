@@ -3,6 +3,16 @@ set -eu
 
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
+install_lf() {
+  mode=$1
+  source=$2
+  target=$3
+  tmp=$(mktemp)
+  tr -d '\r' < "$source" > "$tmp"
+  install -m "$mode" "$tmp" "$target"
+  rm -f "$tmp"
+}
+
 if [ "$(id -u)" -ne 0 ]; then
   echo "Run this installer as root: sudo $0"
   exit 1
@@ -17,12 +27,12 @@ if command -v apt-get >/dev/null 2>&1; then
 fi
 
 install -d /opt/walnut-ai
-install -m 0755 "$ROOT_DIR/walnut-ai-terminal/walnut_ai.py" /opt/walnut-ai/walnut_ai.py
-install -m 0755 "$ROOT_DIR/walnut-ai-terminal/memory_distiller.py" /opt/walnut-ai/memory_distiller.py
+install_lf 0755 "$ROOT_DIR/walnut-ai-terminal/walnut_ai.py" /opt/walnut-ai/walnut_ai.py
+install_lf 0755 "$ROOT_DIR/walnut-ai-terminal/memory_distiller.py" /opt/walnut-ai/memory_distiller.py
 rm -rf /opt/walnut-ai/skills /opt/walnut-ai/corpus
 cp -r "$ROOT_DIR/walnut-ai-terminal/skills" /opt/walnut-ai/
 cp -r "$ROOT_DIR/walnut-ai-terminal/corpus" /opt/walnut-ai/
-install -m 0755 "$ROOT_DIR/walnut-assistant/walnut" /usr/local/bin/walnut
+install_lf 0755 "$ROOT_DIR/walnut-assistant/walnut" /usr/local/bin/walnut
 
 rm -rf /opt/walnut-ai-video
 install -d /opt/walnut-ai-video

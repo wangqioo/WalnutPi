@@ -14,9 +14,17 @@ WalnutPi is not a generic IDE, desktop app, ESP32 platform, or arbitrary LVGL/C 
 
 ## Canonical Terms
 
+### Control Plane API
+
+The local Web/API control surface used by Browser and Agent flows. For the screen slice, this means routes such as `GET /api/screen/manifest`, `POST /api/screen/sync`, sync records, repair proposals, AI summaries, and frame diagnostics. It owns manifest hash gating, `?nossh` blocking, build/delivery orchestration, safety policy, and evidence persistence. Agents should use this API instead of directly SSHing, building, writing `/dev/fb0`, or running device commands for screen sync.
+
+### Device Execution Surface
+
+The WalnutPi-side execution and evidence contract. Today this is the stable `walnut screen ...` CLI: `start`, `state`, `frame`, and `capture`, plus the LVGL fbdev runtime it activates. The device surface runs and proves the screen result; it does not own manifest generation, Web preview, hash gating, repair policy, or AI decision-making.
+
 ### Screen Manifest
 
-The bounded JSON contract for the small WalnutPi screen. It is fixed to `walnutpi.screen.v1`, a 480x320 RGB565 `/dev/fb0` LVGL target, `lvgl_app/src/main.c`, and the four pages `home`, `system`, `ai`, and `network`.
+The bounded JSON contract for the small WalnutPi screen. It is fixed to `walnutpi.screen.v1`, a 480x320 RGB565 `/dev/fb0` LVGL target, and `lvgl_app/src/main.c`. Its product surface is a generic small-screen program: 1-6 custom pages, each made from explicit page-level components. It is not a fixed product-page layout.
 
 ### Screen Manifest Vocabulary
 

@@ -10,12 +10,23 @@ PROJECT_ROOT="${WALNUT_PROJECT_ROOT:-/home/pi/projects/WalnutPi}"
 UNIT_SOURCE="$PROJECT_ROOT/framebuffer_ui/systemd/walnut-framebuffer-status.service"
 UNIT_TARGET="/etc/systemd/system/walnut-framebuffer-status.service"
 
+install_lf() {
+  local mode=$1
+  local source=$2
+  local target=$3
+  local tmp
+  tmp=$(mktemp)
+  tr -d '\r' < "$source" > "$tmp"
+  install -m "$mode" "$tmp" "$target"
+  rm -f "$tmp"
+}
+
 if [ ! -f "$UNIT_SOURCE" ]; then
   echo "Missing unit file: $UNIT_SOURCE" >&2
   exit 1
 fi
 
-install -m 0644 "$UNIT_SOURCE" "$UNIT_TARGET"
+install_lf 0644 "$UNIT_SOURCE" "$UNIT_TARGET"
 systemctl daemon-reload
 
 cat <<MSG
