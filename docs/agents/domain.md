@@ -1,6 +1,6 @@
 # Domain Docs
 
-This is a single-context repo. The engineering skills should read root `CONTEXT.md` before exploring domain behavior.
+This is a single-context repo. The engineering skills should read root `CONTEXT.md` before exploring domain behavior when it exists.
 
 ## Before Exploring
 
@@ -13,7 +13,9 @@ If an expected file does not exist, proceed silently.
 
 ## Use Project Language
 
-When output names a domain concept, use the term as defined in `CONTEXT.md`. If a needed concept is missing, note the gap instead of inventing a parallel vocabulary.
+When output names a domain concept, use the term as defined in `CONTEXT.md`. Do not drift to synonyms the glossary explicitly avoids.
+
+If a needed concept is missing, note the gap instead of inventing a parallel vocabulary.
 
 ## Flag ADR Conflicts
 

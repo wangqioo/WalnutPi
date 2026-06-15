@@ -1,17 +1,17 @@
-# Issue tracker: GitHub
+# Issue Tracker: GitHub
 
-Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for issue operations.
+Issues and PRDs for this repo live as GitHub issues in `wangqioo/WalnutPi`. Use the `gh` CLI for all issue operations.
 
 ## Conventions
 
-- Create an issue with `gh issue create --title "..." --body "..."`.
-- Read an issue with `gh issue view <number> --comments`.
-- List issues with `gh issue list --state open --json number,title,body,labels,comments`.
-- Comment with `gh issue comment <number> --body "..."`.
-- Apply or remove labels with `gh issue edit <number> --add-label "..."` or `--remove-label "..."`.
-- Close with `gh issue close <number> --comment "..."`.
+- Create an issue: `gh issue create --title "..." --body "..."`
+- Read an issue: `gh issue view <number> --comments`
+- List issues: `gh issue list --state open --json number,title,body,labels,comments`
+- Comment on an issue: `gh issue comment <number> --body "..."`
+- Apply or remove labels: `gh issue edit <number> --add-label "..."` or `--remove-label "..."`
+- Close an issue: `gh issue close <number> --comment "..."`
 
-Infer the repo from `git remote -v`; `gh` does this automatically when run inside this clone.
+Infer the repo from `git remote -v`. The `gh` CLI does this automatically when run inside this clone.
 
 ## Skill behavior
 

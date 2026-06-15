@@ -100,3 +100,17 @@ Do not add new top-level launchers under `/usr/local/bin` when an existing `waln
 - Preserve Screen Manifest schema and hash semantics unless intentionally changing the sync contract.
 - Preserve public WalnutPi command compatibility.
 - Do not add compatibility shims, fallback scripts, broad refactors, fixtures, or snapshots unless explicitly requested.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs are tracked in GitHub Issues for `wangqioo/WalnutPi`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Use the default five-label triage vocabulary. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+This is a single-context repo. See `docs/agents/domain.md`.
