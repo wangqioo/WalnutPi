@@ -38,7 +38,7 @@ Example:
 
 ### Screen Creation
 
-Requests to make, design, generate, or sync a screen should go through the Screen Manifest pipeline.
+Requests to process, preview, playlist, or sync a screen should go through the Screen Workspace pipeline.
 
 Examples:
 
@@ -50,7 +50,7 @@ Examples:
 同步到核桃派
 ```
 
-The result must be a validated `walnutpi.screen.v1` manifest. Media search, public image material, text extraction, video-to-ASCII ideas, and pixel-art generation are allowed inputs to the manifest, but they do not bypass validation or become arbitrary shell/LVGL/C code.
+The result must be a validated `walnutpi.screen-manifest.v2` output referenced by a `walnutpi.screen-playlist.v1` playlist. Source media may be searched, uploaded, or generated, but sync only consumes local 480x320 output artifacts and never regenerates missing files.
 
 ### Local Executable Q&A
 
@@ -123,100 +123,36 @@ The first screen should have:
 
 Avoid making the left side a list of permanent feature buttons. Beginner users should not need to decide whether their request is “status”, “snapshot”, “GPIO”, “network”, or “AI”. The agent should infer that.
 
-## Screen Sync Slice
+## Screen Workspace Sync Slice
 
-The first LVGL delivery slice keeps the beginner-facing flow simple:
+The LVGL delivery slice is v2-only:
 
 ```text
-Web preview
--> Sync to WalnutPi
--> Build LVGL app
+Screen Workspace preview
+-> Screen Playlist v1
+-> Sync to WalnutPi with playlistHash
+-> Build LVGL playlist resources
 -> Activate walnut-screen.service
--> Read screen state, framebuffer frame evidence, and structural visual evidence
+-> Read screen state, framebuffer frame evidence, and playlist evidence
 ```
 
-The web server exposes the current screen contract at `GET /api/screen/manifest`.
-The browser renders its preview from that manifest, and `POST /api/screen/sync` refuses to run when the browser sends a missing, malformed, or stale manifest hash.
-The default contract is `../lvgl_app/screen-manifest.json`; set `WALNUT_SCREEN_MANIFEST_PATH` to validate another manifest without changing the server code.
+The web server exposes the current playlist at `GET /api/screen/workspace/playlist`.
+`POST /api/screen/workspace/sync` refuses to run when the browser sends a missing, malformed, or stale `playlistHash`.
+`GET /api/screen/manifest` and `POST /api/screen/sync` have been removed; callers should receive 404.
 
 The first delivery adapter is deliberately narrow:
 
 - adapter: SSH / local agent
 - build: `scripts/build-lvgl-app.sh`
-- activation: `sudo -n systemctl restart walnut-screen.service`; this is the current real-device verified delivery-adapter path, while `walnut screen start` remains the user-facing CLI entry
+- LVGL resource generator: `scripts/generate-lvgl-screen-workspace-config.js`
+- activation: `sudo -n systemctl restart walnut-screen.service`; `walnut screen start` remains the user-facing CLI entry
 - evidence: `walnut screen state` and `sudo -n walnut screen frame`
-- diagnostics image: `GET /api/screen/frame/<buildId>` calls read-only `walnut screen capture --png-base64` on demand; dynamic LVGL frames are allowed, and response headers include both current and sync-time raw frame hashes
-- diagnostics diff: opening developer diagnostics renders a fixed 480x320 snapshot of the actual Web preview DOM, compares it with the loaded device PNG, and reports `walnutpi.webDevicePixelDiff.v2`; this is diagnostic-only, appears in sync history as a small diff badge, and is not LVGL headless rendering
+- diagnostics image: `GET /api/screen/frame/<buildId>` calls read-only `walnut screen capture --png-base64` on demand
 - sync history: `GET /api/screen/records` and `GET /api/screen/records/<buildId>` read local developer diagnostics records; cached `frame.png` is served from `GET /api/screen/records/<buildId>/frame.png` without reconnecting to the device
-- repair candidate: `POST /api/screen/repair-candidate` reads a stored local sync record and returns a structured `repairCandidate`; it does not run SSH, build, activation, capture, file writes, or automatic retry
-- repair proposal: `POST /api/screen/repair-proposal` reads a stored local sync record and returns a confirmation-gated local patch proposal; `POST /api/screen/repair-apply` requires the exact confirmation phrase, writes only the local manifest patch, then the Web UI reloads `/api/screen/manifest` for review and still never auto-syncs
-- pixel diff record: `POST /api/screen/pixel-diff` stores the browser-computed `walnutpi.webDevicePixelDiff.v2` object into a local sync record when its manifest hash matches the record. The object stores dimensions, compared pixel count, mismatch ratio, threshold, source, and limitations; it does not connect to WalnutPi, capture a frame, or change sync status. Existing `v1` records remain readable.
+- pixel diff record: `POST /api/screen/pixel-diff` stores the browser-computed `walnutpi.webDevicePixelDiff.v2` object into a local sync record. It does not connect to WalnutPi, capture a frame, or change sync status.
 
 Beginner UI only shows `未同步`, `同步中`, `已同步到核桃派`, or `同步失败`.
-`buildId`, screen manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, metadata-only pixel evidence, diagnostic Web/device pixel diff, `visualMatch` / `visualChecks`, history, repair hints, repair candidates, repair proposals, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.
-
-The screen manifest is a generic small-screen program model: `pages` contains 1-6 custom pages, and every page must declare explicit `components`. The supported component vocabulary is `statusCard`, `metricGroup`, `list`, `progress`, `alert`, `textPage`, `layout`, `pixelArt`, and compatibility-only `generatedPage`. These are content and drawing components only; the manifest cannot request shell commands, SSH, sudo, build behavior, delivery behavior, GPIO output, reboots, flashing, or arbitrary LVGL/C code.
-
-The screen intent route can use an OpenAI-compatible `/responses` endpoint, when local `.env` config provides `WALNUT_AI_API_KEY`, `WALNUT_AI_BASE_URL`, and `WALNUT_AI_MODEL`, to generate a controlled manifest patch from natural language. The model output is not trusted: the server strips it down to the allowed mutable fields, requires ASCII device text until CJK font support lands, applies the fixed `target` / `source` contract, and runs the shared manifest vocabulary validator before writing. If AI generation is unavailable or invalid, the route falls back to the local rule-based screen-plan generator. That fallback derives a prompt-specific `pixelArt` animation for custom IP/mascot/LED-style requests, or a prompt-specific `layout` canvas for time, weather, audio, status, and other function screens; it no longer reuses fixed generated content pages. It still does not accept natural-language edits for `schema`, `target`, `source`, build, SSH, sudo, delivery, or device commands.
+`buildId`, playlist hash, manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, metadata-only pixel evidence, diagnostic Web/device pixel diff, `visualMatch` / `visualChecks`, history, repair hints, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.
 
 Sync records are saved under `web-interface/screen-sync-records/` by default and are ignored by Git. Each record includes `record.json` and `summary.json`; opening the on-demand device frame caches `frame.png` into the same record. `WALNUT_SCREEN_RECORD_LIMIT` controls retention, defaulting to 50 records, and `WALNUT_SCREEN_RECORDS_DIR` can point records outside the repo.
 
-Focused API safety regression:
-
-```powershell
-pwsh ../scripts/test-screen-api-safety.ps1
-```
-
-The script starts a temporary local server with a copied manifest and temporary records directory. It verifies malformed/missing/stale `manifestHash` rejection, `?nossh` blocking for sync/terminal/action/capture, repair confirmation rejection, and summary fields for artifact, delivery, frame, pixel evidence, and pixel diff. It does not connect to WalnutPi.
-
-Current verification status:
-
-- `?nossh` is preview-only. Server routes reject remote actions and terminal connections before SSH/build/device-write paths. Screen sync records a local preview rejection for diagnostics, but still does not connect to WalnutPi or trigger build, delivery, activation, or device writes.
-- Activation is gated on a real artifact SHA-256 hash.
-- The delivery manifest/hash commits to the artifact hash and screen manifest hash.
-- A real-device sync run has completed through build, activation, and `walnut screen state`; evidence reported `walnut-screen.service active`. The current sync path also requires `sudo -n walnut screen frame` to return valid framebuffer metadata and a raw frame SHA-256 hash. The optional frame image route captures PNG evidence only when a developer opens diagnostics.
-
-Remote checkout note: Web sync sends an explicit remote project root. `WALNUT_REMOTE_PROJECT_ROOT` defaults to `/home/pi/projects/WalnutPi`, so the current root/root SSH setup does not accidentally resolve the checkout as `/root/projects/WalnutPi`. Override `WALNUT_REMOTE_PROJECT_ROOT` if the device checkout moves.
-Build ownership note: Web sync may SSH as root for device control, but LVGL build and artifact hash run as `WALNUT_REMOTE_BUILD_USER`, defaulting to `pi`, so `build/lvgl_app` stays writable for normal project work.
-
-### Real-Device Verification Notes
-
-The first real-device verification hit two environment issues before the loop passed:
-
-1. Default `root@192.168.1.24` login resolved the remote project root as `/root/projects/WalnutPi`, but the checkout was actually at `/home/pi/projects/WalnutPi`. The sync failed at build stage with:
-
-   ```text
-   sh: 1: cd: can't cd to /root/projects/WalnutPi
-   ```
-
-2. Before the server sent an explicit remote project root, setting `WALNUT_PROJECT_ROOT` on the local Bun process did not make the remote SSH shell see that variable. Running the sync as `pi@192.168.1.24` reached the correct checkout, but CMake failed because previous builds had left root-owned files under `build/`:
-
-   ```text
-   Permission denied
-   /home/pi/projects/WalnutPi/build/lvgl_app/lvgl/lvgl.pc.tmp
-   /home/pi/projects/WalnutPi/build/lvgl_app/lvgl/lv_version.h.tmp
-   /home/pi/projects/WalnutPi/build/lvgl_app/CMakeCache.txt
-   ```
-
-   The scoped repair was:
-
-   ```bash
-   sudo chown -R pi:pi /home/pi/projects/WalnutPi/build
-   ```
-
-After that repair, running the Web server with the correct remote project root completed the sync. The successful evidence was:
-
-```text
-== Screen ==
-walnut-screen.service              active
-walnut-framebuffer-status.service  inactive
-vtcon1 bind                        0
-```
-
-Suggested placeholder:
-
-```text
-你想让核桃派做什么？
-```
-
-Suggested examples can be shown as conversation starters, but they should behave like sample prompts, not tool buttons.

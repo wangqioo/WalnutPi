@@ -8,10 +8,6 @@ WalnutPi is an AI-native terminal system for a headless Debian device with a 480
 A contract for one or more final 480x320 WalnutPi screen images, including the source material, processing steps, and evidence needed to reproduce or verify the displayed result. The final screen image is authoritative; recipes, searches, and source references support that output.
 _Avoid_: Screen config, LVGL config, component manifest, display spec, launch command
 
-**Legacy Component Manifest**:
-The existing `walnutpi.screen.v1` component-oriented manifest model. It is useful for understanding current implementation state, but it is not the target vocabulary for the new Screen Manifest model.
-_Avoid_: Screen Manifest v2, Screen Output contract, playlist contract
-
 **LVGL Screen App**:
 The program that displays a Screen Manifest result on the real WalnutPi framebuffer. It renders the final screen output; it is not the Screen Manifest itself.
 _Avoid_: Manifest, screen contract
@@ -58,7 +54,7 @@ _Avoid_: Multi-page manifest, asset folder, LVGL config
 
 **Screen Manifest v2**:
 The `walnutpi.screen-manifest.v2` schema for one Screen Output or Animated Screen Output plus Processing Provenance.
-_Avoid_: walnutpi.screen.v1, component manifest, playlist
+_Avoid_: component manifest, playlist
 
 **Pre-rendered Screen**:
 A Screen Output where text, UI, imagery, and visual styling have already been composed into final 480x320 pixels before Sync. The LVGL Screen App displays these pixels instead of interpreting UI components at runtime.
@@ -66,7 +62,7 @@ _Avoid_: Runtime UI component, LVGL layout, device-side text rendering
 
 **Screen Playlist v1**:
 The `walnutpi.screen-playlist.v1` schema for sequencing multiple Screen Manifest v2 files.
-_Avoid_: walnutpi.screen.v1, multi-page manifest, source folder
+_Avoid_: multi-page manifest, source folder
 
 **Screen Workspace**:
 The root-level `screen/` area that owns Screen Manifests, Screen Outputs, Screen Playlists, Source Assets, and their provenance. The LVGL app consumes generated resources from this workspace but does not own the screen contract.

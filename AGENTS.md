@@ -19,9 +19,9 @@ Keep the project focused on this loop. Do not turn it into a generic IDE, deskto
 ## Main Paths
 
 - `web-interface/`: Web conversation, preview, sync API, diagnostics.
-- `lvgl_app/`: manifest-driven LVGL framebuffer app.
-- `scripts/screen-manifest-vocabulary.js`: Screen Manifest validation and hash behavior.
-- `scripts/generate-lvgl-screen-config.js`: canonical LVGL config generator.
+- `lvgl_app/`: Screen Workspace playlist LVGL framebuffer runtime.
+- `scripts/screen-workspace-vocabulary.js`: Screen Manifest v2 / Playlist v1 validation and hash behavior.
+- `scripts/generate-lvgl-screen-workspace-config.js`: canonical LVGL playlist resource generator.
 - `scripts/build-lvgl-app.sh`: LVGL build helper.
 - `walnut-assistant/`: installed `walnut` CLI and `walnut screen` commands.
 - `archive/experiments/`: archived tools and experiments.
@@ -49,16 +49,15 @@ Real-device commands:
 Local/safety commands:
 
 - Local Web server: `bun run web`
-- Screen safety regression: `bun run screen:safety`
 - Preview-only sync safety check: `pwsh ./scripts/sync-screen-via-web-api.ps1 -PreviewOnly`
 
 See `docs/real-device-command-scripts.md` before adding or changing real-device command wrappers.
 
 ## Screen Sync Contract
 
-- Browser reads `GET /api/screen/manifest`.
-- Browser syncs with `POST /api/screen/sync`.
-- Sync requests must include the current `manifestHash`.
+- Browser reads `GET /api/screen/workspace/playlist`.
+- Browser syncs with `POST /api/screen/workspace/sync`.
+- Sync requests must include the current `playlistHash`.
 - Missing, invalid, or stale hashes must fail before build or SSH.
 - Build uses `scripts/build-lvgl-app.sh`.
 - Remote root is `WALNUT_REMOTE_PROJECT_ROOT`, then `WALNUT_PROJECT_ROOT`, then `/home/pi/projects/WalnutPi`.

@@ -5,8 +5,9 @@ WalnutPi 当前主线是一个 AI 原生终端系统，其中 Web 对话是普�
 ```text
 用户提出需求
 -> Web 对话理解意图并调用受控工具
--> 生成适合 WalnutPi 480x320 的像素风 Screen Manifest
--> 可选搜索/整理图、文、视频素材，并用 ASCII / pixel 转换工具收敛成小屏画面
+-> 生成或处理 Source Asset
+-> 规范化为 480x320 Screen Manifest v2 输出
+-> 写入 Screen Playlist v1
 -> Web 预览 LVGL 小屏效果
 -> 用户显式同步到 WalnutPi
 -> WalnutPi 屏幕运行同一个界面并回传证据
@@ -39,11 +40,11 @@ WalnutPi 当前主线是一个 AI 原生终端系统，其中 Web 对话是普�
 
 当前要优先维护的用户路径是：
 
-- 用户在 Web 对话里描述想要的小屏：状态面板、像素 IP、天气、音乐频谱、视频感画面、文字卡片或其他 480x320 画面。
-- Web agent 将需求收敛为受控 Screen Manifest，而不是任意 shell、任意 LVGL/C 或无边界代码生成。
-- 对可玩性素材，工具层可以搜索/整理图、文、视频，再用像素化或 ASCII 转换管线生成适合小屏的 `pixelArt` / `layout` / 信息组件。
-- Web 读取 `GET /api/screen/manifest` 并渲染 LVGL 小屏预览。
-- 用户确认后调用 `POST /api/screen/sync`，请求必须携带当前 `manifestHash`。
+- 用户在 Web 对话或 Workspace 里准备小屏素材：图片、GIF、视频帧、生成图、手写像素图或其他 480x320 画面。
+- Web agent 将素材收敛为 Screen Manifest v2 输出，而不是任意 shell、任意 LVGL/C 或无边界代码生成。
+- 工具层用 Screen Workspace pipeline 把源素材规范化为 480x320 PNG 或 480x320 帧序列。
+- Web 读取 `GET /api/screen/workspace/playlist` 并预览 Screen Playlist v1。
+- 用户确认后调用 `POST /api/screen/workspace/sync`，请求必须携带当前 `playlistHash`。
 - 后端用 `scripts/build-lvgl-app.sh` 构建设备端 LVGL 程序。
 - Web delivery adapter 激活已验证路径 `sudo -n systemctl restart walnut-screen.service`。
 - 设备证据来自 `walnut screen state` 和 `sudo -n walnut screen frame`。
@@ -212,21 +213,18 @@ walnut
 
 左侧负责理解、计划、执行和总结；右侧负责展示 3D 设备、执行现场和高级交互终端。普通用户不需要知道 `walnut status`、`gpio pins`、`curl wttr.in` 这些命令。
 
-当前 Web 控制台也承载第一版“小屏界面同步”闭环：
+当前 Web 控制台承载 Screen Workspace v2 同步闭环：
 
 ```text
-Web 端读取 screen manifest
--> 左侧显示 LVGL 小屏语义预览
--> 用户点击“同步到核桃派”
--> 后端构建 LVGL 程序
--> 生成 WalnutPi delivery manifest
--> 启动 walnut-screen.service
--> 读取 walnut screen state、framebuffer frame hash 和结构性画面回证
+Web conversation / workspace source processing
+-> Screen Manifest v2 output
+-> Screen Playlist v1
+-> Playlist hash gate
+-> LVGL playlist resources
+-> real-device sync and evidence
 ```
 
-当前小屏 contract 保存在 `lvgl_app/screen-manifest.json`。Web 预览、`manifestHash` 校验和 delivery manifest 都从这个文件派生；可用 `WALNUT_SCREEN_MANIFEST_PATH` 指向另一个 manifest 进行本地验证。
-
-Screen Manifest 的 schema、字段清洗、`layout`、`pixelArt`、兼容型 `generatedPage`、`accent`、`tone` 和 hash 规则以 `scripts/screen-manifest-vocabulary.js` 为事实来源。`scripts/generate-lvgl-screen-config.js` 是 canonical LVGL 配置生成器；`scripts/generate-lvgl-screen-config.py` 只保留为兼容入口，会委托给 JS 生成器，不再维护第二套规则。
+当前小屏 contract 归 `screen/` 工作区所有。`screen/manifests/*.json` 使用 `walnutpi.screen-manifest.v2`，`screen/playlists/default.json` 使用 `walnutpi.screen-playlist.v1`。`scripts/screen-workspace-vocabulary.js` 是验证和 hash 规则事实来源，`scripts/generate-lvgl-screen-workspace-config.js` 是 LVGL 资源生成器。LVGL runtime 只消费 Screen Workspace 生成的 playlist 资源。
 
 运行本地控制台：
 
@@ -249,33 +247,24 @@ http://127.0.0.1:4173/?nossh
 
 同步相关接口：
 
-- `GET /api/screen/manifest`：返回当前小屏 manifest 和 hash。
-- `POST /api/screen/sync`：要求浏览器提交匹配且格式合法的 `manifestHash`；缺失、非法或过期 hash 会在构建 / SSH 前拒绝。
-- `GET /api/screen/frame/<buildId>`：开发者诊断专用，按需只读抓取设备 PNG 画面；默认同步 JSON 不内嵌图片字节或 `pngBase64`。LVGL 画面可能是动态帧，响应头会同时带当前 raw frame hash 和同步时 raw frame hash。
-- `GET /api/screen/records`：开发者诊断专用，读取最近同步历史。
-- `GET /api/screen/records/<buildId>`：读取一次同步的 manifest、artifact、delivery、命令结果、失败阶段和 screen evidence。
-- `GET /api/screen/records/<buildId>/frame.png`：读取已经缓存到本地诊断记录的 PNG；不会重新连接核桃派。
-- `POST /api/screen/repair-candidate`：读取本地同步记录并返回结构化修复候选方案；不会 SSH、构建、激活、抓图、写文件或自动重试。
-- `POST /api/screen/repair-proposal`：读取本地同步记录并生成确认门控的本地修复提案；生成提案不会写文件、SSH、构建、激活、抓图或重试。
-- `POST /api/screen/repair-apply`：只在输入精确确认短语后应用服务器生成的安全本地补丁；Web 随后重新读取 manifest 和预览，但不会自动同步到核桃派。
-- `POST /api/screen/ai-summary`：读取本地同步记录并生成证据受限的中文总结；默认本地规则生成，在本地 `.env` 配置 `WALNUT_AI_API_KEY`、`WALNUT_AI_BASE_URL` 和 `WALNUT_AI_MODEL` 后可调用 OpenAI-compatible `/responses`，失败会回退本地总结；不会 SSH、构建、激活、抓图、写文件或自动重试。
-- `POST /api/screen/pixel-diff`：只把浏览器算出的 `walnutpi.webDevicePixelDiff.v2` 写回本地同步记录；manifest hash 必须和记录一致；记录固定 480x320 Web DOM 预览快照与设备 PNG 的尺寸、像素数和差异比例；不会连接核桃派、抓图、构建、激活或改变同步状态。
+- `GET /api/screen/workspace/playlist`：返回默认 Screen Playlist envelope 和 `playlistHash`。
+- `POST /api/screen/workspace/sync`：要求浏览器提交匹配且格式合法的 `playlistHash`；缺失、非法或过期 hash 会在构建 / SSH 前拒绝。
+- `GET /api/screen/manifest`、`POST /api/screen/sync`：已移除；任何调用都应得到 404。
+- `GET /api/screen/frame/<buildId>`：开发者诊断专用，按需只读抓取设备 PNG 画面；默认同步 JSON 不内嵌图片字节或 `pngBase64`。
+- `GET /api/screen/records`、`GET /api/screen/records/<buildId>`、`GET /api/screen/records/<buildId>/frame.png`：开发者诊断历史。
+- `POST /api/screen/pixel-diff`：只把浏览器算出的 `walnutpi.webDevicePixelDiff.v2` 写回本地同步记录；不会连接核桃派、抓图、构建、激活或改变同步状态。
 
-普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、metadata-only pixel evidence、诊断级 Web/device pixel diff、历史记录、修复提示、修复候选方案、修复提案、AI 总结证据和按需设备截图只放在开发者诊断层。
+普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、playlist hash、manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、metadata-only pixel evidence、诊断级 Web/device pixel diff、历史记录、AI 总结证据和按需设备截图只放在开发者诊断层。
 
-小屏 manifest 是通用小屏程序模型：`pages` 是 1-6 个自定义页面，每页必须显式声明 `components`。当前组件 vocabulary 是 `statusCard`、`metricGroup`、`list`、`progress`、`alert`、`textPage`、`layout`、`pixelArt`，以及兼容型 `generatedPage`。这些组件只表示小屏内容、受控绘图或像素动画，不是命令或代码；它们不能请求 shell、SSH、sudo、build、delivery、GPIO、重启、刷写或任意 LVGL/C 代码。Web 预览、诊断 DOM 快照、生成的 LVGL 配置和设备端 LVGL runtime 共用这些受限字段。
-
-自然语言小屏编辑仍然只产出受控 manifest，不是任意代码生成。用户可以描述自定义 IP / 像素动画、时间、天气、频谱、状态徽章和其他 480x320 小屏画面；服务端会把它收敛到 `pixelArt`、`layout` 或信息组件并重新校验。`schema`、`target`、`source`、构建、SSH、sudo、delivery 和设备命令不接受自然语言修改。
+Screen Workspace 只同步已经规范化到 480x320 的输出。静态输出必须是 480x320 PNG；动画输出必须是 480x320 帧序列加时长；同步不会重新下载、搜索或生成缺失输出。LVGL runtime 只消费生成的 Workspace playlist 资源，没有旧组件 manifest fallback。
 
 同步记录默认保存在 `web-interface/screen-sync-records/`，该目录不进入 Git。每条记录保存 `record.json`、`summary.json`，开发者展开诊断截图后还会缓存 `frame.png`。默认保留最近 50 条，可用 `WALNUT_SCREEN_RECORD_LIMIT` 调整，也可用 `WALNUT_SCREEN_RECORDS_DIR` 改变保存目录。`?nossh` 模式仍然不会连接核桃派或触发构建 / 激活 / 设备写入；它只会在本地记录一次 preview 拒绝结果，方便确认同步路径被拦截。
 
-当前真机闭环已经通过一次验证：
+当前真机闭环目标：
 
 ```text
-Web manifest -> POST /api/screen/sync -> LVGL build -> sudo -n systemctl restart walnut-screen.service -> walnut screen state -> sudo -n walnut screen frame -> diagnostics-only walnut screen capture
+Screen Playlist v1 -> POST /api/screen/workspace/sync -> LVGL build -> sudo -n systemctl restart walnut-screen.service -> walnut screen state -> sudo -n walnut screen frame
 ```
-
-验证时 `artifactHash` 和 `deliveryHash` 都是 64 位 SHA-256/hex，设备回证显示 `walnut-screen.service` 为 `active`。Web 同步会把远端 checkout 显式设为 `WALNUT_REMOTE_PROJECT_ROOT`，默认是 `/home/pi/projects/WalnutPi`，避免 root 登录时误进 `/root/projects/WalnutPi`。
 
 真机验证时遇到过两个环境问题：
 
@@ -384,6 +373,12 @@ sudo walnut screen restore
 
 这是无桌面系统上的 LVGL 原型。它不启动桌面，不需要 X11/Wayland，直接通过 LVGL 的 Linux fbdev 驱动写 `/dev/fb0`。
 
+本机构建现在按平台分流：
+
+- Windows：优先用 `scripts/build-lvgl-app.ps1`，产物在 `build/lvgl_app-windows/`
+- Debian / WalnutPi：继续用 `scripts/build-lvgl-app.sh`，产物在 `build/lvgl_app/`
+- 跨平台入口：`scripts/build-lvgl-app.js`
+
 第一次构建会自动使用 `third_party/lvgl/`。如果源码不存在，脚本会拉取 LVGL v9.2.2：
 
 ```bash
@@ -478,14 +473,6 @@ Web 同步第一版复用现有 LVGL 运行边界，不改变 `walnut screen` �
 - 修复提案：`POST /api/screen/repair-proposal` + `POST /api/screen/repair-apply`，只允许确认后应用安全本地补丁，不自动同步
 - AI 总结：`POST /api/screen/ai-summary`，只读总结本地同步记录，证据范围固定为该记录的 compact evidence
 - 目标：`/dev/fb0`，480x320，RGB565
-
-轻量 API 安全回归：
-
-```powershell
-pwsh ./scripts/test-screen-api-safety.ps1
-```
-
-该脚本使用临时 manifest 和临时同步记录目录，验证 manifest hash 拦截、`?nossh` 拦截、repair 确认拦截和 pixel-diff 记录字段；它不会连接核桃派、构建、激活、抓图或写真实设备。
 
 这里的“同步到核桃派”不是把 Web 前端搬到设备上，也不是 VibeBoard/ESP32 烧录链路；它是把同一个小屏 manifest 对应的 LVGL 产物交付给 WalnutPi 本地屏幕运行时，并记录可诊断的 delivery/evidence。
 
