@@ -1,32 +1,28 @@
-# WalnutPi Web Agent Console
+# WalnutPi Web Interface
 
-`web-interface/` is the browser-facing control surface for WalnutPi.
+`web-interface/` is the browser-facing entry for WalnutPi's AI-native terminal system.
 
-The product goal is beginner-first operation. The user should not need to know Linux commands, `walnut` subcommands, GPIO tools, or weather APIs. They should type natural language into one input, and WalnutPi should decide what local work is needed.
+The current core experience is: the user describes what they want, the Web conversation turns that requirement into a playful 480x320 WalnutPi screen, the browser previews the LVGL result, and an explicit sync sends the same interface to the device.
+
+The Web conversation and the CLI tool layer do not conflict. The conversation is the beginner-facing orchestration surface. The `walnut` CLI, screen commands, terminal tools, media conversion utilities, and device checks are controlled capabilities the Web surface can call, summarize, or expose as evidence.
 
 ## Interaction Principle
 
-The left side is not a shortcut-button panel.
-
-The left side is the WalnutPi agent:
+The Web page should feel like one intent-driven surface:
 
 ```text
 user says what they want
 -> WalnutPi classifies the intent
--> WalnutPi builds a local execution plan
--> WalnutPi checks risk
--> WalnutPi executes safe actions or asks for confirmation
--> WalnutPi summarizes the result
+-> screen requests become bounded 480x320 Screen Manifests
+-> image, text, or video material can be searched/summarized/ASCII-converted/pixelized
+-> local tools run only through controlled routes
+-> risky actions ask for confirmation
+-> the browser previews the screen and summarizes evidence
 ```
 
-The right side is the execution scene:
+The screen-generation path is the primary product loop. The right-side terminal, SSH fallback, and diagnostic panels are supporting surfaces for advanced use and proof, not separate products.
 
-- 3D device presence
-- terminal output
-- live SSH fallback for advanced use
-- visible trace of what the device did
-
-Normal users should not be pushed into `walnut` menus or `1 / 2 / 3` terminal choices. Those menus can remain as CLI affordances, but the web console should call the underlying direct actions.
+Normal users should not be pushed into `walnut` menus or `1 / 2 / 3` terminal choices. Those menus remain valid CLI affordances, but the Web console should call the underlying direct actions when it needs device state, media conversion, or sync evidence.
 
 ## Request Types
 
@@ -40,6 +36,22 @@ Example:
 解释一下 I2C 是什么
 ```
 
+### Screen Creation
+
+Requests to make, design, generate, or sync a screen should go through the Screen Manifest pipeline.
+
+Examples:
+
+```text
+做一个粉色猫猫 IP 眨眼像素动画
+把上海天气做成核桃派小屏
+做一个音乐频谱像素屏
+把这个视频感画面转成适合 480x320 的小屏
+同步到核桃派
+```
+
+The result must be a validated `walnutpi.screen.v1` manifest. Media search, public image material, text extraction, video-to-ASCII ideas, and pixel-art generation are allowed inputs to the manifest, but they do not bypass validation or become arbitrary shell/LVGL/C code.
+
 ### Local Executable Q&A
 
 Questions that need real-time or device-local state should run locally first.
@@ -47,14 +59,13 @@ Questions that need real-time or device-local state should run locally first.
 Examples:
 
 ```text
-上海天气怎么样
 核桃派现在还好吗
 帮我看一下网络
 今天记了什么
 我想接一个 I2C 传感器
 ```
 
-The agent should run controlled local checks such as weather lookup, `walnut status`, network checks, notes lookup, `gpio pins`, `set-device status`, and `/boot/config.txt` reads, then summarize for a beginner.
+The agent should run controlled local checks such as `walnut status`, network checks, notes lookup, `gpio pins`, `/boot/config.txt` reads, and screen evidence commands, then summarize for a beginner. When the answer is useful as a screen, the same result can be turned into a 480x320 preview and synced after confirmation.
 
 ## Conversation Storage
 
@@ -106,8 +117,9 @@ The first screen should have:
 
 - one conversational input
 - a concise chat history
-- visible execution status
-- right-side terminal / 3D device view
+- a live 480x320 LVGL screen preview
+- explicit sync status
+- developer diagnostics and terminal evidence available without taking over the beginner flow
 
 Avoid making the left side a list of permanent feature buttons. Beginner users should not need to decide whether their request is “status”, “snapshot”, “GPIO”, “network”, or “AI”. The agent should infer that.
 
@@ -138,15 +150,14 @@ The first delivery adapter is deliberately narrow:
 - sync history: `GET /api/screen/records` and `GET /api/screen/records/<buildId>` read local developer diagnostics records; cached `frame.png` is served from `GET /api/screen/records/<buildId>/frame.png` without reconnecting to the device
 - repair candidate: `POST /api/screen/repair-candidate` reads a stored local sync record and returns a structured `repairCandidate`; it does not run SSH, build, activation, capture, file writes, or automatic retry
 - repair proposal: `POST /api/screen/repair-proposal` reads a stored local sync record and returns a confirmation-gated local patch proposal; `POST /api/screen/repair-apply` requires the exact confirmation phrase, writes only the local manifest patch, then the Web UI reloads `/api/screen/manifest` for review and still never auto-syncs
-- AI summary: `POST /api/screen/ai-summary` reads a stored local sync record and returns an evidence-limited Chinese summary. It uses a local deterministic fallback by default and can call an OpenAI-compatible `/responses` endpoint when local `.env` config provides `WALNUT_AI_API_KEY`, `WALNUT_AI_BASE_URL`, and `WALNUT_AI_MODEL`; it does not run SSH, build, activation, capture, file writes, or automatic retry
 - pixel diff record: `POST /api/screen/pixel-diff` stores the browser-computed `walnutpi.webDevicePixelDiff.v2` object into a local sync record when its manifest hash matches the record. The object stores dimensions, compared pixel count, mismatch ratio, threshold, source, and limitations; it does not connect to WalnutPi, capture a frame, or change sync status. Existing `v1` records remain readable.
 
 Beginner UI only shows `未同步`, `同步中`, `已同步到核桃派`, or `同步失败`.
-`buildId`, screen manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, metadata-only pixel evidence, diagnostic Web/device pixel diff, `visualMatch` / `visualChecks`, history, repair hints, repair candidates, repair proposals, AI-summary evidence, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.
+`buildId`, screen manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, metadata-only pixel evidence, diagnostic Web/device pixel diff, `visualMatch` / `visualChecks`, history, repair hints, repair candidates, repair proposals, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.
 
-The screen manifest is a generic small-screen program model: `pages` contains 1-6 custom pages, and every page must declare explicit `components`. The supported component vocabulary is `statusCard`, `metricGroup`, `list`, `progress`, `alert`, `textPage`, and `generatedPage`. These are content components only; the manifest cannot request shell commands, SSH, sudo, build behavior, delivery behavior, GPIO output, reboots, flashing, or arbitrary LVGL/C code.
+The screen manifest is a generic small-screen program model: `pages` contains 1-6 custom pages, and every page must declare explicit `components`. The supported component vocabulary is `statusCard`, `metricGroup`, `list`, `progress`, `alert`, `textPage`, `layout`, `pixelArt`, and compatibility-only `generatedPage`. These are content and drawing components only; the manifest cannot request shell commands, SSH, sudo, build behavior, delivery behavior, GPIO output, reboots, flashing, or arbitrary LVGL/C code.
 
-The screen intent route can use an OpenAI-compatible `/responses` endpoint, when local `.env` config provides `WALNUT_AI_API_KEY`, `WALNUT_AI_BASE_URL`, and `WALNUT_AI_MODEL`, to generate a controlled manifest patch from natural language. The model output is not trusted: the server strips it down to the allowed mutable fields, requires ASCII device text until CJK font support lands, applies the fixed `target` / `source` contract, and runs the shared manifest vocabulary validator before writing. If AI generation is unavailable or invalid, the route falls back to the local rule-based patch generator. It still does not accept natural-language edits for `schema`, `target`, `source`, build, SSH, sudo, delivery, or device commands.
+The screen intent route can use an OpenAI-compatible `/responses` endpoint, when local `.env` config provides `WALNUT_AI_API_KEY`, `WALNUT_AI_BASE_URL`, and `WALNUT_AI_MODEL`, to generate a controlled manifest patch from natural language. The model output is not trusted: the server strips it down to the allowed mutable fields, requires ASCII device text until CJK font support lands, applies the fixed `target` / `source` contract, and runs the shared manifest vocabulary validator before writing. If AI generation is unavailable or invalid, the route falls back to the local rule-based screen-plan generator. That fallback derives a prompt-specific `pixelArt` animation for custom IP/mascot/LED-style requests, or a prompt-specific `layout` canvas for time, weather, audio, status, and other function screens; it no longer reuses fixed generated content pages. It still does not accept natural-language edits for `schema`, `target`, `source`, build, SSH, sudo, delivery, or device commands.
 
 Sync records are saved under `web-interface/screen-sync-records/` by default and are ignored by Git. Each record includes `record.json` and `summary.json`; opening the on-demand device frame caches `frame.png` into the same record. `WALNUT_SCREEN_RECORD_LIMIT` controls retention, defaulting to 50 records, and `WALNUT_SCREEN_RECORDS_DIR` can point records outside the repo.
 

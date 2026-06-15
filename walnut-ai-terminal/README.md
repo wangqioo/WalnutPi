@@ -122,7 +122,7 @@ WALNUT_WEB_SESSIONS_DIR     Web conversation JSONL directory consumed by walnut-
 From the repository root:
 
 ```bash
-sudo ./scripts/install-walnut-ai.sh
+sudo ./archive/install-scripts/install-walnut-ai.sh
 ```
 
 The installer copies `walnut_ai.py`, `memory_distiller.py`, `skills/`, `corpus/`, and the `walnut` CLI into the board runtime.

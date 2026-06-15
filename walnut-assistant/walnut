@@ -242,7 +242,7 @@ def open_video(args: argparse.Namespace | None = None) -> int:
     if exists("walnut-ai-video-demo-play"):
         return stream(["walnut-ai-video-demo-play", mode])
     print("walnut-ai-video-demo-play is missing")
-    print(f"Run: sudo {project_root()}/scripts/install-walnut-ai.sh")
+    print(f"Archived installer: sudo {project_root()}/archive/install-scripts/install-walnut-ai.sh")
     return 1
 
 
@@ -905,7 +905,7 @@ def fix_audio(_: argparse.Namespace | None = None) -> int:
 
 def projects(_: argparse.Namespace | None = None) -> int:
     section("Projects")
-    for path in [project_root(), HOME / "projects" / "voice-keyboard", Path("/opt/walnut-ai"), Path("/opt/uptime-kuma"), Path("/opt/frp")]:
+    for path in [project_root(), project_root() / "archive" / "experiments" / "voice-keyboard", Path("/opt/walnut-ai"), Path("/opt/uptime-kuma"), Path("/opt/frp")]:
         if path.exists():
             print(path)
     section("Git")
@@ -958,36 +958,24 @@ def menu(_: argparse.Namespace | None = None) -> int:
         clear_screen()
         print("Walnut Home")
         print()
-        print("  1. AI Chat")
-        print("  2. Notes")
-        print("  3. Play")
-        print("  4. Console")
-        print("  5. Status")
-        print("  6. Screen")
-        print("  7. Maintenance")
-        print("  8. Voice")
+        print("  1. Notes")
+        print("  2. Status")
+        print("  3. Screen")
         if os.getenv("WALNUT_SESSION_MODE") == "local":
             print("  9. Return to login")
         print()
-        print("  q. Back to Walnut menu")
+        print("  q. Exit")
+        print()
+        print("Advanced tools remain available as direct commands:")
+        print("  walnut ai | play | console | maintenance | video | voice")
         choice = input("\nSelect> ").strip().lower()
         if choice == "1":
-            open_ai(None)
-        elif choice == "2":
             notes_menu(None)
-        elif choice == "3":
-            play_menu(None)
-        elif choice == "4":
-            console_menu(None)
-        elif choice == "5":
+        elif choice == "2":
             status(None)
             input("\nPress Enter...")
-        elif choice == "6":
+        elif choice == "3":
             screen_menu(None)
-        elif choice == "7":
-            maintenance_menu(None)
-        elif choice == "8":
-            voice(None)
         elif choice == "9" and os.getenv("WALNUT_SESSION_MODE") == "local":
             return 2
         elif choice in {"q", "quit", "exit"}:

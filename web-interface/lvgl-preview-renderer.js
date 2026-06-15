@@ -38,7 +38,8 @@ export function createLvglPreviewRenderer({
     }
 
     const previewDir = path.join(tmpdir(), "walnutpi-lvgl-preview");
-    const previewPath = path.join(previewDir, `${envelope.manifestHash}.bmp`);
+    const advanceMs = Math.max(0, Math.min(30000, Number(url.searchParams.get("advanceMs") || 128) || 0));
+    const previewPath = path.join(previewDir, `${envelope.manifestHash}-${advanceMs}.bmp`);
     await mkdir(previewDir, { recursive: true });
     const cachedBody = Bun.file(previewPath);
     if (await cachedBody.exists()) {
@@ -47,14 +48,23 @@ export function createLvglPreviewRenderer({
       });
     }
 
+    const previewBinary = path.join(projectRoot, "build", "lvgl_app", "walnut-lvgl-preview");
+    const previewBinaryFile = Bun.file(previewBinary);
+    const renderCommand = (await previewBinaryFile.exists())
+      ? `${shellQuote(bashPath(previewBinary))} ${shellQuote(bashPath(previewPath))} --advance-ms ${advanceMs}`
+      : [
+        "./scripts/build-lvgl-app.sh >/dev/null",
+        `./build/lvgl_app/walnut-lvgl-preview ${shellQuote(bashPath(previewPath))} --advance-ms ${advanceMs}`,
+      ].join(" && ");
+
     const output = await runLocal(
       "bash",
       [
         "-lc",
         [
+          `export PATH="${bashPath(path.join(tmpdir(), "walnutpi-runtime-shims"))}:$PATH"`,
           `cd ${shellQuote(bashPath(projectRoot))}`,
-          "./scripts/build-lvgl-app.sh >/dev/null",
-          `./build/lvgl_app/walnut-lvgl-preview ${shellQuote(bashPath(previewPath))}`,
+          renderCommand,
         ].join(" && "),
       ],
       {

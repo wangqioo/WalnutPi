@@ -1,10 +1,12 @@
 __pycache__/
 *.pyc
+node_modules/
 .env
 .env.*
 !.env.example
 *.log
 !*.spec
+--advance-ms
 build/
 web-interface/data/
 web-interface/screen-sync-records/

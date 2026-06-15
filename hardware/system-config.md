@@ -196,7 +196,7 @@ fi
 
 ```bash
 cd /home/pi/projects/WalnutPi
-./scripts/install-walnut-ai.sh
+./archive/install-scripts/install-walnut-ai.sh
 ```
 
 脚本会创建 `/opt/walnut-ai-video/.venv`，在 venv 里安装 `opencv-python-headless`，并安装这些入口：
@@ -209,7 +209,7 @@ cd /home/pi/projects/WalnutPi
 /usr/local/bin/walnut-ai-video-demo-play
 ```
 
-`ai_video/run_module.py` 会优先使用当前 venv 的 site-packages，避免依赖系统级 OpenCV 包。
+`archive/experiments/ai_video/run_module.py` 会优先使用当前 venv 的 site-packages，避免依赖系统级 OpenCV 包。
 
 验证命令：
 
@@ -225,7 +225,7 @@ walnut-ai-video-demo-play still-color
 
 ```bash
 cd /home/pi/projects/WalnutPi
-sh scripts/install-voice-keyboard-walnutpi.sh
+sh archive/install-scripts/install-voice-keyboard-walnutpi.sh
 ```
 
 当前板子额外需要这些系统包：

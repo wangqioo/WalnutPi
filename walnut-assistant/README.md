@@ -1,6 +1,8 @@
 # Walnut Home
 
-Walnut Home 是这台无桌面 WalnutPi 终端的命令中心。
+Walnut Home 是这台无桌面 WalnutPi 终端的 CLI 工具层。
+
+Web 对话是普通用户入口，`walnut` 是设备上稳定、可审计的执行入口。Web agent 可以调用这些能力来读取状态、生成证据、处理素材、操作小屏或引导高级用户；用户也可以直接在 SSH/本地终端里使用它。
 
 它把原本分散的 Linux 命令收拢成一个入口：
 
@@ -24,7 +26,14 @@ walnut note TEXT       # 追加一条日记笔记
 walnut today           # 显示今天的笔记
 ```
 
-较少直接使用的命令：
+面向当前 Web 小屏主线，最关键的是：
+
+- `walnut screen start|stop|toggle|state|frame|capture|lvgl`：运行和证明 480x320 LVGL 小屏结果。
+- `walnut action run ... --json`：给 Web agent 提供结构化只读设备检查。
+- `walnut play` / `walnut video`：提供音乐、ASCII 视频和终端玩具，可作为可玩性素材和演示能力。
+- `walnut ai` / `walnut notes`：提供本地 agent、记忆和笔记能力。
+
+较少由普通用户直接使用、但仍属于工具层的命令：
 
 - `walnut status`：设备、网络和服务检查
 - `walnut maintenance`：浏览器、监控、修复、项目和清理
@@ -40,6 +49,7 @@ walnut today           # 显示今天的笔记
 - 只使用 Python 标准库
 - 所有主要入口统一在 `walnut`
 - 维护类操作收进菜单里，不再外露太多顶层命令
+- 与 Web 对话入口分工明确：CLI 执行设备能力，Web 负责理解需求、编排工具、生成小屏和展示证据
 
 ## 笔记
 
@@ -63,6 +73,8 @@ chmod +x /usr/local/bin/walnut
 - 源码仓库：`~/projects/WalnutPi`，或者 `WALNUT_PROJECT_ROOT` 指向的位置
 - 主启动器：`/usr/local/bin/walnut`
 - 兼容启动器：`/usr/local/bin/walnut-fun` -> `walnut play`
+- 归档工具源码：`archive/experiments/`
+- 归档安装脚本：`archive/install-scripts/`
 - 已安装的 WalnutAI 运行时：`/opt/walnut-ai`
 - 已安装的语音运行时：`/opt/walnut-voice-keyboard`
 

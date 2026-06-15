@@ -11,6 +11,7 @@
 #define PREVIEW_BYTES_PER_PIXEL 2
 
 void walnut_build_screen_ui(void);
+void walnut_preview_apply_dynamic_time(int advance_ms);
 
 static uint16_t preview_framebuffer[PREVIEW_WIDTH * PREVIEW_HEIGHT];
 static uint8_t draw_buffer[PREVIEW_WIDTH * PREVIEW_HEIGHT * PREVIEW_BYTES_PER_PIXEL];
@@ -106,7 +107,18 @@ int main(int argc, char ** argv)
 {
     (void)WALNUT_SCREEN_MANIFEST_HASH;
 
-    const char * output_path = argc > 1 ? argv[1] : "walnut-lvgl-preview.bmp";
+    const char * output_path = "walnut-lvgl-preview.bmp";
+    int advance_ms = 128;
+    for(int i = 1; i < argc; i++) {
+        if(strcmp(argv[i], "--advance-ms") == 0 && i + 1 < argc) {
+            advance_ms = atoi(argv[++i]);
+            if(advance_ms < 0) advance_ms = 0;
+            if(advance_ms > 30000) advance_ms = 30000;
+        }
+        else {
+            output_path = argv[i];
+        }
+    }
     memset(preview_framebuffer, 0, sizeof(preview_framebuffer));
     memset(draw_buffer, 0, sizeof(draw_buffer));
 
@@ -121,11 +133,7 @@ int main(int argc, char ** argv)
     lv_display_set_buffers(disp, draw_buffer, NULL, sizeof(draw_buffer), LV_DISPLAY_RENDER_MODE_FULL);
 
     walnut_build_screen_ui();
-
-    for(int i = 0; i < 8; i++) {
-        lv_tick_inc(16);
-        lv_timer_handler();
-    }
+    walnut_preview_apply_dynamic_time(advance_ms);
     lv_refr_now(disp);
 
     return write_bmp(output_path);

@@ -7,8 +7,9 @@
 WalnutPi 的产品主线已经清楚：
 
 ```text
-自然语言或 guided intent
--> Web 预览小屏 Screen Manifest
+Web 对话理解用户需求
+-> 生成 480x320 像素风 Screen Manifest
+-> Web 预览 LVGL 小屏
 -> 用户显式同步到 WalnutPi
 -> WalnutPi 屏幕运行同一个界面
 -> Web 展示状态、执行证据和 AI 可读总结
@@ -21,7 +22,7 @@ WalnutPi 的产品主线已经清楚：
 
 ## 收敛原则
 
-1. Screen Sync 是当前产品主线。
+1. Web 对话入口 + 480x320 像素风 Screen Sync 是当前产品主线。
 2. Web 默认入口要 beginner-first，不暴露 build id、hash、原始命令输出和图像字节。
 3. `?nossh` 始终是 preview-only，不能触发 build、SSH、delivery、activation 或设备写入。
 4. 保持现有 `walnut screen` CLI 行为，不破坏 `lvgl`、`start`、`stop`、`toggle`、`state`。
@@ -44,21 +45,24 @@ Device execution surface
   framebuffer_ui/
   scripts/install-walnut-screen.sh
 
-Support / memory / agent experiments
+Support / memory
   walnut-ai-terminal/
-  terminal-toys/
-  console-chinese/
   hardware/
 
-Experiments / references
-  ai_video/
-  voice-keyboard/
-  investor-brief/
+Archived playable tools / experiments
+  archive/experiments/terminal-toys/
+  archive/experiments/console-chinese/
+  archive/experiments/audio/
+  archive/experiments/ai_video/
+  archive/experiments/voice-keyboard/
+  archive/experiments/investor-brief/
+
+References
   third/
   third_party/
 ```
 
-这只是文档分级，不要求立刻搬目录。第一阶段先让 README、CONTEXT 和 docs 说清楚“当前主线是什么，其他目录是什么身份”。
+归档目录保留 CLI 工具和实验源码，但不再出现在根目录主线视野里。
 
 ## 优先改造候选
 
@@ -203,4 +207,3 @@ Experiments / references
 - artifact evidence 和 delivery manifest/hash 仍绑定真实 artifact SHA-256。
 - developer diagnostics 仍能看到记录、命令输出、frame route、repair、AI summary 和 pixel diff。
 - 安全回归脚本通过。
-

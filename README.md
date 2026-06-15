@@ -1,18 +1,20 @@
 # WalnutPi
 
-WalnutPi 当前主线是一个 beginner-first 的小屏同步闭环：
+WalnutPi 当前主线是一个 AI 原生终端系统，其中 Web 对话是普通用户入口，CLI 是设备工具层，480x320 小屏是可玩的输出面：
 
 ```text
-自然语言或 guided intent
--> Web 预览小屏 Screen Manifest
+用户提出需求
+-> Web 对话理解意图并调用受控工具
+-> 生成适合 WalnutPi 480x320 的像素风 Screen Manifest
+-> 可选搜索/整理图、文、视频素材，并用 ASCII / pixel 转换工具收敛成小屏画面
+-> Web 预览 LVGL 小屏效果
 -> 用户显式同步到 WalnutPi
--> WalnutPi 屏幕运行同一个界面
--> Web 展示状态、执行证据和 AI 可读总结
+-> WalnutPi 屏幕运行同一个界面并回传证据
 ```
 
 本文档以中文为主，命令名、软件名和少数技术术语保留英文原名。
 
-这个仓库仍然保存终端界面、音频、部署配置和硬件实验，但当前产品判断以 Screen Manifest + Web preview + Sync + Evidence 为主线。其他目录是设备执行面、支持记忆、历史实验或第三方参考，不代表要把 WalnutPi 做成 generic IDE、桌面应用平台、ESP32 烧录平台或 VibeBoard clone。
+这个仓库里的终端界面、音频、部署配置、ASCII 视频、中文控制台和硬件实验不是要砍掉的平行产品；它们是 WalnutPi CLI 工具能力、素材处理能力或设备支持面。当前要优先打磨的是 Web 对话入口如何把这些能力组织起来，并把结果变成可预览、可同步、可验证的 480x320 核桃派小屏界面。WalnutPi 不应变成 generic IDE、桌面应用平台、ESP32 烧录平台或 VibeBoard clone。
 
 ## 这台设备是什么
 
@@ -33,11 +35,14 @@ WalnutPi 当前主线是一个 beginner-first 的小屏同步闭环：
 
 这台设备被刻意当作轻量本地交互载体，而不是本地大模型推理机器。
 
-## 当前产品主线
+## 当前核心体验
 
 当前要优先维护的用户路径是：
 
-- Web 读取 `GET /api/screen/manifest` 并渲染 480x320 小屏预览。
+- 用户在 Web 对话里描述想要的小屏：状态面板、像素 IP、天气、音乐频谱、视频感画面、文字卡片或其他 480x320 画面。
+- Web agent 将需求收敛为受控 Screen Manifest，而不是任意 shell、任意 LVGL/C 或无边界代码生成。
+- 对可玩性素材，工具层可以搜索/整理图、文、视频，再用像素化或 ASCII 转换管线生成适合小屏的 `pixelArt` / `layout` / 信息组件。
+- Web 读取 `GET /api/screen/manifest` 并渲染 LVGL 小屏预览。
 - 用户确认后调用 `POST /api/screen/sync`，请求必须携带当前 `manifestHash`。
 - 后端用 `scripts/build-lvgl-app.sh` 构建设备端 LVGL 程序。
 - Web delivery adapter 激活已验证路径 `sudo -n systemctl restart walnut-screen.service`。
@@ -49,14 +54,16 @@ WalnutPi 当前主线是一个 beginner-first 的小屏同步闭环：
 
 ## 核心思路
 
-项目方向是一个 AI 原生终端系统：
+项目方向仍然是一个 AI 原生终端系统：
 
 > 无桌面 Linux + 命令行交互 + 结构化卡片 + 云端 AI API + 轻量本地硬件控制。
 
 更准确地说，WalnutPi 不是一个“只能聊天的前端”，而是一台有本地执行能力的 AI 终端。
 它有 Linux shell、网络访问、Python / CLI 脚本、GPIO / I2C / SPI / UART、本地文件、长驻服务，以及可以展示执行现场的真实终端和小屏幕。
 
-自然语言入口的目标不是 MCP 风格的工具按钮面板，而是设备本地 agent：
+Web 里的对话入口和 CLI 工具调用不冲突。对话负责理解用户需求、组织步骤、判断风险和总结结果；CLI 负责稳定执行设备能力，例如 `walnut screen`、状态读取、笔记、音频/视频/ASCII 工具、网络检查和维护命令。
+
+自然语言入口的目标不是 MCP 风格的工具按钮面板，而是设备 agent：
 
 ```text
 用户自然语言
@@ -67,7 +74,7 @@ WalnutPi 当前主线是一个 beginner-first 的小屏同步闭环：
 -> AI 总结结果
 ```
 
-例如用户问“上海天气怎么样”，设备应该先在本地执行受控天气查询，再把结果总结成人话，而不是回答“我不能实时读取”并要求用户自己运行 `curl`。
+例如用户说“做一个上海天气的像素小屏”，Web agent 可以先获得天气信息，再生成像素风 480x320 小屏预览，最后让用户确认是否同步到核桃派。用户问“核桃派现在还好吗”时，agent 可以调用本地状态检查并总结，而不是要求用户自己运行命令。
 
 本地设备负责：
 
@@ -77,6 +84,7 @@ WalnutPi 当前主线是一个 beginner-first 的小屏同步闭环：
 - 系统状态采集
 - 小脚本和本地自动化
 - 音频播放
+- 图、文、视频素材的本地处理和 ASCII / 像素转换
 - 服务托管
 - 受控实时查询，例如天气、时间、网络和本机状态
 - 低风险本地操作，例如读取笔记、保存笔记、运行只读检查
@@ -100,6 +108,8 @@ WalnutPi 当前主线是一个 beginner-first 的小屏同步闭环：
 
 这台 WalnutPi 目前已经可以：
 
+- 通过 Web 对话生成 480x320 小屏 manifest，并在浏览器里预览 LVGL 结果
+- 将当前小屏 manifest 显式同步到 WalnutPi 屏幕
 - 运行 `walnut`，也就是 Walnut Home 命令中心
 - 运行 `walnut-ai`，一个轻量 AI 终端原型
 - 通过 OpenAI 兼容 API 调用云端 AI
@@ -110,10 +120,14 @@ WalnutPi 当前主线是一个 beginner-first 的小屏同步闭环：
 - 通过 frpc 暴露 SSH 远程访问
 - 通过 AirPods / A2DP 播放音频
 - 通过 `fbterm` 在本地 framebuffer 控制台显示中文
+- 使用 ASCII 视频和终端玩具作为素材/可玩性工具
 - 保持正常 CLI 启动，不强制接管系统启动 shell
 
 ## 先试什么
 
+- `bun run web` 启动 Web 对话和小屏同步入口
+- 在 Web 里描述一个 480x320 小屏，例如“做一个粉色猫猫 IP 眨眼像素动画”或“把音乐频谱做成像素风小屏”
+- 确认预览后同步到 WalnutPi
 - `walnut` 作为主入口
 - `walnut ai` 直接进入云端 AI 终端
 - `walnut-ai "上海天气怎么样"` 运行一次性本地 agent 回合
@@ -145,7 +159,7 @@ WalnutPi 当前主线是一个 beginner-first 的小屏同步闭环：
 - 承载重型 GPU / 3D UI
 - 依赖板载蓝牙控制器稳定采集 AirPods 麦克风
 
-AirPods 播放是可用的，但 AirPods 麦克风捕获在这块板子的板载蓝牙控制器上失败了，因为 Linux 下 SCO 麦克风数据没有正常通过 HCI 到达。详细记录见 `audio/airpods-linux/`。
+AirPods 播放是可用的，但 AirPods 麦克风捕获在这块板子的板载蓝牙控制器上失败了，因为 Linux 下 SCO 麦克风数据没有正常通过 HCI 到达。详细记录见 `archive/experiments/audio/airpods-linux/`。
 
 ## 仓库结构
 
@@ -157,12 +171,8 @@ WalnutPi/
 ├── walnut-assistant/        # Device execution surface: walnut CLI and screen commands
 ├── framebuffer_ui/          # Device execution surface: framebuffer experiments and install path
 ├── walnut-ai-terminal/      # Support / memory / agent experiments
-├── terminal-toys/           # Support: Walnut Play terminal tools
-├── console-chinese/         # Support: framebuffer Chinese console notes
+├── archive/experiments/     # Archived playable tools, media, console, audio, voice, and brief experiments
 ├── hardware/                # Support: observed hardware and screen records
-├── ai_video/                # Experiment
-├── voice-keyboard/          # Experiment
-├── investor-brief/          # Experiment / presentation material
 ├── third/                   # Reference projects only
 ├── third_party/             # Vendored or external reference material
 └── README.md                # Project overview
@@ -216,7 +226,7 @@ Web 端读取 screen manifest
 
 当前小屏 contract 保存在 `lvgl_app/screen-manifest.json`。Web 预览、`manifestHash` 校验和 delivery manifest 都从这个文件派生；可用 `WALNUT_SCREEN_MANIFEST_PATH` 指向另一个 manifest 进行本地验证。
 
-Screen Manifest 的 schema、字段清洗、`generatedPage`、`accent`、`tone` 和 hash 规则以 `scripts/screen-manifest-vocabulary.js` 为事实来源。`scripts/generate-lvgl-screen-config.js` 是 canonical LVGL 配置生成器；`scripts/generate-lvgl-screen-config.py` 只保留为兼容入口，会委托给 JS 生成器，不再维护第二套规则。
+Screen Manifest 的 schema、字段清洗、`layout`、`pixelArt`、兼容型 `generatedPage`、`accent`、`tone` 和 hash 规则以 `scripts/screen-manifest-vocabulary.js` 为事实来源。`scripts/generate-lvgl-screen-config.js` 是 canonical LVGL 配置生成器；`scripts/generate-lvgl-screen-config.py` 只保留为兼容入口，会委托给 JS 生成器，不再维护第二套规则。
 
 运行本地控制台：
 
@@ -253,9 +263,9 @@ http://127.0.0.1:4173/?nossh
 
 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、screen manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、metadata-only pixel evidence、诊断级 Web/device pixel diff、历史记录、修复提示、修复候选方案、修复提案、AI 总结证据和按需设备截图只放在开发者诊断层。
 
-小屏 manifest 是通用小屏程序模型：`pages` 是 1-6 个自定义页面，每页必须显式声明 `components`。当前组件 vocabulary 是 `statusCard`、`metricGroup`、`list`、`progress`、`alert`、`textPage`。这些组件只表示小屏内容，不是命令或代码；它们不能请求 shell、SSH、sudo、build、delivery、GPIO、重启、刷写或任意 LVGL/C 代码。Web 预览、诊断 DOM 快照、生成的 LVGL 配置和设备端 LVGL runtime 共用这些受限字段。
+小屏 manifest 是通用小屏程序模型：`pages` 是 1-6 个自定义页面，每页必须显式声明 `components`。当前组件 vocabulary 是 `statusCard`、`metricGroup`、`list`、`progress`、`alert`、`textPage`、`layout`、`pixelArt`，以及兼容型 `generatedPage`。这些组件只表示小屏内容、受控绘图或像素动画，不是命令或代码；它们不能请求 shell、SSH、sudo、build、delivery、GPIO、重启、刷写或任意 LVGL/C 代码。Web 预览、诊断 DOM 快照、生成的 LVGL 配置和设备端 LVGL runtime 共用这些受限字段。
 
-自然语言小屏编辑仍是规则式 manifest 编辑，不是任意代码生成；当前只允许改标题、副标题、状态卡、tone、进度、指标、列表、告警和文本页内容。`schema`、`target`、`source`、page id、构建、SSH、sudo、delivery 和设备命令不接受自然语言修改。
+自然语言小屏编辑仍然只产出受控 manifest，不是任意代码生成。用户可以描述自定义 IP / 像素动画、时间、天气、频谱、状态徽章和其他 480x320 小屏画面；服务端会把它收敛到 `pixelArt`、`layout` 或信息组件并重新校验。`schema`、`target`、`source`、构建、SSH、sudo、delivery 和设备命令不接受自然语言修改。
 
 同步记录默认保存在 `web-interface/screen-sync-records/`，该目录不进入 Git。每条记录保存 `record.json`、`summary.json`，开发者展开诊断截图后还会缓存 `frame.png`。默认保留最近 50 条，可用 `WALNUT_SCREEN_RECORD_LIMIT` 调整，也可用 `WALNUT_SCREEN_RECORDS_DIR` 改变保存目录。`?nossh` 模式仍然不会连接核桃派或触发构建 / 激活 / 设备写入；它只会在本地记录一次 preview 拒绝结果，方便确认同步路径被拦截。
 
@@ -284,9 +294,9 @@ Web 同步默认用 `pi` 执行 LVGL build。若历史构建留下 root-owned �
 sudo chown -R pi:pi /home/pi/projects/WalnutPi/build/lvgl_app
 ```
 
-### 中文本地控制台
+### 中文本地控制台（已归档）
 
-路径：`console-chinese/`
+路径：`archive/experiments/console-chinese/`
 
 这里记录本地屏幕上的中文显示方案：
 
@@ -295,9 +305,9 @@ sudo chown -R pi:pi /home/pi/projects/WalnutPi/build/lvgl_app
 - `walnut-cn` 会手动打开支持中文的 framebuffer 终端
 - 本地 `tty1` 登录会自动进入 `fbterm`，SSH 会话不受影响
 
-### 终端玩具
+### 终端玩具（已归档）
 
-路径：`terminal-toys/`
+路径：`archive/experiments/terminal-toys/`
 
 这里放的是 Walnut Play 使用的纯终端工具，例如音乐、数字雨、时钟和 ASCII 视频。
 `walnut-fun` 现在只是兼容包装器，内部转发到 `walnut play`。
@@ -506,9 +516,9 @@ walnut-ai "上海天气怎么样"
 
 不带参数时进入交互式聊天；带参数时运行一次性 agent 回合。一次性回合会优先判断是否可以由 WalnutPi 本地执行，例如天气、状态、网络、笔记和硬件只读检查；不能本地执行的问题再交给云端 AI。
 
-### AirPods Linux 音频说明
+### AirPods Linux 音频说明（已归档）
 
-路径：`audio/airpods-linux/`
+路径：`archive/experiments/audio/airpods-linux/`
 
 这里记录蓝牙音频调查结果：
 

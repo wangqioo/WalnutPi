@@ -1,9 +1,13 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import ffmpegPath from "ffmpeg-static";
+import sharp from "sharp";
 import {
   cleanText,
   metricItemFromText,
@@ -15,6 +19,7 @@ import { createScreenEvidenceReview } from "./screen-evidence-review.js";
 import { createSshLocalAgentAdapter } from "./screen-delivery-adapters/ssh-local-agent.js";
 import { createScreenSyncWorkflow } from "./screen-sync-workflow.js";
 import { createWebSessionLedger } from "./web-session-ledger.js";
+import { createWebMetricsLedger } from "./web-metrics-ledger.js";
 import { createLvglPreviewRenderer } from "./lvgl-preview-renderer.js";
 import { createWalnutRemoteAdapter } from "./walnut-remote-adapter.js";
 import { createScreenManifestStore } from "./screen-manifest-store.js";
@@ -30,6 +35,9 @@ const REMOTE_BUILD_USER = process.env.WALNUT_REMOTE_BUILD_USER || "pi";
 const BASE_DIR = import.meta.dir;
 const PROJECT_ROOT = path.resolve(BASE_DIR, "..");
 const MODEL_FILE = "0c6390ea8b1ccf186ec099456954fd42.glb";
+const CODEX_AUTH_PATH = process.env.CODEX_AUTH_PATH
+  ? path.resolve(process.env.CODEX_AUTH_PATH)
+  : path.join(process.env.USERPROFILE || process.env.HOME || "", ".codex", "auth.json");
 const SCREEN_MANIFEST_PATH = process.env.WALNUT_SCREEN_MANIFEST_PATH
   ? path.resolve(process.env.WALNUT_SCREEN_MANIFEST_PATH)
   : path.join(PROJECT_ROOT, "lvgl_app", "screen-manifest.json");
@@ -47,10 +55,11 @@ const SCREEN_SUCCESS_CORPUS_PATH = path.join(WALNUT_AI_CORPUS_DIR, "screen-sync-
 
 const AI_MODEL = process.env.WALNUT_AI_MODEL || "gpt-5.4-mini";
 const AI_BASE_URL = (process.env.WALNUT_AI_BASE_URL || "https://rehdasu.cn/v1").replace(/\/+$/, "");
-const AI_API_KEY = String(process.env.WALNUT_AI_API_KEY || process.env.OPENAI_API_KEY || "").trim();
+const AI_API_KEY = resolveAiApiKey();
+const AI_REASONING_EFFORT = process.env.WALNUT_AI_REASONING_EFFORT || "none";
 const AI_CONTEXT_LIMIT = 4;
 const AI_CONTEXT_TEXT_LIMIT = 900;
-const AI_TIMEOUT_SECONDS = Number(process.env.WALNUT_WEB_AI_TIMEOUT || 20);
+const AI_TIMEOUT_SECONDS = Number(process.env.WALNUT_WEB_AI_TIMEOUT || 60);
 const SSH_CONTROLMASTER_ENABLED = process.platform !== "win32"
   && !["0", "false", "no", "off"].includes(String(process.env.WALNUT_SSH_CONTROLMASTER || "1").toLowerCase());
 const SSH_CONTROL_DIR = process.env.SSH_CONTROL_DIR || path.join(tmpdir(), `walnutpi-web-ssh-${process.getuid?.() || "user"}`);
@@ -64,10 +73,15 @@ const MEMORY_FIELDS = ["preferences", "environment", "projects", "workflows", "g
 const RETRIEVAL_FILE_LIMIT = 5000;
 const RETRIEVAL_RESULT_LIMIT = 8;
 const WEB_SESSIONS_DIR = process.env.WALNUT_WEB_SESSIONS_DIR || path.join(BASE_DIR, "data", "sessions");
+const WEB_METRICS_PATH = process.env.WALNUT_WEB_METRICS_PATH || path.join(BASE_DIR, "data", "metrics.jsonl");
 const WEB_SESSION_EVENT_LIMIT = Number(process.env.WALNUT_WEB_SESSION_EVENT_LIMIT || 300);
 const webSessionLedger = createWebSessionLedger({
   sessionsDir: WEB_SESSIONS_DIR,
   eventLimit: WEB_SESSION_EVENT_LIMIT,
+});
+const webMetricsLedger = createWebMetricsLedger({
+  metricsPath: WEB_METRICS_PATH,
+  limit: Number(process.env.WALNUT_WEB_METRICS_LIMIT || 200),
 });
 
 const files = new Map([
@@ -91,6 +105,22 @@ function contentType(pathname) {
 
 function json(data, status = 200) {
   return Response.json(data, { status });
+}
+
+function readCodexAuthApiKey() {
+  try {
+    if (!CODEX_AUTH_PATH) return "";
+    const parsed = JSON.parse(readFileSync(CODEX_AUTH_PATH, "utf8"));
+    return typeof parsed?.OPENAI_API_KEY === "string" ? parsed.OPENAI_API_KEY : "";
+  } catch {
+    return "";
+  }
+}
+
+function resolveAiApiKey() {
+  if (Object.hasOwn(process.env, "WALNUT_AI_API_KEY")) return String(process.env.WALNUT_AI_API_KEY || "").trim();
+  if (Object.hasOwn(process.env, "OPENAI_API_KEY")) return String(process.env.OPENAI_API_KEY || "").trim();
+  return String(readCodexAuthApiKey() || "").trim();
 }
 
 function previewOnly(url) {
@@ -250,7 +280,7 @@ async function handleSession(req, url) {
     let body;
     try {
       body = await readJsonRequest(req);
-    } catch (error) {
+  } catch (error) {
       return json({ ok: false, error: error.message }, 400);
     }
     const event = await webSessionLedger.appendEvent(sessionId, body.event || body);
@@ -277,6 +307,22 @@ function remoteBuildShell(command) {
 function limitedOutput(value, limit = ACTION_OUTPUT_LIMIT) {
   if (value.length <= limit) return value;
   return `${value.slice(0, limit)}\n\n[local] output truncated`;
+}
+
+function findWindowsCommand(command) {
+  try {
+    const output = execFileSync("where.exe", [command], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return output.split(/\r?\n/).map((line) => line.trim()).find(Boolean) || "";
+  } catch {
+    const names = command.toLowerCase().endsWith(".exe") ? [command] : [command, `${command}.exe`];
+    for (const dir of String(process.env.Path || process.env.PATH || "").split(path.delimiter)) {
+      for (const name of names) {
+        const candidate = path.join(dir, name);
+        if (existsSync(candidate)) return candidate;
+      }
+    }
+    return "";
+  }
 }
 
 const walnutRemote = createWalnutRemoteAdapter({
@@ -378,8 +424,6 @@ const listScreenRecords = screenEvidenceLedger.listRecords;
 
 const buildScreenRepairCandidate = screenEvidenceReview.buildRepairCandidate;
 const buildScreenRepairProposal = screenEvidenceReview.buildRepairProposal;
-const screenSummaryEvidence = screenEvidenceReview.summaryEvidence;
-const localScreenAiSummary = screenEvidenceReview.localAiSummary;
 
 function parseResponsesOutput(data) {
   if (typeof data?.output_text === "string" && data.output_text.trim()) return data.output_text.trim();
@@ -413,6 +457,76 @@ function aiFetchSignal() {
   return undefined;
 }
 
+function responsesRequestBody(body) {
+  return {
+    ...body,
+    model: body.model || AI_MODEL,
+    reasoning: body.reasoning || { effort: AI_REASONING_EFFORT },
+  };
+}
+
+async function callResponsesApi({ operation, body, signal = aiFetchSignal() }) {
+  const startedAt = Date.now();
+  let status = null;
+  let requestId = null;
+  try {
+    const response = await fetch(`${AI_BASE_URL}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${AI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      signal,
+      body: JSON.stringify(responsesRequestBody(body)),
+    });
+    status = response.status;
+    requestId = response.headers.get("x-request-id") || response.headers.get("openai-request-id") || null;
+    if (!response.ok) {
+      const detail = await response.text();
+      const message = `API HTTP ${response.status}: ${detail.slice(0, 800)}`;
+      await webMetricsLedger.append({
+        kind: "openai.responses",
+        operation,
+        ok: false,
+        status,
+        model: body.model || AI_MODEL,
+        reasoningEffort: body.reasoning?.effort || AI_REASONING_EFFORT,
+        latencyMs: Date.now() - startedAt,
+        requestId,
+        error: message,
+      });
+      throw new Error(message);
+    }
+    const data = await response.json();
+    await webMetricsLedger.append({
+      kind: "openai.responses",
+      operation,
+      ok: true,
+      status,
+      model: body.model || AI_MODEL,
+      reasoningEffort: body.reasoning?.effort || AI_REASONING_EFFORT,
+      latencyMs: Date.now() - startedAt,
+      requestId: requestId || data.id || null,
+      usage: data.usage,
+    });
+    return data;
+  } catch (error) {
+    if (status === null) {
+      await webMetricsLedger.append({
+        kind: "openai.responses",
+        operation,
+        ok: false,
+        model: body.model || AI_MODEL,
+        reasoningEffort: body.reasoning?.effort || AI_REASONING_EFFORT,
+        latencyMs: Date.now() - startedAt,
+        requestId,
+        error: error.message,
+      });
+    }
+    throw error;
+  }
+}
+
 const INTENT_TYPES = new Set([
   "screen.generate",
   "screen.sync",
@@ -424,7 +538,6 @@ const INTENT_TYPES = new Set([
   "device.note.write",
   "terminal.open",
   "terminal.tool",
-  "screen.summary",
   "ai.chat",
 ]);
 const INTENT_DELIVERIES = new Set(["none", "sync_after_preview", "sync_existing"]);
@@ -439,26 +552,32 @@ function screenIntentSubject(input) {
 }
 
 function asciiScreenTitle(value, fallback = "Walnut App") {
-  const words = String(value || "").match(/[a-z0-9]+/gi);
+  const words = String(value || "")
+    .match(/[a-z0-9]+/gi)
+    ?.filter((word) => !/^(a|an|the|screen|ui|app|page|panel|make|create|build|design|for|with)$/i.test(word));
   if (words && words.length) {
     return cleanText(words.slice(0, 2).join(" ").replace(/\b\w/g, (char) => char.toUpperCase()), "generated.title", 32);
   }
-  if (/漫画|卡通|comic|cartoon/i.test(value)) return "WalnutBang";
-  if (/音乐|播放器|music|player/i.test(value)) return "WalnutMusic";
-  if (/网络|network|wifi|wi-?fi/i.test(value)) return "WalnutNet";
-  if (/状态|健康|status|health/i.test(value)) return "WalnutStatus";
-  if (/任务|待办|todo|task/i.test(value)) return "WalnutTask";
+  if (/ip|IP|角色|头像|宠物|表情|mascot|character|pixel|像素|动画/i.test(value)) return "IP Loop";
+  if (/时间|时钟|日期|clock|time|date/i.test(value)) return "Clock";
+  if (/天气|温度|weather/i.test(value)) return "Weather";
+  if (/音乐|频谱|播放器|播放|music|audio|spectrum|visualizer/i.test(value)) return "Audio";
+  if (/商城|商店|购物|商品|价格|购物车|market|shop|store|cart/i.test(value)) return "Shop";
+  if (/网络|network|wifi|wi-?fi/i.test(value)) return "Link";
+  if (/状态|健康|status|health|system/i.test(value)) return "Status";
   return fallback;
 }
 
 function asciiScreenSubject(value, fallback = "Controlled screen preview") {
-  if (/漫画|卡通|comic|cartoon/i.test(value)) return "Comic style preview";
-  if (/音乐|播放器|music|player/i.test(value)) return "Music screen preview";
-  if (/网络|network|wifi|wi-?fi/i.test(value)) return "Network status preview";
-  if (/状态|健康|status|health/i.test(value)) return "Device status preview";
-  if (/任务|待办|todo|task/i.test(value)) return "Task board preview";
   const words = String(value || "").match(/[a-z0-9]+/gi);
   if (words && words.length) return cleanText(words.slice(0, 6).join(" "), "generated.subject", 48);
+  if (/ip|IP|角色|头像|宠物|表情|mascot|character|pixel|像素|动画/i.test(value)) return "custom pixel animation";
+  if (/时间|时钟|日期|clock|time|date/i.test(value)) return "time and date display";
+  if (/天气|温度|weather/i.test(value)) return "weather panel";
+  if (/音乐|频谱|播放器|播放|music|audio|spectrum|visualizer/i.test(value)) return "audio visualizer";
+  if (/商城|商店|购物|商品|价格|购物车|market|shop|store|cart/i.test(value)) return "shop display";
+  if (/网络|network|wifi|wi-?fi/i.test(value)) return "link status display";
+  if (/状态|健康|status|health|system/i.test(value)) return "status badge display";
   return fallback;
 }
 
@@ -486,10 +605,6 @@ function ruleBasedIntentClassification(text) {
     return normalizeIntentClassification({ intent: "terminal.open", subject: trimmed, confidence: 0.92, source: "rule" }, trimmed);
   }
 
-  if (/总结|summary/i.test(trimmed) && /同步|证据|小屏|屏幕|screen/i.test(trimmed)) {
-    return normalizeIntentClassification({ intent: "screen.summary", subject: trimmed, confidence: 0.9, source: "rule" }, trimmed);
-  }
-
   if (looksLikeScreenProgramRequest(trimmed)) {
     return normalizeIntentClassification({
       intent: "screen.generate",
@@ -514,7 +629,7 @@ function ruleBasedIntentClassification(text) {
   if (/快照|snapshot|release|os-release|kernel|内核|hostname|启动配置|boot|设备信息|板子信息|硬件信息/.test(lower)) {
     return normalizeIntentClassification({ intent: "device.snapshot.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
   }
-  if (/网络|联网|wifi|wi-fi|ip\b|路由|route|network/.test(lower)) {
+  if (/网络|联网|wifi|wi-fi|(?<![a-z])ip(?![a-z])|路由|route|network/.test(lower)) {
     return normalizeIntentClassification({ intent: "device.network.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
   }
   if (/gpio|引脚|针脚|i2c|spi|uart|pwm|总线|bus|set-device/.test(lower)) {
@@ -555,7 +670,7 @@ function intentClassificationSystemPrompt() {
   return [
     "You classify WalnutPi Web user input into a strict JSON object.",
     "Return JSON only. Do not return shell commands.",
-    "Allowed intent values: screen.generate, screen.sync, device.status.read, device.snapshot.read, device.network.read, device.gpio.read, device.notes.read, device.note.write, terminal.open, terminal.tool, screen.summary, ai.chat.",
+    "Allowed intent values: screen.generate, screen.sync, device.status.read, device.snapshot.read, device.network.read, device.gpio.read, device.notes.read, device.note.write, terminal.open, terminal.tool, ai.chat.",
     "Allowed delivery values: none, sync_after_preview, sync_existing.",
     "Workflow priority: explicit AI/chat first; generation/design/create/build any object is screen.generate; sync/flash/deploy to WalnutPi is screen sync or sync_after_preview when generation is also present; only explicit Web shortcuts become device status/network/GPIO intents; open-ended realtime questions stay ai.chat so device-side WalnutAI can choose tools.",
     "CLI tools are executors only. Never choose terminal.tool just because generated UI mentions broadcast, play button, effect, or animation style.",
@@ -564,13 +679,9 @@ function intentClassificationSystemPrompt() {
 
 async function aiIntentClassification(text, ruleIntent) {
   if (!AI_API_KEY) return null;
-  const response = await fetch(`${AI_BASE_URL}/responses`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${AI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
+  const data = await callResponsesApi({
+    operation: "intent.classify",
+    body: {
       model: AI_MODEL,
       input: [
         { role: "system", content: intentClassificationSystemPrompt() },
@@ -588,10 +699,8 @@ async function aiIntentClassification(text, ruleIntent) {
           }, null, 2),
         },
       ],
-    }),
+    },
   });
-  if (!response.ok) return null;
-  const data = await response.json();
   const parsed = parseIntentJson(parseResponsesOutput(data));
   return normalizeIntentClassification({ ...parsed, source: "ai" }, text);
 }
@@ -629,77 +738,6 @@ async function handleIntentClassify(req) {
   if (!text) return json({ ok: false, error: "missing text" }, 400);
   const classification = await classifyIntent(text);
   return json({ ok: true, classification });
-}
-
-async function callScreenSummaryAi(evidence) {
-  if (!AI_API_KEY) return { text: null, error: null, apiUsed: false };
-  const prompt = [
-    "你是 WalnutPi Web 控制台的同步结果总结器。",
-    "只根据提供的 JSON 证据总结，不要编造没有发生的动作。",
-    "用中文，面向小白，最多三句话。",
-    "如果同步失败，说清失败阶段和最安全的下一步。",
-    "",
-    JSON.stringify(evidence, null, 2),
-  ].join("\n");
-  const response = await fetch(`${AI_BASE_URL}/responses`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${AI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: AI_MODEL,
-      input: [
-        { role: "system", content: "你只总结已提供的设备执行证据。" },
-        { role: "user", content: prompt },
-      ],
-    }),
-  });
-  if (!response.ok) {
-    const detail = await response.text();
-    return { text: null, error: `API HTTP ${response.status}: ${detail.slice(0, 800)}`, apiUsed: true };
-  }
-  const data = await response.json();
-  const text = parseResponsesOutput(data);
-  return { text: text || null, error: text ? null : "API response did not include output text", apiUsed: true };
-}
-
-async function buildScreenAiSummary(record) {
-  const evidence = screenSummaryEvidence(record);
-  const localSummary = localScreenAiSummary(evidence);
-  let source = "local";
-  let summary = localSummary;
-  let apiError = null;
-  let apiUsed = false;
-
-  try {
-    const ai = await callScreenSummaryAi(evidence);
-    apiUsed = ai.apiUsed;
-    if (ai.text) {
-      source = "ai";
-      summary = ai.text;
-    } else if (ai.error) {
-      source = "ai-fallback";
-      apiError = ai.error;
-    }
-  } catch (error) {
-    source = "ai-fallback";
-    apiUsed = true;
-    apiError = error.message;
-  }
-
-  return {
-    schema: "walnutpi.screenAiSummary.v1",
-    buildId: record.buildId,
-    source,
-    summary,
-    evidence,
-    diagnostics: {
-      model: apiUsed ? AI_MODEL : null,
-      apiUsed,
-      apiError,
-    },
-  };
 }
 
 async function persistScreenSyncResult(result, commandResults = {}, status = 200) {
@@ -766,9 +804,56 @@ function runLocal(command, args, options = {}) {
     cwd = PROJECT_ROOT,
   } = options;
   return new Promise((resolve) => {
+    const env = { ...process.env };
+    if (command === "bash") {
+      const runtimeShimDir = path.join(tmpdir(), "walnutpi-runtime-shims");
+      mkdirSync(runtimeShimDir, { recursive: true });
+      const nodeTarget = findWindowsCommand("node.exe") || process.execPath || "";
+      const bunTarget = findWindowsCommand("bun.exe") || (env.BUN_INSTALL ? path.join(env.BUN_INSTALL, "bin", "bun.exe") : "");
+      try {
+        if (nodeTarget) {
+          const nodeShim = path.join(runtimeShimDir, "node");
+          writeFileSync(nodeShim, [
+            "#!/usr/bin/env sh",
+            "args=\"\"",
+            "for arg in \"$@\"; do",
+            "  case \"$arg\" in",
+            "    /mnt/[a-zA-Z]/*)",
+            "      drive=$(printf '%s' \"$arg\" | cut -c6 | tr '[:lower:]' '[:upper:]')",
+            "      rest=$(printf '%s' \"$arg\" | cut -c8- | sed 's#/#\\\\#g')",
+            "      arg=\"${drive}:\\\\${rest}\"",
+            "      ;;",
+            "  esac",
+            "  args=\"$args $(printf '%s' \"$arg\" | sed \"s/'/'\\\\''/g; s/^/'/; s/$/'/\")\"",
+            "done",
+            `eval "exec ${shellQuote(bashPath(nodeTarget))} $args"`,
+            "",
+          ].join("\n"));
+          chmodSync(nodeShim, 0o755);
+        }
+        if (bunTarget) {
+          const bunShim = path.join(runtimeShimDir, "bun");
+          writeFileSync(bunShim, `#!/usr/bin/env sh\nexec ${shellQuote(bashPath(bunTarget))} "$@"\n`);
+          chmodSync(bunShim, 0o755);
+        }
+      } catch {
+        // The build script can still use runtimes already available in PATH.
+      }
+      env.PATH = `${bashPath(runtimeShimDir)}:${env.PATH || env.Path || ""}`;
+      env.Path = env.PATH;
+    } else {
+      const runtimeDirs = [
+        process.execPath ? path.dirname(process.execPath) : "",
+        env.BUN_INSTALL ? path.join(env.BUN_INSTALL, "bin") : "",
+      ].filter(Boolean);
+      if (runtimeDirs.length) {
+        env.PATH = [...runtimeDirs, env.PATH || env.Path || ""].filter(Boolean).join(path.delimiter);
+        env.Path = env.PATH;
+      }
+    }
     const child = spawn(command, args, {
       cwd,
-      env: process.env,
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -932,6 +1017,1047 @@ function generatedPage({ id = "main", tab = "PAGE", style = "panel", title = "Wa
   };
 }
 
+function rowsFromGlyphs(width, height, draw) {
+  const grid = Array.from({ length: height }, () => Array.from({ length: width }, () => "."));
+  const put = (x, y, symbol) => {
+    if (x >= 0 && x < width && y >= 0 && y < height) grid[y][x] = symbol;
+  };
+  const rect = (x, y, w, h, symbol) => {
+    for (let yy = y; yy < y + h; yy += 1) {
+      for (let xx = x; xx < x + w; xx += 1) put(xx, yy, symbol);
+    }
+  };
+  const circle = (cx, cy, rx, ry, symbol) => {
+    const safeRx = Math.max(1, rx);
+    const safeRy = Math.max(1, ry);
+    for (let y = Math.floor(cy - safeRy); y <= Math.ceil(cy + safeRy); y += 1) {
+      for (let x = Math.floor(cx - safeRx); x <= Math.ceil(cx + safeRx); x += 1) {
+        const dx = (x - cx) / safeRx;
+        const dy = (y - cy) / safeRy;
+        if (dx * dx + dy * dy <= 1) put(x, y, symbol);
+      }
+    }
+  };
+  const line = (x, y, text) => {
+    for (let i = 0; i < String(text).length; i += 1) {
+      const symbol = String(text)[i];
+      if (symbol !== ".") put(x + i, y, symbol);
+    }
+  };
+  draw({ put, rect, circle, line });
+  return grid.map((row) => row.join(""));
+}
+
+const SCREEN_MODULES = [
+  { id: "clock", tab: "TIME", pattern: /时间|时钟|日期|clock|time|date/i },
+  { id: "weather", tab: "WX", pattern: /天气|温度|weather|forecast/i },
+  { id: "audio", tab: "AUD", pattern: /音乐|频谱|播放器|播放|music|audio|spectrum|visualizer/i },
+  { id: "shop", tab: "SHOP", pattern: /商城|商店|购物|商品|价格|购物车|market|shop|store|cart/i },
+  { id: "network", tab: "NET", pattern: /网络|联网|wifi|wi-?fi|ip\b|ssh|frp|network|link/i },
+  { id: "status", tab: "STAT", pattern: /状态|健康|系统|内存|磁盘|status|health|system|device/i },
+  { id: "tasks", tab: "TASK", pattern: /任务|待办|todo|task|计划|步骤|agent/i },
+];
+
+function seedFromText(value) {
+  return parseInt(sha256(String(value || "WalnutPi")).slice(0, 8), 16);
+}
+
+function shouldUsePublicImageMaterial(text) {
+  const value = String(text || "");
+  if (/不要(?:联网|搜索|找图)|本地生成|纯像素|规则生成|no\s+(?:web|search|image)/i.test(value)) return false;
+  return /图|图片|照片|素材|参考|海报|封面|头像|角色|IP|logo|商品|商城|天气|城市|车|猫|狗|机器人|视频|动图|动画|文字|文案|新闻|百科|资料|介绍|photo|image|picture|poster|cover|logo|shop|store|market|cat|dog|car|robot|video|clip|gif|text|article|wiki/i.test(value);
+}
+
+function publicImageSearchQuery(text) {
+  const value = String(text || "");
+  const hints = [];
+  if (/商城|商店|购物|商品|价格|购物车|shop|store|market|cart/i.test(value)) hints.push("shopping store product icon");
+  if (/猫|cat|neko/i.test(value)) hints.push("cat icon");
+  if (/狗|dog/i.test(value)) hints.push("dog icon");
+  if (/机器人|robot|bot/i.test(value)) hints.push("robot icon");
+  if (/车|car|jdm/i.test(value)) hints.push("car icon");
+  if (/天气|weather|sun|cloud/i.test(value)) hints.push("weather icon");
+  if (/logo|徽标|标志/i.test(value)) hints.push("logo icon");
+  const asciiWords = value.match(/[a-z0-9]+/gi)?.slice(0, 6).join(" ");
+  if (asciiWords) hints.push(asciiWords);
+  return hints.join(" ") || "pixel art icon";
+}
+
+function desiredMaterialKind(text) {
+  const value = String(text || "");
+  if (/视频|短片|动态视频|录像|video|clip|movie|footage/i.test(value)) return "video";
+  if (/gif|动图|动画素材|animated/i.test(value)) return "animated-image";
+  if (/文字|说明|文案|新闻|百科|资料|介绍|text|article|wiki|copy/i.test(value)) return "text";
+  if (/动态|动画|会动|motion|animated/i.test(value)) return "animated-image";
+  return "image";
+}
+
+async function fetchJsonUrl(url, { timeoutMs = 3000 } = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "WalnutPi screen material search",
+        Accept: "application/json",
+      },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchBinaryUrl(url, { timeoutMs = 4000, maxBytes = 4_000_000 } = {}) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "WalnutPi screen material fetch",
+        Accept: "image/avif,image/webp,image/png,image/jpeg,image/gif,image/*;q=0.8",
+      },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const contentLength = Number(response.headers.get("content-length") || 0);
+    if (contentLength > maxBytes) throw new Error(`image too large: ${contentLength}`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > maxBytes) throw new Error(`image too large: ${bytes.length}`);
+    return bytes;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function searchWikimediaImage(text) {
+  const query = publicImageSearchQuery(text);
+  const searchUrl = new URL("https://commons.wikimedia.org/w/api.php");
+  searchUrl.searchParams.set("action", "query");
+  searchUrl.searchParams.set("generator", "search");
+  searchUrl.searchParams.set("gsrnamespace", "6");
+  searchUrl.searchParams.set("gsrsearch", query);
+  searchUrl.searchParams.set("gsrlimit", "8");
+  searchUrl.searchParams.set("prop", "imageinfo");
+  searchUrl.searchParams.set("iiprop", "url|mime|size|extmetadata");
+  searchUrl.searchParams.set("iiurlwidth", "480");
+  searchUrl.searchParams.set("format", "json");
+  searchUrl.searchParams.set("origin", "*");
+  const data = await fetchJsonUrl(searchUrl);
+  const pages = Object.values(data?.query?.pages || {});
+  const candidates = pages
+    .map((page) => {
+      const info = page?.imageinfo?.[0] || {};
+      const mime = String(info.mime || "");
+      const url = info.thumburl || info.url || "";
+      return {
+        title: page.title || "",
+        url,
+        sourceUrl: info.descriptionurl || "",
+        mime,
+        width: info.thumbwidth || info.width || null,
+        height: info.thumbheight || info.height || null,
+        license: info.extmetadata?.LicenseShortName?.value || info.extmetadata?.UsageTerms?.value || "",
+        artist: info.extmetadata?.Artist?.value?.replace(/<[^>]*>/g, "").slice(0, 120) || "",
+      };
+    })
+    .filter((item) => item.url && /^image\/(png|jpeg|webp|gif|svg\+xml)$/i.test(item.mime));
+  return candidates[0] ? { ...candidates[0], query } : null;
+}
+
+async function searchWikimediaMedia(text, kind) {
+  const query = publicImageSearchQuery(text);
+  const mediaType = kind === "video" ? "video" : "image";
+  const searchUrl = new URL("https://commons.wikimedia.org/w/api.php");
+  searchUrl.searchParams.set("action", "query");
+  searchUrl.searchParams.set("generator", "mediasearch");
+  searchUrl.searchParams.set("gmssearch", query);
+  searchUrl.searchParams.set("gmstype", mediaType);
+  searchUrl.searchParams.set("gmslimit", "8");
+  searchUrl.searchParams.set("prop", "imageinfo");
+  searchUrl.searchParams.set("iiprop", "url|mime|size|extmetadata");
+  searchUrl.searchParams.set("iiurlwidth", "480");
+  searchUrl.searchParams.set("format", "json");
+  searchUrl.searchParams.set("origin", "*");
+  const data = await fetchJsonUrl(searchUrl);
+  const pages = Object.values(data?.query?.pages || {});
+  const candidates = pages
+    .map((page) => {
+      const info = page?.imageinfo?.[0] || {};
+      const mime = String(info.mime || "");
+      const url = info.thumburl || info.url || "";
+      return {
+        title: page.title || "",
+        url,
+        sourceUrl: info.descriptionurl || "",
+        mime,
+        width: info.thumbwidth || info.width || null,
+        height: info.thumbheight || info.height || null,
+        license: info.extmetadata?.LicenseShortName?.value || info.extmetadata?.UsageTerms?.value || "",
+        artist: info.extmetadata?.Artist?.value?.replace(/<[^>]*>/g, "").slice(0, 120) || "",
+        query,
+      };
+    })
+    .filter((item) => {
+      if (!item.url) return false;
+      if (kind === "video") return /^video\//i.test(item.mime);
+      if (kind === "animated-image") return /^image\/gif$/i.test(item.mime) || /gif/i.test(item.title);
+      return /^image\/(png|jpeg|webp|gif|svg\+xml)$/i.test(item.mime);
+    });
+  return candidates[0] || null;
+}
+
+async function searchWikimediaText(text) {
+  const query = publicImageSearchQuery(text);
+  const searchUrl = new URL("https://en.wikipedia.org/w/api.php");
+  searchUrl.searchParams.set("action", "query");
+  searchUrl.searchParams.set("list", "search");
+  searchUrl.searchParams.set("srsearch", query);
+  searchUrl.searchParams.set("srlimit", "1");
+  searchUrl.searchParams.set("format", "json");
+  searchUrl.searchParams.set("origin", "*");
+  const data = await fetchJsonUrl(searchUrl);
+  const hit = data?.query?.search?.[0];
+  if (!hit) return null;
+  const title = String(hit.title || "");
+  const summaryUrl = new URL(`https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
+  const summary = await fetchJsonUrl(summaryUrl);
+  return {
+    title,
+    extract: String(summary.extract || hit.snippet || "").replace(/<[^>]*>/g, "").slice(0, 360),
+    url: summary.content_urls?.desktop?.page || `https://en.wikipedia.org/wiki/${encodeURIComponent(title.replace(/\s+/g, "_"))}`,
+    query,
+    license: "CC BY-SA",
+  };
+}
+
+function fallbackPublicImageMaterial(text) {
+  const seed = seedFromText(text);
+  return {
+    title: `public image seed ${seed}`,
+    url: `https://picsum.photos/seed/walnutpi-${seed}/480/320`,
+    sourceUrl: `https://picsum.photos/seed/walnutpi-${seed}/480/320`,
+    mime: "image/jpeg",
+    width: 480,
+    height: 320,
+    license: "public placeholder source",
+    artist: "Lorem Picsum",
+    query: publicImageSearchQuery(text),
+  };
+}
+
+function rgbToHex([r, g, b]) {
+  return `0x${[r, g, b].map((value) => Math.max(0, Math.min(255, value)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function colorDistanceSquared(a, b) {
+  const dr = a[0] - b[0];
+  const dg = a[1] - b[1];
+  const db = a[2] - b[2];
+  return dr * dr + dg * dg + db * db;
+}
+
+function quantizePixelsToPalette(rawPixels, maxColors = 8) {
+  const buckets = new Map();
+  for (let i = 0; i < rawPixels.length; i += 4) {
+    const alpha = rawPixels[i + 3];
+    if (alpha < 32) continue;
+    const r = rawPixels[i] & 0xf0;
+    const g = rawPixels[i + 1] & 0xf0;
+    const b = rawPixels[i + 2] & 0xf0;
+    const key = `${r},${g},${b}`;
+    const bucket = buckets.get(key) || { count: 0, r: 0, g: 0, b: 0 };
+    bucket.count += 1;
+    bucket.r += rawPixels[i];
+    bucket.g += rawPixels[i + 1];
+    bucket.b += rawPixels[i + 2];
+    buckets.set(key, bucket);
+  }
+  const colors = Array.from(buckets.values())
+    .sort((a, b) => b.count - a.count)
+    .slice(0, maxColors)
+    .map((bucket) => [
+      Math.round(bucket.r / bucket.count),
+      Math.round(bucket.g / bucket.count),
+      Math.round(bucket.b / bucket.count),
+    ]);
+  return colors.length ? colors : [[8, 10, 13], [103, 214, 255], [244, 241, 223]];
+}
+
+function nearestPaletteIndex(color, palette) {
+  let bestIndex = 0;
+  let bestDistance = Infinity;
+  for (let index = 0; index < palette.length; index += 1) {
+    const distance = colorDistanceSquared(color, palette[index]);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  }
+  return bestIndex;
+}
+
+function rowsFromRawPixels(rawPixels, width, height, colors, symbols) {
+  const rows = [];
+  for (let y = 0; y < height; y += 1) {
+    let row = "";
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      row += symbols[nearestPaletteIndex([rawPixels[offset], rawPixels[offset + 1], rawPixels[offset + 2]], colors)] || "A";
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+async function imageBufferToPixelFrame(imageBytes, { width = 48, height = 32, colors = null, symbols = ["A", "S", "H", "K", "P", "Y", "B", "C"] } = {}) {
+  const { data } = await sharp(imageBytes, { animated: false })
+    .resize(width, height, { fit: "cover", position: "attention" })
+    .removeAlpha()
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const paletteColors = colors || quantizePixelsToPalette(data, symbols.length);
+  return {
+    rows: rowsFromRawPixels(data, width, height, paletteColors, symbols),
+    colors: paletteColors,
+  };
+}
+
+async function materialPixelPageFromImage(plan, material, imageBytes) {
+  const width = 48;
+  const height = 32;
+  const symbols = ["A", "S", "H", "K", "P", "Y", "B", "C"];
+  const firstFrame = await imageBufferToPixelFrame(imageBytes, { width, height, symbols });
+  const colors = firstFrame.colors;
+  const palette = {};
+  colors.forEach((color, index) => {
+    palette[symbols[index]] = rgbToHex(color);
+  });
+  const rows = firstFrame.rows;
+  const frames = Array.from({ length: 4 }, (_, phase) => ({
+    durationMs: 260 + (phase % 2) * 80,
+    rows: rows.map((row, y) => {
+      if (phase === 0) return row;
+      const chars = row.split("");
+      for (let x = phase % 3; x < width; x += 9) {
+        if ((x + y + phase) % 5 === 0) chars[x] = symbols[(nearestPaletteIndex(colors[0], colors) + phase) % Math.min(colors.length, symbols.length)] || chars[x];
+      }
+      return chars.join("");
+    }),
+  }));
+  return {
+    id: "material-screen",
+    tab: SCREEN_MODULES.find((item) => item.id === plan.modules[0])?.tab || "IMG",
+    components: [
+      {
+        type: "pixelArt",
+        background: rgbToHex(colors[0]),
+        x: 0,
+        y: 0,
+        width,
+        height,
+        pixelSize: 10,
+        gap: 0,
+        palette,
+        frames,
+        material: {
+          source: "wikimedia-commons",
+          query: material.query,
+          title: String(material.title || "").slice(0, 120),
+          url: String(material.sourceUrl || material.url || "").slice(0, 500),
+          license: String(material.license || "").slice(0, 80),
+        },
+      },
+    ],
+  };
+}
+
+async function extractVideoFrameImages(videoBytes) {
+  if (!ffmpegPath) return [];
+  const id = `walnutpi-material-${randomUUID()}`;
+  const dir = path.join(tmpdir(), id);
+  const inputPath = path.join(dir, "input");
+  const outputPattern = path.join(dir, "frame-%02d.png");
+  await mkdir(dir, { recursive: true });
+  await writeFile(inputPath, videoBytes);
+  const result = await runLocal(ffmpegPath, [
+    "-y",
+    "-i", inputPath,
+    "-vf", "fps=2,scale=480:320:force_original_aspect_ratio=increase,crop=480:320",
+    "-frames:v", "4",
+    outputPattern,
+  ], { cwd: dir, timeoutMs: 8000, outputLimit: 2000 });
+  if (!result.ok) return [];
+  const names = (await readdir(dir)).filter((name) => /^frame-\d+\.png$/.test(name)).sort();
+  const frames = [];
+  for (const name of names.slice(0, 4)) {
+    frames.push(await readFile(path.join(dir, name)));
+  }
+  return frames;
+}
+
+async function materialPixelPageFromVideo(plan, material, videoBytes) {
+  const width = 48;
+  const height = 32;
+  const symbols = ["A", "S", "H", "K", "P", "Y", "B", "C"];
+  const images = await extractVideoFrameImages(videoBytes);
+  if (!images.length) return null;
+  const first = await imageBufferToPixelFrame(images[0], { width, height, symbols });
+  const colors = first.colors;
+  const frames = [{ durationMs: 220, rows: first.rows }];
+  for (const image of images.slice(1, 4)) {
+    const frame = await imageBufferToPixelFrame(image, { width, height, colors, symbols });
+    frames.push({ durationMs: 220, rows: frame.rows });
+  }
+  const palette = {};
+  colors.forEach((color, index) => {
+    palette[symbols[index]] = rgbToHex(color);
+  });
+  return {
+    id: "video-material-screen",
+    tab: "VID",
+    components: [{
+      type: "pixelArt",
+      background: rgbToHex(colors[0]),
+      x: 0,
+      y: 0,
+      width,
+      height,
+      pixelSize: 10,
+      gap: 0,
+      palette,
+      frames,
+      material: {
+        source: "wikimedia-commons-video",
+        query: material.query,
+        title: String(material.title || "").slice(0, 120),
+        url: String(material.sourceUrl || material.url || "").slice(0, 500),
+        license: String(material.license || "").slice(0, 80),
+      },
+    }],
+  };
+}
+
+function textMaterialPixelPage(plan, material) {
+  const width = 48;
+  const height = 32;
+  const text = `${material.title || plan.title} ${material.extract || ""}`
+    .replace(/[^a-z0-9 ]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase()
+    .slice(0, 96);
+  const words = text.split(/\s+/).filter(Boolean);
+  const palette = {
+    A: plan.palette.a,
+    S: plan.palette.s,
+    H: plan.palette.h,
+    K: plan.palette.k,
+    Y: plan.palette.y,
+  };
+  const frames = Array.from({ length: 4 }, (_, phase) => ({
+    durationMs: 360,
+    rows: rowsFromGlyphs(width, height, ({ rect, line }) => {
+      rect(0, 0, width, height, "K");
+      rect(2, 3, 44, 5, phase % 2 ? "A" : "S");
+      line(4, 5, "H".repeat(Math.min(16, Math.max(4, plan.title.length))));
+      for (let i = 0; i < 4; i += 1) {
+        const word = words[(phase + i) % Math.max(1, words.length)] || "PIXEL";
+        const y = 11 + i * 4;
+        rect(4, y - 1, Math.min(40, word.length * 2 + 4), 3, i % 2 ? "A" : "S");
+        line(6, y, "H".repeat(Math.min(36, Math.max(3, word.length * 2))));
+      }
+      rect(4 + phase * 8, 28, 12, 2, "Y");
+    }),
+  }));
+  return {
+    id: "text-material-screen",
+    tab: "TXT",
+    components: [{
+      type: "pixelArt",
+      background: plan.palette.bg,
+      x: 0,
+      y: 0,
+      width,
+      height,
+      pixelSize: 10,
+      gap: 0,
+      palette,
+      frames,
+      material: {
+        source: "wikipedia-summary",
+        query: material.query,
+        title: String(material.title || "").slice(0, 120),
+        url: String(material.url || "").slice(0, 500),
+        license: String(material.license || "CC BY-SA").slice(0, 80),
+      },
+    }],
+  };
+}
+
+async function publicMaterialScreenSpec(subject) {
+  const plan = screenPlanFromSubject(subject);
+  if (!shouldUsePublicImageMaterial(subject)) return null;
+  try {
+    const kind = desiredMaterialKind(subject);
+    let material = null;
+    let page = null;
+    if (kind === "text") {
+      material = await searchWikimediaText(subject);
+      if (material) page = textMaterialPixelPage(plan, material);
+    }
+    if (!page && kind === "video") {
+      material = await searchWikimediaMedia(subject, "video");
+      if (material) {
+        const bytes = await fetchBinaryUrl(material.url, { timeoutMs: 4500, maxBytes: 8_000_000 });
+        page = await materialPixelPageFromVideo(plan, material, bytes);
+      }
+    }
+    if (!page && kind === "animated-image") {
+      material = await searchWikimediaMedia(subject, "animated-image");
+      if (material) {
+        const bytes = await fetchBinaryUrl(material.url, { timeoutMs: 4500, maxBytes: 6_000_000 });
+        page = await materialPixelPageFromImage(plan, material, bytes);
+      }
+    }
+    if (!page) {
+      material = await searchWikimediaImage(subject);
+      if (!material) material = fallbackPublicImageMaterial(subject);
+      const bytes = await fetchBinaryUrl(material.url);
+      page = await materialPixelPageFromImage(plan, material, bytes);
+    }
+    if (!page) return null;
+    return {
+      title: plan.title,
+      subtitle: `${page.components?.[0]?.material?.source || "public-material"} pixel canvas`,
+      page,
+      plan,
+      material,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function withTimeout(promise, timeoutMs, fallbackValue = null) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) => setTimeout(() => resolve(fallbackValue), timeoutMs)),
+  ]);
+}
+
+function hasPixelIntent(value) {
+  return String(value || "").trim().length > 0;
+}
+
+function planModules(text) {
+  const modules = SCREEN_MODULES.filter((module) => module.pattern.test(text)).map((module) => module.id);
+  return modules.length ? modules : [];
+}
+
+function planPalette(text, seed) {
+  if (/粉|桃|樱|pink|sakura|cute|可爱|萌/i.test(text)) {
+    return { name: "pink", accent: "pink", bg: "0x080509", a: "0xff66b7", s: "0xffb3d9", h: "0xfff4dc", k: "0x1e1018", y: "0xffd35a" };
+  }
+  if (/红|告警|警告|错误|失败|red|alert|warn|error|jdm|车/i.test(text)) {
+    return { name: "red", accent: "red", bg: "0x080304", a: "0xff2a1f", s: "0xff7b3a", h: "0xfff4dc", k: "0x210607", y: "0xffd35a" };
+  }
+  if (/黄|金|橙|amber|orange|gold|sun/i.test(text)) {
+    return { name: "amber", accent: "amber", bg: "0x070503", a: "0xffc857", s: "0xff8a1c", h: "0xfff6cf", k: "0x1c1003", y: "0xfff06a" };
+  }
+  if (/绿|健康|森林|green|matrix|terminal/i.test(text)) {
+    return { name: "green", accent: "green", bg: "0x020807", a: "0x33d6a6", s: "0x8dffcf", h: "0xeafff6", k: "0x061a14", y: "0xffd35a" };
+  }
+  if (/蓝|海|冷|blue|minimal|clean/i.test(text)) {
+    return { name: "blue", accent: "blue", bg: "0x04070d", a: "0x7aa8d8", s: "0x67d6ff", h: "0xf4f1df", k: "0x081421", y: "0xffd35a" };
+  }
+  const variants = [
+    { name: "cyan", accent: "cyan", bg: "0x02070a", a: "0x5cf8ff", s: "0x67d6ff", h: "0xfff4dc", k: "0x06141b", y: "0xffd35a" },
+    { name: "pink", accent: "pink", bg: "0x080509", a: "0xff66b7", s: "0xffb3d9", h: "0xfff4dc", k: "0x1e1018", y: "0xffd35a" },
+    { name: "green", accent: "green", bg: "0x020807", a: "0x33d6a6", s: "0x8dffcf", h: "0xeafff6", k: "0x061a14", y: "0xffd35a" },
+  ];
+  return variants[seed % variants.length];
+}
+
+function planMascot(text, seed) {
+  if (/车|car|jdm|痛车|车载/i.test(text)) return "car";
+  if (/猫|cat|neko/i.test(text)) return "cat";
+  if (/狗|dog|inu/i.test(text)) return "dog";
+  if (/兔|rabbit|bunny/i.test(text)) return "rabbit";
+  if (/熊|bear/i.test(text)) return "bear";
+  if (/机器人|robot|bot/i.test(text)) return "robot";
+  if (/logo|徽标|标志|coin|badge|orb|章/i.test(text)) return "badge";
+  return ["cat", "robot", "badge", "car"][seed % 4];
+}
+
+function screenPlanFromSubject(subject) {
+  const text = String(subject || "");
+  const seed = seedFromText(text);
+  const modules = planModules(text);
+  const palette = planPalette(text, seed);
+  return {
+    seed,
+    title: titleFromProgramSubject(text),
+    subtitle: "480x320 pixel canvas",
+    mode: "pixel",
+    modules,
+    palette,
+    mascot: planMascot(text, seed),
+    motion: /快|高速|闪|flash|fast/i.test(text) ? "fast" : /慢|柔和|slow|calm/i.test(text) ? "slow" : "loop",
+    subject: asciiScreenSubject(text, "custom screen"),
+  };
+}
+
+function drawPixelScanlines({ put }, phase, width, height, symbol = "K") {
+  for (let y = (phase % 2) + 1; y < height; y += 4) {
+    for (let x = 0; x < width; x += 3) put(x, y, symbol);
+  }
+}
+
+function drawSparkles(put, phase, seed, width, height, symbols = ["A", "S", "Y"]) {
+  for (let i = 0; i < 14; i += 1) {
+    const x = (seed + i * 17 + phase * 3) % width;
+    const y = (Math.floor(seed / 7) + i * 11 + phase * 2) % height;
+    const symbol = symbols[(i + phase) % symbols.length];
+    put(x, y, symbol);
+    if ((i + phase) % 4 === 0) {
+      put(x - 1, y, symbol);
+      put(x + 1, y, symbol);
+      put(x, y - 1, symbol);
+      put(x, y + 1, symbol);
+    }
+  }
+}
+
+function drawWeatherPixels({ put, rect, circle }, phase) {
+  circle(34, 8, 5, 5, "Y");
+  for (let i = 0; i < 8; i += 1) {
+    const angle = (Math.PI * 2 * i) / 8;
+    put(Math.round(34 + Math.cos(angle) * 8), Math.round(8 + Math.sin(angle) * 7), "Y");
+  }
+  circle(16, 16, 7, 4, "S");
+  circle(23, 15, 8, 5, "H");
+  rect(10, 17, 22, 5, "S");
+  rect(15, 20, 19, 3, "A");
+  for (let x = 9 + (phase % 3); x < 37; x += 5) {
+    rect(x, 25 + ((x + phase) % 2), 1, 4, "A");
+  }
+}
+
+function drawAudioPixels({ put, rect }, plan, phase) {
+  for (let x = 4; x < 44; x += 4) {
+    const h = 5 + ((plan.seed >> (x % 8)) + x * 3 + phase * 5) % 22;
+    rect(x, 30 - h, 2, h, x % 8 === 0 ? "S" : "A");
+  }
+  for (let y = 8; y <= 17; y += 1) {
+    const span = Math.max(1, y - 7);
+    rect(9, y, span, 1, "H");
+  }
+  rect(6, 7, 2, 12, "H");
+  for (let x = 30; x < 44; x += 1) put(x, 6 + Math.round(Math.sin((x + phase) / 2) * 2), "Y");
+}
+
+const SEVEN_SEGMENTS = {
+  "0": ["a", "b", "c", "d", "e", "f"],
+  "1": ["b", "c"],
+  "2": ["a", "b", "g", "e", "d"],
+  "3": ["a", "b", "g", "c", "d"],
+  "4": ["f", "g", "b", "c"],
+  "5": ["a", "f", "g", "c", "d"],
+  "6": ["a", "f", "g", "e", "c", "d"],
+  "7": ["a", "b", "c"],
+  "8": ["a", "b", "c", "d", "e", "f", "g"],
+  "9": ["a", "b", "c", "d", "f", "g"],
+};
+
+function drawSevenDigit({ rect }, x, y, value, symbol = "A") {
+  const segments = SEVEN_SEGMENTS[String(value)] || SEVEN_SEGMENTS["0"];
+  const has = (segment) => segments.includes(segment);
+  if (has("a")) rect(x + 1, y, 5, 1, symbol);
+  if (has("b")) rect(x + 6, y + 1, 1, 5, symbol);
+  if (has("c")) rect(x + 6, y + 7, 1, 5, symbol);
+  if (has("d")) rect(x + 1, y + 12, 5, 1, symbol);
+  if (has("e")) rect(x, y + 7, 1, 5, symbol);
+  if (has("f")) rect(x, y + 1, 1, 5, symbol);
+  if (has("g")) rect(x + 1, y + 6, 5, 1, symbol);
+}
+
+function drawClockPixels(draw, phase) {
+  const digits = phase % 2 === 0 ? ["1", "2", "3", "4"] : ["1", "2", "3", "5"];
+  drawSevenDigit(draw, 5, 8, digits[0], "A");
+  drawSevenDigit(draw, 14, 8, digits[1], "A");
+  drawSevenDigit(draw, 27, 8, digits[2], "S");
+  drawSevenDigit(draw, 36, 8, digits[3], "S");
+  draw.rect(24, 11, 2, 2, "Y");
+  draw.rect(24, 17, 2, 2, "Y");
+  draw.rect(7, 26, 34, 2, "K");
+}
+
+function drawNetworkPixels({ put, rect }, phase) {
+  const nodes = [
+    [8, 10], [20, 6], [33, 10], [39, 21], [24, 25], [10, 22],
+  ];
+  for (let i = 0; i < nodes.length; i += 1) {
+    const [x, y] = nodes[i];
+    rect(x - 1, y - 1, 3, 3, i === phase % nodes.length ? "Y" : "A");
+    const [nx, ny] = nodes[(i + 1) % nodes.length];
+    const steps = Math.max(Math.abs(nx - x), Math.abs(ny - y));
+    for (let s = 0; s <= steps; s += 1) {
+      put(Math.round(x + ((nx - x) * s) / steps), Math.round(y + ((ny - y) * s) / steps), "K");
+    }
+  }
+  rect(18, 14, 12, 5, "S");
+}
+
+function drawStatusPixels({ rect }, plan, phase) {
+  for (let i = 0; i < 5; i += 1) {
+    const h = 6 + ((plan.seed >> i) + phase * 2 + i * 5) % 18;
+    rect(7 + i * 7, 28 - h, 4, h, i % 2 ? "S" : "A");
+  }
+  rect(7, 5, 34, 3, "H");
+  rect(7, 10, 26 + phase * 2, 3, "Y");
+}
+
+function drawShopPixels({ put, rect }, plan, phase) {
+  rect(2, 3, 44, 5, "A");
+  rect(4, 4, 10, 2, "H");
+  rect(35, 4, 6, 2, phase % 2 ? "Y" : "S");
+  rect(42, 3, 3, 3, "Y");
+  for (let row = 0; row < 2; row += 1) {
+    for (let col = 0; col < 3; col += 1) {
+      const x = 4 + col * 14;
+      const y = 11 + row * 10;
+      const symbol = (row + col + phase) % 3 === 0 ? "Y" : (col % 2 ? "S" : "A");
+      rect(x, y, 10, 7, "K");
+      rect(x + 1, y + 1, 8, 4, symbol);
+      rect(x + 2, y + 6, 5, 1, "H");
+      rect(x + 8, y + 6, 1, 1, "Y");
+    }
+  }
+  rect(34, 27, 9, 2, "H");
+  rect(35, 29, 2, 2, "A");
+  rect(41, 29, 2, 2, "A");
+  put(43, 26 + (phase % 2), "Y");
+}
+
+function drawMascotFace({ put, rect }, mascot, phase, cx, cy) {
+  const blink = phase % 4 === 2;
+  const bob = phase % 2;
+  if (mascot === "car") {
+    rect(cx - 20, cy + 4 + bob, 40, 8, "A");
+    rect(cx - 14, cy - 2 + bob, 20, 7, "S");
+    rect(cx - 16, cy + 12 + bob, 6, 4, "K");
+    rect(cx + 10, cy + 12 + bob, 6, 4, "K");
+    rect(cx - 19, cy + 6 + bob, 4, 2, "Y");
+    rect(cx + 15, cy + 6 + bob, 4, 2, "H");
+    return;
+  }
+  if (mascot === "badge") {
+    rect(cx - 13, cy - 10 + bob, 26, 3, "A");
+    rect(cx - 18, cy - 7 + bob, 36, 14, "S");
+    rect(cx - 13, cy + 7 + bob, 26, 3, "A");
+    rect(cx - 6, cy - 2 + bob, 12, 4, "K");
+    rect(cx - 3, cy - 5 + bob, 6, 10, "H");
+    return;
+  }
+  if (mascot === "robot") {
+    rect(cx - 14, cy - 10 + bob, 28, 22, "S");
+    rect(cx - 10, cy - 14 + bob, 20, 4, "A");
+    rect(cx - 18, cy - 2 + bob, 4, 8, "A");
+    rect(cx + 14, cy - 2 + bob, 4, 8, "A");
+  } else {
+    rect(cx - 13, cy - 8 + bob, 26, 20, "S");
+    if (mascot === "cat") {
+      rect(cx - 14, cy - 13 + bob, 6, 7, "S");
+      rect(cx + 8, cy - 13 + bob, 6, 7, "S");
+    }
+    if (mascot === "rabbit") {
+      rect(cx - 10, cy - 18 + bob, 5, 11, "S");
+      rect(cx + 5, cy - 18 + bob, 5, 11, "S");
+    }
+    if (mascot === "bear" || mascot === "dog") {
+      rect(cx - 16, cy - 8 + bob, 5, 7, "S");
+      rect(cx + 11, cy - 8 + bob, 5, 7, "S");
+    }
+  }
+  rect(cx - 8, cy - 2 + bob, 4, blink ? 1 : 4, "K");
+  rect(cx + 4, cy - 2 + bob, 4, blink ? 1 : 4, "K");
+  rect(cx - 2, cy + 4 + bob, 4, 2, "P");
+  rect(cx - 5, cy + 9 + bob, 10, 2, phase % 3 === 0 ? "A" : "K");
+  rect(cx - 19, cy + 3 + bob, 5, 5, "P");
+  rect(cx + 14, cy + 3 + bob, 5, 5, "P");
+}
+
+function drawMascotPixels(draw, plan, phase) {
+  drawSparkles(draw.put, phase, plan.seed, 48, 32);
+  drawMascotFace(draw, plan.mascot, phase, 24 + ((plan.seed >> 3) % 5) - 2, plan.mascot === "car" ? 15 : 16);
+}
+
+function drawPixelScreen(draw, plan, phase, width, height) {
+  drawPixelScanlines(draw, phase, width, height);
+  const module = plan.modules[0] || "";
+  if (module === "weather") {
+    drawWeatherPixels(draw, phase);
+    return;
+  }
+  if (module === "audio") {
+    drawAudioPixels(draw, plan, phase);
+    return;
+  }
+  if (module === "shop") {
+    drawShopPixels(draw, plan, phase);
+    return;
+  }
+  if (module === "clock") {
+    drawClockPixels(draw, phase);
+    return;
+  }
+  if (module === "network") {
+    drawNetworkPixels(draw, phase);
+    return;
+  }
+  if (module === "status" || module === "tasks") {
+    drawStatusPixels(draw, plan, phase);
+    return;
+  }
+  drawMascotPixels(draw, plan, phase);
+}
+
+function promptPixelFrames(plan) {
+  const width = 48;
+  const height = 32;
+  const frameCount = plan.motion === "slow" ? 3 : 4;
+  const duration = plan.motion === "fast" ? 140 : plan.motion === "slow" ? 520 : 260;
+  return Array.from({ length: frameCount }, (_, phase) => ({
+    durationMs: duration + (phase % 2) * 80,
+    rows: rowsFromGlyphs(width, height, (draw) => drawPixelScreen(draw, plan, phase, width, height)),
+  }));
+}
+
+function layoutElement(kind, options = {}) {
+  return {
+    kind,
+    x: options.x ?? 0,
+    y: options.y ?? 0,
+    w: options.w ?? (kind === "label" ? 120 : 80),
+    h: options.h ?? (kind === "label" ? 28 : 24),
+    color: options.color || "0xf4f1df",
+    bg: options.bg || "0x000000",
+    border: options.border || "0x000000",
+    radius: options.radius ?? 0,
+    width: options.width ?? 0,
+    value: options.value ?? 0,
+    font: options.font || "body",
+    text: options.text || "",
+  };
+}
+
+function moduleLabel(plan) {
+  const module = plan.modules[0] || "animation";
+  return {
+    animation: "ANIM LOOP",
+    clock: "HH:MM",
+    weather: "WX PANEL",
+    audio: "AUDIO",
+    shop: "SHOP",
+    network: "LINK",
+    status: "STATUS",
+    tasks: "TASKS",
+  }[module] || "SCREEN";
+}
+
+function pixelOverlayElements(plan) {
+  const accent = plan.palette.a;
+  const text = plan.title.toUpperCase();
+  const elements = [
+    layoutElement("rect", { x: 14, y: 276, w: 452, h: 30, color: "0x070a0d", border: accent, radius: 6, width: 1 }),
+    layoutElement("label", { x: 24, y: 281, w: 220, h: 22, color: "0xf4f1df", font: "body", text }),
+    layoutElement("label", { x: 306, y: 281, w: 132, h: 22, color: accent, font: "small", text: moduleLabel(plan) }),
+  ];
+  if (plan.modules.includes("clock")) {
+    elements.push(layoutElement("label", { x: 342, y: 238, w: 90, h: 28, color: accent, font: "body", text: "HH:MM" }));
+  }
+  return elements;
+}
+
+function pixelArtPage(plan, { id = "custom-ip", tab = "IP" } = {}) {
+  return {
+    id,
+    tab,
+    components: [
+      {
+        type: "pixelArt",
+        background: plan.palette.bg,
+        x: 0,
+        y: 0,
+        width: 48,
+        height: 32,
+        pixelSize: 10,
+        gap: 0,
+        palette: {
+          A: plan.palette.a,
+          S: plan.palette.s,
+          H: plan.palette.h,
+          K: plan.palette.k,
+          P: "0xff66b7",
+          Y: plan.palette.y,
+        },
+        frames: promptPixelFrames(plan),
+      },
+    ],
+  };
+}
+
+function moduleLayoutElements(plan) {
+  const accent = plan.palette.a;
+  const secondary = plan.palette.s;
+  const fg = "0xf4f1df";
+  const muted = "0x95a1a6";
+  const bg = plan.palette.bg;
+  const module = plan.modules[0] || "status";
+  const elements = [
+    layoutElement("rect", { x: 0, y: 0, w: 480, h: 320, color: bg }),
+    layoutElement("label", { x: 22, y: 18, w: 230, h: 28, color: accent, font: "small", text: plan.title.toUpperCase() }),
+  ];
+  if (module === "clock") {
+    elements.push(
+      layoutElement("rect", { x: 18, y: 96, w: 444, h: 92, color: accent, border: accent, radius: 4, width: 0 }),
+      layoutElement("label", { x: 116, y: 112, w: 248, h: 58, color: "0x071014", bg: accent, font: "title", text: "HH:MM" }),
+      layoutElement("label", { x: 154, y: 214, w: 172, h: 32, color: fg, font: "title", text: "YYYY-MM-DD" }),
+    );
+    return elements;
+  }
+  if (module === "weather") {
+    elements.push(
+      layoutElement("label", { x: 22, y: 56, w: 220, h: 46, color: fg, font: "title", text: "26C CLEAR" }),
+      layoutElement("circle", { x: 344, y: 50, w: 70, h: 70, color: secondary, border: secondary, radius: 35 }),
+      layoutElement("line", { x: 22, y: 132, w: 436, h: 1, color: accent, width: 2 }),
+      layoutElement("label", { x: 26, y: 154, w: 82, h: 24, color: accent, font: "small", text: "NOW" }),
+      layoutElement("label", { x: 174, y: 154, w: 82, h: 24, color: accent, font: "small", text: "TODAY" }),
+      layoutElement("label", { x: 322, y: 154, w: 108, h: 24, color: accent, font: "small", text: "TOMORROW" }),
+      layoutElement("bar", { x: 26, y: 198, w: 92, h: 12, color: secondary, bg: "0x172329", border: "0x000000", radius: 6, value: 70 }),
+      layoutElement("bar", { x: 174, y: 198, w: 92, h: 12, color: secondary, bg: "0x172329", border: "0x000000", radius: 6, value: 58 }),
+      layoutElement("bar", { x: 322, y: 198, w: 92, h: 12, color: secondary, bg: "0x172329", border: "0x000000", radius: 6, value: 42 }),
+      layoutElement("label", { x: 26, y: 228, w: 106, h: 24, color: fg, font: "body", text: "SUNNY" }),
+      layoutElement("label", { x: 174, y: 228, w: 106, h: 24, color: fg, font: "body", text: "HUM 68" }),
+      layoutElement("label", { x: 322, y: 228, w: 112, h: 24, color: fg, font: "body", text: "RAIN 20" }),
+      layoutElement("line", { x: 160, y: 148, w: 1, h: 116, color: "0x20313a", width: 1 }),
+      layoutElement("line", { x: 308, y: 148, w: 1, h: 116, color: "0x20313a", width: 1 }),
+    );
+    return elements;
+  }
+  if (module === "audio") {
+    elements.push(
+      layoutElement("label", { x: 32, y: 56, w: 210, h: 48, color: fg, font: "title", text: "PLAYING" }),
+      layoutElement("label", { x: 338, y: 64, w: 88, h: 24, color: muted, font: "small", text: "VOL 68" }),
+      layoutElement("bar", { x: 336, y: 96, w: 92, h: 12, color: accent, bg: "0x172329", border: "0x000000", radius: 6, value: 68 }),
+      layoutElement("line", { x: 28, y: 130, w: 424, h: 1, color: accent, width: 2 }),
+    );
+    for (let i = 0; i < 12; i += 1) {
+      const h = 26 + ((plan.seed >> (i % 8)) + i * 11) % 118;
+      elements.push(layoutElement("bar", { x: 34 + i * 34, y: 276 - h, w: 16, h, color: accent, bg: "0x10191d", border: "0x000000", radius: 2, value: 100 }));
+    }
+    elements.push(layoutElement("label", { x: 32, y: 286, w: 190, h: 22, color: muted, font: "small", text: "BEAT 124 BPM" }));
+    return elements;
+  }
+  elements.push(
+    layoutElement("rect", { x: 20, y: 80, w: 440, h: 72, color: "0x10191d", border: accent, radius: 6, width: 2 }),
+    layoutElement("label", { x: 42, y: 98, w: 240, h: 34, color: fg, font: "title", text: module === "network" ? "LINK READY" : module === "tasks" ? "NEXT STEP" : "READY" }),
+    layoutElement("bar", { x: 42, y: 184, w: 316, h: 18, color: accent, bg: "0x172329", border: "0x33434a", radius: 9, width: 1, value: 68 }),
+    layoutElement("label", { x: 42, y: 222, w: 120, h: 24, color: muted, font: "small", text: module === "network" ? "IP --" : "SIGNAL" }),
+    layoutElement("label", { x: 184, y: 222, w: 120, h: 24, color: muted, font: "small", text: module === "tasks" ? "GATED" : "SYNC NEXT" }),
+    layoutElement("label", { x: 326, y: 222, w: 120, h: 24, color: muted, font: "small", text: "EVIDENCE" }),
+  );
+  return elements;
+}
+
+function isCardLikeRect(element, index) {
+  if (element?.kind !== "rect") return false;
+  if (index === 0 && element.x <= 2 && element.y <= 2 && element.w >= 470 && element.h >= 310) return false;
+  const area = Number(element.w || 0) * Number(element.h || 0);
+  const hasBoxStyle = Number(element.width || 0) > 0 || Number(element.radius || 0) >= 4;
+  return hasBoxStyle && area >= 3200 && area <= 130000;
+}
+
+function decardLayoutElements(elements) {
+  if (!Array.isArray(elements)) return elements;
+  const cardLikeCount = elements.filter(isCardLikeRect).length;
+  if (cardLikeCount === 0) return elements;
+
+  const kept = elements.filter((element, index) => !isCardLikeRect(element, index));
+  const separators = [];
+  const columns = elements
+    .map((element, index) => ({ element, index }))
+    .filter(({ element, index }) => isCardLikeRect(element, index))
+    .sort((a, b) => Number(a.element.x || 0) - Number(b.element.x || 0));
+  for (let i = 0; i < columns.length - 1 && separators.length < 2; i += 1) {
+    const left = columns[i].element;
+    const right = columns[i + 1].element;
+    const x = Math.round((Number(left.x) + Number(left.w) + Number(right.x)) / 2);
+    separators.push(layoutElement("line", {
+      x,
+      y: Math.max(18, Math.min(Number(left.y || 0), Number(right.y || 0))),
+      w: 1,
+      h: Math.min(250, Math.max(Number(left.h || 0), Number(right.h || 0))),
+      color: "0x20313a",
+      width: 1,
+    }));
+  }
+  return [...kept, ...separators].slice(0, 24);
+}
+
+function decardGeneratedPatch(patch) {
+  if (!patch || !Array.isArray(patch.pages)) return patch;
+  return {
+    ...patch,
+    pages: patch.pages.map((page) => ({
+      ...page,
+      components: Array.isArray(page.components)
+        ? page.components.map((component) => (
+          component?.type === "layout"
+            ? { ...component, elements: decardLayoutElements(component.elements) }
+            : component
+        ))
+        : page.components,
+    })),
+  };
+}
+
+function layoutPageFromPlan(plan, { id = "custom-screen", tab = null } = {}) {
+  const module = plan.modules[0] || "status";
+  const moduleTab = SCREEN_MODULES.find((item) => item.id === module)?.tab || "PAGE";
+  return {
+    id,
+    tab: tab || moduleTab,
+    components: [
+      {
+        type: "layout",
+        background: plan.palette.bg,
+        elements: moduleLayoutElements(plan),
+      },
+    ],
+  };
+}
+
+function isFullPixelCanvasComponent(component) {
+  if (component?.type !== "pixelArt") return false;
+  const width = Number(component.width || 0);
+  const height = Number(component.height || 0);
+  const pixelSize = Number(component.pixelSize || 0);
+  const gap = Number(component.gap || 0);
+  const drawnWidth = width * pixelSize + Math.max(0, width - 1) * gap;
+  const drawnHeight = height * pixelSize + Math.max(0, height - 1) * gap;
+  return Number(component.x || 0) === 0
+    && Number(component.y || 0) === 0
+    && drawnWidth === 480
+    && drawnHeight === 320
+    && Array.isArray(component.frames)
+    && component.frames.length >= 2;
+}
+
 const SCREEN_TEMPLATES = [
   {
     id: "device-status",
@@ -1027,13 +2153,17 @@ async function readJsonRequest(req) {
 function looksLikeScreenProgramRequest(input) {
   const text = String(input || "").trim();
   if (!text) return false;
+  if (/^(?:同步|sync|生成\s*AI\s*总结|总结)$/i.test(text)) return false;
   if (/(小屏|屏幕|界面|lvgl|screen|程序|应用|app|面板|工具)/i.test(text) && /(做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个)/i.test(text)) {
     return true;
   }
   if (/(?:直接)?(?:开始|继续|按这个|就这个|照这个|生成|创建|设计|做|弄)/i.test(text) && /(界面|UI|ui|小屏|屏幕|面板|页面|风格|按钮|旋钮|信号灯|指示灯|控件|卡片|布局|仪表盘|状态栏|播放按钮)/i.test(text)) {
     return true;
   }
-  return /(?:给我|帮我)?\s*(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个)\s*\S{2,}/i.test(text);
+  if (/(?:给我|帮我)?\s*(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个)\s*\S{2,}/i.test(text)) {
+    return true;
+  }
+  return true;
 }
 
 function screenProgramSubject(input) {
@@ -1052,172 +2182,22 @@ function titleFromProgramSubject(subject) {
   return asciiScreenTitle(subject);
 }
 
-function generatedScreenSpec(subject) {
-  const text = String(subject || "");
-  const title = titleFromProgramSubject(text);
-  if (/漫画|卡通|comic|cartoon|manga|pop/i.test(text)) {
-    return {
-      title,
-      subtitle: "single generated page",
-      page: generatedPage({
-        style: "comic",
-        kicker: "WalnutAI",
-        headline: "POW! WALNUT",
-        body: "One screen command center, bold panel and speech bubble.",
-        badge: "BOOM",
-        accent: "amber",
-        progress: 72,
-        items: [
-          { label: "Mode", value: "comic", unit: "", tone: "ok" },
-          { label: "Panel", value: "single", unit: "", tone: "ok" },
-          { label: "Sync", value: "ready", unit: "", tone: "ok" },
-        ],
-      }),
-    };
-  }
-  if (/音乐|播放器|播放|music|player|audio/i.test(text)) {
-    return {
-      title,
-      subtitle: "single generated page",
-      page: generatedPage({
-        style: "music",
-        kicker: "Now Playing",
-        headline: "LOCAL MIX",
-        body: "Queue ready, local audio first, guarded controls.",
-        badge: "PLAY",
-        accent: "pink",
-        progress: 38,
-        items: [
-          { label: "Track", value: "queue", unit: "", tone: "ok" },
-          { label: "Vol", value: "--", unit: "", tone: "ok" },
-          { label: "Out", value: "local", unit: "", tone: "ok" },
-        ],
-      }),
-    };
-  }
-  if (/网络|联网|wifi|wi-?fi|ip|ssh|frp|network|net/i.test(text)) {
-    return {
-      title,
-      subtitle: "single generated page",
-      page: generatedPage({
-        style: "network",
-        kicker: "Link Watch",
-        headline: "LAN ONLINE",
-        body: "IP, SSH and FRP status grouped for quick scanning.",
-        badge: "NET",
-        accent: "cyan",
-        progress: 68,
-        items: [
-          { label: "IP", value: "loading", unit: "", tone: "ok" },
-          { label: "SSH", value: "guarded", unit: "", tone: "ok" },
-          { label: "FRP", value: "check", unit: "", tone: "warn" },
-        ],
-      }),
-    };
-  }
-  if (/告警|警告|报警|异常|风险|错误|失败|alert|warn|error/i.test(text)) {
-    return {
-      title,
-      subtitle: "single generated page",
-      page: generatedPage({
-        style: "alert",
-        kicker: "Watch",
-        headline: "CHECK NOW",
-        body: "Important signal first, next step visible, no auto repair.",
-        badge: "WARN",
-        accent: "red",
-        progress: 62,
-        items: [
-          { label: "CPU", value: "watch", unit: "", tone: "warn" },
-          { label: "Mem", value: "high", unit: "", tone: "warn" },
-          { label: "Disk", value: "ok", unit: "", tone: "ok" },
-        ],
-      }),
-    };
-  }
-  if (/任务|待办|todo|task|计划|步骤|agent/i.test(text)) {
-    return {
-      title,
-      subtitle: "single generated page",
-      page: generatedPage({
-        style: "task",
-        kicker: "WalnutAI",
-        headline: "TASK READY",
-        body: "Current intent, safe next action and evidence loop.",
-        badge: "TODO",
-        accent: "green",
-        progress: 55,
-        items: [
-          { label: "Plan", value: "ready", unit: "", tone: "ok" },
-          { label: "Risk", value: "gated", unit: "", tone: "ok" },
-          { label: "Frame", value: "after", unit: "", tone: "ok" },
-        ],
-      }),
-    };
-  }
-  if (/状态|健康|系统|内存|磁盘|status|health|system/i.test(text)) {
-    return {
-      title,
-      subtitle: "single generated page",
-      page: generatedPage({
-        style: "status",
-        kicker: "Device",
-        headline: "CORE OK",
-        body: "System health summary with the most useful checks.",
-        badge: "OK",
-        accent: "green",
-        progress: 76,
-        items: [
-          { label: "IP", value: "loading", unit: "", tone: "ok" },
-          { label: "Mem", value: "--", unit: "", tone: "ok" },
-          { label: "Disk", value: "--", unit: "", tone: "ok" },
-        ],
-      }),
-    };
-  }
-  if (/极简|简洁|minimal|simple/i.test(text)) {
-    return {
-      title,
-      subtitle: "single generated page",
-      page: generatedPage({
-        style: "minimal",
-        kicker: "WalnutAI",
-        headline: "READY",
-        body: asciiScreenSubject(text, "Clean generated page"),
-        badge: "LIVE",
-        accent: "paper",
-        progress: 50,
-        items: [
-          { label: "Intent", value: "set", unit: "", tone: "ok" },
-          { label: "Page", value: "one", unit: "", tone: "ok" },
-          { label: "Sync", value: "next", unit: "", tone: "ok" },
-        ],
-      }),
-    };
-  }
+async function generatedScreenSpec(subject) {
+  const materialSpec = await publicMaterialScreenSpec(subject);
+  if (materialSpec) return materialSpec;
+  const plan = screenPlanFromSubject(subject);
+  const page = plan.mode === "pixel" ? pixelArtPage(plan) : layoutPageFromPlan(plan);
   return {
-    title,
-    subtitle: "single generated page",
-    page: generatedPage({
-      style: "panel",
-      kicker: "WalnutAI",
-      headline: "PREVIEW",
-      body: asciiScreenSubject(text, "Generated screen page"),
-      badge: "GEN",
-      accent: "blue",
-      progress: 50,
-      items: [
-        { label: "Intent", value: "ready", unit: "", tone: "ok" },
-        { label: "Page", value: "one", unit: "", tone: "ok" },
-        { label: "Sync", value: "next", unit: "", tone: "ok" },
-      ],
-    }),
+    title: plan.title,
+    subtitle: plan.subtitle,
+    page: decardGeneratedPatch({ pages: [page] }).pages[0],
+    plan,
   };
 }
 
 function screenManifestGenerationSystemPrompt() {
   return [
-    "You generate a WalnutPi small-screen UI as controlled Screen Manifest patch JSON.",
+    "You generate a WalnutPi small-screen UI as controlled Screen Manifest patch JSON for a real LVGL framebuffer.",
     "Return JSON only. Do not return Markdown, React, LVGL C, shell commands, SSH commands, sudo commands, or device instructions.",
     "The JSON object must be a mutable manifest patch with this shape:",
     "{ \"title\": string, \"subtitle\": string, \"replacePages\": true, \"pages\": [page], \"intentSummary\": string }.",
@@ -1225,22 +2205,47 @@ function screenManifestGenerationSystemPrompt() {
     "Use 1 page by default. Use at most 3 pages and at most 4 components per page.",
     "All manifest text fields must be ASCII only because the current WalnutPi LVGL font slice does not support CJK glyphs yet.",
     "intentSummary may be Chinese and is only for the Web chat, not for the device manifest.",
-    "Allowed component types and fields:",
+    "The physical screen is exactly 480x320 pixels. Treat every new creative generation as a pixel canvas, not as desktop UI composition.",
+    "Use pixelArt as the primary component for all generated small-screen requests, including weather, time, audio spectrum, status, user-defined IP, mascot, LED sign, poster, and animation requests.",
+    "pixelArt component: { type:\"pixelArt\", background:\"0xRRGGBB\", x,y,width,height,pixelSize,gap,palette,frames }.",
+    "pixelArt width is 8..64 cells, height is 8..32 cells. x + width*pixelSize + (width-1)*gap <= 480. y + height*pixelSize + (height-1)*gap <= 320.",
+    "pixelArt palette maps single ASCII symbols to 0xRRGGBB colors. '.' and spaces are transparent/off pixels. Use at most 12 palette symbols.",
+    "pixelArt frames: 1..8 frames, each frame has durationMs and rows. Every row must be exactly width symbols and there must be exactly height rows.",
+    "Pixel animation must be continuous: reuse the same base art and change only phase details such as blink, scanline, sparkle, scroll offset, mouth/eye state, or glow intensity.",
+    "Do not generate unrelated frame-by-frame scenes. The viewer should feel one living 480x320 pixel screen over time.",
+    "For broad image replication, use a coarse pixel grid that fills the 480x320 screen and captures the approximate silhouette, color blocks, and motion. Exact text is less important than the pixel shape.",
+    "layout is secondary and compatibility-only for tiny overlays. Do not use layout as the main generated screen.",
+    "layout component: { type:\"layout\", background:\"0xRRGGBB\", elements:[drawElement] }.",
+    "drawElement: { kind:\"rect\"|\"label\"|\"bar\"|\"line\"|\"circle\", x,y,w,h,color,bg,border,radius,width,value,font,text }.",
+    "Coordinates are absolute pixels inside the 480x320 screen. x+w <= 480 and y+h <= 320. Keep text inside its element.",
+    "Use a 16px outer safe margin. Keep main content in 2 or 3 clear zones, not many tiny boxes.",
+    "Do not make card grids. Do not use repeated rounded rectangles as containers. This device UI should feel like one full-screen instrument panel, poster, pixel display, or dashboard canvas.",
+    "Use separators, baselines, large type, icon dots, bars, tracks, scanlines, and open zones instead of card borders.",
+    "For labels use h >= 18 and w >= 42. Keep at least 8px vertical and horizontal space between foreground labels, bars, and circles.",
+    "Do not place status lights, bars, or decorative circles over text. Decorative shapes must stay behind or away from labels.",
+    "Prefer 10-14 draw elements. Only use 15-18 when the request truly needs dense telemetry.",
+    "Fonts: small, body, title. Colors must be 0xRRGGBB. Use bg 0x000000 for transparent label backgrounds.",
+    "Good pixel screens use large silhouettes, limited colors, visible pixel blocks, and simple 2-4 frame motion.",
+    "Legacy information components remain allowed only when the request is simple:",
     "statusCard: type,label,value,tone(ok|warn|error),detail.",
     "metricGroup: type,items; each item has label,value,unit,tone.",
     "list: type,title,items.",
     "progress: type,label,value(0..100),max(100),tone.",
     "alert: type,title,body,tone.",
     "textPage: type,title,lines.",
-    "generatedPage: type,style(panel|comic|music|network|task|status|alert|minimal),kicker,headline,body,badge,accent(cyan|green|amber|red|blue|pink|paper),progress,items.",
-    "If the request exceeds the vocabulary, map it to the closest controlled components or say the limitation inside a textPage; never invent new component types or commands.",
+    "generatedPage is compatibility-only. Do not choose it for new creative screens unless the user asks for a simple title/body card.",
+    "If a first attempt fails validation, repair the JSON while preserving the design intent. Do not collapse to a text-only page unless the user asked for text.",
   ].join("\n");
 }
 
-function aiScreenManifestUserPayload(text, currentManifest) {
+function aiScreenManifestUserPayload(text, currentManifest, repair = null) {
   return {
     request: text,
-    currentManifest: mutableManifestView(currentManifest),
+    currentManifest: {
+      title: currentManifest?.title || "",
+      subtitle: currentManifest?.subtitle || "",
+      pageCount: Array.isArray(currentManifest?.pages) ? currentManifest.pages.length : 0,
+    },
     device: {
       width: 480,
       height: 320,
@@ -1252,9 +2257,34 @@ function aiScreenManifestUserPayload(text, currentManifest) {
       "Output only a JSON object.",
       "Do not include schema, target, source, build, delivery, SSH, shell, sudo, filesystem, GPIO, reboot, flash, or arbitrary code fields.",
       "Use the allowed component vocabulary exactly.",
+      "For every generated small-screen request, use pixelArt as the primary component and think in cells that fill the 480x320 framebuffer.",
+      "Weather, time, audio spectrum, status, and user-defined IP screens should become coarse pixel images or pixel animations, not information cards.",
+      "Do not use HTML, CSS, SVG, Canvas, React, image URLs, base64 images, or browser-only concepts.",
       "Keep text short enough for a 480x320 screen.",
+      "Prioritize approximate image shape, silhouette, color blocks, and simple motion over exact text.",
+      "Do not make repeated rounded card containers. Do not use layout as the main generated screen.",
+      "Labels need h >= 18; bars need h >= 8.",
       "Prefer one polished page over internal tabs for simple generated screens.",
     ],
+    fieldLimits: {
+      title: 32,
+      subtitle: 40,
+      pageTab: 8,
+      statusCard: { label: 12, value: 24, detail: 24 },
+      generatedPage: { compatibilityOnly: true, kicker: 20, headline: 24, body: 56, badge: 12, itemLabel: 12, itemValue: 16, itemUnit: 8 },
+      layout: { compatibilityOnly: true, elements: 8, labelText: 32, x: "0..479", y: "0..319", w: "1..480", h: "1..320" },
+      pixelArt: { primary: true, width: "8..64", height: "8..32", pixelSize: "1..16", gap: "0..4", frames: "1..8", rows: "exactly height rows, each exactly width symbols" },
+      textPage: { title: 32, line: 48 },
+      list: { title: 32, item: 48 },
+      alert: { title: 32, body: 48 },
+    },
+    repair: repair
+      ? {
+        previousError: repair.error,
+        previousOutput: repair.output,
+        instruction: "Return a corrected full JSON patch that satisfies the schema and field limits. Keep the design intent; shorten or restructure text instead of dropping the UI.",
+      }
+      : null,
   };
 }
 
@@ -1270,20 +2300,102 @@ function pickTextFields(source, fields) {
   return target;
 }
 
+function asciiDeviceText(value, fallback = "Ready", limit = 64) {
+  const raw = String(value ?? "").replace(/\s+/g, " ").trim();
+  const ascii = raw.replace(/[^\x20-\x7e]/g, "").replace(/\s+/g, " ").trim();
+  const text = ascii || fallback;
+  return [...text].slice(0, limit).join("");
+}
+
 function sanitizeAiComponent(component) {
   if (!isPlainObject(component)) return { type: "" };
   const type = String(component.type || "").trim();
-  if (type === "statusCard") return { type, ...pickTextFields(component, ["label", "value", "tone", "detail"]) };
-  if (type === "metricGroup") return { type, items: Array.isArray(component.items) ? component.items.slice(0, 3) : [] };
-  if (type === "list") return { type, title: component.title, items: Array.isArray(component.items) ? component.items.slice(0, 4) : [] };
-  if (type === "progress") return { type, ...pickTextFields(component, ["label", "value", "max", "tone"]) };
-  if (type === "alert") return { type, ...pickTextFields(component, ["title", "body", "tone"]) };
-  if (type === "textPage") return { type, title: component.title, lines: Array.isArray(component.lines) ? component.lines.slice(0, 4) : [] };
+  if (type === "pixelArt") {
+    const palette = isPlainObject(component.palette) ? Object.fromEntries(Object.entries(component.palette).slice(0, 12)) : {};
+    const width = Number(component.width) || 48;
+    const height = Number(component.height) || 20;
+    return {
+      type,
+      background: component.background,
+      x: component.x,
+      y: component.y,
+      width,
+      height,
+      pixelSize: component.pixelSize,
+      gap: component.gap,
+      palette,
+      frames: Array.isArray(component.frames)
+        ? component.frames.slice(0, 8).map((frame) => ({
+          durationMs: frame?.durationMs,
+          rows: Array.isArray(frame?.rows)
+            ? frame.rows.slice(0, height).map((row) => asciiDeviceText(row, ".".repeat(width), Math.max(8, width)))
+            : [],
+        }))
+        : [],
+    };
+  }
+  if (type === "layout") {
+    return {
+      type,
+      background: component.background,
+      elements: Array.isArray(component.elements)
+        ? component.elements.slice(0, 24).map((element) => (
+          isPlainObject(element)
+            ? {
+              ...pickTextFields(element, ["kind", "x", "y", "w", "h", "color", "bg", "border", "radius", "width", "value", "font"]),
+              text: asciiDeviceText(element.text, "", 64),
+            }
+            : {}
+        ))
+        : [],
+    };
+  }
+  if (type === "statusCard") return {
+    type,
+    label: asciiDeviceText(component.label, "Status", 12),
+    value: asciiDeviceText(component.value, "Ready", 24),
+    tone: component.tone,
+    detail: asciiDeviceText(component.detail, "Ready", 24),
+  };
+  if (type === "metricGroup") return {
+    type,
+    items: Array.isArray(component.items)
+      ? component.items.slice(0, 3).map((item, index) => {
+        const source = isPlainObject(item) ? item : { label: item };
+        return {
+          label: asciiDeviceText(source.label, `M${index + 1}`, 12),
+          value: asciiDeviceText(source.value, "--", 16),
+          unit: asciiDeviceText(source.unit, "", 8),
+          tone: source.tone,
+        };
+      })
+      : [],
+  };
+  if (type === "list") return { type, title: asciiDeviceText(component.title, "List", 32), items: Array.isArray(component.items) ? component.items.slice(0, 4).map((item) => asciiDeviceText(item, "Item", 48)) : [] };
+  if (type === "progress") return { type, label: asciiDeviceText(component.label, "Progress", 16), ...pickTextFields(component, ["value", "max", "tone"]) };
+  if (type === "alert") return { type, title: asciiDeviceText(component.title, "Alert", 32), body: asciiDeviceText(component.body, "Check status", 48), tone: component.tone };
+  if (type === "textPage") return { type, title: asciiDeviceText(component.title, "Page", 32), lines: Array.isArray(component.lines) ? component.lines.slice(0, 4).map((line) => asciiDeviceText(line, "Ready", 48)) : [] };
   if (type === "generatedPage") {
     return {
       type,
-      ...pickTextFields(component, ["style", "kicker", "headline", "body", "badge", "accent", "progress"]),
-      items: Array.isArray(component.items) ? component.items.slice(0, 3) : [],
+      style: component.style,
+      kicker: asciiDeviceText(component.kicker, "WalnutAI", 20),
+      headline: asciiDeviceText(component.headline, "Ready", 24),
+      body: asciiDeviceText(component.body, "Generated screen", 56),
+      badge: asciiDeviceText(component.badge, "LIVE", 12),
+      accent: component.accent,
+      progress: component.progress,
+      items: Array.isArray(component.items)
+        ? component.items.slice(0, 3).map((item, index) => {
+          const source = isPlainObject(item) ? item : { label: item };
+          return {
+            label: asciiDeviceText(source.label, `M${index + 1}`, 12),
+            value: asciiDeviceText(source.value, "--", 16),
+            unit: asciiDeviceText(source.unit, "", 8),
+            tone: source.tone,
+          };
+        })
+        : [],
     };
   }
   return { type };
@@ -1351,80 +2463,218 @@ function applyGeneratedManifestPatch(baseManifest, patch) {
   });
 }
 
+function enforceGeneratedManifestContract(text, patch) {
+  if (!patch || !Array.isArray(patch.pages)) return patch;
+  const plan = screenPlanFromSubject(screenProgramSubject(text));
+  const pixelPage = pixelArtPage(plan);
+  return {
+    ...patch,
+    title: patch.title || plan.title,
+    subtitle: "480x320 pixel canvas",
+    pages: patch.pages.map((page, index) => {
+      const components = Array.isArray(page.components) ? page.components : [];
+      if (index !== 0) return page;
+      const pixelArt = components.find((component) => component?.type === "pixelArt");
+      if (!isFullPixelCanvasComponent(pixelArt)) {
+        return {
+          ...pixelPage,
+          id: page.id || pixelPage.id,
+          tab: page.tab || pixelPage.tab,
+        };
+      }
+      return {
+        ...page,
+        components: [pixelArt],
+      };
+    }),
+  };
+}
+
 async function buildAiScreenManifestCandidate(text, currentManifest) {
+  const subject = screenProgramSubject(text);
+  const materialSpec = await withTimeout(publicMaterialScreenSpec(subject), 5500, null);
+  if (materialSpec) {
+    const patch = {
+      title: materialSpec.title,
+      subtitle: materialSpec.subtitle,
+      replacePages: true,
+      pages: [materialSpec.page],
+      intentSummary: `已从公共图片素材生成 480x320 像素小屏：${materialSpec.material.title || materialSpec.material.query}`,
+    };
+    return {
+      manifest: applyGeneratedManifestPatch(currentManifest, patch),
+      patch,
+      generation: {
+        schema: "walnutpi.screenGeneration.v1",
+        source: "public-material",
+        apiUsed: false,
+        model: null,
+        material: {
+          source: "wikimedia-commons",
+          query: materialSpec.material.query,
+          title: materialSpec.material.title,
+          url: materialSpec.material.sourceUrl || materialSpec.material.url,
+          license: materialSpec.material.license,
+        },
+        steps: [
+          {
+            label: "搜索公共素材",
+            ok: true,
+            detail: `${materialSpec.material.title || materialSpec.material.query}`,
+          },
+          {
+            label: "素材像素化",
+            ok: true,
+            detail: "已量化为 48x32 pixelArt，铺满 480x320。",
+          },
+        ],
+      },
+    };
+  }
+
+  const fallbackSpec = screenPlanGeneratedSpec(subject);
+  const fallbackPatch = {
+    title: fallbackSpec.title,
+    subtitle: fallbackSpec.subtitle,
+    replacePages: true,
+    pages: [fallbackSpec.page],
+    intentSummary: screenProgramIntentSummary(subject),
+  };
+
+  if (shouldUsePublicImageMaterial(subject)) {
+    return {
+      manifest: applyGeneratedManifestPatch(currentManifest, fallbackPatch),
+      patch: fallbackPatch,
+      generation: {
+        schema: "walnutpi.screenGeneration.v1",
+        source: "rule",
+        apiUsed: false,
+        model: null,
+        fallbackReason: "public material search timed out or returned no usable image",
+        steps: [
+          {
+            label: "搜索公共素材",
+            ok: false,
+            detail: "公共图片源暂时不可用，已快速回退。",
+          },
+          {
+            label: "本地像素生成",
+            ok: true,
+            detail: "已用确定性 pixelArt 生成，不等待上传素材。",
+          },
+        ],
+      },
+    };
+  }
+
   if (!AI_API_KEY) {
     return {
-      manifest: null,
-      patch: null,
+      manifest: applyGeneratedManifestPatch(currentManifest, fallbackPatch),
+      patch: fallbackPatch,
       generation: {
         schema: "walnutpi.screenGeneration.v1",
         source: "rule",
         apiUsed: false,
         model: null,
         fallbackReason: "OPENAI_API_KEY is not configured",
+        steps: [
+          {
+            label: "本地像素生成",
+            ok: true,
+            detail: "公共素材不可用时，已用确定性 pixelArt 生成。",
+          },
+        ],
       },
     };
   }
 
   const startedAt = Date.now();
-  try {
-    const response = await fetch(`${AI_BASE_URL}/responses`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${AI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      signal: aiFetchSignal(),
-      body: JSON.stringify({
-        model: AI_MODEL,
-        input: [
-          { role: "system", content: screenManifestGenerationSystemPrompt() },
-          { role: "user", content: JSON.stringify(aiScreenManifestUserPayload(text, currentManifest), null, 2) },
-        ],
-      }),
-    });
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(`API HTTP ${response.status}: ${detail.slice(0, 500)}`);
+  const attempts = [];
+  let repair = null;
+  let lastOutputText = "";
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const data = await callResponsesApi({
+        operation: attempt === 1 ? "screen.generate" : "screen.generate.repair",
+        signal: aiFetchSignal(),
+        body: {
+          model: AI_MODEL,
+          input: [
+            { role: "system", content: screenManifestGenerationSystemPrompt() },
+            { role: "user", content: JSON.stringify(aiScreenManifestUserPayload(text, currentManifest, repair), null, 2) },
+          ],
+        },
+      });
+      const outputText = parseResponsesOutput(data);
+      lastOutputText = outputText.slice(0, 4000);
+      if (!outputText) throw new Error("API response did not include output text");
+      const patch = decardGeneratedPatch(enforceGeneratedManifestContract(text, sanitizeAiScreenManifestPatch(parseJsonObjectText(outputText))));
+      const manifest = applyGeneratedManifestPatch(currentManifest, patch);
+      attempts.push({
+        attempt,
+        operation: attempt === 1 ? "generate" : "repair",
+        ok: true,
+        componentTypes: patch.pages.flatMap((page) => (page.components || []).map((component) => component.type)),
+      });
+      return {
+        manifest,
+        patch,
+        generation: {
+          schema: "walnutpi.screenGeneration.v1",
+          source: "ai",
+          apiUsed: true,
+          model: AI_MODEL,
+          latencyMs: Date.now() - startedAt,
+          attempts,
+          steps: attempts.map((item) => ({
+            label: item.operation === "repair" ? `第 ${item.attempt} 次修复` : "生成 480x320 像素画布",
+            ok: item.ok,
+            detail: item.ok
+              ? `通过 manifest 校验：${(item.componentTypes || []).join(", ") || "components"}`
+              : item.error,
+          })),
+          repaired: attempt > 1,
+        },
+      };
+    } catch (error) {
+      attempts.push({
+        attempt,
+        operation: attempt === 1 ? "generate" : "repair",
+        ok: false,
+        error: error.message,
+      });
+      repair = {
+        error: error.message,
+        output: lastOutputText,
+      };
     }
-    const data = await response.json();
-    const outputText = parseResponsesOutput(data);
-    if (!outputText) throw new Error("API response did not include output text");
-    const patch = sanitizeAiScreenManifestPatch(parseJsonObjectText(outputText));
-    const manifest = applyGeneratedManifestPatch(currentManifest, patch);
-    return {
-      manifest,
-      patch,
-      generation: {
-        schema: "walnutpi.screenGeneration.v1",
-        source: "ai",
-        apiUsed: true,
-        model: AI_MODEL,
-        latencyMs: Date.now() - startedAt,
-      },
-    };
-  } catch (error) {
-    return {
-      manifest: null,
-      patch: null,
-      generation: {
-        schema: "walnutpi.screenGeneration.v1",
-        source: "ai-fallback",
-        apiUsed: true,
-        model: AI_MODEL,
-        latencyMs: Date.now() - startedAt,
-        fallbackSource: "rule",
-        fallbackReason: error.message,
-      },
-    };
   }
+  return {
+    manifest: null,
+    patch: null,
+    generation: {
+      schema: "walnutpi.screenGeneration.v1",
+      source: "ai-fallback",
+      apiUsed: true,
+      model: AI_MODEL,
+      latencyMs: Date.now() - startedAt,
+      attempts,
+      steps: attempts.map((item) => ({
+        label: item.operation === "repair" ? `第 ${item.attempt} 次修复` : "生成 480x320 像素画布",
+        ok: false,
+        detail: item.error,
+      })),
+      fallbackSource: "rule",
+      fallbackReason: attempts.at(-1)?.error || "AI generation failed",
+    },
+  };
 }
 
 function screenProgramIntentPatch(input) {
   if (!looksLikeScreenProgramRequest(input)) return null;
 
   const subject = screenProgramSubject(input);
-  const spec = generatedScreenSpec(subject);
+  const spec = screenPlanGeneratedSpec(subject);
   return {
     title: spec.title,
     subtitle: spec.subtitle,
@@ -1433,6 +2683,17 @@ function screenProgramIntentPatch(input) {
       spec.page,
     ],
     intentSummary: screenProgramIntentSummary(subject),
+  };
+}
+
+function screenPlanGeneratedSpec(subject) {
+  const plan = screenPlanFromSubject(subject);
+  const page = plan.mode === "pixel" ? pixelArtPage(plan) : layoutPageFromPlan(plan);
+  return {
+    title: plan.title,
+    subtitle: plan.subtitle,
+    page: decardGeneratedPatch({ pages: [page] }).pages[0],
+    plan,
   };
 }
 
@@ -1446,6 +2707,7 @@ const screenManifestEditor = createScreenManifestEditor({
   screenProgramIntentSummary,
   screenProgramIntentPatch,
   screenProgramSubject,
+  recordMetric: (event) => webMetricsLedger.append(event),
 });
 
 function frameUrl(buildId) {
@@ -1929,41 +3191,27 @@ async function handleScreenRepairApply(req) {
   });
 }
 
-async function handleScreenAiSummary(req) {
-  let body;
-  try {
-    body = await readJsonRequest(req);
-  } catch (error) {
-    return json({ ok: false, error: error.message }, 400);
-  }
-
-  const buildId = String(body.buildId || "").trim();
-  const safeBuildId = safeRecordId(buildId);
-  if (!safeBuildId) {
-    return json({ ok: false, error: "invalid buildId", summary: "缺少有效的同步记录。" }, 400);
-  }
-
-  const record = await readScreenRecord(safeBuildId);
-  if (!record) {
-    return json({ ok: false, error: "screen record not found", summary: "找不到这次同步记录。" }, 404);
-  }
-
-  const aiSummary = await buildScreenAiSummary(record);
-  return json({
-    ok: true,
-    buildId: safeBuildId,
-    aiSummary,
-  });
-}
-
 async function screenManifestEnvelope() {
   return screenManifestStore.envelope();
 }
 
 async function handleScreenSync(req) {
+  const startedAt = Date.now();
   const outcome = await screenSyncWorkflow.run({
     requestJson: () => req.json(),
     mode: "remote",
+  });
+  await webMetricsLedger.append({
+    kind: "screen.sync",
+    operation: "screen.sync",
+    ok: Boolean(outcome.result?.ok),
+    status: outcome.status,
+    latencyMs: Date.now() - startedAt,
+    mode: outcome.result?.mode,
+    stage: outcome.result?.failedStage || "complete",
+    buildId: outcome.result?.buildId,
+    manifestHash: outcome.result?.manifestHash,
+    error: outcome.result?.ok ? null : outcome.result?.summary || outcome.result?.output,
   });
   return persistScreenSyncResult(outcome.result, outcome.commandResults, outcome.status);
 }
@@ -2073,6 +3321,7 @@ function aiActionOutputFailed(output) {
 }
 
 async function handleAction(req) {
+  const startedAt = Date.now();
   let body;
   try {
     body = await req.json();
@@ -2083,6 +3332,15 @@ async function handleAction(req) {
   const id = String(body.action || "");
   const action = ACTIONS[id];
   if (!action) {
+    await webMetricsLedger.append({
+      kind: "agent.action",
+      operation: "agent.action",
+      ok: false,
+      status: 400,
+      latencyMs: Date.now() - startedAt,
+      action: id || "unknown",
+      error: "unknown action",
+    });
     return json({ ok: false, error: "未知或未允许的动作。" }, 400);
   }
   const sessionId = webSessionLedger.safeSessionId(body.sessionId);
@@ -2099,13 +3357,33 @@ async function handleAction(req) {
         contextUsed = built.contextUsed || null;
       }
     }
-  } catch (error) {
+    } catch (error) {
+    await webMetricsLedger.append({
+      kind: "agent.action",
+      operation: "agent.action",
+      ok: false,
+      status: 400,
+      latencyMs: Date.now() - startedAt,
+      action: id,
+      mode: action.mode,
+      error: error.message,
+    });
     return json({ ok: false, error: error.message }, 400);
   }
 
   if (action.mode === "terminal") {
     const ensure = await walnutRemote.ensureWalnutCli();
     if (!ensure.ok) {
+      await webMetricsLedger.append({
+        kind: "agent.action",
+        operation: "agent.action",
+        ok: false,
+        status: 500,
+        latencyMs: Date.now() - startedAt,
+        action: id,
+        mode: action.mode,
+        error: "walnut cli preflight failed",
+      });
       return json({
         ok: false,
         ...actionSummary(action, id),
@@ -2138,6 +3416,15 @@ async function handleAction(req) {
         ok: true,
       });
     }
+    await webMetricsLedger.append({
+      kind: "agent.action",
+      operation: "agent.action",
+      ok: true,
+      latencyMs: Date.now() - startedAt,
+      action: id,
+      mode: action.mode,
+      source: "terminal",
+    });
     return json(responseBody);
   }
 
@@ -2180,6 +3467,16 @@ async function handleAction(req) {
       contextUsed,
     });
   }
+  await webMetricsLedger.append({
+    kind: "agent.action",
+    operation: "agent.action",
+    ok: responseBody.ok,
+    latencyMs: Date.now() - startedAt,
+    action: id,
+    mode: action.mode,
+    source: contextUsed?.delegatedTo || "remote",
+    error: responseBody.ok ? null : output || result.output,
+  });
   return json(responseBody);
 }
 
@@ -2293,6 +3590,12 @@ const server = Bun.serve({
       return handleProjectMemory(url);
     }
 
+    if (url.pathname === "/api/metrics") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      const limit = Number(url.searchParams.get("limit") || 200);
+      return json(await webMetricsLedger.report(Number.isFinite(limit) ? limit : 200));
+    }
+
     if (url.pathname === "/api/session") {
       return handleSession(req, url);
     }
@@ -2351,7 +3654,6 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/screen/intent") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      if (previewOnly(url)) return previewOnlyJson();
       return screenManifestEditor.handleIntent(req);
     }
 
@@ -2385,11 +3687,6 @@ const server = Bun.serve({
     if (url.pathname === "/api/screen/repair-apply") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       return handleScreenRepairApply(req);
-    }
-
-    if (url.pathname === "/api/screen/ai-summary") {
-      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleScreenAiSummary(req);
     }
 
     if (url.pathname === "/api/screen/pixel-diff") {

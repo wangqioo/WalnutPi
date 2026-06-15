@@ -27,6 +27,7 @@ function cNumber(value) {
 }
 
 function componentText(component) {
+  if (component.type === "layout" || component.type === "pixelArt") return "";
   if (component.type === "generatedPage") return component.body;
   if (component.type === "statusCard") return component.value;
   if (component.type === "metricGroup") {
@@ -41,6 +42,8 @@ function componentText(component) {
 }
 
 function componentTitle(component) {
+  if (component.type === "layout") return "Layout";
+  if (component.type === "pixelArt") return "PixelArt";
   if (component.type === "generatedPage") return component.headline;
   if (component.type === "statusCard") return component.label;
   if (component.type === "metricGroup") return "Metrics";
@@ -81,8 +84,56 @@ function componentItems(component) {
 }
 
 function componentColor(component) {
+  if (component.type === "layout" || component.type === "pixelArt") return component.background;
   if (component.type === "generatedPage") return accentColor(component.accent || "cyan");
   return toneColor(componentTone(component));
+}
+
+function drawElementLine(element) {
+  const safeText = String(element.text || "").replace(/[|\r\n]+/g, " ").trim() || " ";
+  return [
+    element.kind,
+    cNumber(element.x),
+    cNumber(element.y),
+    cNumber(element.w),
+    cNumber(element.h),
+    element.color,
+    element.bg,
+    element.border,
+    cNumber(element.radius),
+    cNumber(element.width),
+    cNumber(element.value),
+    element.font,
+    safeText,
+  ].join("|");
+}
+
+function componentDrawElements(component) {
+  if (component.type === "pixelArt") return pixelArtPayload(component);
+  if (component.type !== "layout") return "";
+  return component.elements.map(drawElementLine).join("\n");
+}
+
+function pixelArtPayload(component) {
+  const header = [
+    "PIXELART",
+    cNumber(component.x),
+    cNumber(component.y),
+    cNumber(component.width),
+    cNumber(component.height),
+    cNumber(component.pixelSize),
+    cNumber(component.gap),
+  ].join("|");
+  const palette = Object.entries(component.palette)
+    .map(([symbol, color]) => `PAL|${symbol}|${color}`)
+    .join("\n");
+  const frames = component.frames
+    .map((frame, index) => [
+      `FRAME|${index}|${cNumber(frame.durationMs)}`,
+      ...frame.rows.map((row) => `ROW|${row}`),
+    ].join("\n"))
+    .join("\n");
+  return [header, palette, frames].filter(Boolean).join("\n");
 }
 
 function renderComponentArray(config) {
@@ -99,6 +150,7 @@ function renderComponentArray(config) {
         `    ${cString(componentKicker(component))},`,
         `    ${cString(componentBadge(component))},`,
         `    ${cString(componentItems(component))},`,
+        `    ${cString(componentDrawElements(component))},`,
         `    ${componentColor(component)},`,
         `    ${componentProgress(component)}`,
         "  }",
@@ -145,6 +197,7 @@ typedef struct {
     const char * kicker;
     const char * badge;
     const char * items;
+    const char * draw_elements;
     unsigned int tone_color;
     int progress;
 } walnut_screen_component_config_t;

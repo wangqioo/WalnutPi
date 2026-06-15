@@ -5,9 +5,11 @@ export const SCREEN_MAX_COMPONENTS = 6;
 export const SCREEN_TEXT_LIMIT = 48;
 export const SCREEN_LINE_LIMIT = 72;
 export const SCREEN_TONES = new Set(["ok", "warn", "error"]);
-export const SCREEN_COMPONENT_TYPES = new Set(["statusCard", "metricGroup", "list", "progress", "alert", "textPage", "generatedPage"]);
+export const SCREEN_COMPONENT_TYPES = new Set(["statusCard", "metricGroup", "list", "progress", "alert", "textPage", "generatedPage", "layout", "pixelArt"]);
 export const SCREEN_GENERATED_STYLES = new Set(["panel", "comic", "music", "network", "task", "status", "alert", "minimal"]);
 export const SCREEN_ACCENTS = new Set(["cyan", "green", "amber", "red", "blue", "pink", "paper"]);
+export const SCREEN_DRAW_KINDS = new Set(["rect", "label", "bar", "line", "circle"]);
+export const SCREEN_FONT_SIZES = new Set(["small", "body", "title"]);
 
 export function stableStringify(value) {
   if (Array.isArray(value)) {
@@ -77,6 +79,155 @@ export function cleanProgress(value, field) {
     throw new Error(`${field} must be between 0 and 100`);
   }
   return Math.round(progress);
+}
+
+function cleanInteger(value, field, low, high, fallback = 0) {
+  const number = value === undefined || value === null || value === "" ? fallback : Number(value);
+  if (!Number.isFinite(number)) throw new Error(`${field} must be a number`);
+  const rounded = Math.round(number);
+  if (rounded < low || rounded > high) throw new Error(`${field} must be between ${low} and ${high}`);
+  return rounded;
+}
+
+function coerceInteger(value, low, high, fallback = 0) {
+  const number = value === undefined || value === null || value === "" ? fallback : Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(low, Math.min(high, Math.round(number)));
+}
+
+function cleanHexColor(value, field, fallback = "0xffffff") {
+  const color = String(value || fallback).trim().toLowerCase();
+  if (!/^0x[0-9a-f]{6}$/.test(color)) throw new Error(`${field} must be a 0xRRGGBB color`);
+  return color;
+}
+
+function cleanDrawKind(value, field) {
+  const kind = String(value || "").trim();
+  if (!SCREEN_DRAW_KINDS.has(kind)) throw new Error(`${field} must be one of ${[...SCREEN_DRAW_KINDS].join(", ")}`);
+  return kind;
+}
+
+function cleanFontSize(value, field) {
+  const size = String(value || "body").trim().toLowerCase();
+  if (!SCREEN_FONT_SIZES.has(size)) throw new Error(`${field} must be small, body, or title`);
+  return size;
+}
+
+function cleanDrawElements(values, field) {
+  if (!Array.isArray(values)) throw new Error(`${field} must be an array`);
+  if (values.length === 0 || values.length > 24) throw new Error(`${field} must contain 1-24 items`);
+  const cleaned = values.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`${field}[${index}] must be an object`);
+    const kind = cleanDrawKind(item.kind, `${field}[${index}].kind`);
+    const fallbackW = kind === "line" ? 1 : 80;
+    const fallbackH = kind === "line" ? 1 : 32;
+    const safeInset = kind === "rect" && index === 0 ? 0 : 8;
+    const x = coerceInteger(item.x, safeInset, 479 - safeInset, safeInset);
+    const y = coerceInteger(item.y, safeInset, 319 - safeInset, safeInset);
+    const minW = kind === "label" ? 42 : kind === "bar" ? 36 : kind === "circle" ? 10 : 1;
+    const minH = kind === "label" ? 18 : kind === "bar" ? 8 : kind === "circle" ? 10 : 1;
+    const maxW = Math.max(minW, 480 - safeInset - x);
+    const maxH = Math.max(minH, 320 - safeInset - y);
+    const w = coerceInteger(item.w, minW, maxW, fallbackW);
+    const h = coerceInteger(item.h, minH, maxH, fallbackH);
+    const element = {
+      kind,
+      x,
+      y,
+      w,
+      h,
+      color: cleanHexColor(item.color, `${field}[${index}].color`, kind === "rect" ? "0x172329" : "0xf4f1df"),
+      bg: cleanHexColor(item.bg, `${field}[${index}].bg`, "0x000000"),
+      border: cleanHexColor(item.border, `${field}[${index}].border`, "0x000000"),
+      radius: cleanInteger(item.radius, `${field}[${index}].radius`, 0, 40, 0),
+      width: cleanInteger(item.width, `${field}[${index}].width`, 0, 12, kind === "line" ? 2 : 0),
+      value: cleanInteger(item.value, `${field}[${index}].value`, 0, 100, 0),
+      font: cleanFontSize(item.font, `${field}[${index}].font`),
+      text: cleanOptionalText(item.text || "", `${field}[${index}].text`, 64),
+    };
+    if (element.x + element.w > 480) throw new Error(`${field}[${index}] exceeds screen width`);
+    if (element.y + element.h > 320) throw new Error(`${field}[${index}] exceeds screen height`);
+    if (kind === "label" && !element.text) throw new Error(`${field}[${index}].text is required for labels`);
+    return element;
+  });
+  assertDrawElementSpacing(cleaned, field);
+  return cleaned;
+}
+
+function cleanPixelSymbol(value, field) {
+  const symbol = String(value || "").trim();
+  if (!/^[A-Za-z0-9.*+#@$%&!?=-]$/.test(symbol)) {
+    throw new Error(`${field} must be a single ASCII pixel symbol`);
+  }
+  return symbol;
+}
+
+function cleanPixelPalette(value, field) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${field} must be an object`);
+  const entries = Object.entries(value).slice(0, 12).map(([symbol, color], index) => [
+    cleanPixelSymbol(symbol, `${field}.${index}.symbol`),
+    cleanHexColor(color, `${field}.${symbol}`),
+  ]);
+  if (entries.length === 0) throw new Error(`${field} must define at least one color`);
+  return Object.fromEntries(entries);
+}
+
+function cleanPixelRows(rows, field, palette, width, height) {
+  if (!Array.isArray(rows)) throw new Error(`${field} must be an array`);
+  if (rows.length !== height) throw new Error(`${field} must contain exactly ${height} rows`);
+  const allowed = new Set([".", " ", ...Object.keys(palette)]);
+  return rows.map((row, index) => {
+    const text = String(row || "");
+    if ([...text].length !== width) throw new Error(`${field}[${index}] must be exactly ${width} symbols`);
+    for (const symbol of text) {
+      if (!allowed.has(symbol)) throw new Error(`${field}[${index}] contains unknown pixel symbol ${symbol}`);
+    }
+    return text.replace(/ /g, ".");
+  });
+}
+
+function cleanPixelFrames(value, field, palette, width, height) {
+  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
+  if (value.length === 0 || value.length > 8) throw new Error(`${field} must contain 1-8 frames`);
+  return value.map((frame, index) => {
+    const item = frame && typeof frame === "object" && !Array.isArray(frame) ? frame : {};
+    return {
+      durationMs: cleanInteger(item.durationMs, `${field}[${index}].durationMs`, 80, 5000, 500),
+      rows: cleanPixelRows(item.rows || [], `${field}[${index}].rows`, palette, width, height),
+    };
+  });
+}
+
+function drawOverlapRatio(a, b) {
+  const left = Math.max(a.x, b.x);
+  const top = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.w, b.x + b.w);
+  const bottom = Math.min(a.y + a.h, b.y + b.h);
+  if (right <= left || bottom <= top) return 0;
+  const overlap = (right - left) * (bottom - top);
+  const smaller = Math.min(a.w * a.h, b.w * b.h);
+  return smaller > 0 ? overlap / smaller : 0;
+}
+
+function elementCanLayer(top, bottom) {
+  if (bottom.kind === "rect" && ["label", "bar", "circle", "line"].includes(top.kind)) return true;
+  if (bottom.kind === "bar" && top.kind === "label") return true;
+  if (top.kind === "label" && bottom.kind === "label") return true;
+  return false;
+}
+
+function assertDrawElementSpacing(elements, field) {
+  const foreground = elements.filter((element) => element.kind !== "rect");
+  for (let i = 0; i < foreground.length; i += 1) {
+    for (let j = i + 1; j < foreground.length; j += 1) {
+      const a = foreground[i];
+      const b = foreground[j];
+      if (elementCanLayer(a, b) || elementCanLayer(b, a)) continue;
+      if (drawOverlapRatio(a, b) > 0.18) {
+        throw new Error(`${field} foreground elements overlap too much; leave more space between labels, bars, and indicators`);
+      }
+    }
+  }
 }
 
 export function cleanGeneratedStyle(value, field = "generatedPage.style") {
@@ -185,6 +336,50 @@ function cleanScreenComponent(component, field) {
       progress: cleanProgress(component.progress ?? 64, `${field}.progress`),
       items: cleanGeneratedItems(component.items, `${field}.items`),
     };
+  }
+
+  if (type === "layout") {
+    return {
+      type,
+      background: cleanHexColor(component.background || "0x05080b", `${field}.background`, "0x05080b"),
+      elements: cleanDrawElements(component.elements || [], `${field}.elements`),
+    };
+  }
+
+  if (type === "pixelArt") {
+    const width = cleanInteger(component.width, `${field}.width`, 8, 64, 48);
+    const height = cleanInteger(component.height, `${field}.height`, 8, 32, 20);
+    const pixelSize = cleanInteger(component.pixelSize, `${field}.pixelSize`, 1, 16, 8);
+    const gap = cleanInteger(component.gap, `${field}.gap`, 0, 4, 1);
+    const palette = cleanPixelPalette(component.palette || {}, `${field}.palette`);
+    const x = cleanInteger(component.x, `${field}.x`, 0, 479, 24);
+    const y = cleanInteger(component.y, `${field}.y`, 0, 319, 28);
+    const drawnWidth = width * pixelSize + Math.max(0, width - 1) * gap;
+    const drawnHeight = height * pixelSize + Math.max(0, height - 1) * gap;
+    if (x + drawnWidth > 480) throw new Error(`${field} pixel grid exceeds 480px screen width`);
+    if (y + drawnHeight > 320) throw new Error(`${field} pixel grid exceeds 320px screen height`);
+    const cleaned = {
+      type,
+      background: cleanHexColor(component.background || "0x05080b", `${field}.background`, "0x05080b"),
+      x,
+      y,
+      width,
+      height,
+      pixelSize,
+      gap,
+      palette,
+      frames: cleanPixelFrames(component.frames || [], `${field}.frames`, palette, width, height),
+    };
+    if (component.material && typeof component.material === "object" && !Array.isArray(component.material)) {
+      cleaned.material = {
+        source: cleanText(component.material.source || "public-material", `${field}.material.source`, 32),
+        query: cleanText(component.material.query || "", `${field}.material.query`, 120),
+        title: cleanText(component.material.title || "", `${field}.material.title`, 120),
+        url: cleanText(component.material.url || "", `${field}.material.url`, 500),
+        license: cleanText(component.material.license || "", `${field}.material.license`, 80),
+      };
+    }
+    return cleaned;
   }
 
   return {

@@ -120,7 +120,7 @@ Install the systemd unit:
 
 ```bash
 cd /home/pi/projects/WalnutPi
-sudo ./scripts/install-framebuffer-status.sh
+sudo ./archive/install-scripts/install-framebuffer-status.sh
 ```
 
 Start the status screen:

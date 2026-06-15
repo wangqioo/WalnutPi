@@ -88,6 +88,68 @@ function Assert-PreDeviceSyncRejection {
     Assert-True (-not $Result.Data.screenFrameUrl) "$Label unexpectedly has screenFrameUrl."
 }
 
+function Get-LayoutCardLikeRects {
+    param([object]$Manifest)
+
+    $rects = @()
+    foreach ($page in @($Manifest.pages)) {
+        foreach ($component in @($page.components)) {
+            if ($component.type -ne "layout") {
+                continue
+            }
+            foreach ($element in @($component.elements)) {
+                if ($element.kind -ne "rect") {
+                    continue
+                }
+                $x = [int]$element.x
+                $y = [int]$element.y
+                $w = [int]$element.w
+                $h = [int]$element.h
+                $radius = [int]$element.radius
+                $width = [int]$element.width
+                $area = $w * $h
+                $fullBackground = $x -le 2 -and $y -le 2 -and $w -ge 470 -and $h -ge 310
+                $hasBoxStyle = $width -gt 0 -or $radius -ge 4
+                if (-not $fullBackground -and $hasBoxStyle -and $area -ge 3200 -and $area -le 130000) {
+                    $rects += $element
+                }
+            }
+        }
+    }
+    return $rects
+}
+
+function Get-FirstPixelArt {
+    param([object]$Manifest)
+
+    foreach ($page in @($Manifest.pages)) {
+        foreach ($component in @($page.components)) {
+            if ($component.type -eq "pixelArt") {
+                return $component
+            }
+        }
+    }
+    return $null
+}
+
+function Assert-PixelCanvas {
+    param(
+        [object]$Manifest,
+        [string]$Label
+    )
+
+    $pixelArt = Get-FirstPixelArt $Manifest
+    Assert-True ($null -ne $pixelArt) "$Label should generate a pixelArt component."
+    $drawnWidth = ([int]$pixelArt.width * [int]$pixelArt.pixelSize) + ([Math]::Max(0, [int]$pixelArt.width - 1) * [int]$pixelArt.gap)
+    $drawnHeight = ([int]$pixelArt.height * [int]$pixelArt.pixelSize) + ([Math]::Max(0, [int]$pixelArt.height - 1) * [int]$pixelArt.gap)
+    Assert-True ([int]$pixelArt.x -eq 0) "$Label pixel canvas should start at x=0."
+    Assert-True ([int]$pixelArt.y -eq 0) "$Label pixel canvas should start at y=0."
+    Assert-True ($drawnWidth -eq 480) "$Label pixel canvas should fill 480px width, got $drawnWidth."
+    Assert-True ($drawnHeight -eq 320) "$Label pixel canvas should fill 320px height, got $drawnHeight."
+    Assert-True (@($pixelArt.frames).Count -ge 2) "$Label should include animation frames."
+    Assert-True ((Get-LayoutCardLikeRects $Manifest).Count -eq 0) "$Label unexpectedly contains card-like rounded rectangles."
+}
+
 function Wait-HttpReady {
     param(
         [string]$Uri,
@@ -166,14 +228,29 @@ try {
     Assert-True ($template.Data.failedStage -eq "preview") "nossh template should return preview block."
     Assert-True ((Get-Content -LiteralPath $manifestPath -Raw) -eq $templateManifestBefore) "nossh template unexpectedly modified the manifest."
 
-    $intentManifestBefore = Get-Content -LiteralPath $manifestPath -Raw
     $intent = Invoke-JsonPost "$baseUri/api/screen/intent?nossh" @{
         manifestHash = $manifest.manifestHash
-        text = "标题 WalnutPi"
+        text = "生成一个粉色猫猫IP眨眼动画，加时间"
     }
-    Assert-Status $intent 403 "nossh intent"
-    Assert-True ($intent.Data.failedStage -eq "preview") "nossh intent should return preview block."
-    Assert-True ((Get-Content -LiteralPath $manifestPath -Raw) -eq $intentManifestBefore) "nossh intent unexpectedly modified the manifest."
+    Assert-Status $intent 200 "nossh intent"
+    Assert-True ($intent.Data.ok -eq $true) "nossh intent should update the local preview manifest."
+    Assert-PixelCanvas $intent.Data.manifest "IP animation intent"
+
+    $audioIntent = Invoke-JsonPost "$baseUri/api/screen/intent?nossh" @{
+        manifestHash = $intent.Data.manifestHash
+        text = "生成一个音乐频谱小屏，有播放状态、音量和节奏条，不要卡片"
+    }
+    Assert-Status $audioIntent 200 "nossh audio pixel intent"
+    Assert-True ($audioIntent.Data.ok -eq $true) "nossh audio pixel intent should update the local preview manifest."
+    Assert-PixelCanvas $audioIntent.Data.manifest "audio spectrum intent"
+
+    $weatherIntent = Invoke-JsonPost "$baseUri/api/screen/intent?nossh" @{
+        manifestHash = $audioIntent.Data.manifestHash
+        text = "生成一个天气小屏，参考像素画风，只要480x320像素复刻，不要卡片"
+    }
+    Assert-Status $weatherIntent 200 "nossh weather pixel intent"
+    Assert-True ($weatherIntent.Data.ok -eq $true) "nossh weather pixel intent should update the local preview manifest."
+    Assert-PixelCanvas $weatherIntent.Data.manifest "weather pixel intent"
 
     $terminal = Invoke-JsonGet "$baseUri/terminal?nossh"
     Assert-Status $terminal 403 "nossh terminal"

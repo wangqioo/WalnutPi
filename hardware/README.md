@@ -137,7 +137,7 @@ Known audio facts from experiments:
 See:
 
 ```text
-audio/airpods-linux/README.md
+archive/experiments/audio/airpods-linux/README.md
 ```
 
 ## Bluetooth

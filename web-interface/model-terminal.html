@@ -63,7 +63,8 @@
 
       .app {
         display: grid;
-        grid-template-columns: minmax(320px, 390px) minmax(0, 1fr);
+        grid-template-columns: minmax(360px, 720px);
+        justify-content: center;
         width: 100%;
         height: 100%;
         background:
@@ -77,16 +78,16 @@
         min-width: 0;
         min-height: 0;
         grid-template-rows: auto auto minmax(0, 1fr) auto;
-        border-right: 1px solid var(--line);
+        border-inline: 1px solid var(--line);
         background: rgba(11, 13, 12, 0.86);
-        box-shadow: 18px 0 48px rgba(0, 0, 0, 0.18);
+        box-shadow: 0 18px 64px rgba(0, 0, 0, 0.22);
         overflow: hidden;
       }
 
       .assistant-head {
         display: grid;
         gap: 12px;
-        padding: 18px 18px 14px;
+        padding: 16px 18px 12px;
         border-bottom: 1px solid var(--line);
       }
 
@@ -173,9 +174,9 @@
       }
 
       .screen-workflow {
-        --preview-height: clamp(150px, 30dvh, 238px);
+        --preview-height: clamp(210px, 38dvh, 320px);
         display: grid;
-        gap: 10px;
+        gap: 12px;
         border-bottom: 1px solid var(--line);
         padding: 12px 16px;
         background: rgba(240, 239, 231, 0.035);
@@ -222,6 +223,7 @@
       }
 
       .screen-preview-frame {
+        position: relative;
         width: min(100%, calc(var(--preview-height) * 1.5));
         height: var(--preview-height);
         justify-self: center;
@@ -233,15 +235,25 @@
         box-shadow: inset 0 0 0 1px rgba(240, 239, 231, 0.04);
       }
 
-      .lvgl-preview {
+      .screen-preview-frame::after {
+        position: absolute;
+        inset: 0;
+        display: none;
+        place-items: center;
+        background:
+          repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 8px),
+          rgba(3, 4, 5, 0.72);
+        color: #f4f1df;
+        font-size: 12px;
+        font-weight: 760;
+        letter-spacing: 0;
+        content: attr(data-state);
+        pointer-events: none;
+      }
+
+      .screen-preview-frame.is-loading::after,
+      .screen-preview-frame.is-error::after {
         display: grid;
-        width: 100%;
-        height: 100%;
-        grid-template-rows: 20% minmax(0, 1fr);
-        gap: 5%;
-        padding: 4.4%;
-        background: #05080b;
-        color: var(--paper);
       }
 
       .lvgl-preview-image {
@@ -251,367 +263,6 @@
         object-fit: contain;
         image-rendering: auto;
         background: #05080b;
-      }
-
-      .lvgl-preview.is-generated {
-        position: relative;
-        display: block;
-        overflow: hidden;
-        padding: 0;
-        background: #101417;
-        color: #f8f1d7;
-      }
-
-      .lvgl-preview.is-generated::before {
-        position: absolute;
-        inset: 0;
-        background:
-          radial-gradient(circle at 18% 22%, rgba(255, 255, 255, 0.16) 0 1px, transparent 2px),
-          radial-gradient(circle at 82% 18%, rgba(255, 255, 255, 0.12), transparent 22%),
-          linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 42%);
-        background-size: 11px 11px, auto, auto;
-        content: "";
-        pointer-events: none;
-      }
-
-      .lvgl-preview.is-generated.is-style-comic {
-        background: #f7e9b9;
-        color: #111111;
-      }
-
-      .lvgl-preview.is-generated.is-style-music {
-        background:
-          linear-gradient(140deg, rgba(255, 111, 179, 0.22), transparent 35%),
-          #100f17;
-        color: #fff4fb;
-      }
-
-      .lvgl-preview.is-generated.is-style-network {
-        background:
-          linear-gradient(90deg, rgba(103, 214, 255, 0.1) 1px, transparent 1px),
-          linear-gradient(0deg, rgba(103, 214, 255, 0.08) 1px, transparent 1px),
-          #071014;
-        background-size: 24px 24px;
-      }
-
-      .lvgl-preview.is-generated.is-style-minimal {
-        background: #f1efe4;
-        color: #171717;
-      }
-
-      .generated-shell {
-        position: relative;
-        z-index: 1;
-        display: grid;
-        height: 100%;
-        grid-template-rows: auto minmax(0, 1fr) auto;
-        gap: 5px;
-        padding: 10px 12px 9px;
-      }
-
-      .generated-top {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 10px;
-        min-width: 0;
-      }
-
-      .generated-kicker,
-      .generated-badge {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .generated-kicker {
-        max-width: 260px;
-        color: color-mix(in srgb, var(--generated-accent, #67d6ff) 80%, currentColor);
-        font-size: 8px;
-        font-weight: 900;
-        text-transform: uppercase;
-      }
-
-      .generated-badge {
-        max-width: 86px;
-        border: 2px solid currentColor;
-        border-radius: 5px;
-        padding: 2px 6px;
-        background: var(--generated-accent, #67d6ff);
-        color: #0b0f11;
-        font-size: 8px;
-        font-weight: 900;
-      }
-
-      .generated-main {
-        position: relative;
-        display: grid;
-        min-height: 0;
-        align-content: center;
-        gap: 5px;
-      }
-
-      .generated-headline {
-        max-width: 250px;
-        overflow: hidden;
-        color: currentColor;
-        font-size: 21px;
-        font-weight: 950;
-        line-height: 0.95;
-        text-transform: uppercase;
-        text-wrap: balance;
-      }
-
-      .generated-body {
-        max-width: 245px;
-        overflow: hidden;
-        border: 2px solid rgba(255, 255, 255, 0.16);
-        border-radius: 7px;
-        padding: 6px 8px;
-        background: rgba(255, 255, 255, 0.08);
-        color: color-mix(in srgb, currentColor 82%, transparent);
-        font-size: 9px;
-        font-weight: 720;
-        line-height: 1.18;
-      }
-
-      .generated-progress {
-        width: min(210px, 82%);
-        height: 8px;
-        overflow: hidden;
-        border: 2px solid currentColor;
-        border-radius: 999px;
-        background: rgba(0, 0, 0, 0.16);
-      }
-
-      .generated-progress-fill {
-        width: var(--generated-progress, 64%);
-        height: 100%;
-        background: var(--generated-accent, #67d6ff);
-      }
-
-      .generated-items {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 5px;
-      }
-
-      .generated-item {
-        min-width: 0;
-        border: 2px solid rgba(255, 255, 255, 0.16);
-        border-radius: 6px;
-        padding: 4px 6px;
-        background: rgba(0, 0, 0, 0.15);
-      }
-
-      .generated-item-label,
-      .generated-item-value {
-        display: block;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .generated-item-label {
-        color: color-mix(in srgb, currentColor 62%, transparent);
-        font-size: 6px;
-        font-weight: 900;
-        text-transform: uppercase;
-      }
-
-      .generated-item-value {
-        padding-top: 1px;
-        color: currentColor;
-        font-size: 9px;
-        font-weight: 900;
-      }
-
-      .lvgl-preview.is-style-comic .generated-shell {
-        padding: 10px 12px;
-      }
-
-      .lvgl-preview.is-style-comic .generated-main {
-        min-height: 0;
-        border: 3px solid #111111;
-        border-radius: 6px;
-        padding: 10px 12px 8px;
-        background:
-          radial-gradient(circle at 70% 35%, rgba(255, 200, 87, 0.55), transparent 25%),
-          #fff6cf;
-        box-shadow: 5px 5px 0 #111111;
-      }
-
-      .lvgl-preview.is-style-comic .generated-headline {
-        text-shadow: 1px 1px 0 #ffffff, 3px 3px 0 var(--generated-accent, #ffc857);
-      }
-
-      .lvgl-preview.is-style-comic .generated-body {
-        width: fit-content;
-        max-width: 220px;
-        border: 2px solid #111111;
-        border-radius: 999px;
-        background: #ffffff;
-        color: #111111;
-      }
-
-      .lvgl-preview.is-style-comic .generated-item,
-      .lvgl-preview.is-style-comic .generated-progress {
-        border-color: #111111;
-        background: #ffffff;
-      }
-
-      .lvgl-preview.is-style-minimal .generated-body,
-      .lvgl-preview.is-style-minimal .generated-item {
-        border-color: rgba(0, 0, 0, 0.18);
-        background: rgba(255, 255, 255, 0.58);
-      }
-
-      .lvgl-header {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) auto;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .lvgl-brand {
-        display: grid;
-        min-width: 0;
-        gap: 2px;
-      }
-
-      .lvgl-title {
-        overflow: hidden;
-        font-size: 18px;
-        font-weight: 800;
-        line-height: 1;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .lvgl-subtitle {
-        overflow: hidden;
-        color: var(--muted);
-        font-size: 10px;
-        line-height: 1;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .lvgl-tabs {
-        display: grid;
-        grid-template-columns: repeat(4, 34px);
-        gap: 5px;
-      }
-
-      .lvgl-tab {
-        display: grid;
-        height: 14px;
-        place-items: center;
-        border-radius: 4px;
-        background: #33434a;
-        color: #05080b;
-        font-size: 7px;
-        font-weight: 800;
-      }
-
-      .lvgl-tab:first-child {
-        background: var(--cyan);
-      }
-
-      .lvgl-body {
-        display: grid;
-        grid-template-columns: 42% minmax(0, 1fr);
-        align-items: center;
-        gap: 7%;
-        min-height: 0;
-      }
-
-      .lvgl-core {
-        display: grid;
-        width: min(92%, 144px);
-        aspect-ratio: 1;
-        place-items: center;
-        justify-self: center;
-        border: 8px solid #172329;
-        border-top-color: var(--green);
-        border-right-color: var(--cyan);
-        border-radius: 50%;
-        background:
-          radial-gradient(circle, #172329 0 54%, transparent 56%),
-          conic-gradient(var(--green) var(--screen-progress, 72%), #172329 0);
-        color: var(--paper);
-        font-size: 17px;
-        font-weight: 800;
-        line-height: 1.05;
-        text-align: center;
-      }
-
-      .lvgl-core.is-warn {
-        border-top-color: var(--yellow);
-        border-right-color: var(--yellow);
-        background:
-          radial-gradient(circle, #172329 0 54%, transparent 56%),
-          conic-gradient(var(--yellow) var(--screen-progress, 72%), #172329 0);
-      }
-
-      .lvgl-core.is-error {
-        border-top-color: var(--red);
-        border-right-color: var(--red);
-        background:
-          radial-gradient(circle, #172329 0 54%, transparent 56%),
-          conic-gradient(var(--red) var(--screen-progress, 72%), #172329 0);
-      }
-
-      .lvgl-metrics {
-        display: grid;
-        gap: 8px;
-        min-width: 0;
-      }
-
-      .lvgl-metric {
-        min-width: 0;
-        border: 1px solid rgba(120, 200, 193, 0.52);
-        border-radius: 6px;
-        padding: 7px 9px;
-        background: #10191d;
-        color: var(--paper);
-        font-size: 11px;
-        font-weight: 680;
-        letter-spacing: 0;
-      }
-
-      .lvgl-metric.is-warn {
-        border-color: rgba(255, 200, 87, 0.56);
-      }
-
-      .lvgl-metric.is-error {
-        border-color: rgba(255, 107, 107, 0.56);
-      }
-
-      .lvgl-metric-title {
-        display: block;
-        overflow: hidden;
-        color: var(--muted);
-        font-size: 7px;
-        line-height: 1.1;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .lvgl-metric-value {
-        display: block;
-        overflow: hidden;
-        padding-top: 2px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .lvgl-alert {
-        border-color: rgba(255, 200, 87, 0.62);
-      }
-
-      .lvgl-alert.is-error {
-        border-color: rgba(255, 107, 107, 0.62);
       }
 
       .screen-editor {
@@ -720,7 +371,36 @@
         font-size: 11px;
         line-height: 1.35;
         text-overflow: ellipsis;
-        white-space: nowrap;
+        white-space: normal;
+      }
+
+      .generation-steps {
+        display: grid;
+        gap: 4px;
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
+      .generation-step {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .generation-step::before {
+        width: 7px;
+        height: 7px;
+        flex: 0 0 auto;
+        border-radius: 999px;
+        background: var(--cyan);
+        content: "";
+      }
+
+      .generation-step.is-failed::before {
+        background: var(--yellow);
       }
 
       .sync-button {
@@ -741,6 +421,10 @@
       .sync-button:focus-visible {
         background: #98ddd8;
         outline: none;
+      }
+
+      .showcase-pane {
+        display: none !important;
       }
 
       .sync-button:disabled {
@@ -1095,51 +779,6 @@
         border-color: rgba(214, 107, 101, 0.36);
       }
 
-      .quick-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 8px;
-        border-top: 1px solid var(--line);
-        padding: 12px 16px;
-      }
-
-      .quick-action {
-        display: grid;
-        min-width: 0;
-        min-height: 48px;
-        grid-template-columns: 28px minmax(0, 1fr);
-        align-items: center;
-        gap: 8px;
-        border: 1px solid rgba(240, 239, 231, 0.13);
-        border-radius: 8px;
-        padding: 8px;
-        background: rgba(240, 239, 231, 0.055);
-        text-align: left;
-      }
-
-      .quick-action:hover,
-      .quick-action:focus-visible {
-        border-color: rgba(208, 160, 68, 0.72);
-        background: rgba(208, 160, 68, 0.11);
-        outline: none;
-      }
-
-      .quick-icon {
-        display: grid;
-        width: 28px;
-        height: 28px;
-        place-items: center;
-        border-radius: 6px;
-        background: rgba(120, 200, 193, 0.12);
-        color: var(--cyan);
-      }
-
-      .quick-action:nth-child(2n) .quick-icon {
-        background: rgba(208, 160, 68, 0.13);
-        color: var(--gold);
-      }
-
-      .quick-icon svg,
       .icon-button svg,
       .send-button svg {
         width: 18px;
@@ -1149,16 +788,6 @@
         stroke-linecap: round;
         stroke-linejoin: round;
         stroke-width: 2;
-      }
-
-      .quick-title {
-        overflow: hidden;
-        color: var(--paper);
-        font-size: 12px;
-        font-weight: 650;
-        letter-spacing: 0;
-        text-overflow: ellipsis;
-        white-space: nowrap;
       }
 
       .composer {
@@ -1393,7 +1022,7 @@
 
         .app {
           grid-template-columns: 1fr;
-          grid-template-rows: minmax(0, 100dvh) minmax(380px, 54vh);
+          grid-template-rows: minmax(0, 100dvh);
           min-height: 100dvh;
           height: auto;
         }
@@ -1403,10 +1032,6 @@
           border-bottom: 1px solid var(--line);
           height: 100dvh;
           grid-template-rows: auto auto minmax(0, 1fr) auto;
-        }
-
-        .showcase-pane {
-          min-height: 420px;
         }
 
         .assistant-head {
@@ -1430,11 +1055,6 @@
           max-width: 100%;
         }
 
-        .quick-grid {
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          padding: 10px 12px;
-        }
-
         .composer {
           padding: 10px 12px 12px;
         }
@@ -1442,15 +1062,11 @@
 
       @media (max-width: 620px) {
         .app {
-          grid-template-rows: minmax(0, 100dvh) minmax(340px, 52vh);
+          grid-template-rows: minmax(0, 100dvh);
         }
 
         .assistant-pane {
           grid-template-rows: auto auto minmax(0, 1fr) auto;
-        }
-
-        .showcase-pane {
-          min-height: 360px;
         }
 
         .brand-row {
@@ -1498,14 +1114,6 @@
 
         .template-strip {
           grid-template-columns: 1fr;
-        }
-
-        .quick-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .quick-action {
-          min-height: 42px;
         }
 
         .message {
@@ -1596,7 +1204,6 @@
 
           <div class="screen-preview-frame">
             <img class="lvgl-preview-image" id="screenPreviewImage" alt="LVGL 小屏预览" />
-            <div class="lvgl-preview" id="screenPreview" hidden></div>
           </div>
 
           <div class="screen-editor" aria-label="小屏界面编辑" hidden>
@@ -1606,9 +1213,9 @@
                 class="intent-input"
                 id="screenIntentInput"
                 type="text"
-                maxlength="72"
+                maxlength="240"
                 autocomplete="off"
-                placeholder="例如：标题改成 早安核桃派"
+                placeholder="例如：粉色猫猫IP眨眼像素动画，铺满480x320小屏"
               />
               <button class="intent-submit" id="screenIntentSubmit" type="submit" aria-label="更新小屏预览">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1619,12 +1226,9 @@
             </form>
           </div>
 
-          <div class="workflow-actions" hidden>
+          <div class="workflow-actions">
             <div class="sync-summary" id="syncSummary">Web 端已准备预览。</div>
             <div class="workflow-action-buttons">
-              <button class="sync-button secondary-sync-button" id="aiSummaryButton" type="button" disabled>
-                <span>生成 AI 总结</span>
-              </button>
               <button class="sync-button" id="syncScreen" type="button" disabled>
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M12 3v12" />
@@ -1707,10 +1311,6 @@
                 <span class="diagnostic-label">repair proposal</span>
                 <pre class="diagnostic-output" id="diagRepairProposal">等待同步。</pre>
               </div>
-              <div class="diagnostic-section">
-                <span class="diagnostic-label">ai summary</span>
-                <pre class="diagnostic-output" id="diagAiSummary">等待同步。</pre>
-              </div>
               <div class="diagnostic-section" id="diagDeviceFrameSection" hidden>
                 <span class="diagnostic-label">device frame</span>
                 <div class="device-frame-box">
@@ -1732,50 +1332,11 @@
           </article>
         </div>
 
-        <div class="quick-grid" aria-label="示例请求" hidden>
-          <button class="quick-action" type="button" data-prompt="我想知道核桃派现在还好吗">
-            <span class="quick-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M4 19V5" /><path d="M4 19h16" /><path d="M8 16v-5" /><path d="M12 16V8" /><path d="M16 16v-3" /></svg>
-            </span>
-            <span class="quick-title">核桃派状态</span>
-          </button>
-          <button class="quick-action" type="button" data-prompt="帮我看一下网络">
-            <span class="quick-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M5 13a10 10 0 0 1 14 0" /><path d="M8.5 16.5a5 5 0 0 1 7 0" /><path d="M12 20h.01" /><path d="M2 9a15 15 0 0 1 20 0" /></svg>
-            </span>
-            <span class="quick-title">网络检查</span>
-          </button>
-          <button class="quick-action" type="button" data-prompt="我想接一个 I2C 传感器">
-            <span class="quick-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M9 3v18" /><path d="M15 3v18" /><path d="M3 9h18" /><path d="M3 15h18" /><circle cx="9" cy="9" r="1" /><circle cx="15" cy="15" r="1" /></svg>
-            </span>
-            <span class="quick-title">I2C 接线</span>
-          </button>
-          <button class="quick-action" type="button" data-prompt="今天记了什么">
-            <span class="quick-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v18H6z" /><path d="M14 3v5h5" /><path d="M9 13h6" /><path d="M9 17h6" /></svg>
-            </span>
-            <span class="quick-title">今天笔记</span>
-          </button>
-          <button class="quick-action" type="button" data-prompt="记一下今天调好了 Wi-Fi">
-            <span class="quick-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v18H6z" /><path d="M14 3v5h5" /><path d="M9 13h6" /><path d="M9 17h6" /></svg>
-            </span>
-            <span class="quick-title">记一下</span>
-          </button>
-          <button class="quick-action" type="button" data-prompt="上海天气怎么样">
-            <span class="quick-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24"><path d="M12 2v3" /><path d="M12 19v3" /><path d="m4.9 4.9 2.1 2.1" /><path d="m17 17 2.1 2.1" /><path d="M2 12h3" /><path d="M19 12h3" /><path d="m4.9 19.1 2.1-2.1" /><path d="m17 7 2.1-2.1" /><circle cx="12" cy="12" r="4" /></svg>
-            </span>
-            <span class="quick-title">上海天气</span>
-          </button>
-        </div>
-
         <form class="composer" id="composer">
           <input
             id="assistantInput"
             autocomplete="off"
-            placeholder="你想让核桃派做什么？"
+            placeholder="描述你要生成的480x320像素小屏页面"
             type="text"
           />
           <button class="send-button" type="submit" aria-label="发送">
@@ -1787,7 +1348,7 @@
         </form>
       </section>
 
-      <section class="showcase-pane" aria-label="核桃派展示">
+      <section class="showcase-pane" aria-label="核桃派展示" hidden>
         <div id="stage"></div>
 
         <div class="screen" id="screen">
@@ -1888,11 +1449,10 @@
       const composer = document.querySelector("#composer");
       const assistantInput = document.querySelector("#assistantInput");
       const panel = document.querySelector("#panel");
-      const screenPreview = document.querySelector("#screenPreview");
+      const screenPreviewFrame = document.querySelector(".screen-preview-frame");
       const screenPreviewImage = document.querySelector("#screenPreviewImage");
       const syncState = document.querySelector("#syncState");
       const syncSummary = document.querySelector("#syncSummary");
-      const aiSummaryButton = document.querySelector("#aiSummaryButton");
       const syncScreen = document.querySelector("#syncScreen");
       const templateStrip = document.querySelector("#templateStrip");
       const screenIntentForm = document.querySelector("#screenIntentForm");
@@ -1920,12 +1480,12 @@
       const diagRepairHint = document.querySelector("#diagRepairHint");
       const diagRepairCandidate = document.querySelector("#diagRepairCandidate");
       const diagRepairProposal = document.querySelector("#diagRepairProposal");
-      const diagAiSummary = document.querySelector("#diagAiSummary");
       const diagDeviceFrameSection = document.querySelector("#diagDeviceFrameSection");
       const diagDeviceFrame = document.querySelector("#diagDeviceFrame");
       const diagOutput = document.querySelector("#diagOutput");
       const diagHistory = document.querySelector("#diagHistory");
       const previewOnly = new URLSearchParams(window.location.search).has("nossh");
+      const focusScreenGenerationOnly = true;
       let currentScreenManifest = null;
       let currentManifestHash = "";
       let currentTemplateId = "";
@@ -1937,6 +1497,9 @@
       let currentDeviceFrameLoadId = 0;
       let currentPixelDiffManifest = null;
       let currentPixelDiffManifestHash = "";
+      let lvglPreviewTimer = 0;
+      let lvglPreviewFrame = 0;
+      let lvglPreviewRunId = 0;
       const PIXEL_DIFF_THRESHOLD = 0.02;
       const SESSION_STORAGE_KEY = "walnut-web-session-id";
       const sessionId = (() => {
@@ -1995,16 +1558,6 @@
         syncScreen: {
           reply: "我会把当前小屏界面同步到核桃派。",
           run: () => syncScreenToDevice({ addUserMessage: false, addStartMessage: false }),
-        },
-        aiSummary: {
-          reply: "我会根据最近一次同步证据生成总结。",
-          run: () => {
-            if (!currentSummaryBuildId) {
-              addMessage("assistant", "还没有可以总结的同步记录。");
-              return;
-            }
-            loadAiSummary();
-          },
         },
       };
 
@@ -2172,6 +1725,48 @@
         }
       }
 
+      function addProgressMessage(text) {
+        const message = document.createElement("article");
+        message.className = "message assistant";
+        message.dataset.role = "assistant";
+
+        const meta = document.createElement("span");
+        meta.className = "message-meta";
+        meta.textContent = "WalnutAI";
+
+        const body = document.createElement("div");
+        body.className = "message-body";
+        body.textContent = text;
+
+        const steps = document.createElement("div");
+        steps.className = "generation-steps";
+
+        message.append(meta, body, steps);
+        chatLog.append(message);
+        chatLog.scrollTop = chatLog.scrollHeight;
+
+        return {
+          setText(nextText) {
+            body.textContent = nextText;
+            chatLog.scrollTop = chatLog.scrollHeight;
+          },
+          setError(isError) {
+            message.classList.toggle("is-error", Boolean(isError));
+          },
+          setSteps(items) {
+            steps.replaceChildren();
+            for (const item of items || []) {
+              const row = document.createElement("div");
+              row.className = "generation-step";
+              row.classList.toggle("is-failed", item.ok === false);
+              row.textContent = item.detail ? `${item.label}: ${item.detail}` : item.label;
+              steps.append(row);
+            }
+            chatLog.scrollTop = chatLog.scrollHeight;
+          },
+        };
+      }
+
       function recentChatMessages(limit = 8) {
         return Array.from(chatLog.querySelectorAll(".message"))
           .slice(-limit)
@@ -2221,13 +1816,15 @@
         if (/快照|snapshot|release|os-release|kernel|内核|hostname|启动配置|boot|设备信息|板子信息|硬件信息/.test(lower)) {
           return actions.snapshot;
         }
-        if (/网络|联网|wifi|wi-fi|ip\b|路由|route|network/.test(lower)) return actions.network;
+        if (/网络|联网|wifi|wi-fi|路由|route|network/.test(lower)) return actions.network;
+        if (/(?<![a-z])ip(?![a-z])/.test(lower) && /(查看|检查|查询|获取|当前|地址|网络|联网|路由|wifi|wi-fi)/.test(lower)) return actions.network;
         if (/gpio|引脚|针脚|i2c|spi|uart|pwm|总线|bus|set-device/.test(lower)) return actions.gpio;
         if (/今天.*(笔记|记录)|笔记.*今天|记了什么|notes|today/.test(lower)) return actions.notes;
         return null;
       }
 
       function terminalToolActionForText(text) {
+        if (focusScreenGenerationOnly) return null;
         const lower = text.trim().toLowerCase();
         if (/播放\s*(按钮|键|控件)/.test(lower)) return null;
         if (/walnut\s+(video|play)|视频|彩色\s*ascii|ascii\s*(视频|动画)?|demo/.test(lower)) return actions.video;
@@ -2254,13 +1851,6 @@
 
         if (/清屏|clear/.test(trimmed)) return { type: "terminal.tool", action: actions.clear };
         if (/重连|断开|ssh|连接/.test(lower)) return { type: "terminal.tool", action: actions.reconnect };
-        if (/总结|summary/i.test(trimmed) && /同步|证据|小屏|屏幕|screen/i.test(trimmed)) {
-          return { type: "screen.summary", action: actions.aiSummary };
-        }
-
-        const readAction = deviceReadActionForText(trimmed);
-        if (readAction) return { type: "device.read", action: readAction };
-
         if (looksLikeScreenEdit(trimmed)) {
           return {
             type: "screen.generate",
@@ -2271,6 +1861,9 @@
         if (wantsScreenDelivery(trimmed)) {
           return { type: "screen.sync", action: actions.syncScreen };
         }
+
+        const readAction = deviceReadActionForText(trimmed);
+        if (readAction) return { type: "device.read", action: readAction };
 
         if (noteMatch && noteMatch[1].trim()) {
           return {
@@ -2298,7 +1891,6 @@
 
       const intentActionByType = {
         "screen.sync": () => ({ type: "screen.sync", action: actions.syncScreen }),
-        "screen.summary": () => ({ type: "screen.summary", action: actions.aiSummary }),
         "device.status.read": () => ({ type: "device.read", action: actions.status }),
         "device.snapshot.read": () => ({ type: "device.read", action: actions.snapshot }),
         "device.network.read": () => ({ type: "device.read", action: actions.network }),
@@ -2357,19 +1949,14 @@
       }
 
       async function classifyUserIntent(text) {
-        const localIntent = localClassifyUserIntent(text);
-        try {
-          const response = await fetch(withCurrentSearch("/api/intent/classify"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text }),
-          });
-          const data = await response.json();
-          if (!response.ok || !data.ok || !data.classification) return localIntent;
-          return intentFromClassification(data.classification, text);
-        } catch {
-          return localIntent;
+        const trimmed = String(text || "").trim();
+        if (/^(同步|sync)$/i.test(trimmed) || wantsScreenDelivery(trimmed)) {
+          return { type: "screen.sync", action: actions.syncScreen };
         }
+        return {
+          type: "screen.generate",
+          syncAfterGenerate: wantsScreenDelivery(trimmed),
+        };
       }
 
       function writeTerminalBlock(result) {
@@ -2553,7 +2140,6 @@
           repairHint: record.repairHint,
           repairCandidate: record.repairCandidate || null,
           repairProposal: record.repairProposal || null,
-          aiSummary: record.aiSummary || null,
           webDevicePixelDiff: record.webDevicePixelDiff || null,
         };
       }
@@ -2752,9 +2338,6 @@
           currentSummaryBuildId = "";
           currentPixelDiffManifest = null;
           currentPixelDiffManifestHash = "";
-          aiSummaryButton.disabled = true;
-          aiSummaryButton.textContent = "生成 AI 总结";
-          diagAiSummary.textContent = "等待同步。";
         }
         repairPanel.hidden = true;
         currentRepairProposal = null;
@@ -2845,36 +2428,6 @@
           ? repairProposal.confirmationPhrase
           : "当前没有可应用的本地修复";
         repairApplyButton.disabled = !repairProposal.canApply;
-      }
-
-      function renderAiSummary(aiSummary, options = {}) {
-        if (!aiSummary) return;
-        const text = aiSummary.summary || "已生成同步总结。";
-        syncSummary.textContent = text;
-        diagAiSummary.textContent = formatDiagnosticJson(aiSummary);
-        if (options.addChat !== false) addMessage("assistant", text);
-      }
-
-      async function loadAiSummary(buildId = currentSummaryBuildId) {
-        if (!buildId) return;
-        aiSummaryButton.disabled = true;
-        aiSummaryButton.textContent = "总结中";
-        try {
-          const response = await fetch(withCurrentSearch("/api/screen/ai-summary"), {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ buildId }),
-          });
-          const data = await response.json();
-          if (!response.ok || !data.ok) throw new Error(data.summary || data.error || "ai summary failed");
-          currentSummaryBuildId = data.buildId || buildId;
-          renderAiSummary(data.aiSummary);
-        } catch (error) {
-          diagAiSummary.textContent = `无法生成 AI 总结：${error.message}`;
-        } finally {
-          aiSummaryButton.disabled = !currentSummaryBuildId;
-          aiSummaryButton.textContent = "生成 AI 总结";
-        }
       }
 
       async function loadRepairPlan(buildId = currentRepairBuildId) {
@@ -3062,6 +2615,15 @@
         return JSON.stringify(data.generation, null, 2);
       }
 
+      function screenGenerationResultText(data) {
+        const summary = data?.summary || "已生成 LVGL 小屏布局。";
+        const steps = Array.isArray(data?.generation?.steps) ? data.generation.steps : [];
+        const repaired = steps.some((step) => /修复|repair/i.test(step?.label || ""));
+        const hash = data?.manifestHash ? `\nmanifest: ${shortHash(data.manifestHash)}` : "";
+        const repairNote = repaired ? "\n自动修复后已通过 manifest 校验。" : "";
+        return `${summary}${repairNote}${hash}`;
+      }
+
       async function applyScreenTemplate(templateId) {
         if (!templateId || !currentManifestHash) return;
         setScreenEditorBusy(true);
@@ -3087,7 +2649,15 @@
         if (!value || !currentManifestHash) return null;
         setScreenEditorBusy(true);
         clearRepairPanel();
-        syncSummary.textContent = "正在更新预览。";
+        syncSummary.textContent = "正在生成 480x320 小屏预览并校验。";
+        const progressMessage = options.addChat
+          ? addProgressMessage("正在生成核桃派 480x320 小屏预览。")
+          : null;
+        progressMessage?.setSteps([
+          { label: "理解你的描述", ok: true, detail: "提取主体、风格、颜色和动画" },
+          { label: "生成像素画布", ok: true, detail: "固定 480x320 像素块，不生成设备命令" },
+          { label: "等待预览校验", ok: true, detail: "失败会停止或修复后重试" },
+        ]);
         try {
           const data = await postManifestUpdate("/api/screen/intent", { text: value });
           applyManifestEnvelope(data);
@@ -3097,7 +2667,8 @@
           diagOutput.textContent = formatScreenGenerationDiagnostics(data) || diagOutput.textContent;
           setSyncState("未同步", "pending");
           if (options.addChat) {
-            addMessage("assistant", data.summary || "已更新上面的小屏预览。");
+            progressMessage?.setText(screenGenerationResultText(data));
+            progressMessage?.setSteps(data.generation?.steps || []);
           }
           return data;
         } catch (error) {
@@ -3105,9 +2676,9 @@
           syncSummary.textContent = result.summary || error.message || "无法理解这次修改。";
           diagOutput.textContent = result.output || result.error || error.message;
           if (options.addChat) {
-            addMessage("assistant", result.summary || "我还没理解这次小屏修改。可以直接说：标题改成早安核桃派。", {
-              error: true,
-            });
+            progressMessage?.setError(true);
+            progressMessage?.setText(result.summary || "生成失败，自动修复也没有通过。");
+            progressMessage?.setSteps(result.generation?.steps || [{ label: "生成失败", ok: false, detail: result.error || error.message }]);
           }
           return null;
         } finally {
@@ -3169,190 +2740,71 @@
         };
       }
 
-      function generatedAccentColor(accent) {
-        return {
-          cyan: "#67d6ff",
-          green: "#33d6a6",
-          amber: "#ffc857",
-          red: "#ff6b6b",
-          blue: "#7aa8d8",
-          pink: "#ff6fb3",
-          paper: "#f7e9b9",
-        }[accent] || "#67d6ff";
+      function firstAnimatedPixelArt(manifest) {
+        const primaryPage = manifest?.pages?.[0] || {};
+        const component = firstManifestComponent(primaryPage, "pixelArt");
+        return Array.isArray(component?.frames) && component.frames.length > 1 ? component : null;
       }
 
-      function generatedStyleClass(style) {
-        return String(style || "panel").toLowerCase().replace(/[^a-z0-9_-]/g, "");
+      function stopLvglPreviewAnimation() {
+        lvglPreviewRunId += 1;
+        if (lvglPreviewTimer) {
+          window.clearTimeout(lvglPreviewTimer);
+          lvglPreviewTimer = 0;
+        }
       }
 
-      function renderGeneratedPageInto(target, manifest, page, component) {
-        const style = generatedStyleClass(component.style || "panel");
-        target.className = `lvgl-preview is-generated is-style-${style}`;
-        target.style.setProperty("--generated-accent", generatedAccentColor(component.accent));
-        target.style.setProperty("--generated-progress", `${Math.max(0, Math.min(100, Number(component.progress) || 0))}%`);
-
-        const shell = document.createElement("div");
-        shell.className = "generated-shell";
-
-        const top = document.createElement("div");
-        top.className = "generated-top";
-
-        const kicker = document.createElement("div");
-        kicker.className = "generated-kicker";
-        kicker.textContent = component.kicker || manifest.title || "WalnutAI";
-
-        const badge = document.createElement("div");
-        badge.className = "generated-badge";
-        badge.textContent = component.badge || page.tab || "LIVE";
-        top.append(kicker, badge);
-
-        const main = document.createElement("div");
-        main.className = "generated-main";
-
-        const headline = document.createElement("div");
-        headline.className = "generated-headline";
-        headline.textContent = component.headline || manifest.title || "READY";
-
-        const body = document.createElement("div");
-        body.className = "generated-body";
-        body.textContent = component.body || manifest.subtitle || "Generated screen";
-
-        const progress = document.createElement("div");
-        progress.className = "generated-progress";
-        const fill = document.createElement("div");
-        fill.className = "generated-progress-fill";
-        progress.append(fill);
-        main.append(headline, body, progress);
-
-        const items = document.createElement("div");
-        items.className = "generated-items";
-        for (const item of (component.items || []).slice(0, 3)) {
-          const node = document.createElement("div");
-          node.className = `generated-item is-${item.tone || "ok"}`;
-          const label = document.createElement("span");
-          label.className = "generated-item-label";
-          label.textContent = item.label || "Item";
-          const value = document.createElement("span");
-          value.className = "generated-item-value";
-          value.textContent = `${item.value || "--"} ${item.unit || ""}`.trim();
-          node.append(label, value);
-          items.append(node);
-        }
-        shell.append(top, main, items);
-        target.append(shell);
-      }
-
-      function renderScreenManifestInto(target, manifest) {
-        target.replaceChildren();
-        target.className = "lvgl-preview";
-        target.style.removeProperty("--generated-accent");
-        target.style.removeProperty("--generated-progress");
-
-        const previewPages = manifest.pages || [];
-        const primaryPage = previewPages[0] || {};
-        const generatedPage = firstManifestComponent(primaryPage, "generatedPage");
-        if (generatedPage) {
-          renderGeneratedPageInto(target, manifest, primaryPage, generatedPage);
-          return;
-        }
-
-        const header = document.createElement("div");
-        header.className = "lvgl-header";
-
-        const brand = document.createElement("div");
-        brand.className = "lvgl-brand";
-
-        const title = document.createElement("div");
-        title.className = "lvgl-title";
-        title.textContent = manifest.title || "WalnutPi";
-
-        const subtitle = document.createElement("div");
-        subtitle.className = "lvgl-subtitle";
-        subtitle.textContent = manifest.subtitle || "server screen";
-        brand.append(title, subtitle);
-
-        const tabs = document.createElement("div");
-        tabs.className = "lvgl-tabs";
-        if (previewPages.length > 1) {
-          for (const page of previewPages) {
-            const tab = document.createElement("span");
-            tab.className = "lvgl-tab";
-            tab.textContent = page.tab || page.id;
-            tabs.append(tab);
-          }
-        }
-
-        const body = document.createElement("div");
-        body.className = "lvgl-body";
-
-        const statusCard = firstManifestComponent(primaryPage, "statusCard");
-        const progressComponent = firstManifestComponent(primaryPage, "progress");
-        const alert = firstManifestComponent(primaryPage, "alert");
-        const tone = screenTone(manifest);
-        const core = document.createElement("div");
-        core.className = `lvgl-core is-${tone}`;
-        core.style.setProperty("--screen-progress", `${progressComponent?.value ?? screenProgress(manifest)}%`);
-        core.textContent = statusCard?.value || primaryPage.tab || "READY";
-
-        const metrics = document.createElement("div");
-        metrics.className = "lvgl-metrics";
-        if (alert) {
-          const item = document.createElement("div");
-          item.className = `lvgl-metric lvgl-alert is-${alert.tone || tone}`;
-          const label = document.createElement("span");
-          label.className = "lvgl-metric-title";
-          label.textContent = alert.title || "Alert";
-          const value = document.createElement("span");
-          value.className = "lvgl-metric-value";
-          value.textContent = alert.body || "Check status";
-          item.append(label, value);
-          metrics.append(item);
-        }
-        for (const metric of previewMetricItems(primaryPage)) {
-          const item = document.createElement("div");
-          item.className = `lvgl-metric is-${metric.tone || tone}`;
-          if (metric.label) {
-            const label = document.createElement("span");
-            label.className = "lvgl-metric-title";
-            label.textContent = metric.label;
-            const value = document.createElement("span");
-            value.className = "lvgl-metric-value";
-            value.textContent = metric.value;
-            item.append(label, value);
-          } else {
-            item.textContent = metric.value;
-          }
-          metrics.append(item);
-        }
-        if (!metrics.childElementCount) {
-          const pageSummary = previewPageLines(manifest);
-          const item = document.createElement("div");
-          item.className = `lvgl-metric is-${pageSummary.tone}`;
-          const label = document.createElement("span");
-          label.className = "lvgl-metric-title";
-          label.textContent = pageSummary.title;
-          const value = document.createElement("span");
-          value.className = "lvgl-metric-value";
-          value.textContent = (pageSummary.lines || []).join(" / ") || "Ready";
-          item.append(label, value);
-          metrics.append(item);
-        }
-
-        header.append(brand, tabs);
-        body.append(core, metrics);
-        target.append(header, body);
-      }
-
-      function renderScreenManifestFallback(manifest) {
-        screenPreviewImage.hidden = true;
-        screenPreviewImage.removeAttribute("src");
-        screenPreview.hidden = false;
-        renderScreenManifestInto(screenPreview, manifest);
+      function renderAnimatedLvglPreview(manifest) {
+        stopLvglPreviewAnimation();
+        const component = firstAnimatedPixelArt(manifest);
+        if (!component) return false;
+        screenPreviewFrame.classList.remove("is-error");
+        screenPreviewFrame.classList.add("is-loading");
+        screenPreviewFrame.dataset.state = "LVGL";
+        screenPreviewImage.hidden = false;
+        screenPreviewImage.alt = "LVGL 动态小屏预览";
+        lvglPreviewFrame = 0;
+        const runId = lvglPreviewRunId;
+        const renderFrame = () => {
+          if (runId !== lvglPreviewRunId) return;
+          const frames = component.frames || [];
+          const frame = frames[lvglPreviewFrame % frames.length] || {};
+          const advanceMs = frames
+            .slice(0, lvglPreviewFrame % frames.length)
+            .reduce((sum, item) => sum + Math.max(80, Number(item.durationMs) || 260), 0);
+          const hash = encodeURIComponent(currentManifestHash || "");
+          const cacheKey = encodeURIComponent(`${currentManifestHash || "nohash"}-${advanceMs}-${Date.now()}`);
+          const scheduleNext = () => {
+            if (runId !== lvglPreviewRunId) return;
+            lvglPreviewFrame = (lvglPreviewFrame + 1) % frames.length;
+            lvglPreviewTimer = window.setTimeout(renderFrame, Math.max(80, Number(frame.durationMs) || 260));
+          };
+          screenPreviewImage.onload = () => {
+            screenPreviewImage.alt = "LVGL 动态小屏预览";
+            screenPreviewFrame.classList.remove("is-loading", "is-error");
+            screenPreviewFrame.dataset.state = "";
+            renderPixelDiffUnavailable("animated-lvgl-preview", "Web 正在循环请求 LVGL 离屏渲染帧；同步仍使用同一份 LVGL manifest。");
+            scheduleNext();
+          };
+          screenPreviewImage.onerror = () => {
+            screenPreviewImage.alt = "LVGL 动态小屏预览加载失败";
+            screenPreviewFrame.classList.remove("is-loading");
+            screenPreviewFrame.classList.add("is-error");
+            screenPreviewFrame.dataset.state = "LVGL 预览失败";
+            scheduleNext();
+          };
+          screenPreviewImage.src = withCurrentSearch(`/api/screen/preview/lvgl.bmp?manifestHash=${hash}&advanceMs=${advanceMs}&v=${cacheKey}`);
+        };
+        renderFrame();
+        renderPixelDiffUnavailable("animated-lvgl-preview", "Web 正在循环请求 LVGL 离屏渲染帧；同步仍使用同一份 LVGL manifest。");
+        return true;
       }
 
       function renderScreenManifestImage(manifest) {
-        screenPreview.replaceChildren();
-        screenPreview.hidden = true;
+        stopLvglPreviewAnimation();
+        screenPreviewFrame.classList.remove("is-error");
+        screenPreviewFrame.classList.add("is-loading");
+        screenPreviewFrame.dataset.state = "LVGL";
         screenPreviewImage.hidden = false;
         screenPreviewImage.alt = "正在生成 LVGL 小屏预览";
         const hash = encodeURIComponent(currentManifestHash || "");
@@ -3360,17 +2812,22 @@
         const imageUrl = withCurrentSearch(`/api/screen/preview/lvgl.bmp?manifestHash=${hash}&v=${cacheKey}`);
         screenPreviewImage.onload = () => {
           screenPreviewImage.alt = "LVGL 小屏预览";
+          screenPreviewFrame.classList.remove("is-loading", "is-error");
+          screenPreviewFrame.dataset.state = "";
           renderPixelDiffUnavailable("waiting-device-frame", "Web 预览已使用真实 LVGL 离屏渲染。等待设备 PNG 后可比较。");
         };
         screenPreviewImage.onerror = () => {
-          renderScreenManifestFallback(manifest);
-          renderPixelDiffUnavailable("lvgl-preview-failed", "真实 LVGL 预览图加载失败，已临时回退到 DOM 语义预览。");
+          screenPreviewFrame.classList.remove("is-loading");
+          screenPreviewFrame.classList.add("is-error");
+          screenPreviewFrame.dataset.state = "LVGL 预览失败";
+          renderPixelDiffUnavailable("lvgl-preview-failed", "真实 LVGL 预览图加载失败；没有使用 HTML 兜底预览。");
         };
         screenPreviewImage.src = imageUrl;
       }
 
       function renderScreenManifest(manifest) {
         currentScreenManifest = manifest;
+        if (renderAnimatedLvglPreview(manifest)) return;
         renderScreenManifestImage(manifest);
       }
 
@@ -3395,8 +2852,6 @@
         currentPixelDiffManifest = result.manifest || currentScreenManifest || null;
         currentPixelDiffManifestHash = result.manifestHash || currentManifestHash || "";
         lastPixelDiffKey = "";
-        aiSummaryButton.disabled = !currentSummaryBuildId;
-        aiSummaryButton.textContent = "生成 AI 总结";
         diagBuildId.textContent = result.buildId || "-";
         diagManifestHash.textContent = shortHash(result.manifestHash || currentManifestHash);
         diagArtifactHash.textContent = shortHash(result.artifactHash);
@@ -3411,7 +2866,6 @@
         diagRepairHint.textContent = formatDiagnosticJson(result.repairHint);
         diagRepairCandidate.textContent = formatDiagnosticJson(result.repairCandidate);
         diagRepairProposal.textContent = formatDiagnosticJson(result.repairProposal);
-        diagAiSummary.textContent = formatDiagnosticJson(result.aiSummary);
         setDeviceFrameUrl(
           result.screenFrameUrl
           || result.screenEvidence?.frame?.cachedUrl
@@ -3438,9 +2892,6 @@
           } else {
             renderRepairHint(result.repairHint);
           }
-        }
-        if (result.aiSummary) {
-          renderAiSummary(result.aiSummary, { addChat: false });
         }
         repairPanel.hidden = true;
         diagnostics.open = false;
@@ -3492,6 +2943,10 @@
       }
 
       function sendTerminalCommand(command) {
+        if (focusScreenGenerationOnly) {
+          addMessage("assistant", "右侧终端已在当前小屏生成模式下隐藏。", { error: true });
+          return;
+        }
         if (previewOnly) {
           term.writeln(`\\r\\n[preview] ${command}`);
           return;
@@ -3573,6 +3028,10 @@
       }
 
       function connectTerminal() {
+        if (focusScreenGenerationOnly) {
+          setStatus("Ready", "pending");
+          return;
+        }
         if (socket) socket.close();
         const id = ++connectionId;
 
@@ -3673,9 +3132,6 @@
       syncScreen.addEventListener("click", () => {
         syncScreenToDevice();
       });
-      aiSummaryButton.addEventListener("click", () => {
-        loadAiSummary();
-      });
       repairPlanButton.addEventListener("click", () => {
         loadRepairPlan();
       });
@@ -3710,24 +3166,15 @@
           return;
         }
 
-        if (intent.type === "screen.sync" || intent.type === "screen.summary" || intent.action) {
+        if (intent.type === "screen.sync") {
           runAction(intent.action);
           return;
         }
 
-        const action = intent.action;
-        if (!action) {
-          addMessage("assistant", "我还没把这句话识别成安全操作。可以换成：查状态、GPIO、网络、记一下。");
-          return;
+        const data = await applyScreenIntent(text, { addChat: true });
+        if (data && intent.syncAfterGenerate) {
+          await syncScreenToDevice({ addUserMessage: false });
         }
-
-        runAction(action);
-      }
-
-      for (const button of document.querySelectorAll(".quick-action")) {
-        button.addEventListener("click", () => {
-          submitPrompt(button.dataset.prompt || "");
-        });
       }
 
       composer.addEventListener("submit", (event) => {
@@ -3735,33 +3182,35 @@
         submitPrompt(assistantInput.value);
       });
 
-      new GLTFLoader().load(
-        MODEL_URL,
-        (gltf) => {
-          const root = gltf.scene;
-          const box = new THREE.Box3().setFromObject(root);
-          const center = box.getCenter(new THREE.Vector3());
+      if (!focusScreenGenerationOnly) {
+        new GLTFLoader().load(
+          MODEL_URL,
+          (gltf) => {
+            const root = gltf.scene;
+            const box = new THREE.Box3().setFromObject(root);
+            const center = box.getCenter(new THREE.Vector3());
 
-          root.position.sub(center);
-          scene.add(root);
-          requestRenderBurst(700);
-        },
-        undefined,
-        (error) => {
-          console.error(error);
-          term.writeln("\\r\\n[local] model load failed");
-        },
-      );
+            root.position.sub(center);
+            scene.add(root);
+            requestRenderBurst(700);
+          },
+          undefined,
+          (error) => {
+            console.error(error);
+            term.writeln("\\r\\n[local] model load failed");
+          },
+        );
+      }
 
       function resize() {
-        const width = stage.clientWidth;
-        const height = stage.clientHeight;
+        const width = Math.max(1, stage.clientWidth);
+        const height = Math.max(1, stage.clientHeight);
 
         webglRenderer.setSize(width, height, false);
         cssRenderer.setSize(width, height);
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
-        fitAddon.fit();
+        if (!focusScreenGenerationOnly) fitAddon.fit();
         requestRender();
       }
 
@@ -3789,14 +3238,16 @@
         requestRender();
       }
 
-      loadScreenTemplates();
       loadSessionHistory();
       loadScreenManifest();
       loadScreenHistory(true);
-      updateScreenTransform();
-      resize();
+      if (!focusScreenGenerationOnly) {
+        loadScreenTemplates();
+        updateScreenTransform();
+        resize();
+        requestRenderBurst(900);
+      }
       setStatus("Ready", "pending");
-      requestRenderBurst(900);
 
       window.addEventListener("resize", resize);
     </script>

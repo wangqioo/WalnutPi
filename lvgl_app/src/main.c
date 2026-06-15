@@ -52,6 +52,26 @@ typedef struct {
     int page;
 } screen_ui_t;
 
+typedef struct {
+    char symbol;
+    unsigned int color;
+} pixel_palette_entry_t;
+
+typedef struct {
+    lv_obj_t * pixels[64 * 32];
+    char frames[8][32][65];
+    int durations[8];
+    pixel_palette_entry_t palette[12];
+    int palette_count;
+    int frame_count;
+    int frame;
+    int width;
+    int height;
+} pixel_art_runtime_t;
+
+static pixel_art_runtime_t * pixel_art_instances[8];
+static int pixel_art_instance_count = 0;
+
 static void handle_signal(int sig)
 {
     (void)sig;
@@ -117,7 +137,9 @@ static bool page_has_generated_component(int page_index)
 {
     for(int i = 0; i < WALNUT_SCREEN_COMPONENT_COUNT; i++) {
         if(walnut_screen_components[i].page_index == page_index
-           && text_equals(walnut_screen_components[i].type, "generatedPage")) {
+           && (text_equals(walnut_screen_components[i].type, "generatedPage")
+               || text_equals(walnut_screen_components[i].type, "layout")
+               || text_equals(walnut_screen_components[i].type, "pixelArt"))) {
             return true;
         }
     }
@@ -126,8 +148,14 @@ static bool page_has_generated_component(int page_index)
 
 static void prepare_generated_page(lv_obj_t * page, bool full_screen)
 {
-    lv_obj_set_size(page, 448, full_screen ? 296 : 254);
-    lv_obj_align(page, LV_ALIGN_TOP_LEFT, 16, full_screen ? 12 : 54);
+    if(full_screen) {
+        lv_obj_set_size(page, 480, 320);
+        lv_obj_align(page, LV_ALIGN_TOP_LEFT, 0, 0);
+    }
+    else {
+        lv_obj_set_size(page, 448, 254);
+        lv_obj_align(page, LV_ALIGN_TOP_LEFT, 16, 54);
+    }
     lv_obj_set_style_pad_all(page, 0, 0);
     lv_obj_set_style_bg_opa(page, LV_OPA_COVER, 0);
     lv_obj_set_style_bg_color(page, lv_color_hex(C_BG), 0);
@@ -287,9 +315,321 @@ static void add_generated_page_component(lv_obj_t * parent, const walnut_screen_
     add_generated_items(parent, component->items, fg, soft_bg, border);
 }
 
+static const lv_font_t * draw_font(const char * value)
+{
+    if(text_equals(value, "title")) return &lv_font_montserrat_48;
+    if(text_equals(value, "small")) return WALNUT_FONT_SMALL;
+    return WALNUT_FONT_BODY;
+}
+
+static void add_layout_rect(lv_obj_t * parent,
+                            int x,
+                            int y,
+                            int w,
+                            int h,
+                            unsigned int color,
+                            unsigned int border,
+                            int radius,
+                            int width)
+{
+    lv_obj_t * obj = lv_obj_create(parent);
+    lv_obj_set_size(obj, clamp_int(w, 1, 480), clamp_int(h, 1, 320));
+    lv_obj_align(obj, LV_ALIGN_TOP_LEFT, x, y);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
+    lv_obj_set_style_border_color(obj, lv_color_hex(border), 0);
+    lv_obj_set_style_border_width(obj, clamp_int(width, 0, 12), 0);
+    lv_obj_set_style_radius(obj, clamp_int(radius, 0, 40), 0);
+    lv_obj_set_style_pad_all(obj, 0, 0);
+}
+
+static void add_layout_label(lv_obj_t * parent,
+                             const char * text,
+                             const char * font,
+                             int x,
+                             int y,
+                             int w,
+                             int h,
+                             unsigned int color,
+                             unsigned int bg,
+                             unsigned int border,
+                             int radius,
+                             int width)
+{
+    lv_obj_t * box = lv_obj_create(parent);
+    lv_obj_set_size(box, clamp_int(w, 1, 480), clamp_int(h, 1, 320));
+    lv_obj_align(box, LV_ALIGN_TOP_LEFT, x, y);
+    lv_obj_set_style_bg_color(box, lv_color_hex(bg), 0);
+    lv_obj_set_style_bg_opa(box, bg == 0 ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(box, lv_color_hex(border), 0);
+    lv_obj_set_style_border_width(box, clamp_int(width, 0, 12), 0);
+    lv_obj_set_style_radius(box, clamp_int(radius, 0, 40), 0);
+    lv_obj_set_style_pad_all(box, 0, 0);
+
+    lv_obj_t * label = add_wrapped_label(box, text, lv_color_hex(color), draw_font(font), clamp_int(w - 2, 1, 478));
+    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+    lv_obj_align(label, LV_ALIGN_LEFT_MID, 1, 0);
+}
+
+static void add_layout_bar(lv_obj_t * parent,
+                           int x,
+                           int y,
+                           int w,
+                           int h,
+                           unsigned int color,
+                           unsigned int bg,
+                           unsigned int border,
+                           int radius,
+                           int width,
+                           int value)
+{
+    lv_obj_t * bar = lv_bar_create(parent);
+    lv_obj_set_size(bar, clamp_int(w, 1, 480), clamp_int(h, 1, 320));
+    lv_obj_align(bar, LV_ALIGN_TOP_LEFT, x, y);
+    lv_bar_set_range(bar, 0, 100);
+    lv_bar_set_value(bar, clamp_int(value, 0, 100), LV_ANIM_OFF);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(bg), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(color), LV_PART_INDICATOR);
+    lv_obj_set_style_border_color(bar, lv_color_hex(border), LV_PART_MAIN);
+    lv_obj_set_style_border_width(bar, clamp_int(width, 0, 12), LV_PART_MAIN);
+    lv_obj_set_style_radius(bar, clamp_int(radius, 0, 40), LV_PART_MAIN);
+    lv_obj_set_style_radius(bar, clamp_int(radius, 0, 40), LV_PART_INDICATOR);
+}
+
+static void add_layout_line(lv_obj_t * parent,
+                            int x,
+                            int y,
+                            int w,
+                            int h,
+                            unsigned int color,
+                            int width)
+{
+    int horizontal = w >= h;
+    lv_obj_t * obj = lv_obj_create(parent);
+    lv_obj_set_size(obj, horizontal ? clamp_int(w, 1, 480) : clamp_int(width, 1, 12),
+                    horizontal ? clamp_int(width, 1, 12) : clamp_int(h, 1, 320));
+    lv_obj_align(obj, LV_ALIGN_TOP_LEFT, x, y);
+    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
+    lv_obj_set_style_border_width(obj, 0, 0);
+    lv_obj_set_style_radius(obj, clamp_int(width, 0, 12), 0);
+    lv_obj_set_style_pad_all(obj, 0, 0);
+}
+
+static void add_layout_component(lv_obj_t * parent, const walnut_screen_component_config_t * component)
+{
+    lv_obj_set_style_bg_color(parent, lv_color_hex(component->tone_color), 0);
+    lv_obj_set_layout(parent, LV_LAYOUT_NONE);
+    lv_obj_set_style_pad_all(parent, 0, 0);
+
+    char copy[4096];
+    snprintf(copy, sizeof(copy), "%s", component->draw_elements == NULL ? "" : component->draw_elements);
+    char * saveptr = NULL;
+    char * line = strtok_r(copy, "\n", &saveptr);
+    while(line != NULL) {
+        char * fields[13] = {0};
+        char * field_saveptr = NULL;
+        char * token = strtok_r(line, "|", &field_saveptr);
+        int count = 0;
+        while(token != NULL && count < 13) {
+            fields[count++] = token;
+            token = strtok_r(NULL, "|", &field_saveptr);
+        }
+        if(count >= 13) {
+            const char * kind = fields[0];
+            int x = clamp_int(atoi(fields[1]), 0, 479);
+            int y = clamp_int(atoi(fields[2]), 0, 319);
+            int w = clamp_int(atoi(fields[3]), 1, 480);
+            int h = clamp_int(atoi(fields[4]), 1, 320);
+            unsigned int color = (unsigned int)strtoul(fields[5], NULL, 0);
+            unsigned int bg = (unsigned int)strtoul(fields[6], NULL, 0);
+            unsigned int border = (unsigned int)strtoul(fields[7], NULL, 0);
+            int radius = clamp_int(atoi(fields[8]), 0, 40);
+            int width = clamp_int(atoi(fields[9]), 0, 12);
+            int value = clamp_int(atoi(fields[10]), 0, 100);
+            const char * font = fields[11];
+            const char * text = fields[12];
+
+            if(text_equals(kind, "rect")) add_layout_rect(parent, x, y, w, h, color, border, radius, width);
+            else if(text_equals(kind, "label")) add_layout_label(parent, text, font, x, y, w, h, color, bg, border, radius, width);
+            else if(text_equals(kind, "bar")) add_layout_bar(parent, x, y, w, h, color, bg, border, radius, width, value);
+            else if(text_equals(kind, "line")) add_layout_line(parent, x, y, w, h, color, width);
+            else if(text_equals(kind, "circle")) add_layout_rect(parent, x, y, w, h, color, border, 40, width);
+        }
+        line = strtok_r(NULL, "\n", &saveptr);
+    }
+}
+
+static unsigned int pixel_art_color(pixel_art_runtime_t * art, char symbol)
+{
+    if(art == NULL || symbol == '.' || symbol == ' ') return 0;
+    for(int i = 0; i < art->palette_count; i++) {
+        if(art->palette[i].symbol == symbol) return art->palette[i].color;
+    }
+    return 0;
+}
+
+static void pixel_art_apply_frame(pixel_art_runtime_t * art)
+{
+    if(art == NULL || art->frame_count <= 0) return;
+    int frame = clamp_int(art->frame, 0, art->frame_count - 1);
+    for(int y = 0; y < art->height; y++) {
+        for(int x = 0; x < art->width; x++) {
+            int index = y * art->width + x;
+            lv_obj_t * pixel = art->pixels[index];
+            if(pixel == NULL) continue;
+            unsigned int color = pixel_art_color(art, art->frames[frame][y][x]);
+            if(color == 0) {
+                lv_obj_add_flag(pixel, LV_OBJ_FLAG_HIDDEN);
+            }
+            else {
+                lv_obj_clear_flag(pixel, LV_OBJ_FLAG_HIDDEN);
+                lv_obj_set_style_bg_color(pixel, lv_color_hex(color), 0);
+            }
+        }
+    }
+}
+
+void walnut_preview_apply_dynamic_time(int advance_ms)
+{
+    if(advance_ms < 0) advance_ms = 0;
+    for(int i = 0; i < pixel_art_instance_count; i++) {
+        pixel_art_runtime_t * art = pixel_art_instances[i];
+        if(art == NULL || art->frame_count <= 0) continue;
+
+        int total = 0;
+        for(int frame = 0; frame < art->frame_count; frame++) {
+            total += clamp_int(art->durations[frame], 80, 5000);
+        }
+        if(total <= 0) total = 1;
+
+        int cursor = advance_ms % total;
+        int selected = 0;
+        for(int frame = 0; frame < art->frame_count; frame++) {
+            int duration = clamp_int(art->durations[frame], 80, 5000);
+            if(cursor < duration) {
+                selected = frame;
+                break;
+            }
+            cursor -= duration;
+        }
+
+        art->frame = selected;
+        pixel_art_apply_frame(art);
+    }
+}
+
+static void pixel_art_timer_cb(lv_timer_t * timer)
+{
+    pixel_art_runtime_t * art = (pixel_art_runtime_t *)lv_timer_get_user_data(timer);
+    if(art == NULL || art->frame_count <= 1) return;
+    art->frame = (art->frame + 1) % art->frame_count;
+    pixel_art_apply_frame(art);
+    lv_timer_set_period(timer, clamp_int(art->durations[art->frame], 80, 5000));
+}
+
+static void add_pixel_art_component(lv_obj_t * parent, const walnut_screen_component_config_t * component)
+{
+    lv_obj_set_style_bg_color(parent, lv_color_hex(component->tone_color), 0);
+    lv_obj_set_layout(parent, LV_LAYOUT_NONE);
+    lv_obj_set_style_pad_all(parent, 0, 0);
+
+    char copy[8192];
+    snprintf(copy, sizeof(copy), "%s", component->draw_elements == NULL ? "" : component->draw_elements);
+
+    int origin_x = 0;
+    int origin_y = 0;
+    int width = 0;
+    int height = 0;
+    int pixel_size = 4;
+    int gap = 1;
+
+    pixel_art_runtime_t * art = lv_malloc(sizeof(pixel_art_runtime_t));
+    if(art == NULL) return;
+    memset(art, 0, sizeof(*art));
+
+    char * saveptr = NULL;
+    char * line = strtok_r(copy, "\n", &saveptr);
+    int current_frame = -1;
+    int current_row = 0;
+    while(line != NULL) {
+        if(strncmp(line, "PIXELART|", 9) == 0) {
+            char * fields[7] = {0};
+            char * local = line;
+            char * part_saveptr = NULL;
+            int count = 0;
+            char * token = strtok_r(local, "|", &part_saveptr);
+            while(token != NULL && count < 7) {
+                fields[count++] = token;
+                token = strtok_r(NULL, "|", &part_saveptr);
+            }
+            if(count >= 7) {
+                origin_x = clamp_int(atoi(fields[1]), 0, 479);
+                origin_y = clamp_int(atoi(fields[2]), 0, 319);
+                width = clamp_int(atoi(fields[3]), 1, 64);
+                height = clamp_int(atoi(fields[4]), 1, 32);
+                pixel_size = clamp_int(atoi(fields[5]), 1, 16);
+                gap = clamp_int(atoi(fields[6]), 0, 4);
+                art->width = width;
+                art->height = height;
+            }
+        }
+        else if(strncmp(line, "PAL|", 4) == 0 && art->palette_count < 12) {
+            char symbol = line[4];
+            char * color_text = strchr(line + 4, '|');
+            if(color_text != NULL && symbol != '\0') {
+                art->palette[art->palette_count].symbol = symbol;
+                art->palette[art->palette_count].color = (unsigned int)strtoul(color_text + 1, NULL, 0);
+                art->palette_count++;
+            }
+        }
+        else if(strncmp(line, "FRAME|", 6) == 0 && art->frame_count < 8) {
+            char * last_pipe = strrchr(line, '|');
+            current_frame = art->frame_count;
+            current_row = 0;
+            art->durations[current_frame] = last_pipe == NULL ? 500 : clamp_int(atoi(last_pipe + 1), 80, 5000);
+            art->frame_count++;
+        }
+        else if(strncmp(line, "ROW|", 4) == 0 && current_frame >= 0 && current_row < 32) {
+            snprintf(art->frames[current_frame][current_row], sizeof(art->frames[current_frame][current_row]), "%s", line + 4);
+            current_row++;
+        }
+        line = strtok_r(NULL, "\n", &saveptr);
+    }
+
+    if(art->width <= 0 || art->height <= 0 || art->frame_count <= 0) {
+        lv_free(art);
+        return;
+    }
+
+    for(int y = 0; y < art->height; y++) {
+        for(int x = 0; x < art->width; x++) {
+            int index = y * art->width + x;
+            lv_obj_t * pixel = lv_obj_create(parent);
+            lv_obj_set_size(pixel, pixel_size, pixel_size);
+            lv_obj_align(pixel, LV_ALIGN_TOP_LEFT, origin_x + x * (pixel_size + gap), origin_y + y * (pixel_size + gap));
+            lv_obj_set_style_border_width(pixel, 0, 0);
+            lv_obj_set_style_radius(pixel, 0, 0);
+            lv_obj_set_style_pad_all(pixel, 0, 0);
+            art->pixels[index] = pixel;
+        }
+    }
+    pixel_art_apply_frame(art);
+    if(pixel_art_instance_count < (int)(sizeof(pixel_art_instances) / sizeof(pixel_art_instances[0]))) {
+        pixel_art_instances[pixel_art_instance_count++] = art;
+    }
+    if(art->frame_count > 1) {
+        lv_timer_create(pixel_art_timer_cb, clamp_int(art->durations[0], 80, 5000), art);
+    }
+}
+
 static void add_component(lv_obj_t * parent, const walnut_screen_component_config_t * component)
 {
-    if(text_equals(component->type, "generatedPage")) {
+    if(text_equals(component->type, "layout")) {
+        add_layout_component(parent, component);
+    }
+    else if(text_equals(component->type, "pixelArt")) {
+        add_pixel_art_component(parent, component);
+    }
+    else if(text_equals(component->type, "generatedPage")) {
         add_generated_page_component(parent, component);
     }
     else if(text_equals(component->type, "progress")) {

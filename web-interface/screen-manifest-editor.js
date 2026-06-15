@@ -36,9 +36,10 @@ function mergeScreenComponents(baseComponents, patchComponents) {
   return merged;
 }
 
-function mergePageComponents(basePage, mutablePage) {
+function mergePageComponents(basePage, mutablePage, replacePages = false) {
   if (!mutablePage) return basePage?.components;
   if (mutablePage.components !== undefined) {
+    if (replacePages) return mutablePage.components;
     return mergeScreenComponents(basePage?.components, mutablePage.components);
   }
   return basePage?.components;
@@ -56,7 +57,7 @@ function applyMutableManifest(baseManifest, mutable) {
     pages: mutablePages.map((mutablePage, index) => ({
       ...(replacePages ? {} : basePages[index] || pageStub(mutablePage, index)),
       ...(mutablePages[index] || {}),
-      components: mergePageComponents(basePages[index], mutablePages[index]),
+      components: mergePageComponents(basePages[index], mutablePages[index], replacePages),
       id: mutablePage?.id || basePages[index]?.id || `page-${index + 1}`,
     })),
   });
@@ -150,6 +151,7 @@ export function createScreenManifestEditor({
   screenProgramIntentSummary,
   screenProgramIntentPatch,
   screenProgramSubject,
+  recordMetric,
 }) {
   async function currentManifestForWrite(body) {
     const current = await manifestStore.currentForWrite(body);
@@ -167,6 +169,10 @@ export function createScreenManifestEditor({
 
     const programPatch = typeof screenProgramIntentPatch === "function" ? screenProgramIntentPatch(input) : null;
     if (programPatch) return programPatch;
+
+    if (typeof screenProgramIntentPatch === "function") {
+      return null;
+    }
 
     let match = input.match(/(?:副标题|说明)\s*(?:改成|改为|写成|是|:|：)\s*(.+)$/);
     if (match) return { subtitle: match[1].trim() };
@@ -357,6 +363,7 @@ export function createScreenManifestEditor({
   }
 
   async function handleIntent(req) {
+    const startedAt = Date.now();
     let body;
     try {
       body = await readJsonRequest(req);
@@ -368,30 +375,129 @@ export function createScreenManifestEditor({
     if (current.error) return current.error;
 
     const text = String(body.text || "").trim();
-    const aiCandidate = looksLikeScreenProgramRequest(text)
-      ? await buildAiScreenManifestCandidate(text, current.manifest)
-      : null;
-    if (aiCandidate?.manifest) {
+    if (!text) {
+      return json({
+        ok: false,
+        error: "empty screen intent",
+        summary: "请输入要生成的小屏页面。",
+      }, 400);
+    }
+    const isProgramRequest = true;
+
+    if (isProgramRequest) {
+      const aiCandidate = typeof buildAiScreenManifestCandidate === "function"
+        ? await buildAiScreenManifestCandidate(text, current.manifest)
+        : null;
+      const patch = aiCandidate?.patch || parseScreenIntent(text, current.manifest);
+      if (!patch) {
+        await recordMetric?.({
+          kind: "screen.intent",
+          operation: "screen.intent",
+          ok: false,
+          latencyMs: Date.now() - startedAt,
+          source: "rule",
+          model: null,
+          error: "unrecognized screen intent",
+        });
+        return json({
+          ok: false,
+          error: "unrecognized screen intent",
+          summary: "无法生成这次小屏页面。",
+          generation: {
+            schema: "walnutpi.screenGeneration.v1",
+            source: "rule",
+            apiUsed: false,
+            model: null,
+          },
+        }, 400);
+      }
+
       try {
-        const envelope = await writeScreenManifest(aiCandidate.manifest);
+        const next = aiCandidate?.manifest || applyMutableManifest(current.manifest, patch);
+        const envelope = await writeScreenManifest(next);
+        const generation = aiCandidate?.generation || {
+          schema: "walnutpi.screenGeneration.v1",
+          source: "rule",
+          apiUsed: false,
+          model: null,
+          steps: [
+            {
+              label: "生成 480x320 像素画布",
+              ok: true,
+              detail: "已用像素块复刻主体形状，未生成卡片布局。",
+            },
+            {
+              label: "manifest 校验",
+              ok: true,
+              detail: "pixelArt 铺满 480x320，可同步到 LVGL。",
+            },
+          ],
+        };
+        if (generation.source === "ai-fallback" && patch) {
+          generation.source = "rule";
+          generation.fallbackSource = "rule";
+          generation.apiUsed = Boolean(generation.apiUsed);
+          generation.steps = [
+            ...(Array.isArray(generation.steps) ? generation.steps : []),
+            {
+              label: "本地像素生成",
+              ok: true,
+              detail: "已改用确定性 480x320 pixelArt 画布。",
+            },
+          ];
+        }
+        await recordMetric?.({
+          kind: "screen.intent",
+          operation: "screen.intent",
+          ok: true,
+          latencyMs: Date.now() - startedAt,
+          source: generation.source || "rule",
+          model: generation.model || null,
+          manifestHash: envelope.manifestHash,
+        });
         return json({
           ok: true,
-          summary: aiCandidate.patch?.intentSummary || screenProgramIntentSummary(screenProgramSubject(text)),
-          generation: aiCandidate.generation,
+          summary: patch.intentSummary || screenProgramIntentSummary(screenProgramSubject(text)),
+          generation,
           ...envelope,
         });
       } catch (error) {
-        aiCandidate.generation = {
-          ...(aiCandidate.generation || {}),
-          source: "ai-fallback",
-          fallbackSource: "rule",
-          fallbackReason: error.message,
-        };
+        await recordMetric?.({
+          kind: "screen.intent",
+          operation: "screen.intent",
+          ok: false,
+          latencyMs: Date.now() - startedAt,
+          source: "rule",
+          model: null,
+          error: error.message,
+        });
+        return json({
+          ok: false,
+          error: "screen manifest update failed",
+          summary: "无法更新小屏预览。",
+          output: error.message,
+          generation: {
+            schema: "walnutpi.screenGeneration.v1",
+            source: "rule",
+            apiUsed: false,
+            model: null,
+          },
+        }, 500);
       }
     }
 
+    const aiCandidate = null;
     const patch = parseScreenIntent(text, current.manifest);
     if (!patch) {
+      await recordMetric?.({
+        kind: "screen.intent",
+        operation: "screen.intent",
+        ok: false,
+        latencyMs: Date.now() - startedAt,
+        source: aiCandidate?.generation?.source || "rule",
+        model: aiCandidate?.generation?.model || null,
+        error: "unrecognized screen intent",
+      });
       return json({
         ok: false,
         error: "unrecognized screen intent",
@@ -408,18 +514,49 @@ export function createScreenManifestEditor({
     try {
       const next = applyMutableManifest(current.manifest, patch);
       const envelope = await writeScreenManifest(next);
+      const generation = aiCandidate?.generation || {
+        schema: "walnutpi.screenGeneration.v1",
+        source: "rule",
+        apiUsed: false,
+        model: null,
+      };
+      if (isProgramRequest && aiCandidate?.generation?.apiUsed && aiCandidate.generation.source === "ai-fallback") {
+        generation.source = "rule";
+        generation.fallbackSource = "rule";
+        generation.steps = [
+          ...(Array.isArray(aiCandidate.generation.steps) ? aiCandidate.generation.steps : []),
+          {
+            label: "本地受控 manifest",
+            ok: true,
+            detail: "AI 未通过校验，已改用确定性 480x320 生成。",
+          },
+        ];
+      }
+      await recordMetric?.({
+        kind: "screen.intent",
+        operation: "screen.intent",
+        ok: true,
+        latencyMs: Date.now() - startedAt,
+        source: generation.source || "rule",
+        model: generation.model || null,
+        manifestHash: envelope.manifestHash,
+      });
       return json({
         ok: true,
         summary: patch.intentSummary || "已更新预览。",
-        generation: aiCandidate?.generation || {
-          schema: "walnutpi.screenGeneration.v1",
-          source: "rule",
-          apiUsed: false,
-          model: null,
-        },
+        generation,
         ...envelope,
       });
     } catch (error) {
+      await recordMetric?.({
+        kind: "screen.intent",
+        operation: "screen.intent",
+        ok: false,
+        latencyMs: Date.now() - startedAt,
+        source: aiCandidate?.generation?.source || "rule",
+        model: aiCandidate?.generation?.model || null,
+        error: error.message,
+      });
       return json({
         ok: false,
         error: "screen manifest update failed",
