@@ -19,9 +19,11 @@ export DEBIAN_FRONTEND="${DEBIAN_FRONTEND:-noninteractive}"
 apt-get update
 apt-get install -y --no-install-recommends \
   build-essential \
+  ccache \
   cmake \
   git \
   linux-libc-dev \
+  ninja-build \
   nodejs \
   pkg-config \
   python3

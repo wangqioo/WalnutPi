@@ -1,5 +1,5 @@
 #include "lvgl.h"
-#include "generated/screen_config.h"
+#include "generated/screen_workspace_config.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -105,7 +105,10 @@ static int write_bmp(const char * output_path)
 
 int main(int argc, char ** argv)
 {
-    (void)WALNUT_SCREEN_MANIFEST_HASH;
+    if(walnut_screen_workspace_config_playlist_hash()[0] == '\0' && WALNUT_SCREEN_WORKSPACE_ITEM_COUNT > 0) {
+        fprintf(stderr, "workspace playlist hash missing\n");
+        return 1;
+    }
 
     const char * output_path = "walnut-lvgl-preview.bmp";
     int advance_ms = 128;

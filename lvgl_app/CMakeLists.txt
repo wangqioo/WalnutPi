@@ -24,18 +24,28 @@ add_subdirectory("${LVGL_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/lvgl")
 
 get_target_property(LVGL_SOURCES lvgl SOURCES)
 list(FILTER LVGL_SOURCES EXCLUDE REGEX "\\.S$")
+if(WIN32)
+  list(FILTER LVGL_SOURCES EXCLUDE REGEX "/src/drivers/")
+endif()
 set_target_properties(lvgl PROPERTIES SOURCES "${LVGL_SOURCES}")
 
-add_executable(walnut-lvgl-screen
-  src/main.c
-)
+if(NOT WIN32)
+  add_executable(walnut-lvgl-screen
+    src/main.c
+    generated/screen_workspace_config.c
+  )
 
-target_link_libraries(walnut-lvgl-screen PRIVATE lvgl m)
+  target_link_libraries(walnut-lvgl-screen PRIVATE lvgl m)
+endif()
 
 add_executable(walnut-lvgl-preview
   src/main.c
   src/preview_main.c
+  generated/screen_workspace_config.c
 )
 
 target_compile_definitions(walnut-lvgl-preview PRIVATE WALNUT_LVGL_NO_FBDEV=1)
-target_link_libraries(walnut-lvgl-preview PRIVATE lvgl m)
+target_link_libraries(walnut-lvgl-preview PRIVATE lvgl)
+if(NOT WIN32)
+  target_link_libraries(walnut-lvgl-preview PRIVATE m)
+endif()

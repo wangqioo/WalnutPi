@@ -1,0 +1,12 @@
+{
+  "schema": "walnutpi.screen-plan.v1",
+  "id": "workspace-output-plan",
+  "screenId": "workspace-output",
+  "outputType": "static",
+  "selectedSourceAsset": "../sources/default-source/source.json",
+  "processing": {
+    "preset": "fit-cover:480x320"
+  },
+  "requestedAt": null,
+  "executedAt": "2026-06-15T16:33:18.985Z"
+}

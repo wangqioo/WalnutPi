@@ -1,0 +1,12 @@
+{
+  "schema": "walnutpi.screen-plan.v1",
+  "id": "default-workspace-plan",
+  "screenId": "default-workspace",
+  "outputType": "static",
+  "selectedSourceAsset": "../sources/default-source/source.json",
+  "processing": {
+    "preset": "pixel-grid:120x80@4x"
+  },
+  "requestedAt": null,
+  "executedAt": "2026-06-15T16:11:35.623Z"
+}

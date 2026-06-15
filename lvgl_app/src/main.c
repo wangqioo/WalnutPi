@@ -1,76 +1,30 @@
 #include "lvgl.h"
-#include "generated/screen_config.h"
+#include "generated/screen_workspace_config.h"
 #ifndef WALNUT_LVGL_NO_FBDEV
 #include "src/drivers/display/fb/lv_linux_fbdev.h"
 #endif
 
-#include <fcntl.h>
-#include <linux/input.h>
-#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#if defined(__linux__) && !defined(WALNUT_LVGL_NO_FBDEV)
+#include <signal.h>
 #include <unistd.h>
+#endif
 
 static volatile bool running = true;
 
-#define C_BG 0x05080b
-#define C_PANEL 0x11191d
-#define C_PANEL_2 0x172329
-#define C_LINE 0x33434a
-#define C_TEXT 0xf4f1df
-#define C_MUTED 0x95a1a6
-#define C_CYAN 0x67d6ff
-#define C_PAPER 0xf7e9b9
-#define C_INK 0x111111
-#define C_WHITE 0xffffff
-
-#define WALNUT_FONT_TITLE (&lv_font_montserrat_24)
-#define WALNUT_FONT_BODY (&lv_font_montserrat_18)
-#define WALNUT_FONT_SMALL (&lv_font_montserrat_14)
-
-#ifndef WALNUT_SCREEN_PAGE_COUNT
-#define WALNUT_SCREEN_PAGE_COUNT 1
-#endif
-
-#ifndef WALNUT_SCREEN_COMPONENT_COUNT
-#define WALNUT_SCREEN_COMPONENT_COUNT 1
-#endif
-
-#if defined(__GNUC__)
-static const char walnut_screen_manifest_hash[] __attribute__((used)) = WALNUT_SCREEN_MANIFEST_HASH;
-#else
-static const char walnut_screen_manifest_hash[] = WALNUT_SCREEN_MANIFEST_HASH;
-#endif
-
 typedef struct {
-    lv_obj_t * pages[WALNUT_SCREEN_PAGE_COUNT];
-    lv_obj_t * tabs[WALNUT_SCREEN_PAGE_COUNT];
-    int input_fd;
-    bool auto_rotate;
-    int page;
-} screen_ui_t;
-
-typedef struct {
-    char symbol;
-    unsigned int color;
-} pixel_palette_entry_t;
-
-typedef struct {
-    lv_obj_t * pixels[64 * 32];
-    char frames[8][32][65];
-    int durations[8];
-    pixel_palette_entry_t palette[12];
-    int palette_count;
-    int frame_count;
+    lv_obj_t * image;
+    int item;
+    int repeat;
     int frame;
-    int width;
-    int height;
-} pixel_art_runtime_t;
+    bool stopped;
+} workspace_ui_t;
 
-static pixel_art_runtime_t * pixel_art_instances[8];
-static int pixel_art_instance_count = 0;
+static workspace_ui_t workspace_ui;
 
 static void handle_signal(int sig)
 {
@@ -85,698 +39,198 @@ static int clamp_int(int value, int low, int high)
     return value;
 }
 
-static bool text_equals(const char * a, const char * b)
+static bool workspace_playlist_enabled(void)
 {
-    return a != NULL && b != NULL && strcmp(a, b) == 0;
+    return WALNUT_SCREEN_WORKSPACE_ITEM_COUNT > 0 && WALNUT_SCREEN_WORKSPACE_FRAME_COUNT > 0;
 }
 
-static bool text_is_empty(const char * value)
+static int workspace_frame_duration_ms(int item_index, int frame_index)
 {
-    return value == NULL || value[0] == '\0';
+    if(item_index < 0 || item_index >= WALNUT_SCREEN_WORKSPACE_ITEM_COUNT) return 1000;
+    const walnut_screen_workspace_item_config_t * item = &walnut_screen_workspace_items[item_index];
+    if(item->frame_count <= 1) return clamp_int(item->duration_ms, 1, 86400000);
+    if(frame_index < 0 || frame_index >= WALNUT_SCREEN_WORKSPACE_FRAME_COUNT) return 1000;
+    return clamp_int(walnut_screen_workspace_frames[frame_index].duration_ms, 1, 600000);
 }
 
-static void style_panel(lv_obj_t * obj, lv_color_t border)
+static void workspace_apply_frame(workspace_ui_t * ui)
 {
-    lv_obj_set_style_radius(obj, 6, 0);
-    lv_obj_set_style_bg_color(obj, lv_color_hex(C_PANEL), 0);
-    lv_obj_set_style_border_color(obj, border, 0);
-    lv_obj_set_style_border_width(obj, 1, 0);
-    lv_obj_set_style_pad_all(obj, 8, 0);
+    if(ui == NULL || ui->image == NULL || !workspace_playlist_enabled()) return;
+    ui->item = clamp_int(ui->item, 0, WALNUT_SCREEN_WORKSPACE_ITEM_COUNT - 1);
+    const walnut_screen_workspace_item_config_t * item = &walnut_screen_workspace_items[ui->item];
+    int first_frame = clamp_int(item->first_frame, 0, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - 1);
+    int frame_count = clamp_int(item->frame_count, 1, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - first_frame);
+    ui->frame = clamp_int(ui->frame, first_frame, first_frame + frame_count - 1);
+    const walnut_screen_workspace_frame_config_t * frame = &walnut_screen_workspace_frames[ui->frame];
+    if(frame->image != NULL) lv_image_set_src(ui->image, frame->image);
 }
 
-static lv_obj_t * add_wrapped_label(lv_obj_t * parent,
-                                    const char * text,
-                                    lv_color_t color,
-                                    const lv_font_t * font,
-                                    int width)
+static void workspace_advance(workspace_ui_t * ui)
 {
-    lv_obj_t * label = lv_label_create(parent);
-    lv_label_set_text(label, text == NULL ? "" : text);
-    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(label, width);
-    lv_obj_set_style_text_color(label, color, 0);
-    lv_obj_set_style_text_font(label, font, 0);
-    return label;
-}
-
-static lv_obj_t * create_page(lv_obj_t * parent)
-{
-    lv_obj_t * page = lv_obj_create(parent);
-    lv_obj_set_size(page, 448, 246);
-    lv_obj_align(page, LV_ALIGN_TOP_LEFT, 16, WALNUT_SCREEN_PAGE_COUNT > 1 ? 62 : 58);
-    lv_obj_set_style_bg_opa(page, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(page, 0, 0);
-    lv_obj_set_style_pad_all(page, 8, 0);
-    lv_obj_set_style_pad_row(page, 7, 0);
-    lv_obj_set_flex_flow(page, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(page, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START);
-    return page;
-}
-
-static bool page_has_generated_component(int page_index)
-{
-    for(int i = 0; i < WALNUT_SCREEN_COMPONENT_COUNT; i++) {
-        if(walnut_screen_components[i].page_index == page_index
-           && (text_equals(walnut_screen_components[i].type, "generatedPage")
-               || text_equals(walnut_screen_components[i].type, "layout")
-               || text_equals(walnut_screen_components[i].type, "pixelArt"))) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static void prepare_generated_page(lv_obj_t * page, bool full_screen)
-{
-    if(full_screen) {
-        lv_obj_set_size(page, 480, 320);
-        lv_obj_align(page, LV_ALIGN_TOP_LEFT, 0, 0);
-    }
-    else {
-        lv_obj_set_size(page, 448, 254);
-        lv_obj_align(page, LV_ALIGN_TOP_LEFT, 16, 54);
-    }
-    lv_obj_set_style_pad_all(page, 0, 0);
-    lv_obj_set_style_bg_opa(page, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(page, lv_color_hex(C_BG), 0);
-    lv_obj_set_layout(page, LV_LAYOUT_NONE);
-}
-
-static lv_obj_t * add_card(lv_obj_t * parent, int height, lv_color_t color)
-{
-    lv_obj_t * card = lv_obj_create(parent);
-    lv_obj_set_size(card, 432, height);
-    style_panel(card, color);
-    return card;
-}
-
-static void add_text_component(lv_obj_t * parent,
-                               const walnut_screen_component_config_t * component,
-                               int height,
-                               const lv_font_t * body_font)
-{
-    lv_color_t color = lv_color_hex(component->tone_color);
-    lv_obj_t * card = add_card(parent, height, color);
-
-    lv_obj_t * title = add_wrapped_label(card, component->title, lv_color_hex(C_MUTED), WALNUT_FONT_SMALL, 404);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, 0);
-
-    lv_obj_t * body = add_wrapped_label(card, component->text, lv_color_hex(C_TEXT), body_font, 404);
-    lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, 24);
-}
-
-static void add_progress_component(lv_obj_t * parent, const walnut_screen_component_config_t * component)
-{
-    lv_color_t color = lv_color_hex(component->tone_color);
-    lv_obj_t * card = add_card(parent, 58, color);
-
-    lv_obj_t * title = add_wrapped_label(card, component->title, lv_color_hex(C_TEXT), WALNUT_FONT_SMALL, 150);
-    lv_obj_align(title, LV_ALIGN_LEFT_MID, 0, 0);
-
-    lv_obj_t * bar = lv_bar_create(card);
-    lv_obj_set_size(bar, 238, 16);
-    lv_obj_align(bar, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_bar_set_range(bar, 0, 100);
-    lv_bar_set_value(bar, clamp_int(component->progress, 0, 100), LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(C_PANEL_2), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(bar, color, LV_PART_INDICATOR);
-
-    char value[16];
-    snprintf(value, sizeof(value), "%d%%", clamp_int(component->progress, 0, 100));
-    lv_obj_t * pct = add_wrapped_label(card, value, color, WALNUT_FONT_SMALL, 42);
-    lv_obj_align_to(pct, bar, LV_ALIGN_OUT_RIGHT_MID, 8, 0);
-}
-
-static void set_box_style(lv_obj_t * obj, lv_color_t bg, lv_color_t border, int border_width, int radius)
-{
-    lv_obj_set_style_radius(obj, radius, 0);
-    lv_obj_set_style_bg_color(obj, bg, 0);
-    lv_obj_set_style_border_color(obj, border, 0);
-    lv_obj_set_style_border_width(obj, border_width, 0);
-    lv_obj_set_style_pad_all(obj, 0, 0);
-}
-
-static void add_generated_items(lv_obj_t * parent,
-                                const char * items,
-                                lv_color_t fg,
-                                lv_color_t bg,
-                                lv_color_t border)
-{
-    if(text_is_empty(items)) return;
-
-    char copy[192];
-    snprintf(copy, sizeof(copy), "%s", items);
-    char * line = strtok(copy, "\n");
-    int index = 0;
-    while(line != NULL && index < 3) {
-        lv_obj_t * box = lv_obj_create(parent);
-        lv_obj_set_size(box, 132, 42);
-        set_box_style(box, bg, border, 2, 6);
-        lv_obj_align(box, LV_ALIGN_BOTTOM_LEFT, index * 142, 0);
-        lv_obj_set_style_pad_left(box, 8, 0);
-        lv_obj_set_style_pad_right(box, 8, 0);
-        lv_obj_set_style_pad_top(box, 5, 0);
-
-        lv_obj_t * label = add_wrapped_label(box, line, fg, WALNUT_FONT_SMALL, 112);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
-        lv_obj_align(label, LV_ALIGN_LEFT_MID, 0, 0);
-
-        line = strtok(NULL, "\n");
-        index++;
-    }
-}
-
-static void add_generated_page_component(lv_obj_t * parent, const walnut_screen_component_config_t * component)
-{
-    bool comic = text_equals(component->style, "comic");
-    bool minimal = text_equals(component->style, "minimal");
-    bool full_screen = lv_obj_get_height(parent) > 270;
-    lv_color_t accent = lv_color_hex(component->tone_color);
-    lv_color_t bg = comic ? lv_color_hex(C_PAPER) : minimal ? lv_color_hex(0xf1efe4) : lv_color_hex(C_BG);
-    lv_color_t fg = (comic || minimal) ? lv_color_hex(C_INK) : lv_color_hex(C_TEXT);
-    lv_color_t panel_bg = comic ? lv_color_hex(0xfff6cf) : minimal ? lv_color_hex(C_WHITE) : lv_color_hex(C_PANEL);
-    lv_color_t soft_bg = comic ? lv_color_hex(C_WHITE) : minimal ? lv_color_hex(0xf8f7ef) : lv_color_hex(C_PANEL_2);
-    lv_color_t border = comic ? lv_color_hex(C_INK) : accent;
-
-    lv_obj_set_style_bg_color(parent, bg, 0);
-    lv_obj_set_layout(parent, LV_LAYOUT_NONE);
-    lv_obj_set_style_pad_all(parent, 0, 0);
-
-    lv_obj_t * badge = lv_obj_create(parent);
-    lv_obj_set_size(badge, 78, 28);
-    set_box_style(badge, accent, comic ? lv_color_hex(C_INK) : accent, comic ? 3 : 1, 5);
-    lv_obj_align(badge, LV_ALIGN_TOP_RIGHT, -4, full_screen ? 4 : 0);
-
-    lv_obj_t * badge_text = add_wrapped_label(badge, component->badge, comic ? lv_color_hex(C_INK) : lv_color_hex(C_BG), WALNUT_FONT_SMALL, 62);
-    lv_label_set_long_mode(badge_text, LV_LABEL_LONG_DOT);
-    lv_obj_center(badge_text);
-
-    lv_obj_t * kicker = add_wrapped_label(parent, component->kicker, accent, WALNUT_FONT_SMALL, 250);
-    lv_label_set_long_mode(kicker, LV_LABEL_LONG_DOT);
-    lv_obj_align(kicker, LV_ALIGN_TOP_LEFT, 4, full_screen ? 10 : 6);
-
-    if(comic) {
-        lv_obj_t * shadow = lv_obj_create(parent);
-        lv_obj_set_size(shadow, 394, full_screen ? 172 : 154);
-        set_box_style(shadow, lv_color_hex(C_INK), lv_color_hex(C_INK), 0, 5);
-        lv_obj_align(shadow, LV_ALIGN_TOP_LEFT, 26, full_screen ? 58 : 48);
-    }
-
-    lv_obj_t * panel = lv_obj_create(parent);
-    lv_obj_set_size(panel, comic ? 394 : 410, full_screen ? 172 : comic ? 154 : 150);
-    set_box_style(panel, panel_bg, border, comic ? 4 : 2, comic ? 5 : 8);
-    lv_obj_align(panel, LV_ALIGN_TOP_LEFT, comic ? 18 : 8, full_screen ? 50 : 40);
-    lv_obj_set_style_pad_all(panel, 14, 0);
-
-    lv_obj_t * title = add_wrapped_label(panel, component->title, fg, WALNUT_FONT_TITLE, comic ? 328 : 360);
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_28, 0);
-    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 0, 0);
-
-    lv_obj_t * body_box = lv_obj_create(panel);
-    lv_obj_set_size(body_box, comic ? 322 : 360, 50);
-    set_box_style(body_box, soft_bg, comic ? lv_color_hex(C_INK) : border, comic ? 3 : 1, comic ? 20 : 6);
-    lv_obj_align(body_box, LV_ALIGN_BOTTOM_LEFT, 0, 0);
-    lv_obj_set_style_pad_all(body_box, 8, 0);
-
-    lv_obj_t * body = add_wrapped_label(body_box, component->text, fg, WALNUT_FONT_SMALL, comic ? 294 : 336);
-    lv_obj_align(body, LV_ALIGN_TOP_LEFT, 0, 0);
-
-    lv_obj_t * progress_bg = lv_obj_create(parent);
-    lv_obj_set_size(progress_bg, 266, 12);
-    set_box_style(progress_bg, soft_bg, border, comic ? 3 : 1, 6);
-    lv_obj_align(progress_bg, LV_ALIGN_TOP_LEFT, 8, full_screen ? 236 : 202);
-
-    int progress = clamp_int(component->progress, 0, 100);
-    lv_obj_t * progress_fill = lv_obj_create(progress_bg);
-    lv_obj_set_size(progress_fill, clamp_int((258 * progress) / 100, 4, 258), 8);
-    set_box_style(progress_fill, accent, accent, 0, 4);
-    lv_obj_align(progress_fill, LV_ALIGN_LEFT_MID, 2, 0);
-
-    add_generated_items(parent, component->items, fg, soft_bg, border);
-}
-
-static const lv_font_t * draw_font(const char * value)
-{
-    if(text_equals(value, "title")) return &lv_font_montserrat_48;
-    if(text_equals(value, "small")) return WALNUT_FONT_SMALL;
-    return WALNUT_FONT_BODY;
-}
-
-static void add_layout_rect(lv_obj_t * parent,
-                            int x,
-                            int y,
-                            int w,
-                            int h,
-                            unsigned int color,
-                            unsigned int border,
-                            int radius,
-                            int width)
-{
-    lv_obj_t * obj = lv_obj_create(parent);
-    lv_obj_set_size(obj, clamp_int(w, 1, 480), clamp_int(h, 1, 320));
-    lv_obj_align(obj, LV_ALIGN_TOP_LEFT, x, y);
-    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
-    lv_obj_set_style_border_color(obj, lv_color_hex(border), 0);
-    lv_obj_set_style_border_width(obj, clamp_int(width, 0, 12), 0);
-    lv_obj_set_style_radius(obj, clamp_int(radius, 0, 40), 0);
-    lv_obj_set_style_pad_all(obj, 0, 0);
-}
-
-static void add_layout_label(lv_obj_t * parent,
-                             const char * text,
-                             const char * font,
-                             int x,
-                             int y,
-                             int w,
-                             int h,
-                             unsigned int color,
-                             unsigned int bg,
-                             unsigned int border,
-                             int radius,
-                             int width)
-{
-    lv_obj_t * box = lv_obj_create(parent);
-    lv_obj_set_size(box, clamp_int(w, 1, 480), clamp_int(h, 1, 320));
-    lv_obj_align(box, LV_ALIGN_TOP_LEFT, x, y);
-    lv_obj_set_style_bg_color(box, lv_color_hex(bg), 0);
-    lv_obj_set_style_bg_opa(box, bg == 0 ? LV_OPA_TRANSP : LV_OPA_COVER, 0);
-    lv_obj_set_style_border_color(box, lv_color_hex(border), 0);
-    lv_obj_set_style_border_width(box, clamp_int(width, 0, 12), 0);
-    lv_obj_set_style_radius(box, clamp_int(radius, 0, 40), 0);
-    lv_obj_set_style_pad_all(box, 0, 0);
-
-    lv_obj_t * label = add_wrapped_label(box, text, lv_color_hex(color), draw_font(font), clamp_int(w - 2, 1, 478));
-    lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
-    lv_obj_align(label, LV_ALIGN_LEFT_MID, 1, 0);
-}
-
-static void add_layout_bar(lv_obj_t * parent,
-                           int x,
-                           int y,
-                           int w,
-                           int h,
-                           unsigned int color,
-                           unsigned int bg,
-                           unsigned int border,
-                           int radius,
-                           int width,
-                           int value)
-{
-    lv_obj_t * bar = lv_bar_create(parent);
-    lv_obj_set_size(bar, clamp_int(w, 1, 480), clamp_int(h, 1, 320));
-    lv_obj_align(bar, LV_ALIGN_TOP_LEFT, x, y);
-    lv_bar_set_range(bar, 0, 100);
-    lv_bar_set_value(bar, clamp_int(value, 0, 100), LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(bg), LV_PART_MAIN);
-    lv_obj_set_style_bg_color(bar, lv_color_hex(color), LV_PART_INDICATOR);
-    lv_obj_set_style_border_color(bar, lv_color_hex(border), LV_PART_MAIN);
-    lv_obj_set_style_border_width(bar, clamp_int(width, 0, 12), LV_PART_MAIN);
-    lv_obj_set_style_radius(bar, clamp_int(radius, 0, 40), LV_PART_MAIN);
-    lv_obj_set_style_radius(bar, clamp_int(radius, 0, 40), LV_PART_INDICATOR);
-}
-
-static void add_layout_line(lv_obj_t * parent,
-                            int x,
-                            int y,
-                            int w,
-                            int h,
-                            unsigned int color,
-                            int width)
-{
-    int horizontal = w >= h;
-    lv_obj_t * obj = lv_obj_create(parent);
-    lv_obj_set_size(obj, horizontal ? clamp_int(w, 1, 480) : clamp_int(width, 1, 12),
-                    horizontal ? clamp_int(width, 1, 12) : clamp_int(h, 1, 320));
-    lv_obj_align(obj, LV_ALIGN_TOP_LEFT, x, y);
-    lv_obj_set_style_bg_color(obj, lv_color_hex(color), 0);
-    lv_obj_set_style_border_width(obj, 0, 0);
-    lv_obj_set_style_radius(obj, clamp_int(width, 0, 12), 0);
-    lv_obj_set_style_pad_all(obj, 0, 0);
-}
-
-static void add_layout_component(lv_obj_t * parent, const walnut_screen_component_config_t * component)
-{
-    lv_obj_set_style_bg_color(parent, lv_color_hex(component->tone_color), 0);
-    lv_obj_set_layout(parent, LV_LAYOUT_NONE);
-    lv_obj_set_style_pad_all(parent, 0, 0);
-
-    char copy[4096];
-    snprintf(copy, sizeof(copy), "%s", component->draw_elements == NULL ? "" : component->draw_elements);
-    char * saveptr = NULL;
-    char * line = strtok_r(copy, "\n", &saveptr);
-    while(line != NULL) {
-        char * fields[13] = {0};
-        char * field_saveptr = NULL;
-        char * token = strtok_r(line, "|", &field_saveptr);
-        int count = 0;
-        while(token != NULL && count < 13) {
-            fields[count++] = token;
-            token = strtok_r(NULL, "|", &field_saveptr);
-        }
-        if(count >= 13) {
-            const char * kind = fields[0];
-            int x = clamp_int(atoi(fields[1]), 0, 479);
-            int y = clamp_int(atoi(fields[2]), 0, 319);
-            int w = clamp_int(atoi(fields[3]), 1, 480);
-            int h = clamp_int(atoi(fields[4]), 1, 320);
-            unsigned int color = (unsigned int)strtoul(fields[5], NULL, 0);
-            unsigned int bg = (unsigned int)strtoul(fields[6], NULL, 0);
-            unsigned int border = (unsigned int)strtoul(fields[7], NULL, 0);
-            int radius = clamp_int(atoi(fields[8]), 0, 40);
-            int width = clamp_int(atoi(fields[9]), 0, 12);
-            int value = clamp_int(atoi(fields[10]), 0, 100);
-            const char * font = fields[11];
-            const char * text = fields[12];
-
-            if(text_equals(kind, "rect")) add_layout_rect(parent, x, y, w, h, color, border, radius, width);
-            else if(text_equals(kind, "label")) add_layout_label(parent, text, font, x, y, w, h, color, bg, border, radius, width);
-            else if(text_equals(kind, "bar")) add_layout_bar(parent, x, y, w, h, color, bg, border, radius, width, value);
-            else if(text_equals(kind, "line")) add_layout_line(parent, x, y, w, h, color, width);
-            else if(text_equals(kind, "circle")) add_layout_rect(parent, x, y, w, h, color, border, 40, width);
-        }
-        line = strtok_r(NULL, "\n", &saveptr);
-    }
-}
-
-static unsigned int pixel_art_color(pixel_art_runtime_t * art, char symbol)
-{
-    if(art == NULL || symbol == '.' || symbol == ' ') return 0;
-    for(int i = 0; i < art->palette_count; i++) {
-        if(art->palette[i].symbol == symbol) return art->palette[i].color;
-    }
-    return 0;
-}
-
-static void pixel_art_apply_frame(pixel_art_runtime_t * art)
-{
-    if(art == NULL || art->frame_count <= 0) return;
-    int frame = clamp_int(art->frame, 0, art->frame_count - 1);
-    for(int y = 0; y < art->height; y++) {
-        for(int x = 0; x < art->width; x++) {
-            int index = y * art->width + x;
-            lv_obj_t * pixel = art->pixels[index];
-            if(pixel == NULL) continue;
-            unsigned int color = pixel_art_color(art, art->frames[frame][y][x]);
-            if(color == 0) {
-                lv_obj_add_flag(pixel, LV_OBJ_FLAG_HIDDEN);
-            }
-            else {
-                lv_obj_clear_flag(pixel, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_set_style_bg_color(pixel, lv_color_hex(color), 0);
-            }
-        }
-    }
-}
-
-void walnut_preview_apply_dynamic_time(int advance_ms)
-{
-    if(advance_ms < 0) advance_ms = 0;
-    for(int i = 0; i < pixel_art_instance_count; i++) {
-        pixel_art_runtime_t * art = pixel_art_instances[i];
-        if(art == NULL || art->frame_count <= 0) continue;
-
-        int total = 0;
-        for(int frame = 0; frame < art->frame_count; frame++) {
-            total += clamp_int(art->durations[frame], 80, 5000);
-        }
-        if(total <= 0) total = 1;
-
-        int cursor = advance_ms % total;
-        int selected = 0;
-        for(int frame = 0; frame < art->frame_count; frame++) {
-            int duration = clamp_int(art->durations[frame], 80, 5000);
-            if(cursor < duration) {
-                selected = frame;
-                break;
-            }
-            cursor -= duration;
-        }
-
-        art->frame = selected;
-        pixel_art_apply_frame(art);
-    }
-}
-
-static void pixel_art_timer_cb(lv_timer_t * timer)
-{
-    pixel_art_runtime_t * art = (pixel_art_runtime_t *)lv_timer_get_user_data(timer);
-    if(art == NULL || art->frame_count <= 1) return;
-    art->frame = (art->frame + 1) % art->frame_count;
-    pixel_art_apply_frame(art);
-    lv_timer_set_period(timer, clamp_int(art->durations[art->frame], 80, 5000));
-}
-
-static void add_pixel_art_component(lv_obj_t * parent, const walnut_screen_component_config_t * component)
-{
-    lv_obj_set_style_bg_color(parent, lv_color_hex(component->tone_color), 0);
-    lv_obj_set_layout(parent, LV_LAYOUT_NONE);
-    lv_obj_set_style_pad_all(parent, 0, 0);
-
-    char copy[8192];
-    snprintf(copy, sizeof(copy), "%s", component->draw_elements == NULL ? "" : component->draw_elements);
-
-    int origin_x = 0;
-    int origin_y = 0;
-    int width = 0;
-    int height = 0;
-    int pixel_size = 4;
-    int gap = 1;
-
-    pixel_art_runtime_t * art = lv_malloc(sizeof(pixel_art_runtime_t));
-    if(art == NULL) return;
-    memset(art, 0, sizeof(*art));
-
-    char * saveptr = NULL;
-    char * line = strtok_r(copy, "\n", &saveptr);
-    int current_frame = -1;
-    int current_row = 0;
-    while(line != NULL) {
-        if(strncmp(line, "PIXELART|", 9) == 0) {
-            char * fields[7] = {0};
-            char * local = line;
-            char * part_saveptr = NULL;
-            int count = 0;
-            char * token = strtok_r(local, "|", &part_saveptr);
-            while(token != NULL && count < 7) {
-                fields[count++] = token;
-                token = strtok_r(NULL, "|", &part_saveptr);
-            }
-            if(count >= 7) {
-                origin_x = clamp_int(atoi(fields[1]), 0, 479);
-                origin_y = clamp_int(atoi(fields[2]), 0, 319);
-                width = clamp_int(atoi(fields[3]), 1, 64);
-                height = clamp_int(atoi(fields[4]), 1, 32);
-                pixel_size = clamp_int(atoi(fields[5]), 1, 16);
-                gap = clamp_int(atoi(fields[6]), 0, 4);
-                art->width = width;
-                art->height = height;
-            }
-        }
-        else if(strncmp(line, "PAL|", 4) == 0 && art->palette_count < 12) {
-            char symbol = line[4];
-            char * color_text = strchr(line + 4, '|');
-            if(color_text != NULL && symbol != '\0') {
-                art->palette[art->palette_count].symbol = symbol;
-                art->palette[art->palette_count].color = (unsigned int)strtoul(color_text + 1, NULL, 0);
-                art->palette_count++;
-            }
-        }
-        else if(strncmp(line, "FRAME|", 6) == 0 && art->frame_count < 8) {
-            char * last_pipe = strrchr(line, '|');
-            current_frame = art->frame_count;
-            current_row = 0;
-            art->durations[current_frame] = last_pipe == NULL ? 500 : clamp_int(atoi(last_pipe + 1), 80, 5000);
-            art->frame_count++;
-        }
-        else if(strncmp(line, "ROW|", 4) == 0 && current_frame >= 0 && current_row < 32) {
-            snprintf(art->frames[current_frame][current_row], sizeof(art->frames[current_frame][current_row]), "%s", line + 4);
-            current_row++;
-        }
-        line = strtok_r(NULL, "\n", &saveptr);
-    }
-
-    if(art->width <= 0 || art->height <= 0 || art->frame_count <= 0) {
-        lv_free(art);
+    if(ui == NULL || ui->stopped || !workspace_playlist_enabled()) return;
+    const walnut_screen_workspace_item_config_t * item = &walnut_screen_workspace_items[ui->item];
+    int first_frame = clamp_int(item->first_frame, 0, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - 1);
+    int frame_count = clamp_int(item->frame_count, 1, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - first_frame);
+    if(frame_count > 1 && ui->frame < first_frame + frame_count - 1) {
+        ui->frame++;
         return;
     }
 
-    for(int y = 0; y < art->height; y++) {
-        for(int x = 0; x < art->width; x++) {
-            int index = y * art->width + x;
-            lv_obj_t * pixel = lv_obj_create(parent);
-            lv_obj_set_size(pixel, pixel_size, pixel_size);
-            lv_obj_align(pixel, LV_ALIGN_TOP_LEFT, origin_x + x * (pixel_size + gap), origin_y + y * (pixel_size + gap));
-            lv_obj_set_style_border_width(pixel, 0, 0);
-            lv_obj_set_style_radius(pixel, 0, 0);
-            lv_obj_set_style_pad_all(pixel, 0, 0);
-            art->pixels[index] = pixel;
-        }
-    }
-    pixel_art_apply_frame(art);
-    if(pixel_art_instance_count < (int)(sizeof(pixel_art_instances) / sizeof(pixel_art_instances[0]))) {
-        pixel_art_instances[pixel_art_instance_count++] = art;
-    }
-    if(art->frame_count > 1) {
-        lv_timer_create(pixel_art_timer_cb, clamp_int(art->durations[0], 80, 5000), art);
-    }
-}
+    ui->frame = first_frame;
+    ui->repeat++;
+    if(ui->repeat < clamp_int(item->repeat, 1, 1000)) return;
 
-static void add_component(lv_obj_t * parent, const walnut_screen_component_config_t * component)
-{
-    if(text_equals(component->type, "layout")) {
-        add_layout_component(parent, component);
+    ui->repeat = 0;
+    if(ui->item < WALNUT_SCREEN_WORKSPACE_ITEM_COUNT - 1) {
+        ui->item++;
     }
-    else if(text_equals(component->type, "pixelArt")) {
-        add_pixel_art_component(parent, component);
-    }
-    else if(text_equals(component->type, "generatedPage")) {
-        add_generated_page_component(parent, component);
-    }
-    else if(text_equals(component->type, "progress")) {
-        add_progress_component(parent, component);
-    }
-    else if(text_equals(component->type, "statusCard")) {
-        add_text_component(parent, component, 82, WALNUT_FONT_TITLE);
-    }
-    else if(text_equals(component->type, "metricGroup")) {
-        add_text_component(parent, component, 92, WALNUT_FONT_BODY);
-    }
-    else if(text_equals(component->type, "alert")) {
-        add_text_component(parent, component, 78, WALNUT_FONT_BODY);
+    else if(WALNUT_SCREEN_WORKSPACE_PLAYLIST_LOOP) {
+        ui->item = 0;
     }
     else {
-        add_text_component(parent, component, 112, WALNUT_FONT_BODY);
+        ui->stopped = true;
+        ui->frame = first_frame + frame_count - 1;
+        return;
     }
+    const walnut_screen_workspace_item_config_t * next_item = &walnut_screen_workspace_items[ui->item];
+    ui->frame = clamp_int(next_item->first_frame, 0, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - 1);
 }
 
-static void set_page_visible(screen_ui_t * ui, int next_page)
+static void workspace_timer_cb(lv_timer_t * timer)
 {
-    if(ui == NULL || WALNUT_SCREEN_PAGE_COUNT <= 0) return;
-    ui->page = clamp_int(next_page, 0, WALNUT_SCREEN_PAGE_COUNT - 1);
-    for(int i = 0; i < WALNUT_SCREEN_PAGE_COUNT; i++) {
-        if(ui->pages[i] != NULL) {
-            if(i == ui->page) lv_obj_clear_flag(ui->pages[i], LV_OBJ_FLAG_HIDDEN);
-            else lv_obj_add_flag(ui->pages[i], LV_OBJ_FLAG_HIDDEN);
+    workspace_ui_t * ui = (workspace_ui_t *)lv_timer_get_user_data(timer);
+    if(ui == NULL || !workspace_playlist_enabled()) return;
+    workspace_advance(ui);
+    workspace_apply_frame(ui);
+    if(ui->stopped) {
+        lv_timer_pause(timer);
+        return;
+    }
+    lv_timer_set_period(timer, workspace_frame_duration_ms(ui->item, ui->frame));
+}
+
+static void workspace_apply_time(int advance_ms)
+{
+    if(!workspace_playlist_enabled()) return;
+    if(advance_ms < 0) advance_ms = 0;
+
+    int total = 0;
+    for(int item_index = 0; item_index < WALNUT_SCREEN_WORKSPACE_ITEM_COUNT; item_index++) {
+        const walnut_screen_workspace_item_config_t * item = &walnut_screen_workspace_items[item_index];
+        int first_frame = clamp_int(item->first_frame, 0, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - 1);
+        int frame_count = clamp_int(item->frame_count, 1, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - first_frame);
+        int cycle = 0;
+        if(frame_count <= 1) {
+            cycle = clamp_int(item->duration_ms, 1, 86400000);
         }
-        if(ui->tabs[i] != NULL) {
-            lv_obj_set_style_bg_color(ui->tabs[i], i == ui->page ? lv_color_hex(C_CYAN) : lv_color_hex(C_LINE), 0);
+        else {
+            for(int offset = 0; offset < frame_count; offset++) {
+                cycle += clamp_int(walnut_screen_workspace_frames[first_frame + offset].duration_ms, 1, 600000);
+            }
         }
+        total += cycle * clamp_int(item->repeat, 1, 1000);
+    }
+    if(total <= 0) total = 1;
+
+    int cursor = WALNUT_SCREEN_WORKSPACE_PLAYLIST_LOOP ? advance_ms % total : clamp_int(advance_ms, 0, total - 1);
+    for(int item_index = 0; item_index < WALNUT_SCREEN_WORKSPACE_ITEM_COUNT; item_index++) {
+        const walnut_screen_workspace_item_config_t * item = &walnut_screen_workspace_items[item_index];
+        int first_frame = clamp_int(item->first_frame, 0, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - 1);
+        int frame_count = clamp_int(item->frame_count, 1, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - first_frame);
+        int cycle = 0;
+        if(frame_count <= 1) {
+            cycle = clamp_int(item->duration_ms, 1, 86400000);
+        }
+        else {
+            for(int offset = 0; offset < frame_count; offset++) {
+                cycle += clamp_int(walnut_screen_workspace_frames[first_frame + offset].duration_ms, 1, 600000);
+            }
+        }
+
+        int item_total = cycle * clamp_int(item->repeat, 1, 1000);
+        if(cursor >= item_total) {
+            cursor -= item_total;
+            continue;
+        }
+
+        workspace_ui.item = item_index;
+        workspace_ui.repeat = cycle > 0 ? cursor / cycle : 0;
+        int frame_cursor = cycle > 0 ? cursor % cycle : 0;
+        workspace_ui.frame = first_frame;
+        if(frame_count > 1) {
+            for(int offset = 0; offset < frame_count; offset++) {
+                int duration = clamp_int(walnut_screen_workspace_frames[first_frame + offset].duration_ms, 1, 600000);
+                if(frame_cursor < duration) {
+                    workspace_ui.frame = first_frame + offset;
+                    break;
+                }
+                frame_cursor -= duration;
+            }
+        }
+        workspace_apply_frame(&workspace_ui);
+        return;
     }
 }
 
-static void rotate_page_cb(lv_timer_t * timer)
+static void build_empty_workspace_screen(void)
 {
-    screen_ui_t * ui = (screen_ui_t *)lv_timer_get_user_data(timer);
-    if(ui == NULL || !ui->auto_rotate || WALNUT_SCREEN_PAGE_COUNT < 2) return;
-    set_page_visible(ui, (ui->page + 1) % WALNUT_SCREEN_PAGE_COUNT);
-}
+    lv_obj_t * scr = lv_screen_active();
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x05080b), 0);
 
-static void handle_key(screen_ui_t * ui, int code)
-{
-    if(ui == NULL) return;
-    if(code == KEY_RIGHT || code == KEY_DOWN || code == KEY_ENTER) {
-        set_page_visible(ui, (ui->page + 1) % WALNUT_SCREEN_PAGE_COUNT);
-    }
-    else if(code == KEY_LEFT || code == KEY_UP || code == KEY_BACKSPACE) {
-        set_page_visible(ui, (ui->page + WALNUT_SCREEN_PAGE_COUNT - 1) % WALNUT_SCREEN_PAGE_COUNT);
-    }
-    else if(code == KEY_SPACE) {
-        ui->auto_rotate = !ui->auto_rotate;
-    }
-    else if(code == KEY_Q || code == KEY_ESC) {
-        running = false;
-    }
-}
+    lv_obj_t * title = lv_label_create(scr);
+    lv_label_set_text(title, "SCREEN WORKSPACE EMPTY");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xffd166), 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 18, 18);
 
-static int open_input_device(void)
-{
-    const char * candidates[] = {"/dev/input/event0", "/dev/input/event2", NULL};
-    for(int i = 0; candidates[i] != NULL; i++) {
-        int fd = open(candidates[i], O_RDONLY | O_NONBLOCK);
-        if(fd >= 0) return fd;
-    }
-    return -1;
-}
+    lv_obj_t * note = lv_label_create(scr);
+    lv_label_set_text(note, "Generate screen/playlists/default.json");
+    lv_obj_set_style_text_color(note, lv_color_hex(0xf4f1df), 0);
+    lv_obj_set_style_text_font(note, &lv_font_montserrat_18, 0);
+    lv_obj_set_width(note, 440);
+    lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
+    lv_obj_align(note, LV_ALIGN_TOP_LEFT, 18, 72);
 
-static void input_poll_cb(lv_timer_t * timer)
-{
-    screen_ui_t * ui = (screen_ui_t *)lv_timer_get_user_data(timer);
-    if(ui == NULL || ui->input_fd < 0) return;
-
-    struct input_event ev;
-    while(read(ui->input_fd, &ev, sizeof(ev)) == sizeof(ev)) {
-        if(ev.type == EV_KEY && ev.value == 1) handle_key(ui, ev.code);
-    }
-}
-
-static void build_tabs(screen_ui_t * ui, lv_obj_t * scr)
-{
-    int count = WALNUT_SCREEN_PAGE_COUNT;
-    if(count < 2) return;
-    int tab_w = clamp_int((304 - (count - 1) * 6) / count, 38, 78);
-    int start_x = 464 - (tab_w * count + 6 * (count - 1));
-
-    for(int i = 0; i < count; i++) {
-        lv_obj_t * tab = lv_obj_create(scr);
-        lv_obj_set_size(tab, tab_w, 20);
-        lv_obj_align(tab, LV_ALIGN_TOP_LEFT, start_x + i * (tab_w + 6), 16);
-        lv_obj_set_style_radius(tab, 4, 0);
-        lv_obj_set_style_bg_color(tab, lv_color_hex(C_LINE), 0);
-        lv_obj_set_style_border_width(tab, 0, 0);
-        lv_obj_set_style_pad_all(tab, 0, 0);
-
-        lv_obj_t * label = lv_label_create(tab);
-        lv_label_set_text(label, walnut_screen_pages[i].tab);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
-        lv_obj_set_width(label, tab_w - 6);
-        lv_obj_set_style_text_color(label, lv_color_hex(C_BG), 0);
-        lv_obj_set_style_text_font(label, WALNUT_FONT_SMALL, 0);
-        lv_obj_center(label);
-        ui->tabs[i] = tab;
-    }
+    lv_obj_t * reason = lv_label_create(scr);
+    lv_label_set_text(reason, WALNUT_SCREEN_WORKSPACE_GENERATION_NOTE);
+    lv_obj_set_style_text_color(reason, lv_color_hex(0x95a1a6), 0);
+    lv_obj_set_style_text_font(reason, &lv_font_montserrat_14, 0);
+    lv_obj_set_width(reason, 440);
+    lv_label_set_long_mode(reason, LV_LABEL_LONG_WRAP);
+    lv_obj_align(reason, LV_ALIGN_TOP_LEFT, 18, 124);
 }
 
 void walnut_build_screen_ui(void)
 {
-    static screen_ui_t ui;
-    memset(&ui, 0, sizeof(ui));
-    ui.input_fd = -1;
-    ui.auto_rotate = true;
+    if(!workspace_playlist_enabled()) {
+        build_empty_workspace_screen();
+        return;
+    }
 
+    memset(&workspace_ui, 0, sizeof(workspace_ui));
     lv_obj_t * scr = lv_screen_active();
-    lv_obj_set_style_bg_color(scr, lv_color_hex(C_BG), 0);
-    bool generated_single_page = WALNUT_SCREEN_PAGE_COUNT == 1 && page_has_generated_component(0);
-
-    if(!generated_single_page) {
-        lv_obj_t * title = add_wrapped_label(scr, WALNUT_SCREEN_TITLE, lv_color_hex(C_TEXT), WALNUT_FONT_TITLE, 150);
-        lv_obj_align(title, LV_ALIGN_TOP_LEFT, 16, 8);
-
-        lv_obj_t * subtitle = add_wrapped_label(scr, WALNUT_SCREEN_SUBTITLE, lv_color_hex(C_MUTED), WALNUT_FONT_SMALL, 150);
-        lv_obj_align(subtitle, LV_ALIGN_TOP_LEFT, 18, 36);
-    }
-
-    build_tabs(&ui, scr);
-    for(int i = 0; i < WALNUT_SCREEN_PAGE_COUNT; i++) {
-        ui.pages[i] = create_page(scr);
-        if(page_has_generated_component(i)) prepare_generated_page(ui.pages[i], generated_single_page);
-    }
-
-    for(int i = 0; i < WALNUT_SCREEN_COMPONENT_COUNT; i++) {
-        int page_index = walnut_screen_components[i].page_index;
-        if(page_index < 0 || page_index >= WALNUT_SCREEN_PAGE_COUNT) continue;
-        add_component(ui.pages[page_index], &walnut_screen_components[i]);
-    }
-
-    set_page_visible(&ui, 0);
-    lv_timer_create(rotate_page_cb, 6000, &ui);
-    ui.input_fd = open_input_device();
-    if(ui.input_fd >= 0) lv_timer_create(input_poll_cb, 60, &ui);
+    lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
+    workspace_ui.item = 0;
+    workspace_ui.repeat = 0;
+    workspace_ui.frame = clamp_int(walnut_screen_workspace_items[0].first_frame, 0, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - 1);
+    workspace_ui.image = lv_image_create(scr);
+    lv_obj_align(workspace_ui.image, LV_ALIGN_TOP_LEFT, 0, 0);
+    workspace_apply_frame(&workspace_ui);
+    lv_timer_create(workspace_timer_cb, workspace_frame_duration_ms(workspace_ui.item, workspace_ui.frame), &workspace_ui);
 }
 
-#ifndef WALNUT_LVGL_NO_FBDEV
+void walnut_preview_apply_dynamic_time(int advance_ms)
+{
+    workspace_apply_time(advance_ms);
+}
+
+#if defined(__linux__) && !defined(WALNUT_LVGL_NO_FBDEV)
 int main(int argc, char ** argv)
 {
-    (void)walnut_screen_manifest_hash;
+    if(walnut_screen_workspace_config_playlist_hash()[0] == '\0' && workspace_playlist_enabled()) {
+        fprintf(stderr, "workspace playlist hash missing\n");
+        return 1;
+    }
 
     const char * fbdev = "/dev/fb0";
     for(int i = 1; i < argc; i++) {

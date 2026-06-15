@@ -1,0 +1,16 @@
+{
+  "schema": "walnutpi.screen-source-asset.v1",
+  "id": "default-source",
+  "selected": true,
+  "importedAt": "2026-06-15T16:33:18.985Z",
+  "original": "original.png",
+  "fileSha256": "64706fc726f40de4dbedce6aca9879ee61d9ee3e15af9738c6e5105dcb21c7e0",
+  "width": 480,
+  "height": 320,
+  "mediaType": "image/png",
+  "license": "project-default",
+  "origin": {
+    "kind": "local-generated",
+    "style": "open-pixel-field"
+  }
+}

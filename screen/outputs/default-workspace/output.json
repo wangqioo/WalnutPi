@@ -1,0 +1,15 @@
+{
+  "schema": "walnutpi.screen-output.v1",
+  "id": "default-workspace",
+  "generatedAt": "2026-06-15T16:11:35.623Z",
+  "manifest": "../../manifests/default-workspace.json",
+  "output": {
+    "type": "static",
+    "path": "../outputs/default-workspace/output.png",
+    "width": 480,
+    "height": 320,
+    "fileSha256": "64706fc726f40de4dbedce6aca9879ee61d9ee3e15af9738c6e5105dcb21c7e0",
+    "rgbaPixelSha256": "43274c217714cf30c07077bce86f3e57565336ca357c07186e9b3990217451ca",
+    "rgb565PixelSha256": "03f6f111fad6af7a4b01824227d458d000ad5a1b172c9d880452b1f2c4582f02"
+  }
+}

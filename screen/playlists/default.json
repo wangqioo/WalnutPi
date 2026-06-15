@@ -1,0 +1,13 @@
+{
+  "schema": "walnutpi.screen-playlist.v1",
+  "id": "default",
+  "loop": true,
+  "items": [
+    {
+      "manifest": "../manifests/workspace-output.json",
+      "durationMs": 8000,
+      "repeat": 1,
+      "transition": "cut"
+    }
+  ]
+}
