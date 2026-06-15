@@ -6,7 +6,7 @@ param(
     [string]$RemoteProjectRoot = "/home/pi/projects/WalnutPi",
     [string]$RemoteBuildUser = "pi",
     [int]$Port = 4173,
-    [string]$ManifestPath = "",
+    [string]$WorkspaceRoot = "",
     [string]$RecordsDir = ""
 )
 
@@ -31,8 +31,8 @@ $env:SSH_PASSWORD = $Password
 $env:WALNUT_REMOTE_PROJECT_ROOT = $RemoteProjectRoot
 $env:WALNUT_REMOTE_BUILD_USER = $RemoteBuildUser
 
-if ($ManifestPath -ne "") {
-    $env:WALNUT_SCREEN_MANIFEST_PATH = $ManifestPath
+if ($WorkspaceRoot -ne "") {
+    $env:WALNUT_SCREEN_WORKSPACE_ROOT = $WorkspaceRoot
 }
 
 if ($RecordsDir -ne "") {

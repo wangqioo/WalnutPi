@@ -150,10 +150,10 @@ try {
     $server = [System.Diagnostics.Process]::Start($startInfo)
 
     $baseUri = "http://127.0.0.1:$Port"
-    $manifest = Wait-HttpReady "$baseUri/api/screen/manifest"
-    Show-KeyValue "manifestHash" $manifest.manifestHash
+    $playlist = Wait-HttpReady "$baseUri/api/screen/workspace/playlist"
+    Show-KeyValue "playlistHash" $playlist.playlistHash
 
-    $syncResult = Invoke-JsonPost "$baseUri/api/screen/sync" @{ manifestHash = $manifest.manifestHash }
+    $syncResult = Invoke-JsonPost "$baseUri/api/screen/workspace/sync" @{ playlistHash = $playlist.playlistHash }
     Show-KeyValue "ok" $syncResult.ok
     Show-KeyValue "buildId" $syncResult.buildId
     Show-KeyValue "failedStage" $syncResult.failedStage

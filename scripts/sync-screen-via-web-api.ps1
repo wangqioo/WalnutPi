@@ -30,21 +30,21 @@ function Show-KeyValue {
     }
 }
 
-$manifestUri = Join-ApiUri -Base $BaseUri -Path "/api/screen/manifest"
-$syncUri = Join-ApiUri -Base $BaseUri -Path "/api/screen/sync" -NoSsh:$PreviewOnly
+$playlistUri = Join-ApiUri -Base $BaseUri -Path "/api/screen/workspace/playlist"
+$syncUri = Join-ApiUri -Base $BaseUri -Path "/api/screen/workspace/sync" -NoSsh:$PreviewOnly
 
-Write-Host ("Reading manifest: {0}" -f $manifestUri)
-$manifest = Invoke-RestMethod -Method Get -Uri $manifestUri
+Write-Host ("Reading playlist: {0}" -f $playlistUri)
+$playlist = Invoke-RestMethod -Method Get -Uri $playlistUri
 
-if (-not $manifest.manifestHash) {
-    throw "Manifest response did not include manifestHash."
+if (-not $playlist.playlistHash) {
+    throw "Playlist response did not include playlistHash."
 }
 
 Write-Host ("Syncing screen:    {0}" -f $syncUri)
-$body = @{ manifestHash = $manifest.manifestHash } | ConvertTo-Json -Depth 8 -Compress
+$body = @{ playlistHash = $playlist.playlistHash } | ConvertTo-Json -Depth 8 -Compress
 $syncResult = Invoke-RestMethod -Method Post -Uri $syncUri -ContentType "application/json" -Body $body
 
-Show-KeyValue "manifestHash" $manifest.manifestHash
+Show-KeyValue "playlistHash" $playlist.playlistHash
 Show-KeyValue "buildId" $syncResult.buildId
 Show-KeyValue "artifactHash" $syncResult.artifactHash
 Show-KeyValue "deliveryHash" $syncResult.deliveryHash

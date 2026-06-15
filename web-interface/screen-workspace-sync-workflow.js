@@ -1,5 +1,5 @@
-export function createScreenSyncWorkflow({
-  readManifestEnvelope,
+export function createScreenWorkspaceSyncWorkflow({
+  readPlaylistEnvelope,
   deliveryAdapter,
   rememberFrameTicket,
   validSha256,
@@ -14,12 +14,12 @@ export function createScreenSyncWorkflow({
 
       let envelope;
       try {
-        envelope = await readManifestEnvelope();
+        envelope = await readPlaylistEnvelope();
       } catch (error) {
         return {
           status: 500,
           commandResults: {},
-          result: manifestFailureResult({
+          result: playlistFailureResult({
             buildId,
             startedAt,
             risk,
@@ -29,13 +29,15 @@ export function createScreenSyncWorkflow({
         };
       }
 
-      const { manifest, manifestHash } = envelope;
       const baseResult = {
-        title: "同步到核桃派",
+        title: "同步播放列表到核桃派",
         buildId,
         startedAt: startedAt.toISOString(),
-        manifest,
-        manifestHash,
+        manifest: null,
+        manifestHash: null,
+        playlist: envelope.playlist,
+        playlistHash: envelope.playlistHash,
+        workspaceRoot: envelope.workspaceRoot,
       };
 
       let body = {};
@@ -52,7 +54,7 @@ export function createScreenSyncWorkflow({
               ...preDeliveryFailure({
                 risk,
                 mode,
-                summary: "同步请求缺少有效的 screen manifest hash，请刷新页面后再同步。",
+                summary: "同步请求缺少有效的 playlist hash，请刷新播放列表后再同步。",
                 output: "request body is not valid JSON",
               }),
             },
@@ -60,7 +62,7 @@ export function createScreenSyncWorkflow({
         }
       }
 
-      const clientManifestHash = typeof body.manifestHash === "string" ? body.manifestHash : null;
+      const clientPlaylistHash = typeof body.playlistHash === "string" ? body.playlistHash : null;
 
       if (mode === "preview") {
         return {
@@ -79,14 +81,14 @@ export function createScreenSyncWorkflow({
             screenFrameUrl: null,
             command: null,
             code: 1,
-            output: `preview mode disables SSH, build, delivery, activation, and device writes\nclient=${clientManifestHash || "(missing)"}\nserver=${manifestHash}`,
+            output: `preview mode disables SSH, build, delivery, activation, and device writes\nclient=${clientPlaylistHash || "(missing)"}\nserver=${envelope.playlistHash}`,
             summary: "预览模式下不会连接核桃派。",
             failedStage: "preview",
           },
         };
       }
 
-      if (!validSha256(clientManifestHash)) {
+      if (!validSha256(clientPlaylistHash)) {
         return {
           status: 400,
           commandResults: {},
@@ -95,16 +97,16 @@ export function createScreenSyncWorkflow({
             ...preDeliveryFailure({
               risk,
               mode,
-              summary: clientManifestHash
-                ? "同步请求包含无效的 screen manifest hash，请刷新页面后再同步。"
-                : "同步请求缺少 screen manifest hash，请刷新页面后再同步。",
-              output: `client=${clientManifestHash || "(missing)"}\nserver=${manifestHash}`,
+              summary: clientPlaylistHash
+                ? "同步请求包含无效的 playlist hash，请刷新播放列表后再同步。"
+                : "同步请求缺少 playlist hash，请刷新播放列表后再同步。",
+              output: `client=${clientPlaylistHash || "(missing)"}\nserver=${envelope.playlistHash}`,
             }),
           },
         };
       }
 
-      if (clientManifestHash !== manifestHash) {
+      if (clientPlaylistHash !== envelope.playlistHash) {
         return {
           status: 409,
           commandResults: {},
@@ -113,14 +115,18 @@ export function createScreenSyncWorkflow({
             ...preDeliveryFailure({
               risk,
               mode,
-              summary: "Web 预览和服务器 screen manifest 不一致，请刷新后再同步。",
-              output: `client=${clientManifestHash}\nserver=${manifestHash}`,
+              summary: "Web 预览和服务器 Screen Workspace playlist 不一致，请刷新后再同步。",
+              output: `client=${clientPlaylistHash}\nserver=${envelope.playlistHash}`,
             }),
           },
         };
       }
 
-      const delivery = await runDelivery({ deliveryAdapter, buildId, manifest, manifestHash });
+      const delivery = await runDelivery({
+        deliveryAdapter,
+        buildId,
+        playlistEnvelope: envelope,
+      });
       if (delivery.frameTicket) {
         rememberFrameTicket(buildId, delivery.frameTicket);
       }
@@ -150,17 +156,19 @@ export function createScreenSyncWorkflow({
   };
 }
 
-function manifestFailureResult({ buildId, startedAt, risk, mode, output }) {
+function playlistFailureResult({ buildId, startedAt, risk, mode, output }) {
   return {
-    title: "同步到核桃派",
+    title: "同步播放列表到核桃派",
     buildId,
     startedAt: startedAt.toISOString(),
     manifest: null,
     manifestHash: null,
+    playlist: null,
+    playlistHash: null,
     ok: false,
     risk,
     mode,
-    failedStage: "manifest",
+    failedStage: "playlist",
     deliveryManifest: null,
     deliveryHash: null,
     artifactHash: null,
@@ -169,7 +177,7 @@ function manifestFailureResult({ buildId, startedAt, risk, mode, output }) {
     screenFrameUrl: null,
     command: null,
     code: 1,
-    summary: "screen manifest 无法读取或格式无效，请先修复小屏 contract。",
+    summary: "Screen Workspace playlist 无法读取或格式无效，请先生成播放列表。",
     output,
   };
 }
@@ -179,7 +187,7 @@ function preDeliveryFailure({ risk, mode, summary, output }) {
     ok: false,
     risk,
     mode,
-    failedStage: "manifest",
+    failedStage: "playlist",
     deliveryManifest: null,
     deliveryHash: null,
     artifactHash: null,
@@ -193,9 +201,9 @@ function preDeliveryFailure({ risk, mode, summary, output }) {
   };
 }
 
-async function runDelivery({ deliveryAdapter, buildId, manifest, manifestHash }) {
+async function runDelivery({ deliveryAdapter, buildId, playlistEnvelope }) {
   try {
-    return await deliveryAdapter.deliver({ buildId, manifest, manifestHash });
+    return await deliveryAdapter.deliverWorkspacePlaylist({ buildId, playlistEnvelope });
   } catch (error) {
     return {
       ok: false,
@@ -211,7 +219,7 @@ async function runDelivery({ deliveryAdapter, buildId, manifest, manifestHash })
       commandResults: {},
       code: 1,
       output: error.stack || error.message,
-      summary: "核桃派交付适配器执行失败。请在诊断里查看错误。",
+      summary: "核桃派 Screen Workspace 交付适配器执行失败。请在诊断里查看错误。",
       failedStage: "delivery",
     };
   }

@@ -1,6 +1,10 @@
 import { Buffer } from "node:buffer";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  generateLvglScreenWorkspaceConfig,
+  renderLvglScreenWorkspaceConfig,
+} from "../../scripts/generate-lvgl-screen-workspace-config.js";
 
 export function createSshLocalAgentAdapter({
   localProjectRoot,
@@ -20,8 +24,12 @@ export function createSshLocalAgentAdapter({
 }) {
   return {
     id: "ssh-local-agent",
-    async deliver({ buildId, manifest, manifestHash }) {
-      const screenSlice = await buildScreenDeliverySlice({ localProjectRoot, manifest });
+    async deliverWorkspacePlaylist({ buildId, playlistEnvelope }) {
+      const playlistHash = playlistEnvelope.playlistHash;
+      const screenSlice = await buildWorkspaceDeliverySlice({
+        localProjectRoot,
+        playlistEnvelope,
+      });
       const remoteSliceScript = buildRemoteSliceScript({
         remoteProjectRoot,
         remoteBuildUser,
@@ -31,18 +39,19 @@ export function createSshLocalAgentAdapter({
         "set -e",
         `ROOT=${shellQuote(remoteProjectRoot)}`,
         'cd "$ROOT"',
-        "scripts/build-lvgl-app.sh",
+        "WALNUT_SCREEN_WORKSPACE_LVGL=prebuilt scripts/build-lvgl-app.sh",
       ].join("; ");
       const validateCommand = remoteBuildShell(
         [
           "set -e",
           `ROOT=${shellQuote(remoteProjectRoot)}`,
           'cd "$ROOT"',
-          "test -f lvgl_app/generated/screen_config.h",
-          `grep -F ${shellQuote(manifestHash)} lvgl_app/generated/screen_config.h >/dev/null`,
+          "test -f lvgl_app/generated/screen_workspace_config.h",
+          "test -f lvgl_app/generated/screen_workspace_config.c",
+          `grep -F ${shellQuote(playlistHash)} lvgl_app/generated/screen_workspace_config.h >/dev/null`,
           "test -x build/lvgl_app/walnut-lvgl-screen",
-          `strings build/lvgl_app/walnut-lvgl-screen | grep -F ${shellQuote(manifestHash)} >/dev/null`,
-          `printf 'manifest-hash=%s\\n' ${shellQuote(manifestHash)}`,
+          `strings build/lvgl_app/walnut-lvgl-screen | grep -F ${shellQuote(playlistHash)} >/dev/null`,
+          `printf 'playlist-hash=%s\\n' ${shellQuote(playlistHash)}`,
         ].join("; "),
       );
       const remoteBuildCommand = remoteBuildShell(buildCommand);
@@ -53,28 +62,28 @@ export function createSshLocalAgentAdapter({
       const stateCommand = "walnut screen state";
       const frameCommand = "sudo -n walnut screen frame";
 
-      const sliceResult = await runRemoteScript(remoteSliceScript, 30_000);
+      const sliceResult = await runRemoteScript(remoteSliceScript, 45_000);
       const buildResult = sliceResult.ok
         ? await runRemote(remoteBuildCommand, 120_000)
-        : { ok: false, code: null, output: "skipped because manifest delivery failed" };
+        : { ok: false, code: null, output: "skipped because workspace slice delivery failed" };
       const validateResult = sliceResult.ok && buildResult.ok
         ? await runRemote(validateCommand, 15_000)
-        : { ok: false, code: null, output: sliceResult.ok ? "skipped because build failed" : "skipped because screen slice delivery failed" };
+        : { ok: false, code: null, output: sliceResult.ok ? "skipped because build failed" : "skipped because workspace slice delivery failed" };
       const artifactResult = sliceResult.ok && buildResult.ok && validateResult.ok
         ? await runRemote(artifactCommand, 10_000)
         : {
             ok: false,
             code: null,
             output: !sliceResult.ok
-              ? "skipped because screen slice delivery failed"
+              ? "skipped because workspace slice delivery failed"
               : buildResult.ok
-                ? "skipped because artifact does not contain current manifest hash"
+                ? "skipped because artifact does not contain current playlist hash"
                 : "skipped because build failed",
           };
       const artifactHash = artifactResult.ok ? artifactResult.output.trim().split(/\s+/)[0] : null;
       const artifactHashValid = validSha256(artifactHash);
       const deliveryManifest = {
-        schema: "walnutpi.delivery.v1",
+        schema: "walnutpi.workspaceDelivery.v1",
         buildId,
         adapter: this.id,
         risk: "write-low",
@@ -84,76 +93,69 @@ export function createSshLocalAgentAdapter({
           source: "lvgl_app/src/main.c",
           sha256: artifactHashValid ? artifactHash : null,
         },
-        manifest: {
-          path: "lvgl_app/screen-manifest.json",
-          sha256: manifestHash,
+        playlist: {
+          path: "screen/playlists/default.json",
+          id: playlistEnvelope.playlist.id,
+          sha256: playlistHash,
+          itemCount: playlistEnvelope.items.length,
+        },
+        generatedResources: {
+          header: "lvgl_app/generated/screen_workspace_config.h",
+          source: "lvgl_app/generated/screen_workspace_config.c",
+          mode: "prebuilt",
         },
         target: {
           host: sshHost,
           user: sshUser,
           buildUser: remoteBuildUser || sshUser,
           projectRoot: remoteProjectRoot,
-          display: manifest.target.display,
+          display: "/dev/fb0",
           activate: activateCommand,
           evidence: [stateCommand, frameCommand],
         },
-        screenManifestHash: manifestHash,
+        screenPlaylistHash: playlistHash,
       };
       const deliveryHash = sha256(stableStringify(deliveryManifest));
       const activateResult = buildResult.ok && artifactHashValid
         ? await runRemote(activateCommand, 30_000)
-        : {
-            ok: false,
-            code: null,
-            output: !sliceResult.ok
-              ? "skipped because screen slice delivery failed"
-              : !validateResult.ok
-                ? "skipped because artifact does not contain current manifest hash"
-              : buildResult.ok
-                ? "skipped because artifact hash is invalid"
-                : "skipped because build failed",
-          };
+        : skippedResult({
+            sliceResult,
+            validateResult,
+            buildResult,
+            artifactHashValid,
+            screenName: "workspace slice",
+          });
       const stateResult = buildResult.ok && artifactHashValid && activateResult.ok
         ? await runRemote(stateCommand, 15_000)
-        : {
-            ok: false,
-            code: null,
-            output: !sliceResult.ok
-              ? "skipped because screen slice delivery failed"
-              : !validateResult.ok
-                ? "skipped because artifact does not contain current manifest hash"
-              : !buildResult.ok
-              ? "skipped because build failed"
-              : artifactHashValid
-                ? "skipped because activation failed"
-                : "skipped because artifact hash is invalid",
-          };
+        : skippedResult({
+            sliceResult,
+            validateResult,
+            buildResult,
+            artifactHashValid,
+            activationOk: activateResult.ok,
+            screenName: "workspace slice",
+            activationLabel: "activation",
+          });
       const frameResult = buildResult.ok && artifactHashValid && activateResult.ok && stateResult.ok
         ? await runRemote(frameCommand, 15_000)
-        : {
-            ok: false,
-            code: null,
-            output: !sliceResult.ok
-              ? "skipped because screen slice delivery failed"
-              : !validateResult.ok
-                ? "skipped because artifact does not contain current manifest hash"
-              : !buildResult.ok
-              ? "skipped because build failed"
-              : !artifactHashValid
-                ? "skipped because artifact hash is invalid"
-                : !activateResult.ok
-                  ? "skipped because activation failed"
-                  : "skipped because screen state evidence failed",
-          };
+        : skippedResult({
+            sliceResult,
+            validateResult,
+            buildResult,
+            artifactHashValid,
+            activationOk: activateResult.ok,
+            stateOk: stateResult.ok,
+            screenName: "workspace slice",
+          });
       const frameEvidence = parseFrameEvidence(frameResult);
       if (frameEvidence) {
         frameEvidence.capturedAt = new Date().toISOString();
         frameEvidence.command = frameCommand;
       }
 
-      const visual = visualStatus({
-        manifest,
-        manifestHash,
+      const visual = workspaceVisualStatus({
+        playlistEnvelope,
+        playlistHash,
         artifactHash: artifactHashValid ? artifactHash : null,
         artifactHashValid,
         frameEvidence,
@@ -161,9 +163,15 @@ export function createSshLocalAgentAdapter({
         sha256,
         stableStringify,
       });
-      const pixelEvidence = screenPixelEvidence({ frameEvidence, validSha256, sha256, stableStringify });
+      const pixelEvidence = workspacePixelEvidence({
+        playlistEnvelope,
+        frameEvidence,
+        validSha256,
+        sha256,
+        stableStringify,
+      });
       const frameImageUrl = validFrameEvidence(frameEvidence, validSha256) ? frameUrl(buildId) : null;
-      const failure = firstFailure(
+      const failure = firstWorkspaceFailure(
         sliceResult,
         buildResult,
         validateResult,
@@ -176,11 +184,19 @@ export function createSshLocalAgentAdapter({
         validSha256,
       );
       const screenEvidence = {
-        kind: "screen-frame",
+        kind: "screen-workspace-playlist-frame",
         visualMatch: visual.visualMatch,
         visualChecks: visual.visualChecks,
         semantic: visual.semantic,
         pixelEvidence,
+        playlistEvidence: {
+          schema: "walnutpi.screenWorkspacePlaylistEvidence.v1",
+          playlistHash,
+          activeItem: visual.semantic.activeItem,
+          itemManifestHash: visual.semantic.activeItem?.manifestHash || null,
+          expectedRgb565PixelHash: visual.semantic.activeItem?.expectedRgb565PixelHash || null,
+          displayedFrameHash: frameEvidence?.sha256 || null,
+        },
         state: {
           kind: "screen-state",
           command: stateCommand,
@@ -199,7 +215,7 @@ export function createSshLocalAgentAdapter({
             },
       };
       const commandResults = {
-        "screen-slice": sliceResult,
+        "workspace-slice": sliceResult,
         build: buildResult,
         validate: validateResult,
         artifact: artifactResult,
@@ -210,7 +226,7 @@ export function createSshLocalAgentAdapter({
       const output = limitedOutput(
         [
           preflightBlockResult(sliceResult, buildResult, validateResult, artifactResult, activateResult, stateResult, frameResult),
-          commandBlockResult("screen-slice", sliceResult),
+          commandBlockResult("workspace-slice", sliceResult),
           commandBlockResult("build", buildResult),
           commandBlockResult("validate", validateResult),
           commandBlockResult("artifact", artifactResult),
@@ -232,18 +248,18 @@ export function createSshLocalAgentAdapter({
         screenFrameUrl: frameImageUrl,
         frameTicket: frameImageUrl
           ? {
-              manifestHash,
+              playlistHash,
               artifactHash: artifactHashValid ? artifactHash : null,
               frameSha256: frameEvidence.sha256,
             }
           : null,
-        command: `screen-slice: deliver ${screenSlice.files.length} files to ${remoteProjectRoot}\n${remoteBuildCommand}\n${validateCommand}\n${activateCommand}\n${stateCommand}\n${frameCommand}`,
+        command: `workspace-slice: deliver ${screenSlice.files.length} files to ${remoteProjectRoot}\n${remoteBuildCommand}\n${validateCommand}\n${activateCommand}\n${stateCommand}\n${frameCommand}`,
         commandResults,
         code: failure ? 1 : 0,
         output,
         summary: failure
           ? failure.summary
-          : "已同步到核桃派。Web 预览和设备运行使用同一个 screen manifest。",
+          : "已同步 Screen Workspace 播放列表到核桃派。设备运行产物绑定当前 playlist hash。",
         failedStage: failure?.stage || null,
       };
     },
@@ -254,9 +270,8 @@ const SCREEN_SLICE_FILES = [
   "package.json",
   "scripts/build-lvgl-app.sh",
   "scripts/fetch-lvgl.sh",
-  "scripts/generate-lvgl-screen-config.py",
-  "scripts/generate-lvgl-screen-config.js",
-  "scripts/screen-manifest-vocabulary.js",
+  "scripts/generate-lvgl-screen-workspace-config.js",
+  "scripts/screen-workspace-vocabulary.js",
   "lvgl_app/CMakeLists.txt",
   "lvgl_app/lv_conf.h",
   "lvgl_app/src/main.c",
@@ -264,7 +279,7 @@ const SCREEN_SLICE_FILES = [
   "lvgl_app/systemd/walnut-screen.service",
 ];
 
-async function buildScreenDeliverySlice({ localProjectRoot, manifest }) {
+async function buildWorkspaceDeliverySlice({ localProjectRoot, playlistEnvelope }) {
   const files = [];
   for (const relativePath of SCREEN_SLICE_FILES) {
     files.push({
@@ -273,11 +288,24 @@ async function buildScreenDeliverySlice({ localProjectRoot, manifest }) {
       content: await readLocalSliceFile(localProjectRoot, relativePath),
     });
   }
-  files.push({
-    path: "lvgl_app/screen-manifest.json",
-    mode: "644",
-    content: `${JSON.stringify(manifest, null, 2)}\n`,
-  });
+
+  const generated = renderLvglScreenWorkspaceConfig(await generateLvglScreenWorkspaceConfig({
+    workspaceRoot: playlistEnvelope.workspaceRoot,
+    playlistId: playlistEnvelope.playlist.id,
+    enabled: "1",
+  }));
+  files.push(
+    {
+      path: "lvgl_app/generated/screen_workspace_config.h",
+      mode: "644",
+      content: generated.header,
+    },
+    {
+      path: "lvgl_app/generated/screen_workspace_config.c",
+      mode: "644",
+      content: generated.source,
+    },
+  );
   return { files };
 }
 
@@ -362,7 +390,7 @@ function validFrameEvidence(frame, validSha256) {
   );
 }
 
-function screenPixelEvidence({ frameEvidence, validSha256, sha256, stableStringify }) {
+function screenPixelEvidence({ frameEvidence, expectedRgb565PixelHashes = [], validSha256, sha256, stableStringify }) {
   if (!validFrameEvidence(frameEvidence, validSha256)) {
     return {
       schema: "walnutpi.screenPixelEvidence.v1",
@@ -391,12 +419,22 @@ function screenPixelEvidence({ frameEvidence, validSha256, sha256, stableStringi
   const nonzeroBytes = Number(frameEvidence.nonzeroBytes ?? 0);
   const byteLength = Number(frameEvidence.byteLength || 0);
   const nonzeroRatio = byteLength > 0 ? Number((nonzeroBytes / byteLength).toFixed(6)) : null;
+  const expectedHashes = expectedRgb565PixelHashes.filter((hash) => validSha256(hash));
+  const rgb565HashMatched = expectedHashes.length > 0 && expectedHashes.includes(frameEvidence.sha256);
+  const status = expectedHashes.length === 0 ? "metadata-only" : rgb565HashMatched ? "matched" : "mismatch";
+  const claim = expectedHashes.length === 0
+    ? "framebuffer-captured-not-pixel-diffed"
+    : rgb565HashMatched
+      ? "framebuffer-rgb565-hash-matched"
+      : "framebuffer-rgb565-hash-mismatch";
 
   return {
     schema: "walnutpi.screenPixelEvidence.v1",
-    status: "metadata-only",
-    claim: "framebuffer-captured-not-pixel-diffed",
+    status,
+    claim,
     frameHash: frameEvidence.sha256 || null,
+    expectedRgb565PixelHashes: expectedHashes,
+    rgb565HashMatched: expectedHashes.length > 0 ? rgb565HashMatched : null,
     sampleHash,
     nonzeroRatio,
     capture: {
@@ -409,73 +447,43 @@ function screenPixelEvidence({ frameEvidence, validSha256, sha256, stableStringi
       isBlank: frameEvidence.isBlank ?? null,
     },
     limitations: [
-      "Web preview pixels are not rendered and compared in this slice.",
+      ...(expectedHashes.length > 0
+        ? []
+        : ["No expected RGB565 pixel hash was available for this frame evidence."]),
       "LVGL may be dynamic, so diagnostic PNG can be later than sync-time raw frame.",
     ],
   };
 }
 
-function screenPreviewSignature(manifest) {
-  const pages = Array.isArray(manifest.pages) ? manifest.pages : [];
+function workspacePreviewSignature(playlistEnvelope) {
   return {
-    schema: "walnutpi.screenPreviewSignature.v1",
-    target: {
-      width: manifest.target?.width ?? null,
-      height: manifest.target?.height ?? null,
-      color: manifest.target?.color ?? null,
-      display: manifest.target?.display ?? null,
+    schema: "walnutpi.screenWorkspacePreviewSignature.v1",
+    playlistHash: playlistEnvelope.playlistHash,
+    playlist: {
+      id: playlistEnvelope.playlist.id,
+      loop: playlistEnvelope.playlist.loop,
+      itemCount: playlistEnvelope.items.length,
     },
-    title: manifest.title || "",
-    subtitle: manifest.subtitle || "",
-    pages: pages.map((page) => ({
-      id: page.id || "",
-      tab: page.tab || "",
-      components: Array.isArray(page.components)
-        ? page.components.map((component) => ({
-            type: component?.type || "",
-            style: component?.style || "",
-            kicker: component?.kicker || "",
-            headline: component?.headline || "",
-            badge: component?.badge || "",
-            accent: component?.accent || "",
-            background: component?.background || "",
-            x: Number.isFinite(Number(component?.x)) ? Number(component.x) : null,
-            y: Number.isFinite(Number(component?.y)) ? Number(component.y) : null,
-            width: Number.isFinite(Number(component?.width)) ? Number(component.width) : null,
-            height: Number.isFinite(Number(component?.height)) ? Number(component.height) : null,
-            pixelSize: Number.isFinite(Number(component?.pixelSize)) ? Number(component.pixelSize) : null,
-            gap: Number.isFinite(Number(component?.gap)) ? Number(component.gap) : null,
-            label: component?.label || "",
-            title: component?.title || "",
-            value: component?.value ?? null,
-            tone: component?.tone || "",
-            detail: component?.detail || "",
-            body: component?.body || "",
-            progress: component?.type === "generatedPage"
-              ? Number(component?.progress ?? 0)
-              : Number.isFinite(Number(component?.value)) && component?.type === "progress" ? Number(component.value) : null,
-            max: Number.isFinite(Number(component?.max)) && component?.type === "progress" ? Number(component.max) : null,
-            lines: Array.isArray(component?.lines) ? component.lines : [],
-            items: Array.isArray(component?.items) ? component.items : [],
-            elements: Array.isArray(component?.elements) ? component.elements : [],
-            frameCount: Array.isArray(component?.frames) ? component.frames.length : null,
-          }))
-        : [],
+    items: playlistEnvelope.items.map((item) => ({
+      manifestId: item.manifestId,
+      manifestHash: item.manifestHash,
+      durationMs: item.durationMs,
+      repeat: item.repeat,
+      transition: item.transition,
+      outputType: item.output?.type || null,
+      rgb565PixelSha256: item.output?.type === "static"
+        ? item.output.rgb565PixelSha256
+        : item.output?.frames?.[0]?.rgb565PixelSha256 || null,
+      frameCount: item.output?.type === "animated" ? item.output.frames.length : 1,
     })),
   };
 }
 
-function screenDeviceSignature({ manifest, manifestHash, artifactHash, frameEvidence }) {
+function workspaceDeviceSignature({ playlistHash, artifactHash, frameEvidence }) {
   return {
-    schema: "walnutpi.screenDeviceSignature.v1",
-    manifestHash,
+    schema: "walnutpi.screenWorkspaceDeviceSignature.v1",
+    playlistHash,
     artifactHash: artifactHash || null,
-    target: {
-      width: manifest.target?.width ?? null,
-      height: manifest.target?.height ?? null,
-      color: manifest.target?.color ?? null,
-      display: manifest.target?.display ?? null,
-    },
     frame: frameEvidence
       ? {
           sha256: frameEvidence.sha256 || null,
@@ -491,35 +499,64 @@ function screenDeviceSignature({ manifest, manifestHash, artifactHash, frameEvid
   };
 }
 
-function visualStatus({ manifest, manifestHash, artifactHash, artifactHashValid, frameEvidence, validSha256, sha256, stableStringify }) {
+function workspaceFrameCandidates(playlistEnvelope) {
+  return playlistEnvelope.items.flatMap((item, itemIndex) => {
+    const frames = item.output?.type === "animated" ? item.output.frames : [item.output].filter(Boolean);
+    return frames.map((frame, frameIndex) => ({
+      index: itemIndex,
+      frameIndex,
+      manifestId: item.manifestId,
+      manifestHash: item.manifestHash,
+      outputType: item.output?.type || null,
+      expectedRgb565PixelHash: frame?.rgb565PixelSha256 || null,
+      durationMs: item.output?.type === "animated" ? frame?.durationMs || item.durationMs : item.durationMs,
+      repeat: item.repeat,
+    })).filter((candidate) => candidate.expectedRgb565PixelHash);
+  });
+}
+
+function workspaceMatchedDisplayItem(playlistEnvelope, frameEvidence, validSha256) {
+  const candidates = workspaceFrameCandidates(playlistEnvelope);
+  const matched = validFrameEvidence(frameEvidence, validSha256)
+    ? candidates.find((candidate) => candidate.expectedRgb565PixelHash === frameEvidence.sha256)
+    : null;
+  const fallback = candidates[0] || null;
+  const selected = matched || fallback;
+  if (!selected) return null;
+  return {
+    ...selected,
+    observed: Boolean(matched),
+    expectedRgb565PixelHashes: candidates.map((candidate) => candidate.expectedRgb565PixelHash),
+  };
+}
+
+function workspaceVisualStatus({ playlistEnvelope, playlistHash, artifactHash, artifactHashValid, frameEvidence, validSha256, sha256, stableStringify }) {
   const frameCaptured = validFrameEvidence(frameEvidence, validSha256);
-  const target = manifest.target || {};
-  const previewSignature = screenPreviewSignature(manifest);
-  const deviceSignature = screenDeviceSignature({ manifest, manifestHash, artifactHash, frameEvidence });
+  const previewSignature = workspacePreviewSignature(playlistEnvelope);
+  const deviceSignature = workspaceDeviceSignature({ playlistHash, artifactHash, frameEvidence });
   const previewSignatureHash = sha256(stableStringify(previewSignature));
   const deviceSignatureHash = sha256(stableStringify(deviceSignature));
+  const activeItem = workspaceMatchedDisplayItem(playlistEnvelope, frameEvidence, validSha256);
   const targetMatched = frameCaptured
-    && frameEvidence.width === target.width
-    && frameEvidence.height === target.height
-    && target.color === "RGB565"
+    && frameEvidence.width === 480
+    && frameEvidence.height === 320
     && (frameEvidence.pixelFormat === "RGB565_LE" || frameEvidence.bitsPerPixel === 16);
-  const artifactCommittedToManifest = artifactHashValid
+  const artifactCommittedToPlaylist = artifactHashValid
     && validSha256(artifactHash)
-    && manifestHash === deviceSignature.manifestHash;
+    && playlistHash === deviceSignature.playlistHash;
   const visualChecks = {
-    manifestHashMatched: true,
+    playlistHashMatched: true,
     artifactHashValid,
     previewSignatureHash,
     deviceSignatureHash,
-    semanticManifestMatched: manifestHash === deviceSignature.manifestHash,
+    semanticPlaylistMatched: playlistHash === deviceSignature.playlistHash,
     targetMatched,
-    artifactCommittedToManifest,
+    artifactCommittedToPlaylist,
     frameCaptured,
     frameDimensionsMatched: frameCaptured
-      && frameEvidence.width === target.width
-      && frameEvidence.height === target.height,
+      && frameEvidence.width === 480
+      && frameEvidence.height === 320,
     framePixelFormatMatched: frameCaptured
-      && target.color === "RGB565"
       && (frameEvidence.pixelFormat === "RGB565_LE" || frameEvidence.bitsPerPixel === 16),
     frameByteLengthMatched: frameCaptured
       && Number.isInteger(frameEvidence.expectedByteLength)
@@ -527,12 +564,17 @@ function visualStatus({ manifest, manifestHash, artifactHash, artifactHashValid,
     frameNonblank: frameCaptured
       && frameEvidence.isBlank === false
       && Number(frameEvidence.nonzeroBytes || 0) > 0,
+    frameRgb565HashMatched: frameCaptured
+      && Array.isArray(activeItem?.expectedRgb565PixelHashes)
+      && activeItem.expectedRgb565PixelHashes.includes(frameEvidence.sha256),
+    activeItemObserved: Boolean(activeItem?.observed),
   };
   const semantic = {
     previewSignatureHash,
     deviceSignatureHash,
     previewSignature,
     deviceSignature,
+    activeItem,
   };
   if (!frameCaptured) {
     return { visualMatch: "unknown", visualChecks, semantic };
@@ -544,23 +586,48 @@ function visualStatus({ manifest, manifestHash, artifactHash, artifactHashValid,
   };
 }
 
-function firstFailure(sliceResult, buildResult, validateResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence, visual, validSha256) {
+function workspacePixelEvidence({ playlistEnvelope, frameEvidence, validSha256, sha256, stableStringify }) {
+  const activeItem = workspaceMatchedDisplayItem(playlistEnvelope, frameEvidence, validSha256);
+  const evidence = screenPixelEvidence({
+    frameEvidence,
+    expectedRgb565PixelHashes: activeItem?.expectedRgb565PixelHashes || [],
+    validSha256,
+    sha256,
+    stableStringify,
+  });
+  return {
+    ...evidence,
+    schema: "walnutpi.screenWorkspacePixelEvidence.v1",
+    expectedRgb565PixelHash: activeItem?.expectedRgb565PixelHash || null,
+    expectedRgb565PixelHashes: activeItem?.expectedRgb565PixelHashes || [],
+    activeManifestHash: activeItem?.manifestHash || null,
+    activeItemObserved: Boolean(activeItem?.observed),
+    limitations: [
+      ...(evidence.limitations || []),
+      ...(activeItem?.observed
+        ? []
+        : ["The active playlist item could not be observed from the framebuffer hash; the first playlist frame was used as fallback context."]),
+    ],
+  };
+}
+
+function firstWorkspaceFailure(sliceResult, buildResult, validateResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence, visual, validSha256) {
   if (!sliceResult.ok) {
     return {
-      stage: "screen-slice",
-      summary: "当前小屏程序片段写入核桃派失败。请检查 SSH 连接和远端项目目录权限。",
+      stage: "workspace-slice",
+      summary: "Screen Workspace 播放列表片段写入核桃派失败。请检查 SSH 连接和远端项目目录权限。",
     };
   }
   if (!buildResult.ok) {
     return {
       stage: "build",
-      summary: "LVGL 构建失败。请在诊断里查看第一处编译错误。",
+      summary: "LVGL workspace 播放列表构建失败。请在诊断里查看第一处编译错误。",
     };
   }
   if (!validateResult.ok) {
     return {
       stage: "artifact",
-      summary: "LVGL 产物没有绑定当前 Web 预览。请在诊断里确认远端生成文件和二进制 manifest hash。",
+      summary: "LVGL 产物没有绑定当前 Screen Workspace playlist。请在诊断里确认生成文件和二进制 playlist hash。",
     };
   }
   if (!validSha256(artifactHash)) {
@@ -590,10 +657,21 @@ function firstFailure(sliceResult, buildResult, validateResult, artifactHash, ac
   if (visual.visualMatch !== "captured") {
     return {
       stage: "visual",
-      summary: "屏幕画面回证和目标屏幕约束不一致。请在诊断里查看 frame checks。",
+      summary: "屏幕画面回证和 Screen Workspace playlist 约束不一致。请在诊断里查看 frame checks。",
     };
   }
   return null;
+}
+
+function skippedResult({ sliceResult, validateResult, buildResult, artifactHashValid, activationOk = true, stateOk = true, screenName = "screen slice" }) {
+  let output = "skipped";
+  if (!sliceResult.ok) output = `skipped because ${screenName} delivery failed`;
+  else if (!validateResult.ok) output = "skipped because artifact does not contain current playlist hash";
+  else if (!buildResult.ok) output = "skipped because build failed";
+  else if (!artifactHashValid) output = "skipped because artifact hash is invalid";
+  else if (!activationOk) output = "skipped because activation failed";
+  else if (!stateOk) output = "skipped because screen state evidence failed";
+  return { ok: false, code: null, output };
 }
 
 function commandBlockResult(name, result) {
