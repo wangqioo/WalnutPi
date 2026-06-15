@@ -1,0 +1,13 @@
+{
+  "schema": "walnutpi.screen-source-asset.v1",
+  "id": "giphy-lens-flare-source",
+  "selected": true,
+  "importedAt": "2026-06-15T17:09:11.486Z",
+  "original": "original.gif",
+  "fileSha256": "fabce2cdd85d77e0a1fb99bdf560667e0cd048562c38274aa0f5d92c1c3c4d4e",
+  "width": 480,
+  "height": 12000,
+  "mediaType": "image/gif",
+  "license": "unknown-personal-sync",
+  "origin": "https://media2.giphy.com/media/v1.Y2lkPTc5MGI3NjExajN4YWVtN3I5djF0dGcxZnZtZXF2OTAwdWgzY2p3OGM4YWpxbDRnMyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/6GazCZqvW67VPN5SEd/giphy.gif"
+}

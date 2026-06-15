@@ -1,10 +1,13 @@
 import { Buffer } from "node:buffer";
-import { readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   generateLvglScreenWorkspaceConfig,
   renderLvglScreenWorkspaceConfig,
 } from "../../scripts/generate-lvgl-screen-workspace-config.js";
+import { generateLvglScreenWorkspaceRuntimeAssets } from "../../scripts/generate-lvgl-screen-workspace-runtime-assets.js";
 
 export function createSshLocalAgentAdapter({
   localProjectRoot,
@@ -30,7 +33,7 @@ export function createSshLocalAgentAdapter({
         localProjectRoot,
         playlistEnvelope,
       });
-      const remoteSliceScript = buildRemoteSliceScript({
+      const remoteSliceScript = await buildRemoteSliceScript({
         remoteProjectRoot,
         remoteBuildUser,
         files: screenSlice.files,
@@ -41,16 +44,25 @@ export function createSshLocalAgentAdapter({
         'cd "$ROOT"',
         "WALNUT_SCREEN_WORKSPACE_LVGL=prebuilt scripts/build-lvgl-app.sh",
       ].join("; ");
+      const runtimeSupportCommand = remoteBuildShell(
+        [
+          "set -e",
+          `ROOT=${shellQuote(remoteProjectRoot)}`,
+          'cd "$ROOT"',
+          "test -x build/lvgl_app/walnut-lvgl-screen",
+          "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-runtime-assets.v1 >/dev/null",
+          "printf 'runtime-supported\\n'",
+        ].join("; "),
+      );
       const validateCommand = remoteBuildShell(
         [
           "set -e",
           `ROOT=${shellQuote(remoteProjectRoot)}`,
           'cd "$ROOT"',
-          "test -f lvgl_app/generated/screen_workspace_config.h",
-          "test -f lvgl_app/generated/screen_workspace_config.c",
-          `grep -F ${shellQuote(playlistHash)} lvgl_app/generated/screen_workspace_config.h >/dev/null`,
           "test -x build/lvgl_app/walnut-lvgl-screen",
-          `strings build/lvgl_app/walnut-lvgl-screen | grep -F ${shellQuote(playlistHash)} >/dev/null`,
+          "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-runtime-assets.v1 >/dev/null",
+          "test -f screen/runtime/default.txt",
+          `grep -F ${shellQuote(`playlistHash ${playlistHash}`)} screen/runtime/default.txt >/dev/null`,
           `printf 'playlist-hash=%s\\n' ${shellQuote(playlistHash)}`,
         ].join("; "),
       );
@@ -62,26 +74,58 @@ export function createSshLocalAgentAdapter({
       const stateCommand = "walnut screen state";
       const frameCommand = "sudo -n walnut screen frame";
 
-      const sliceResult = await runRemoteScript(remoteSliceScript, 45_000);
-      const buildResult = sliceResult.ok
-        ? await runRemote(remoteBuildCommand, 120_000)
-        : { ok: false, code: null, output: "skipped because workspace slice delivery failed" };
-      const validateResult = sliceResult.ok && buildResult.ok
-        ? await runRemote(validateCommand, 15_000)
-        : { ok: false, code: null, output: sliceResult.ok ? "skipped because build failed" : "skipped because workspace slice delivery failed" };
-      const artifactResult = sliceResult.ok && buildResult.ok && validateResult.ok
-        ? await runRemote(artifactCommand, 10_000)
-        : {
-            ok: false,
-            code: null,
-            output: !sliceResult.ok
-              ? "skipped because workspace slice delivery failed"
-              : buildResult.ok
-                ? "skipped because artifact does not contain current playlist hash"
-                : "skipped because build failed",
-          };
+      const remoteSyncScript = buildRemoteSyncScript({
+        remoteSliceScript,
+        runtimeSupportCommand,
+        remoteBuildCommand,
+        validateCommand,
+        artifactCommand,
+        activateCommand,
+        stateCommand,
+        frameCommand,
+      });
+      const syncResult = await runRemoteScript(remoteSyncScript, 360_000, 120_000);
+      const stageResults = parseRemoteSyncStages(syncResult);
+      const sliceResult = stageResults["workspace-slice"] || fallbackStageResult(syncResult, "workspace-slice");
+      const runtimeSupportResult = stageResults["runtime-support"] || skippedStageResult("skipped because workspace resource delivery failed");
+      const buildResult = stageResults.build || skippedStageResult(sliceResult.ok ? "skipped because runtime binary check failed" : "skipped because workspace resource delivery failed");
+      const validateResult = stageResults.validate || skippedStageResult(sliceResult.ok ? "skipped because runtime binary check/build failed" : "skipped because workspace resource delivery failed");
+      const artifactResult = stageResults.artifact || skippedStageResult(!sliceResult.ok
+        ? "skipped because workspace resource delivery failed"
+        : buildResult.ok
+          ? "skipped because runtime validation failed"
+          : "skipped because build failed");
+      const activateResult = stageResults.activate || skippedResult({
+        sliceResult,
+        validateResult,
+        buildResult,
+        artifactHashValid: validSha256(artifactResult.output.trim().split(/\s+/)[0]),
+        screenName: "workspace resources",
+      });
+      const stateResult = stageResults.evidence || skippedResult({
+        sliceResult,
+        validateResult,
+        buildResult,
+        artifactHashValid: validSha256(artifactResult.output.trim().split(/\s+/)[0]),
+        activationOk: activateResult.ok,
+        screenName: "workspace resources",
+        activationLabel: "activation",
+      });
       const artifactHash = artifactResult.ok ? artifactResult.output.trim().split(/\s+/)[0] : null;
       const artifactHashValid = validSha256(artifactHash);
+      const frameResult = stageResults.frame || (
+        sliceResult.ok && buildResult.ok && validateResult.ok && artifactHashValid && activateResult.ok && stateResult.ok
+          ? await runRemote(frameCommand, 15_000)
+          : skippedResult({
+              sliceResult,
+              validateResult,
+              buildResult,
+              artifactHashValid,
+              activationOk: activateResult.ok,
+              stateOk: stateResult.ok,
+              screenName: "workspace resources",
+            })
+      );
       const deliveryManifest = {
         schema: "walnutpi.workspaceDelivery.v1",
         buildId,
@@ -100,9 +144,9 @@ export function createSshLocalAgentAdapter({
           itemCount: playlistEnvelope.items.length,
         },
         generatedResources: {
-          header: "lvgl_app/generated/screen_workspace_config.h",
-          source: "lvgl_app/generated/screen_workspace_config.c",
-          mode: "prebuilt",
+          runtimeIndex: "screen/runtime/default.txt",
+          framesDir: "screen/runtime/frames",
+          mode: runtimeSupportResult.ok ? "resource-only" : "runtime-upgrade-build",
         },
         target: {
           host: sshHost,
@@ -116,37 +160,6 @@ export function createSshLocalAgentAdapter({
         screenPlaylistHash: playlistHash,
       };
       const deliveryHash = sha256(stableStringify(deliveryManifest));
-      const activateResult = buildResult.ok && artifactHashValid
-        ? await runRemote(activateCommand, 30_000)
-        : skippedResult({
-            sliceResult,
-            validateResult,
-            buildResult,
-            artifactHashValid,
-            screenName: "workspace slice",
-          });
-      const stateResult = buildResult.ok && artifactHashValid && activateResult.ok
-        ? await runRemote(stateCommand, 15_000)
-        : skippedResult({
-            sliceResult,
-            validateResult,
-            buildResult,
-            artifactHashValid,
-            activationOk: activateResult.ok,
-            screenName: "workspace slice",
-            activationLabel: "activation",
-          });
-      const frameResult = buildResult.ok && artifactHashValid && activateResult.ok && stateResult.ok
-        ? await runRemote(frameCommand, 15_000)
-        : skippedResult({
-            sliceResult,
-            validateResult,
-            buildResult,
-            artifactHashValid,
-            activationOk: activateResult.ok,
-            stateOk: stateResult.ok,
-            screenName: "workspace slice",
-          });
       const frameEvidence = parseFrameEvidence(frameResult);
       if (frameEvidence) {
         frameEvidence.capturedAt = new Date().toISOString();
@@ -216,6 +229,7 @@ export function createSshLocalAgentAdapter({
       };
       const commandResults = {
         "workspace-slice": sliceResult,
+        "runtime-support": runtimeSupportResult,
         build: buildResult,
         validate: validateResult,
         artifact: artifactResult,
@@ -227,6 +241,7 @@ export function createSshLocalAgentAdapter({
         [
           preflightBlockResult(sliceResult, buildResult, validateResult, artifactResult, activateResult, stateResult, frameResult),
           commandBlockResult("workspace-slice", sliceResult),
+          commandBlockResult("runtime-support", runtimeSupportResult),
           commandBlockResult("build", buildResult),
           commandBlockResult("validate", validateResult),
           commandBlockResult("artifact", artifactResult),
@@ -253,13 +268,15 @@ export function createSshLocalAgentAdapter({
               frameSha256: frameEvidence.sha256,
             }
           : null,
-        command: `workspace-slice: deliver ${screenSlice.files.length} files to ${remoteProjectRoot}\n${remoteBuildCommand}\n${validateCommand}\n${activateCommand}\n${stateCommand}\n${frameCommand}`,
+        command: `workspace-resources: deliver ${screenSlice.files.length} files to ${remoteProjectRoot} via one remote script\n${runtimeSupportCommand}\n${remoteBuildCommand}\n${validateCommand}\n${activateCommand}\n${stateCommand}\n${frameCommand}`,
         commandResults,
         code: failure ? 1 : 0,
         output,
         summary: failure
           ? failure.summary
-          : "已同步 Screen Workspace 播放列表到核桃派。设备运行产物绑定当前 playlist hash。",
+          : runtimeSupportResult.ok
+            ? "已把 Screen Workspace 资源同步到核桃派。未重新编译 LVGL。"
+            : "已升级 runtime-capable LVGL 并同步 Screen Workspace 资源到核桃派。",
         failedStage: failure?.stage || null,
       };
     },
@@ -271,6 +288,7 @@ const SCREEN_SLICE_FILES = [
   "scripts/build-lvgl-app.sh",
   "scripts/fetch-lvgl.sh",
   "scripts/generate-lvgl-screen-workspace-config.js",
+  "scripts/generate-lvgl-screen-workspace-runtime-assets.js",
   "scripts/screen-workspace-vocabulary.js",
   "lvgl_app/CMakeLists.txt",
   "lvgl_app/lv_conf.h",
@@ -286,26 +304,48 @@ async function buildWorkspaceDeliverySlice({ localProjectRoot, playlistEnvelope 
       path: relativePath,
       mode: relativePath.endsWith(".sh") ? "755" : "644",
       content: await readLocalSliceFile(localProjectRoot, relativePath),
+      encoding: "utf8",
     });
   }
 
-  const generated = renderLvglScreenWorkspaceConfig(await generateLvglScreenWorkspaceConfig({
+  const config = await generateLvglScreenWorkspaceConfig({
     workspaceRoot: playlistEnvelope.workspaceRoot,
     playlistId: playlistEnvelope.playlist.id,
-    enabled: "1",
-  }));
+    enabled: "0",
+  });
+  const generated = renderLvglScreenWorkspaceConfig(config);
   files.push(
     {
       path: "lvgl_app/generated/screen_workspace_config.h",
       mode: "644",
       content: generated.header,
+      encoding: "utf8",
     },
     {
       path: "lvgl_app/generated/screen_workspace_config.c",
       mode: "644",
       content: generated.source,
+      encoding: "utf8",
     },
   );
+  const runtimeAssets = await generateLvglScreenWorkspaceRuntimeAssets({
+    workspaceRoot: playlistEnvelope.workspaceRoot,
+    playlistId: playlistEnvelope.playlist.id,
+  });
+  files.push({
+    path: "screen/runtime/default.txt",
+    mode: "644",
+    content: await readFile(runtimeAssets.indexPath, "utf8"),
+    encoding: "utf8",
+  });
+  for (const framePath of runtimeAssets.frames) {
+    files.push({
+      path: `screen/runtime/frames/${path.basename(framePath)}`,
+      mode: "644",
+      content: await readFile(framePath),
+      encoding: "binary",
+    });
+  }
   return { files };
 }
 
@@ -318,31 +358,166 @@ async function readLocalSliceFile(localProjectRoot, relativePath) {
   return readFile(filePath, "utf8");
 }
 
-function buildRemoteSliceScript({ remoteProjectRoot, remoteBuildUser, files }) {
+async function buildRemoteSliceScript({ remoteProjectRoot, remoteBuildUser, files }) {
+  const archive = await createSliceArchive(files);
+  const archiveBase64 = archive.toString("base64");
   const lines = [
     "set -e",
     `ROOT=${shSingleQuote(remoteProjectRoot)}`,
     'install -d "$ROOT"',
+    'TMP_DIR="$(mktemp -d)"',
+    'cleanup() { rm -rf "$TMP_DIR"; }',
+    "trap cleanup EXIT",
+    'base64 -d > "$TMP_DIR/screen-slice.tar.gz" <<\'WALNUT_SCREEN_TARBALL\'',
+    archiveBase64,
+    "WALNUT_SCREEN_TARBALL",
+    'tar -xzf "$TMP_DIR/screen-slice.tar.gz" -C "$ROOT"',
   ];
-
-  for (const file of files) {
-    const base64 = Buffer.from(file.content.replace(/\r\n/g, "\n"), "utf8").toString("base64");
-    lines.push(
-      `install -d "$ROOT/${shDoubleQuoteDir(file.path)}"`,
-      `base64 -d > "$ROOT/${shDoubleQuote(file.path)}" <<'WALNUT_SCREEN_FILE'`,
-      base64,
-      "WALNUT_SCREEN_FILE",
-      `chmod ${file.mode} "$ROOT/${shDoubleQuote(file.path)}"`,
-    );
-  }
   if (remoteBuildUser) {
     lines.push(
       `chown -R ${shSingleQuote(`${remoteBuildUser}:${remoteBuildUser}`)} "$ROOT/lvgl_app" "$ROOT/scripts" 2>/dev/null || chown -R ${shSingleQuote(remoteBuildUser)} "$ROOT/lvgl_app" "$ROOT/scripts"`,
-      `if [ -d "$ROOT/build/lvgl_app" ]; then chown -R ${shSingleQuote(`${remoteBuildUser}:${remoteBuildUser}`)} "$ROOT/build/lvgl_app" 2>/dev/null || chown -R ${shSingleQuote(remoteBuildUser)} "$ROOT/build/lvgl_app"; fi`,
+      `chown -R ${shSingleQuote(`${remoteBuildUser}:${remoteBuildUser}`)} "$ROOT/screen/runtime" 2>/dev/null || chown -R ${shSingleQuote(remoteBuildUser)} "$ROOT/screen/runtime"`,
     );
   }
-  lines.push("printf 'screen slice delivered: %s files\\n' " + shSingleQuote(String(files.length)));
+  lines.push("printf 'screen slice delivered: %s files via tar.gz\\n' " + shSingleQuote(String(files.length)));
   return lines.join("\n");
+}
+
+async function createSliceArchive(files) {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), "walnutpi-screen-slice-"));
+  const stageDir = path.join(tempRoot, "stage");
+  const archivePath = path.join(tempRoot, "screen-slice.tar.gz");
+  try {
+    await mkdir(stageDir, { recursive: true });
+    for (const file of files) {
+      const relativePath = safeArchivePath(file.path);
+      const outputPath = path.join(stageDir, ...relativePath.split("/"));
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      const content = file.encoding === "binary"
+        ? Buffer.from(file.content)
+        : String(file.content).replace(/\r\n/g, "\n");
+      await writeFile(outputPath, content);
+    }
+    await runTar(["-czf", archivePath, "-C", stageDir, "."]);
+    return await readFile(archivePath);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+}
+
+function safeArchivePath(filePath) {
+  const normalized = String(filePath || "").replace(/\\/g, "/");
+  if (!normalized || normalized.startsWith("/") || normalized.includes("../") || normalized === "..") {
+    throw new Error(`screen slice path is not archive-safe: ${filePath}`);
+  }
+  return normalized;
+}
+
+function runTar(args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("tar", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`tar failed with code ${code}: ${stderr.trim()}`));
+      }
+    });
+  });
+}
+
+function buildRemoteSyncScript({
+  remoteSliceScript,
+  runtimeSupportCommand,
+  remoteBuildCommand,
+  validateCommand,
+  artifactCommand,
+  activateCommand,
+  stateCommand,
+  frameCommand,
+}) {
+  return [
+    "set +e",
+    remoteStageFunction(),
+    `run_stage workspace-slice <<'WALNUT_STAGE_WORKSPACE_SLICE'\n${remoteSliceScript}\nWALNUT_STAGE_WORKSPACE_SLICE`,
+    "workspace_status=$?",
+    "if [ \"$workspace_status\" -ne 0 ]; then exit 0; fi",
+    `run_stage runtime-support <<'WALNUT_STAGE_RUNTIME_SUPPORT'\n${runtimeSupportCommand}\nWALNUT_STAGE_RUNTIME_SUPPORT`,
+    "runtime_status=$?",
+    "if [ \"$runtime_status\" -eq 0 ]; then",
+    "  run_stage build <<'WALNUT_STAGE_BUILD_SKIP'\nprintf 'skipped: runtime-capable LVGL binary already exists\\n'\nWALNUT_STAGE_BUILD_SKIP",
+    "else",
+    `  run_stage build <<'WALNUT_STAGE_BUILD'\n${remoteBuildCommand}\nWALNUT_STAGE_BUILD`,
+    "fi",
+    "build_status=$?",
+    "if [ \"$build_status\" -ne 0 ]; then exit 0; fi",
+    `run_stage validate <<'WALNUT_STAGE_VALIDATE'\n${validateCommand}\nWALNUT_STAGE_VALIDATE`,
+    "validate_status=$?",
+    "if [ \"$validate_status\" -ne 0 ]; then exit 0; fi",
+    `run_stage artifact <<'WALNUT_STAGE_ARTIFACT'\n${artifactCommand}\nWALNUT_STAGE_ARTIFACT`,
+    "artifact_status=$?",
+    "if [ \"$artifact_status\" -ne 0 ]; then exit 0; fi",
+    `run_stage activate <<'WALNUT_STAGE_ACTIVATE'\n${activateCommand}\nWALNUT_STAGE_ACTIVATE`,
+    "activate_status=$?",
+    "if [ \"$activate_status\" -ne 0 ]; then exit 0; fi",
+    `run_stage evidence <<'WALNUT_STAGE_EVIDENCE'\n${stateCommand}\nWALNUT_STAGE_EVIDENCE`,
+    "evidence_status=$?",
+    "if [ \"$evidence_status\" -ne 0 ]; then exit 0; fi",
+    `run_stage frame <<'WALNUT_STAGE_FRAME'\n${frameCommand}\nWALNUT_STAGE_FRAME`,
+    "exit 0",
+  ].join("\n");
+}
+
+function remoteStageFunction() {
+  return [
+    "run_stage() {",
+    "  name=\"$1\"",
+    "  tmp=\"$(mktemp)\"",
+    "  cat > \"$tmp\"",
+    "  printf '__WALNUT_STAGE_START__ %s\\n' \"$name\"",
+    "  sh \"$tmp\" 2>&1",
+    "  code=$?",
+    "  rm -f \"$tmp\"",
+    "  printf '__WALNUT_STAGE_END__ %s %s\\n' \"$name\" \"$code\"",
+    "  return \"$code\"",
+    "}",
+  ].join("\n");
+}
+
+function parseRemoteSyncStages(syncResult) {
+  const stages = {};
+  const output = String(syncResult.output || "");
+  const re = /__WALNUT_STAGE_START__ ([^\n]+)\n([\s\S]*?)__WALNUT_STAGE_END__ \1 ([0-9]+)\n/g;
+  let match;
+  while ((match = re.exec(output)) !== null) {
+    const name = match[1].trim();
+    const code = Number(match[3]);
+    stages[name] = {
+      ok: syncResult.ok && code === 0,
+      code,
+      output: match[2].trim() || "ok",
+      preflightOutput: syncResult.preflightOutput,
+    };
+  }
+  return stages;
+}
+
+function fallbackStageResult(syncResult, stage) {
+  return {
+    ok: false,
+    code: syncResult.code,
+    output: syncResult.output || `missing remote sync stage: ${stage}`,
+    preflightOutput: syncResult.preflightOutput,
+  };
+}
+
+function skippedStageResult(output) {
+  return { ok: false, code: null, output };
 }
 
 function preflightBlockResult(...results) {
@@ -627,7 +802,7 @@ function firstWorkspaceFailure(sliceResult, buildResult, validateResult, artifac
   if (!validateResult.ok) {
     return {
       stage: "artifact",
-      summary: "LVGL 产物没有绑定当前 Screen Workspace playlist。请在诊断里确认生成文件和二进制 playlist hash。",
+      summary: "核桃派上的 LVGL runtime 或 screen/runtime/default.txt 没有匹配当前 Screen Workspace playlist。请查看诊断里的 runtime validation。",
     };
   }
   if (!validSha256(artifactHash)) {
@@ -666,7 +841,7 @@ function firstWorkspaceFailure(sliceResult, buildResult, validateResult, artifac
 function skippedResult({ sliceResult, validateResult, buildResult, artifactHashValid, activationOk = true, stateOk = true, screenName = "screen slice" }) {
   let output = "skipped";
   if (!sliceResult.ok) output = `skipped because ${screenName} delivery failed`;
-  else if (!validateResult.ok) output = "skipped because artifact does not contain current playlist hash";
+  else if (!validateResult.ok) output = "skipped because runtime validation failed";
   else if (!buildResult.ok) output = "skipped because build failed";
   else if (!artifactHashValid) output = "skipped because artifact hash is invalid";
   else if (!activationOk) output = "skipped because activation failed";

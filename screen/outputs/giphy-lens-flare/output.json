@@ -1,0 +1,232 @@
+{
+  "schema": "walnutpi.screen-output.v1",
+  "id": "giphy-lens-flare",
+  "generatedAt": "2026-06-15T17:09:11.486Z",
+  "manifest": "../../manifests/giphy-lens-flare.json",
+  "output": {
+    "type": "animated",
+    "path": "../outputs/giphy-lens-flare/output.json",
+    "width": 480,
+    "height": 320,
+    "frameCount": 24,
+    "frames": [
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-000.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "771445c06e200d690a5211a84b7f66d0ba0d06b1f50c97f1f7eded35290827fc",
+        "rgbaPixelSha256": "3cb5528074e484f15d440bde84983f8a172f77dd1b8a69b193703a96268a7a92",
+        "rgb565PixelSha256": "1f18fa442f156b4cb4938b133e1b1e56c3439b0d94f9df10b27e38fcab48f286"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-001.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "7aaa21d7df272b92cad8c1bbe838429ffc807b0f8ed16305e58e5b386d2e754e",
+        "rgbaPixelSha256": "7b653cc9e112bb5e477eb8ff124be14a97f243a6babd5533e888d4425245fc4b",
+        "rgb565PixelSha256": "023676577dba468fc703016a93ea8090b193f4e2e55d02c9796898b2e61e1f87"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-002.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "c2ad54a414484dd9f584d2f57d5dd389f68cdaf1321419438e491b64e5ede2a4",
+        "rgbaPixelSha256": "80cd8384e030cc9a13d4e1190808a38c88e8d14f063c1a8d167a35fffe46be4b",
+        "rgb565PixelSha256": "f3a12855c9e938c8a3ca3d56ab294359a3ad2a4ebc8d310d6ffb97d54dcfe5bd"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-003.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "f6a9e62b1e74689620287c60bac58fb3a0229a5de0c74bbd45b5565b32f9467b",
+        "rgbaPixelSha256": "169e194e04674db55ea3889d93faf0c541ae3980a80c441d170cb8d8fa65909c",
+        "rgb565PixelSha256": "69aff112160ad66937e8ab97d76b13d33e58e7e91847e46bba21350a1fbcc254"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-004.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "61a29bfec3172ece23a4044075a29cef97b0e95077962f3f5cf799fa77221bac",
+        "rgbaPixelSha256": "33a607ef4c06d899730e024c6d42edcdc4fd2f974792ea1a7b591ebedb9b45cd",
+        "rgb565PixelSha256": "577a7ecff4c7ebbade2f49e6f0313635fd0848f13d5c4a456f24d31c0de949ef"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-005.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "8434ae90dd9f9a535a3e79d70076654903f1ab39130b18d56319dccd97862775",
+        "rgbaPixelSha256": "46aecf2d468fa6d4d6367e7c279e4c4d3fdd47aba195954ed6d2c8d288915e19",
+        "rgb565PixelSha256": "4e71ee6dcca099df0be6e995dddff8f16288c71eda2b9b871fb19d9ae67f165a"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-006.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "b1e7ba5fb72dd71ef1ea968b32fe6bc3ff67bb400fc0d20c29511d2a7f211a50",
+        "rgbaPixelSha256": "3810feb6e14eb61305d319ed03b651fd2650028a0719f47ae5deb714c8c77fdd",
+        "rgb565PixelSha256": "bc50624e36e080476c39a7e8c5b334ce4fc5b667f7524db0e6d2bc93a8b5ba6a"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-007.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "67e484e34ce39df9cb8448520ccda28e63dfc6913ccc0e31cb346209d7f8ab86",
+        "rgbaPixelSha256": "e2431b6576240f239d58fa39f48cfd4813a84fc547d0af520e29905c64deec5a",
+        "rgb565PixelSha256": "60ef2c5893c31450317160c9c60756aead0d21012504a8bcffb8ca8d931b5fa8"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-008.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "12c16c024269ffabe0f5ecbcc62a2e4546c43485739278cd43be1d9fa45cdc02",
+        "rgbaPixelSha256": "6afcf2f5376b0f9ef814d1b6a28c5f0edd3bee193986781b334d435bafe13ee0",
+        "rgb565PixelSha256": "4533d0e283972cbed84a2ec411d297e501b35e2cf8b903dbefe365999f68ebb5"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-009.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "2c3d61540dcbd13acba70823a5484087e7e8b159b38c8597fdacb07e32f24695",
+        "rgbaPixelSha256": "892491dd307ebde714f2374026cafe11e492b7d0a0275f72b41c148831d36950",
+        "rgb565PixelSha256": "3b77c8f8c593abb35913154e83228c987d9360e723611ae80ff6cdfea9c8882f"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-010.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "54bd3a9f4ebcc8fbc09bbdc5d043037d290f640ead648bc13c8fd6b4accfcb5e",
+        "rgbaPixelSha256": "7a45de7b6ae7ec4123c5982068577fa630a7219cfb8492b1544cebf639f3f7c9",
+        "rgb565PixelSha256": "d2531678fb8c8ec4ff43519dbec74ce57b9e76e355d6e905bb1c10a129f5cba3"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-011.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "4a62a61e011c98b30025a4e51f5fc86d2092af10c5852c73e781f8f0e0d81625",
+        "rgbaPixelSha256": "4abc534af15842ac30e1d1804e435af4d0135ec39875d08c3911c36ee6cf7539",
+        "rgb565PixelSha256": "675ed38f2445af24d414b94f26e5491b1e09ca0b83449c9148dd965a0389969e"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-012.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "8cbd1bb4ebf8553c8157b6d0de1f02b73155736b68216e0053432f4cf1292f63",
+        "rgbaPixelSha256": "9fa12fa69cf74a9eda2df148655b70f84d519602f5c4e95ca92280031cb8f67f",
+        "rgb565PixelSha256": "e700e4115ffa2d6ccdb2a4e4f9c9ed0c8857438b5e54ba04fe2733610f50b556"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-013.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "01a396f808d2cad80cd3bf3a1905c72c4b68177622f4b54044b9eab3bb0f4a58",
+        "rgbaPixelSha256": "76892b303f58a085b85df29e60eb6f040df5828768b4befb4239bf50525f60ec",
+        "rgb565PixelSha256": "21b798f16760db9f9a5d5ffb4c68cfe112f8bb2856e9d8ccf3fe5a8422d033a1"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-014.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "193bfd525781d91f7793bd3d4fa642d26ae87addd447b409fc666ba3616d5fe8",
+        "rgbaPixelSha256": "d6a9c610b2a3a15b247449ce14fc3ab4cf557a70e5ef346a887baf7fdbc2e5da",
+        "rgb565PixelSha256": "9281ffa38b74b46afbd17249425716955d90e9d55ba016f400b83555de38e1cb"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-015.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "8ac9b58c70eac7a2c15dbd4bf78393d221db3d013feebf0a1370a83c6c260b03",
+        "rgbaPixelSha256": "e0bae5cadc7c79522c42d8ef83e218ff2d80885a9c15a6e4bbe52384316b9a61",
+        "rgb565PixelSha256": "d1aeebc34fa3b1bf617f892a3c1e772eb90ecf371a2387623508318016a4da5c"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-016.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "a9f483eb386577cf90b2b1f151b7ec2e373827d416dd588580a2a1fa4d178645",
+        "rgbaPixelSha256": "ed80b1dd108807a75ea0ec67a0d7ec63599419611d5f3642a3523c7b1f147390",
+        "rgb565PixelSha256": "e7219a45dc019be409c004791b871d81eab51a31be8bdb77b8ce3df764fdc701"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-017.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "b3c4fd55aa8d736a5923939292314fcb6dc56ef662237a050ff3e48b76e6d0df",
+        "rgbaPixelSha256": "ff903ffa8da89efb6b563506fcbebc4f6278bb3e4a6ee009cbabd283ceddc0f7",
+        "rgb565PixelSha256": "7a7e672e89d8ee007594e830717139226e080a8f96d43924d38320d3436e86c8"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-018.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "526617ddb017fbe85eb3fdf3dec97d2f0c9e05ef0a92088075058a279e60311c",
+        "rgbaPixelSha256": "3d0cd56c6beae0290bea5872bebbff7060ed2e5df1981cacfffe3f418c753c26",
+        "rgb565PixelSha256": "f21088511ac3229cbe2fc783778de198e15d11abc500039d326bd66bc4260d25"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-019.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "921944a9cde9afeafa3f341240cdcb12b92966b2eb1502615f061fee4d70624e",
+        "rgbaPixelSha256": "da14c97532b7fb97be724b405f3a9f4033cfc37af289d460cadc750e3b8178c3",
+        "rgb565PixelSha256": "d28f0873d82b834d813f0762eb6019639ca6bc90f69c2339ff9e31cdf791cfd5"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-020.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "9c127f20c0430adead5c12cc134dfd747d820bb4b9e3a411b1cb4e303d553a32",
+        "rgbaPixelSha256": "8feb7bc1a5f8cda06845a6bbb8c92ae8e2f5623e8b020a18ae13eec1b18bec81",
+        "rgb565PixelSha256": "3684d5b1eeb6e4eca9dba6ea71e3bbcf0226f23d1a9c4e3c6fa4ddf12ab8dec0"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-021.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "0e9c985251705f926dac56b54c1823b8db0485626ad6d5abd8b4aa0aa5266d71",
+        "rgbaPixelSha256": "04a1165046cb46979390354b6671062a7f0f6f8dd01bbf8417ddae695325ddf2",
+        "rgb565PixelSha256": "c1bfb8420c686b30d5008fd0519128c7a4ab5223307f2d23625c309df85adedb"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-022.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "9b4f749f8872b95284feb44cd683552cadbf513481af235de93a7b6c86bb5072",
+        "rgbaPixelSha256": "57fd9719e92e86476839fcff3ed9b088072e251d7e6eaf82c80e849ff457d108",
+        "rgb565PixelSha256": "b4447ea8ea28021505decf1e33f24b85d707b8eb043a352547ebb40cb43dc5d2"
+      },
+      {
+        "path": "../outputs/giphy-lens-flare/frames/frame-023.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 167,
+        "fileSha256": "01c137c35966887365d1a5e3032b1fcacf9516cc6cda22545b8efff49d699b16",
+        "rgbaPixelSha256": "5ee9432f19b3fdc13eb24d68a7d43dff49f7237de203dca6dd2fa4bc340cdf25",
+        "rgb565PixelSha256": "a5cd3d1850dc34f6090d0b00d59ed96c2b5e11422625c63d1ba423e38746ddcd"
+      }
+    ],
+    "animatedOutputSha256": "e67e694eb225e677b4613c09eb34ce33621ea602810ce6b9827466c945902c1b"
+  }
+}

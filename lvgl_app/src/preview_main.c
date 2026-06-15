@@ -1,6 +1,7 @@
 #include "lvgl.h"
 #include "generated/screen_workspace_config.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +13,8 @@
 
 void walnut_build_screen_ui(void);
 void walnut_preview_apply_dynamic_time(int advance_ms);
+bool walnut_screen_workspace_load_runtime(const char * index_path);
+const char * walnut_screen_workspace_active_playlist_hash(void);
 
 static uint16_t preview_framebuffer[PREVIEW_WIDTH * PREVIEW_HEIGHT];
 static uint8_t draw_buffer[PREVIEW_WIDTH * PREVIEW_HEIGHT * PREVIEW_BYTES_PER_PIXEL];
@@ -105,12 +108,8 @@ static int write_bmp(const char * output_path)
 
 int main(int argc, char ** argv)
 {
-    if(walnut_screen_workspace_config_playlist_hash()[0] == '\0' && WALNUT_SCREEN_WORKSPACE_ITEM_COUNT > 0) {
-        fprintf(stderr, "workspace playlist hash missing\n");
-        return 1;
-    }
-
     const char * output_path = "walnut-lvgl-preview.bmp";
+    const char * runtime_path = NULL;
     int advance_ms = 128;
     for(int i = 1; i < argc; i++) {
         if(strcmp(argv[i], "--advance-ms") == 0 && i + 1 < argc) {
@@ -118,9 +117,19 @@ int main(int argc, char ** argv)
             if(advance_ms < 0) advance_ms = 0;
             if(advance_ms > 30000) advance_ms = 30000;
         }
+        else if(strcmp(argv[i], "--runtime") == 0 && i + 1 < argc) {
+            runtime_path = argv[++i];
+        }
         else {
             output_path = argv[i];
         }
+    }
+    if(runtime_path != NULL) {
+        walnut_screen_workspace_load_runtime(runtime_path);
+    }
+    if(walnut_screen_workspace_active_playlist_hash()[0] == '\0' && WALNUT_SCREEN_WORKSPACE_ITEM_COUNT > 0) {
+        fprintf(stderr, "workspace playlist hash missing\n");
+        return 1;
     }
     memset(preview_framebuffer, 0, sizeof(preview_framebuffer));
     memset(draw_buffer, 0, sizeof(draw_buffer));

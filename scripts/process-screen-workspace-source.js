@@ -153,9 +153,9 @@ Options:
   --license <text>               Source license. Default: unknown-personal-sync
   --media-type <type>            Source media type
   --origin <text>                Source origin or URL
-  --fps <n>                      Animated output fps. Default: 10
+  --fps <n>                      Animated output fps. Default: 6
   --max-seconds <n>              Animated output limit. Default: 8
-  --max-frames <n>               Animated output frame limit. Default: 80
+  --max-frames <n>               Animated output frame limit. Default: 24
   --playlist <id|false>          Write one-item playlist. Default: default
   --playlist-mode <replace|append>
                                   Replace playlist or append this output. Default: replace

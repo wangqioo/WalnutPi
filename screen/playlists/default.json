@@ -4,7 +4,7 @@
   "loop": true,
   "items": [
     {
-      "manifest": "../manifests/workspace-output.json",
+      "manifest": "../manifests/giphy-lens-flare.json",
       "durationMs": 8000,
       "repeat": 1,
       "transition": "cut"

@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createScreenEvidenceLedger } from "./screen-evidence-ledger.js";
@@ -15,6 +15,7 @@ import { createWalnutRemoteAdapter } from "./walnut-remote-adapter.js";
 import { createScreenWorkspaceStore, workspaceErrorResponse } from "./screen-workspace-store.js";
 import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.js";
 import { stableStringify } from "../scripts/screen-workspace-vocabulary.js";
+import { generateLvglScreenWorkspaceRuntimeAssets } from "../scripts/generate-lvgl-screen-workspace-runtime-assets.js";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PORT || 4173);
@@ -40,6 +41,8 @@ const SCREEN_RECORD_LIMIT = Number.isFinite(parsedScreenRecordLimit) && parsedSc
   ? Math.floor(parsedScreenRecordLimit)
   : 50;
 const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BASE_DIR, "screen-sync-records");
+const SCREEN_SOURCE_IMPORT_MAX_BYTES = Number(process.env.WALNUT_SCREEN_SOURCE_IMPORT_MAX_BYTES || 25 * 1024 * 1024);
+const SCREEN_LVGL_PREVIEW_OUTPUT_DIR = path.join(SCREEN_WORKSPACE_ROOT, "outputs", "lvgl-preview");
 const WALNUT_AI_CORPUS_DIR = process.env.WALNUT_AI_CORPUS_DIR || path.join(PROJECT_ROOT, "walnut-ai-terminal", "corpus");
 const SCREEN_SUCCESS_CORPUS_PATH = path.join(WALNUT_AI_CORPUS_DIR, "screen-sync-successes.md");
 
@@ -1127,6 +1130,54 @@ async function handleScreenWorkspaceAsset(url) {
   }
 }
 
+async function handleScreenWorkspaceImport(req) {
+  let body;
+  try {
+    body = await readJsonRequest(req);
+  } catch (error) {
+    return json({ ok: false, error: error.message }, 400);
+  }
+
+  try {
+    const sourceId = cleanScreenWorkspaceId(body.sourceId || body.id || `source-${Date.now()}`, "sourceId");
+    const sourceUrl = cleanWorkspaceSourceUrl(body.url || body.sourceUrl);
+    const imported = await importWorkspaceSourceUrl({
+      sourceId,
+      sourceUrl,
+      license: body.license || "unknown-personal-sync",
+      title: body.title,
+    });
+
+    await webMetricsLedger.append({
+      kind: "screen.workspace.import",
+      operation: "screen.workspace.import",
+      ok: true,
+      sourceId,
+      mediaType: imported.mediaType,
+      bytes: imported.bytes,
+    });
+
+    return json({
+      ok: true,
+      schema: "walnutpi.screenWorkspaceImportResult.v1",
+      source: imported.sourceRecord,
+      sourceAssetId: sourceId,
+    });
+  } catch (error) {
+    await webMetricsLedger.append({
+      kind: "screen.workspace.import",
+      operation: "screen.workspace.import",
+      ok: false,
+      error: error.message,
+    });
+    return json({
+      ok: false,
+      error: "screen workspace import failed",
+      output: error.message,
+    }, error.status || 400);
+  }
+}
+
 async function handleScreenWorkspaceProcess(req) {
   let body;
   try {
@@ -1215,6 +1266,78 @@ async function handleScreenWorkspaceProcess(req) {
   }
 }
 
+async function handleScreenWorkspaceLvglPreview() {
+  try {
+    const envelope = await screenWorkspaceStore.readPlaylistEnvelope("default");
+    await mkdir(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, { recursive: true });
+    const runtimeAssets = await generateLvglScreenWorkspaceRuntimeAssets({
+      workspaceRoot: SCREEN_WORKSPACE_ROOT,
+      playlistId: "default",
+    });
+
+    const build = await runLvglPreviewBuild();
+    if (!build.ok) {
+      return json({
+        ok: false,
+        error: "LVGL preview build failed",
+        output: build.output,
+      }, 500);
+    }
+
+    const exePath = lvglPreviewExePath();
+    if (!existsSync(exePath)) {
+      return json({
+        ok: false,
+        error: "LVGL preview executable is missing",
+        output: exePath,
+      }, 500);
+    }
+
+    const advanceMs = lvglPreviewAdvanceTimes(envelope);
+    const frames = [];
+    for (const ms of advanceMs) {
+      const stem = `lvgl-${String(ms).padStart(5, "0")}ms`;
+      const bmpPath = path.join(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, `${stem}.bmp`);
+      const pngPath = path.join(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, `${stem}.png`);
+      const rendered = await runLocal(exePath, [bmpPath, "--advance-ms", String(ms), "--runtime", runtimeAssets.indexPath], {
+        timeoutMs: 30_000,
+        outputLimit: 12_000,
+      });
+      if (!rendered.ok) {
+        return json({
+          ok: false,
+          error: "LVGL preview render failed",
+          output: rendered.output,
+          advanceMs: ms,
+        }, 500);
+      }
+      await ensurePreviewPng(bmpPath, pngPath);
+      frames.push({
+        advanceMs: ms,
+        bmp: screenWorkspaceAssetUrl(bmpPath),
+        png: screenWorkspaceAssetUrl(pngPath),
+      });
+    }
+
+    return json({
+      ok: true,
+      schema: "walnutpi.screenWorkspaceLvglPreview.v1",
+      playlistHash: envelope.playlistHash,
+      runtimeIndex: screenWorkspaceAssetUrl(runtimeAssets.indexPath),
+      itemCount: envelope.items.length,
+      frameCount: frames.length,
+      frames,
+      buildOutput: build.output,
+    });
+  } catch (error) {
+    return json({
+      ok: false,
+      error: "LVGL preview failed",
+      output: error.message,
+    }, 500);
+  }
+}
+
 async function readWorkspaceSourceAsset(sourceAssetId) {
   const cleanId = cleanScreenWorkspaceId(sourceAssetId, "sourceAssetId");
   const sourceJsonPath = path.resolve(SCREEN_WORKSPACE_ROOT, "sources", cleanId, "source.json");
@@ -1245,12 +1368,191 @@ async function readWorkspaceSourceAsset(sourceAssetId) {
   };
 }
 
+async function importWorkspaceSourceUrl({
+  sourceId,
+  sourceUrl,
+  license,
+  title,
+}) {
+  const response = await fetch(sourceUrl, {
+    redirect: "follow",
+    signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+      ? AbortSignal.timeout(30_000)
+      : undefined,
+    headers: {
+      "user-agent": "WalnutPi Screen Workspace source importer",
+      accept: "image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm,video/quicktime,*/*;q=0.2",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`source download failed with HTTP ${response.status}`);
+  }
+
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (contentLength > SCREEN_SOURCE_IMPORT_MAX_BYTES) {
+    throw new Error(`source is too large; max ${SCREEN_SOURCE_IMPORT_MAX_BYTES} bytes`);
+  }
+
+  const mediaType = cleanWorkspaceImportMediaType(response.headers.get("content-type"));
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.length === 0) throw new Error("source download was empty");
+  if (bytes.length > SCREEN_SOURCE_IMPORT_MAX_BYTES) {
+    throw new Error(`source is too large; max ${SCREEN_SOURCE_IMPORT_MAX_BYTES} bytes`);
+  }
+
+  const sourceDir = path.join(SCREEN_WORKSPACE_ROOT, "sources", sourceId);
+  const extension = workspaceImportExtension(mediaType, sourceUrl);
+  const originalFileName = `original${extension}`;
+  const originalPath = path.join(sourceDir, originalFileName);
+  await mkdir(sourceDir, { recursive: true });
+  await writeFile(originalPath, bytes);
+
+  const sourceRecord = {
+    schema: "walnutpi.screen-source-asset.v1",
+    id: sourceId,
+    ...(title ? { title: String(title).replace(/\s+/g, " ").trim().slice(0, 80) } : {}),
+    selected: true,
+    importedAt: new Date().toISOString(),
+    original: originalFileName,
+    fileSha256: sha256(bytes),
+    mediaType,
+    license: String(license || "unknown-personal-sync").replace(/\s+/g, " ").trim().slice(0, 120),
+    origin: sourceUrl,
+  };
+  await writeFile(path.join(sourceDir, "source.json"), `${JSON.stringify(sourceRecord, null, 2)}\n`, "utf8");
+
+  return {
+    sourceRecord,
+    mediaType,
+    bytes: bytes.length,
+  };
+}
+
 function cleanScreenWorkspaceId(value, field) {
   const text = String(value || "").trim();
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(text)) {
     throw new Error(`${field} must be a simple slug`);
   }
   return text;
+}
+
+function cleanWorkspaceSourceUrl(value) {
+  const text = String(value || "").trim();
+  if (!text) throw new Error("sourceUrl is required");
+  let parsed;
+  try {
+    parsed = new URL(text);
+  } catch {
+    throw new Error("sourceUrl must be a valid URL");
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("sourceUrl must use http or https");
+  }
+  parsed.hash = "";
+  return parsed.toString();
+}
+
+function cleanWorkspaceImportMediaType(value) {
+  const mediaType = String(value || "").split(";")[0].trim().toLowerCase();
+  const allowed = new Set([
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "video/mp4",
+    "video/webm",
+    "video/quicktime",
+  ]);
+  if (!allowed.has(mediaType)) {
+    throw new Error("source URL must point to a PNG, JPEG, GIF, WebP, MP4, WebM, or MOV file");
+  }
+  return mediaType;
+}
+
+function workspaceImportExtension(mediaType, sourceUrl) {
+  const byType = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+    "video/quicktime": ".mov",
+  };
+  const extension = path.extname(new URL(sourceUrl).pathname).toLowerCase();
+  if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".webm", ".mov"].includes(extension)) {
+    return extension === ".jpeg" ? ".jpg" : extension;
+  }
+  return byType[mediaType] || ".bin";
+}
+
+function lvglPreviewExePath() {
+  return process.platform === "win32"
+    ? path.join(PROJECT_ROOT, "build", "lvgl_app-windows", "walnut-lvgl-preview.exe")
+    : path.join(PROJECT_ROOT, "build", "lvgl_app", "walnut-lvgl-preview");
+}
+
+async function runLvglPreviewBuild() {
+  if (process.platform === "win32") {
+    const pwsh = findWindowsCommand("pwsh.exe") || findWindowsCommand("powershell.exe") || "pwsh";
+    return runLocal(pwsh, ["./scripts/build-lvgl-app.ps1", "-WorkspaceLvgl", "1"], {
+      timeoutMs: 120_000,
+      outputLimit: 24_000,
+    });
+  }
+  return runLocal("bash", ["./scripts/build-lvgl-app.sh"], {
+    timeoutMs: 120_000,
+    outputLimit: 24_000,
+  });
+}
+
+function lvglPreviewAdvanceTimes(envelope) {
+  const first = envelope?.items?.[0];
+  const output = first?.output;
+  if (!output || output.type === "static") return [0];
+  const frames = Array.isArray(output.frames) ? output.frames : [];
+  const duration = frames.reduce((sum, frame) => sum + Math.max(1, Number(frame.durationMs || 100)), 0);
+  if (duration <= 0) return [0];
+  const count = Math.min(24, Math.max(1, frames.length));
+  if (count === 1) return [0];
+  return [...new Set(Array.from({ length: count }, (_, index) => (
+    Math.floor(index * (duration - 1) / (count - 1))
+  )))];
+}
+
+async function ensurePreviewPng(bmpPath, pngPath) {
+  if (process.platform === "win32") {
+    const script = [
+      "Add-Type -AssemblyName System.Drawing",
+      `$bmp = [System.Drawing.Image]::FromFile('${escapePowershellSingleQuoted(bmpPath)}')`,
+      "try {",
+      `  $bmp.Save('${escapePowershellSingleQuoted(pngPath)}', [System.Drawing.Imaging.ImageFormat]::Png)`,
+      "} finally {",
+      "  $bmp.Dispose()",
+      "}",
+    ].join("\n");
+    const pwsh = findWindowsCommand("pwsh.exe") || findWindowsCommand("powershell.exe") || "pwsh";
+    const converted = await runLocal(pwsh, ["-NoProfile", "-Command", script], {
+      timeoutMs: 30_000,
+      outputLimit: 8_000,
+    });
+    if (!converted.ok) throw new Error(`LVGL preview PNG conversion failed: ${converted.output}`);
+    return;
+  }
+  await copyFile(bmpPath, pngPath);
+}
+
+function screenWorkspaceAssetUrl(filePath) {
+  const resolved = path.resolve(filePath);
+  const relative = path.relative(SCREEN_WORKSPACE_ROOT, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("LVGL preview output must stay inside the Screen Workspace");
+  }
+  return `/api/screen/workspace/assets/${encodeURIComponent(relative.replaceAll("\\", "/"))}`;
+}
+
+function escapePowershellSingleQuoted(value) {
+  return String(value).replace(/'/g, "''");
 }
 
 function cleanWorkspaceSourcePath(value) {
@@ -1285,9 +1587,9 @@ function cleanWorkspacePreset(value) {
 function cleanWorkspaceAnimation(value) {
   const animation = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
-    fps: cleanWorkspaceInteger(animation.fps || 10, "animation.fps", 1, 60),
+    fps: cleanWorkspaceInteger(animation.fps || 6, "animation.fps", 1, 60),
     maxSeconds: cleanWorkspaceInteger(animation.maxSeconds || 8, "animation.maxSeconds", 1, 60),
-    maxFrames: cleanWorkspaceInteger(animation.maxFrames || 80, "animation.maxFrames", 1, 80),
+    maxFrames: cleanWorkspaceInteger(animation.maxFrames || 24, "animation.maxFrames", 1, 80),
   };
 }
 
@@ -1891,6 +2193,16 @@ const server = Bun.serve({
     if (url.pathname === "/api/screen/workspace/process") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       return handleScreenWorkspaceProcess(req);
+    }
+
+    if (url.pathname === "/api/screen/workspace/import") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleScreenWorkspaceImport(req);
+    }
+
+    if (url.pathname === "/api/screen/workspace/lvgl-preview") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleScreenWorkspaceLvglPreview();
     }
 
     if (url.pathname === "/api/screen/workspace/sync") {

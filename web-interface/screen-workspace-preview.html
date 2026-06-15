@@ -249,6 +249,104 @@
         gap: 6px;
       }
 
+      .lvgl-preview {
+        display: none;
+        gap: 10px;
+        border-top: 1px solid rgba(241, 239, 231, 0.1);
+        padding-top: 10px;
+      }
+
+      .lvgl-preview.is-visible {
+        display: grid;
+      }
+
+      .lvgl-preview-grid {
+        display: grid;
+        gap: 8px;
+      }
+
+      .lvgl-stage {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid rgba(241, 239, 231, 0.14);
+        background: #000;
+      }
+
+      .lvgl-stage img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 3 / 2;
+        object-fit: contain;
+        image-rendering: pixelated;
+      }
+
+      .lvgl-stage-label {
+        position: absolute;
+        right: 8px;
+        bottom: 7px;
+        border: 1px solid rgba(241, 239, 231, 0.16);
+        padding: 3px 6px;
+        background: rgba(0, 0, 0, 0.58);
+        color: #d8e7dc;
+        font-size: 11px;
+      }
+
+      .lvgl-nav {
+        position: absolute;
+        top: 50%;
+        width: 30px;
+        height: 44px;
+        transform: translateY(-50%);
+        border: 1px solid rgba(241, 239, 231, 0.2);
+        background: rgba(0, 0, 0, 0.56);
+        color: #f1efe7;
+        font-size: 20px;
+        line-height: 1;
+      }
+
+      .lvgl-nav:hover,
+      .lvgl-nav:focus-visible {
+        background: rgba(120, 200, 193, 0.24);
+        outline: none;
+      }
+
+      .lvgl-nav.is-prev {
+        left: 8px;
+      }
+
+      .lvgl-nav.is-next {
+        right: 8px;
+      }
+
+      .lvgl-strip {
+        display: flex;
+        gap: 5px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scroll-snap-type: x mandatory;
+        padding-bottom: 3px;
+      }
+
+      .lvgl-thumb {
+        flex: 0 0 88px;
+        border: 1px solid rgba(241, 239, 231, 0.12);
+        padding: 0;
+        background: #000;
+        scroll-snap-align: center;
+      }
+
+      .lvgl-thumb.is-active {
+        border-color: rgba(120, 200, 193, 0.72);
+      }
+
+      .lvgl-thumb img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 3 / 2;
+        object-fit: cover;
+        image-rendering: pixelated;
+      }
+
       .item {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
@@ -328,6 +426,7 @@
           <div class="controls">
             <button id="reload" class="button" type="button">重新读取</button>
             <button id="toggle" class="button" type="button">暂停预览</button>
+            <button id="lvglPreview" class="button" type="button">生成 LVGL 预览</button>
             <button id="sync" class="button" type="button">同步到核桃派</button>
           </div>
           <form id="processor" class="processor">
@@ -336,8 +435,13 @@
                 <span>素材</span>
                 <select id="sourceChoice" name="sourceChoice">
                   <option value="default-source">默认像素素材</option>
+                  <option value="url">导入素材直链</option>
                   <option value="custom">使用项目内文件</option>
                 </select>
+              </label>
+              <label id="sourceUrlField" class="field is-wide" hidden>
+                <span>图片/GIF/视频直链</span>
+                <input id="sourceUrl" name="sourceUrl" autocomplete="off" placeholder="https://example.com/pixel-loop.gif" />
               </label>
               <label id="sourcePathField" class="field is-wide" hidden>
                 <span>项目内文件路径</span>
@@ -377,7 +481,7 @@
                 </label>
                 <label class="field">
                   <span>fps</span>
-                  <input id="fps" name="fps" inputmode="numeric" value="10" />
+                  <input id="fps" name="fps" inputmode="numeric" value="6" />
                 </label>
                 <label class="field">
                   <span>秒数</span>
@@ -385,13 +489,25 @@
                 </label>
                 <label class="field">
                   <span>最大帧数</span>
-                  <input id="maxFrames" name="maxFrames" inputmode="numeric" value="80" />
+                  <input id="maxFrames" name="maxFrames" inputmode="numeric" value="24" />
                 </label>
               </div>
             </details>
             <button id="processButton" class="button" type="submit">生成 480x320 屏幕输出</button>
           </form>
           <div id="summary" class="summary">准备预览当前播放列表。</div>
+          <section id="lvglPreviewPanel" class="lvgl-preview" aria-live="polite">
+            <div class="row"><span>LVGL</span><strong id="lvglPreviewLabel">-</strong></div>
+            <div id="lvglPreviewFrames" class="lvgl-preview-grid">
+              <div class="lvgl-stage">
+                <img id="lvglStageImage" alt="LVGL preview frame" />
+                <button id="lvglPrev" class="lvgl-nav is-prev" type="button" aria-label="Previous LVGL frame">‹</button>
+                <button id="lvglNext" class="lvgl-nav is-next" type="button" aria-label="Next LVGL frame">›</button>
+                <span id="lvglStageLabel" class="lvgl-stage-label">-</span>
+              </div>
+              <div id="lvglStrip" class="lvgl-strip"></div>
+            </div>
+          </section>
           <div id="items" class="items"></div>
           <details>
             <summary>diagnostics</summary>
@@ -413,10 +529,13 @@
       const itemsEl = document.querySelector("#items");
       const reloadButton = document.querySelector("#reload");
       const toggleButton = document.querySelector("#toggle");
+      const lvglPreviewButton = document.querySelector("#lvglPreview");
       const syncButton = document.querySelector("#sync");
       const processor = document.querySelector("#processor");
       const processButton = document.querySelector("#processButton");
       const sourceChoiceInput = document.querySelector("#sourceChoice");
+      const sourceUrlField = document.querySelector("#sourceUrlField");
+      const sourceUrlInput = document.querySelector("#sourceUrl");
       const sourcePathField = document.querySelector("#sourcePathField");
       const sourcePathInput = document.querySelector("#sourcePath");
       const screenIdInput = document.querySelector("#screenId");
@@ -427,6 +546,13 @@
       const maxSecondsInput = document.querySelector("#maxSeconds");
       const maxFramesInput = document.querySelector("#maxFrames");
       const summary = document.querySelector("#summary");
+      const lvglPreviewPanel = document.querySelector("#lvglPreviewPanel");
+      const lvglPreviewLabel = document.querySelector("#lvglPreviewLabel");
+      const lvglStageImage = document.querySelector("#lvglStageImage");
+      const lvglStageLabel = document.querySelector("#lvglStageLabel");
+      const lvglPrevButton = document.querySelector("#lvglPrev");
+      const lvglNextButton = document.querySelector("#lvglNext");
+      const lvglStrip = document.querySelector("#lvglStrip");
 
       let envelope = null;
       let activeItemIndex = 0;
@@ -434,6 +560,8 @@
       let activeRepeat = 0;
       let timer = 0;
       let paused = false;
+      let lvglFrames = [];
+      let activeLvglFrame = 0;
 
       function setStatus(text, kind = "") {
         statusText.textContent = text;
@@ -558,6 +686,41 @@
         timer = window.setTimeout(advance, Math.max(1, delay));
       }
 
+      function renderLvglCarousel(index = activeLvglFrame) {
+        if (!lvglFrames.length) return;
+        activeLvglFrame = (index + lvglFrames.length) % lvglFrames.length;
+        const frame = lvglFrames[activeLvglFrame];
+        lvglStageImage.src = `${frame.png}?v=${encodeURIComponent(frame.playlistHash)}`;
+        lvglStageLabel.textContent = `${activeLvglFrame + 1}/${lvglFrames.length} · ${frame.advanceMs}ms`;
+        for (const [thumbIndex, node] of [...lvglStrip.children].entries()) {
+          node.classList.toggle("is-active", thumbIndex === activeLvglFrame);
+          if (thumbIndex === activeLvglFrame) {
+            node.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+          }
+        }
+      }
+
+      function setLvglFrames(result) {
+        lvglFrames = result.frames.map((frame) => ({
+          ...frame,
+          playlistHash: result.playlistHash,
+        }));
+        activeLvglFrame = 0;
+        lvglStrip.replaceChildren(...lvglFrames.map((frame, index) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "lvgl-thumb";
+          button.setAttribute("aria-label", `LVGL frame ${index + 1}`);
+          const img = document.createElement("img");
+          img.src = `${frame.png}?v=${encodeURIComponent(result.playlistHash)}`;
+          img.alt = "";
+          button.append(img);
+          button.addEventListener("click", () => renderLvglCarousel(index));
+          return button;
+        }));
+        renderLvglCarousel(0);
+      }
+
       reloadButton.addEventListener("click", loadPlaylist);
       toggleButton.addEventListener("click", () => {
         paused = !paused;
@@ -565,20 +728,56 @@
         if (paused) clearTimer();
         else scheduleNext(0);
       });
-      syncButton.addEventListener("click", async () => {
-        if (!envelope?.playlistHash) {
+      lvglPreviewButton.addEventListener("click", async () => {
+        lvglPreviewButton.disabled = true;
+        setStatus("同步中");
+        summary.textContent = "正在构建 LVGL 离屏预览。";
+        try {
+          const response = await fetch("/api/screen/workspace/lvgl-preview", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.output || result.error || "LVGL preview failed");
+          diagnostics.textContent = JSON.stringify(result, null, 2);
+          lvglPreviewPanel.classList.add("is-visible");
+          lvglPreviewLabel.textContent = `${result.frameCount} frames from walnut-lvgl-preview`;
+          setLvglFrames(result);
+          summary.textContent = "已生成 LVGL 离屏渲染预览。";
+          setStatus("未同步");
+        } catch (error) {
           setStatus("同步失败", "error");
-          diagnostics.textContent = "playlistHash is missing; refresh or generate a playlist first";
-          summary.textContent = "播放列表尚未准备好，请先重新读取或生成输出。";
-          return;
+          diagnostics.textContent = error.message;
+          summary.textContent = "LVGL 预览生成失败，请查看诊断。";
+        } finally {
+          lvglPreviewButton.disabled = false;
         }
+      });
+      lvglPrevButton.addEventListener("click", () => renderLvglCarousel(activeLvglFrame - 1));
+      lvglNextButton.addEventListener("click", () => renderLvglCarousel(activeLvglFrame + 1));
+      lvglPreviewPanel.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowLeft") renderLvglCarousel(activeLvglFrame - 1);
+        if (event.key === "ArrowRight") renderLvglCarousel(activeLvglFrame + 1);
+      });
+      syncButton.addEventListener("click", async () => {
         syncButton.disabled = true;
         setStatus("同步中");
         try {
+          const playlistResponse = await fetch("/api/screen/workspace/playlist", { cache: "no-store" });
+          const latestEnvelope = await playlistResponse.json();
+          if (!playlistResponse.ok || !latestEnvelope?.playlistHash) {
+            throw new Error(latestEnvelope.error || "playlistHash is missing; refresh or generate a playlist first");
+          }
+          envelope = latestEnvelope;
+          activeItemIndex = 0;
+          activeFrameIndex = 0;
+          activeRepeat = 0;
+          renderEnvelope();
           const response = await fetch("/api/screen/workspace/sync", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ playlistHash: envelope.playlistHash }),
+            body: JSON.stringify({ playlistHash: latestEnvelope.playlistHash }),
           });
           const result = await response.json();
           diagnostics.textContent = JSON.stringify(result, null, 2);
@@ -593,6 +792,7 @@
         }
       });
       sourceChoiceInput.addEventListener("change", () => {
+        sourceUrlField.hidden = sourceChoiceInput.value !== "url";
         sourcePathField.hidden = sourceChoiceInput.value !== "custom";
       });
       sourceChoiceInput.dispatchEvent(new Event("change"));
@@ -605,10 +805,12 @@
       outputTypeInput.dispatchEvent(new Event("change"));
       processor.addEventListener("submit", async (event) => {
         event.preventDefault();
+        const urlSource = sourceChoiceInput.value === "url";
         const customSource = sourceChoiceInput.value === "custom";
+        const sourceUrl = sourceUrlInput.value.trim();
         const sourcePath = sourcePathInput.value.trim();
         const screenId = screenIdInput.value.trim();
-        if ((customSource && !sourcePath) || !screenId) {
+        if ((urlSource && !sourceUrl) || (customSource && !sourcePath) || !screenId) {
           setStatus("同步失败", "error");
           diagnostics.textContent = "source file and screen id are required";
           summary.textContent = "请选择素材后再生成输出。";
@@ -618,20 +820,39 @@
         processButton.disabled = true;
         setStatus("同步中");
         try {
+          let sourcePayload = { sourceAssetId: sourceChoiceInput.value };
+          if (urlSource) {
+            summary.textContent = "正在导入素材直链。";
+            const importResponse = await fetch("/api/screen/workspace/import", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                sourceId: `${screenId}-source`,
+                url: sourceUrl,
+                license: "unknown-personal-sync",
+              }),
+            });
+            const importResult = await importResponse.json();
+            if (!importResponse.ok) throw new Error(importResult.output || importResult.error || "import failed");
+            sourcePayload = { sourceAssetId: importResult.sourceAssetId };
+          } else if (customSource) {
+            sourcePayload = { sourcePath };
+          }
+
           const response = await fetch("/api/screen/workspace/process", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              ...(customSource ? { sourcePath } : { sourceAssetId: sourceChoiceInput.value }),
+              ...sourcePayload,
               screenId,
               outputType: outputTypeInput.value,
               preset: presetInput.value,
               playlist: playlistModeInput.value === "none" ? false : "default",
               playlistMode: playlistModeInput.value === "append" ? "append" : "replace",
               animation: {
-                fps: numericValue(fpsInput, 10),
+                fps: numericValue(fpsInput, 6),
                 maxSeconds: numericValue(maxSecondsInput, 8),
-                maxFrames: numericValue(maxFramesInput, 80),
+                maxFrames: numericValue(maxFramesInput, 24),
               },
             }),
           });

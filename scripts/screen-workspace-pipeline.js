@@ -16,9 +16,9 @@ import {
 } from "./screen-workspace-vocabulary.js";
 
 export const DEFAULT_ANIMATION_BUDGET = {
-  fps: 10,
+  fps: 6,
   maxSeconds: 8,
-  maxFrames: 80,
+  maxFrames: 24,
 };
 
 const SCREEN_PLAN_SCHEMA = "walnutpi.screen-plan.v1";

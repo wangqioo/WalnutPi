@@ -1,0 +1,17 @@
+{
+  "schema": "walnutpi.screen-plan.v1",
+  "id": "giphy-lens-flare-plan",
+  "screenId": "giphy-lens-flare",
+  "outputType": "animated",
+  "selectedSourceAsset": "../sources/giphy-lens-flare-source/source.json",
+  "processing": {
+    "preset": "pixel-grid:120x80@4x",
+    "animation": {
+      "fps": 6,
+      "maxSeconds": 8,
+      "maxFrames": 24
+    }
+  },
+  "requestedAt": null,
+  "executedAt": "2026-06-15T17:09:11.486Z"
+}

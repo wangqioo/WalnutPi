@@ -52,6 +52,19 @@ Examples:
 
 The result must be a validated `walnutpi.screen-manifest.v2` output referenced by a `walnutpi.screen-playlist.v1` playlist. Source media may be searched, uploaded, or generated, but sync only consumes local 480x320 output artifacts and never regenerates missing files.
 
+Current material flow:
+
+```text
+find or generate a PNG/JPEG/GIF/WebP/MP4/WebM/MOV asset
+-> import a direct media URL or choose a project-local file in /workspace.html
+-> store it under screen/sources/<source-id>/
+-> process it with fit-cover, fit-contain, 120x80@4x, or 240x160@2x
+-> write Screen Manifest v2 and Screen Playlist v1
+-> preview and explicitly sync the playlist to WalnutPi
+```
+
+Search sites such as itch.io, OpenGameArt, Lospec, GIPHY, Tenor, or Pinterest are discovery sources, not runtime dependencies. Pick a specific media file or download it into the project first; LVGL sync only receives the generated local Screen Workspace artifacts.
+
 ### Local Executable Q&A
 
 Questions that need real-time or device-local state should run locally first.
