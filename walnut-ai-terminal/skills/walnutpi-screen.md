@@ -8,8 +8,8 @@ Known screen facts:
 - Size: 480x320
 - Color: RGB565
 - LVGL runtime: fbdev
-- Main manifest: `lvgl_app/screen-manifest.json`
-- Generated config: `lvgl_app/generated/screen_config.h`
+- Main playlist: `screen/playlists/default.json`
+- Generated config: `lvgl_app/generated/screen_workspace_config.h`
 - Build helper: `scripts/build-lvgl-app.sh`
 - Activation: `sudo -n walnut screen start`
 
@@ -30,9 +30,9 @@ Read-only evidence commands:
 
 Web sync contract:
 
-- Browser reads `GET /api/screen/manifest`.
-- Browser syncs with `POST /api/screen/sync`.
-- Sync request must include the current `manifestHash`.
+- Browser reads `GET /api/screen/workspace/playlist`.
+- Browser syncs with `POST /api/screen/workspace/sync`.
+- Sync request must include the current `playlistHash`.
 - Missing, invalid, or stale hashes are rejected before build, SSH, delivery, activation, or device writes.
 - Remote project root is explicit: `WALNUT_REMOTE_PROJECT_ROOT`, then `WALNUT_PROJECT_ROOT`, then `/home/pi/projects/WalnutPi`.
 - Web sync may SSH as root, but LVGL build should run as `WALNUT_REMOTE_BUILD_USER=pi` so build files stay writable by normal project work.
@@ -43,4 +43,3 @@ Evidence interpretation:
 - It does not mean Web preview pixels have been diffed against LVGL pixels.
 - Pixel evidence is diagnostic unless a route explicitly says it performed a Web/LVGL pixel diff.
 - AI summaries must be based only on stored sync evidence.
-

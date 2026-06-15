@@ -2,15 +2,16 @@
 
 This file is the first lightweight corpus for patterns that already worked in this project. WalnutAI retrieves it before giving code or workflow advice.
 
-## LVGL Screen Sync Slice
+## Screen Workspace Sync Slice
 
-Use the manifest-driven flow for the small screen:
+Use the Screen Workspace flow for the small screen:
 
 ```text
-Web manifest
--> POST /api/screen/sync with current manifestHash
+Screen Manifest v2 outputs under screen/
+-> Screen Playlist v1
+-> POST /api/screen/workspace/sync with current playlistHash
 -> scripts/build-lvgl-app.sh
--> sudo -n walnut screen start
+-> sudo -n systemctl restart walnut-screen.service
 -> walnut screen state
 -> sudo -n walnut screen frame
 -> diagnostics-only walnut screen capture
@@ -18,8 +19,12 @@ Web manifest
 
 Stable files:
 
-- `lvgl_app/screen-manifest.json`
-- `lvgl_app/generated/screen_config.h`
+- `screen/playlists/default.json`
+- `screen/manifests/*.json`
+- `screen/outputs/*`
+- `scripts/screen-workspace-vocabulary.js`
+- `scripts/generate-lvgl-screen-workspace-config.js`
+- `lvgl_app/generated/screen_workspace_config.h`
 - `lvgl_app/src/main.c`
 - `scripts/build-lvgl-app.sh`
 - `web-interface/model-terminal-server.js`
@@ -91,4 +96,3 @@ WalnutAI should retrieve from:
 - `walnut-ai-terminal/corpus/*.md`
 
 Before generating code for GPIO, I2C, SPI, UART, LVGL, framebuffer, PyQt5, OpenCV, Home Assistant, MQTT, image flashing, package installation, service edits, or reboot/shutdown, check the relevant skill and safety boundary.
-
