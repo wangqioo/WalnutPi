@@ -12,6 +12,7 @@
 
 #if defined(__linux__) && !defined(WALNUT_LVGL_NO_FBDEV)
 #include <signal.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -70,6 +71,13 @@ static runtime_workspace_t runtime_workspace;
 static uint8_t runtime_frame_pixels[WALNUT_SCREEN_WIDTH * WALNUT_SCREEN_HEIGHT * 2];
 static bool runtime_frame_valid = false;
 static const char walnut_runtime_assets_schema_marker[] = "walnutpi.lvgl-runtime-assets.v1";
+static const char walnut_runtime_hot_reload_marker[] = "walnutpi.lvgl-runtime-hot-reload.v1";
+
+#if defined(__linux__) && !defined(WALNUT_LVGL_NO_FBDEV)
+static char runtime_watch_path[WALNUT_RUNTIME_PATH_MAX];
+static time_t runtime_watch_mtime = 0;
+static lv_timer_t * runtime_watch_timer = NULL;
+#endif
 
 static void handle_signal(int sig)
 {
@@ -223,7 +231,12 @@ static bool parse_runtime_workspace(const char * index_path)
 bool walnut_screen_workspace_load_runtime(const char * index_path)
 {
     if(index_path == NULL || index_path[0] == '\0') return false;
-    return parse_runtime_workspace(index_path);
+    bool loaded = parse_runtime_workspace(index_path);
+#if defined(__linux__) && !defined(WALNUT_LVGL_NO_FBDEV)
+    struct stat st;
+    if(loaded && stat(index_path, &st) == 0) runtime_watch_mtime = st.st_mtime;
+#endif
+    return loaded;
 }
 
 const char * walnut_screen_workspace_active_playlist_hash(void)
@@ -339,6 +352,36 @@ static void workspace_timer_cb(lv_timer_t * timer)
     }
     lv_timer_set_period(timer, workspace_frame_duration_ms(ui->item, ui->frame));
 }
+
+static void workspace_restart_from_first_frame(void)
+{
+    if(workspace_ui.image == NULL || !workspace_playlist_enabled()) return;
+    workspace_ui.item = 0;
+    workspace_ui.repeat = 0;
+    workspace_ui.stopped = false;
+    if(runtime_workspace.loaded) {
+        workspace_ui.frame = clamp_int(runtime_workspace.items[0].first_frame, 0, runtime_workspace.frame_count - 1);
+    }
+    else {
+        workspace_ui.frame = clamp_int(walnut_screen_workspace_items[0].first_frame, 0, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - 1);
+    }
+    workspace_apply_frame(&workspace_ui);
+}
+
+#if defined(__linux__) && !defined(WALNUT_LVGL_NO_FBDEV)
+static void runtime_watch_timer_cb(lv_timer_t * timer)
+{
+    (void)timer;
+    if(runtime_watch_path[0] == '\0') return;
+    struct stat st;
+    if(stat(runtime_watch_path, &st) != 0) return;
+    if(runtime_watch_mtime != 0 && st.st_mtime == runtime_watch_mtime) return;
+    if(walnut_screen_workspace_load_runtime(runtime_watch_path)) {
+        runtime_watch_mtime = st.st_mtime;
+        workspace_restart_from_first_frame();
+    }
+}
+#endif
 
 static void workspace_apply_time(int advance_ms)
 {
@@ -512,6 +555,7 @@ int main(int argc, char ** argv)
     }
 
     if(runtime_path != NULL) {
+        copy_token(runtime_watch_path, sizeof(runtime_watch_path), runtime_path);
         walnut_screen_workspace_load_runtime(runtime_path);
     }
     if(walnut_screen_workspace_active_playlist_hash()[0] == '\0' && workspace_playlist_enabled()) {
@@ -532,6 +576,11 @@ int main(int argc, char ** argv)
     lv_linux_fbdev_set_force_refresh(disp, true);
 
     walnut_build_screen_ui();
+    (void)walnut_runtime_hot_reload_marker;
+    if(runtime_watch_path[0] != '\0') {
+        runtime_watch_timer = lv_timer_create(runtime_watch_timer_cb, 1000, NULL);
+        (void)runtime_watch_timer;
+    }
 
     while(running) {
         lv_tick_inc(5);

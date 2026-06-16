@@ -889,6 +889,10 @@ async function runRemoteScript(script, timeoutMs = 15_000, outputLimit = ACTION_
   return walnutRemote.runScript(script, timeoutMs, outputLimit);
 }
 
+async function runRemoteWithInput(command, input, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+  return walnutRemote.runWithInput(command, input, timeoutMs, outputLimit);
+}
+
 function validSha256(value) {
   return /^[a-f0-9]{64}$/i.test(String(value || "").trim());
 }
@@ -908,6 +912,7 @@ const screenDeliveryAdapters = new Map([
       sshUser: SSH_USER,
       runRemote,
       runRemoteScript,
+      runRemoteWithInput,
       shellQuote,
       remoteBuildShell,
       sha256,

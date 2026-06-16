@@ -179,6 +179,66 @@ export function createWalnutRemoteAdapter({
     });
   }
 
+  function runRawWithInput(command, input, timeoutMs = 15_000, limit = outputLimit) {
+    return new Promise((resolve) => {
+      const child = spawn(
+        "sshpass",
+        [
+          "-e",
+          "ssh",
+          "-T",
+          ...connectionOptions(),
+          "-o",
+          "ConnectTimeout=8",
+          "-o",
+          "ConnectionAttempts=1",
+          target(),
+          `sh -lc ${shellQuote(command)}`,
+        ],
+        {
+          env: sshEnv({ SSHPASS: sshPassword }),
+          stdio: ["pipe", "pipe", "pipe"],
+        },
+      );
+
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        child.kill("SIGTERM");
+        resolve({
+          ok: false,
+          code: null,
+          output: limitedOutput(`${stdout}${stderr}\n[local] remote input command timed out after ${timeoutMs}ms`.trim(), limit),
+        });
+      }, timeoutMs);
+
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString("utf8");
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString("utf8");
+      });
+      child.stdin.on("error", () => {});
+      child.on("error", (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ ok: false, code: null, output: `[local] ${error.message}` });
+      });
+      child.on("close", (code) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok", limit);
+        resolve({ ok: code === 0, code, output });
+      });
+      child.stdin.end(Buffer.isBuffer(input) ? input : Buffer.from(input || ""));
+    });
+  }
+
   async function localWalnutCliHash() {
     const source = await readFile(walnutCliSourcePath, "utf8");
     return sha256(source.replace(/\r\n/g, "\n"));
@@ -290,6 +350,30 @@ export function createWalnutRemoteAdapter({
     return result;
   }
 
+  async function runWithInput(command, input, timeoutMs = 15_000, limit = outputLimit) {
+    const ensure = await ensureWalnutCli();
+    if (!ensure.ok) {
+      return {
+        ok: false,
+        code: ensure.code,
+        output: limitedOutput(
+          [
+            "[walnut cli preflight failed]",
+            ensure.output,
+            "",
+            "[remote input command skipped]",
+          ].join("\n"),
+          limit,
+        ),
+      };
+    }
+    const result = await runRawWithInput(command, input, timeoutMs, limit);
+    if (ensure.ensured) {
+      return { ...result, preflightOutput: ensure.output };
+    }
+    return result;
+  }
+
   async function capturePngBase64() {
     return run("sudo -n walnut screen capture --png-base64", 30_000, captureOutputLimit);
   }
@@ -317,6 +401,7 @@ export function createWalnutRemoteAdapter({
     ensureWalnutCli,
     run,
     runScript,
+    runWithInput,
     capturePngBase64,
     openInteractiveSession,
   };

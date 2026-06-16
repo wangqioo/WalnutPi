@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -17,6 +17,7 @@ export function createSshLocalAgentAdapter({
   sshUser,
   runRemote,
   runRemoteScript,
+  runRemoteWithInput,
   shellQuote,
   remoteBuildShell,
   sha256,
@@ -29,14 +30,16 @@ export function createSshLocalAgentAdapter({
     id: "ssh-local-agent",
     async deliverWorkspacePlaylist({ buildId, playlistEnvelope }) {
       const playlistHash = playlistEnvelope.playlistHash;
-      const screenSlice = await buildWorkspaceDeliverySlice({
+      const screenSlice = await buildRuntimeDeliverySlice({
         localProjectRoot,
         playlistEnvelope,
       });
-      const remoteSliceScript = await buildRemoteSliceScript({
+      const archive = await createSliceArchive(screenSlice.files);
+      const remoteSliceCommand = buildRemoteSliceInputCommand({
         remoteProjectRoot,
         remoteBuildUser,
-        files: screenSlice.files,
+        fileCount: screenSlice.files.length,
+        includeProjectFiles: false,
       });
       const buildCommand = [
         "set -e",
@@ -50,7 +53,7 @@ export function createSshLocalAgentAdapter({
           `ROOT=${shellQuote(remoteProjectRoot)}`,
           'cd "$ROOT"',
           "test -x build/lvgl_app/walnut-lvgl-screen",
-          "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-runtime-assets.v1 >/dev/null",
+          "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-runtime-hot-reload.v1 >/dev/null",
           "printf 'runtime-supported\\n'",
         ].join("; "),
       );
@@ -60,7 +63,7 @@ export function createSshLocalAgentAdapter({
           `ROOT=${shellQuote(remoteProjectRoot)}`,
           'cd "$ROOT"',
           "test -x build/lvgl_app/walnut-lvgl-screen",
-          "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-runtime-assets.v1 >/dev/null",
+          "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-runtime-hot-reload.v1 >/dev/null",
           "test -f screen/runtime/default.txt",
           `grep -F ${shellQuote(`playlistHash ${playlistHash}`)} screen/runtime/default.txt >/dev/null`,
           `printf 'playlist-hash=%s\\n' ${shellQuote(playlistHash)}`,
@@ -71,38 +74,71 @@ export function createSshLocalAgentAdapter({
         `set -e; ROOT=${shellQuote(remoteProjectRoot)}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk '{print $1}'`,
       );
       const activateCommand = "sudo -n systemctl restart walnut-screen.service";
+      const hotReloadCommand = "sleep 0.25; printf 'hot-reload wait complete\\n'";
       const stateCommand = "walnut screen state";
       const frameCommand = "sudo -n walnut screen frame";
 
       const remoteSyncScript = buildRemoteSyncScript({
-        remoteSliceScript,
-        runtimeSupportCommand,
-        remoteBuildCommand,
         validateCommand,
         artifactCommand,
-        activateCommand,
+        hotReloadCommand,
         stateCommand,
         frameCommand,
       });
-      const syncResult = await runRemoteScript(remoteSyncScript, 360_000, 120_000);
+      const hotSyncInputCommand = buildRemoteHotSyncInputCommand({
+        remoteSliceCommand,
+        runtimeSupportCommand,
+        validateCommand,
+        artifactCommand,
+        hotReloadCommand,
+        stateCommand,
+        frameCommand,
+      });
+      const syncResult = await runRemoteWithInput(hotSyncInputCommand, archive, 90_000, 100_000);
       const stageResults = parseRemoteSyncStages(syncResult);
       const sliceResult = stageResults["workspace-slice"] || fallbackStageResult(syncResult, "workspace-slice");
       const runtimeSupportResult = stageResults["runtime-support"] || skippedStageResult("skipped because workspace resource delivery failed");
-      const buildResult = stageResults.build || skippedStageResult(sliceResult.ok ? "skipped because runtime binary check failed" : "skipped because workspace resource delivery failed");
-      const validateResult = stageResults.validate || skippedStageResult(sliceResult.ok ? "skipped because runtime binary check/build failed" : "skipped because workspace resource delivery failed");
-      const artifactResult = stageResults.artifact || skippedStageResult(!sliceResult.ok
+      let buildResult = runtimeSupportResult.ok
+        ? { ok: true, code: 0, output: "skipped: runtime-capable LVGL binary already exists" }
+        : skippedStageResult(sliceResult.ok ? "skipped before full workspace delivery" : "skipped because workspace resource delivery failed");
+      if(sliceResult.ok && !runtimeSupportResult.ok) {
+        const fullSlice = await buildWorkspaceDeliverySlice({
+          localProjectRoot,
+          playlistEnvelope,
+        });
+        const fullArchive = await createSliceArchive(fullSlice.files);
+        const fullSliceCommand = buildRemoteSliceInputCommand({
+          remoteProjectRoot,
+          remoteBuildUser,
+          fileCount: fullSlice.files.length,
+          includeProjectFiles: true,
+        });
+        const fullSliceResult = await runRemoteWithInput(fullSliceCommand, fullArchive, 60_000, 20_000);
+        if(!fullSliceResult.ok) {
+          buildResult = skippedStageResult("skipped because full workspace delivery failed");
+        } else {
+          buildResult = await runRemote(remoteBuildCommand, 300_000);
+        }
+      }
+      const upgradeSyncResult = sliceResult.ok && !runtimeSupportResult.ok && buildResult.ok
+        ? await runRemoteScript(remoteSyncScript, 120_000, 80_000)
+        : null;
+      const upgradeStageResults = upgradeSyncResult ? parseRemoteSyncStages(upgradeSyncResult) : {};
+      const finalStageResults = upgradeSyncResult ? upgradeStageResults : stageResults;
+      const validateResult = finalStageResults.validate || skippedStageResult(sliceResult.ok ? "skipped because runtime binary check/build failed" : "skipped because workspace resource delivery failed");
+      const artifactResult = finalStageResults.artifact || skippedStageResult(!sliceResult.ok
         ? "skipped because workspace resource delivery failed"
         : buildResult.ok
           ? "skipped because runtime validation failed"
           : "skipped because build failed");
-      const activateResult = stageResults.activate || skippedResult({
+      const activateResult = finalStageResults.activate || skippedResult({
         sliceResult,
         validateResult,
         buildResult,
         artifactHashValid: validSha256(artifactResult.output.trim().split(/\s+/)[0]),
         screenName: "workspace resources",
       });
-      const stateResult = stageResults.evidence || skippedResult({
+      const stateResult = finalStageResults.evidence || skippedResult({
         sliceResult,
         validateResult,
         buildResult,
@@ -113,7 +149,7 @@ export function createSshLocalAgentAdapter({
       });
       const artifactHash = artifactResult.ok ? artifactResult.output.trim().split(/\s+/)[0] : null;
       const artifactHashValid = validSha256(artifactHash);
-      const frameResult = stageResults.frame || (
+      const frameResult = finalStageResults.frame || (
         sliceResult.ok && buildResult.ok && validateResult.ok && artifactHashValid && activateResult.ok && stateResult.ok
           ? await runRemote(frameCommand, 15_000)
           : skippedResult({
@@ -155,6 +191,7 @@ export function createSshLocalAgentAdapter({
           projectRoot: remoteProjectRoot,
           display: "/dev/fb0",
           activate: activateCommand,
+          hotReload: runtimeSupportResult.ok ? hotReloadCommand : null,
           evidence: [stateCommand, frameCommand],
         },
         screenPlaylistHash: playlistHash,
@@ -268,7 +305,7 @@ export function createSshLocalAgentAdapter({
               frameSha256: frameEvidence.sha256,
             }
           : null,
-        command: `workspace-resources: deliver ${screenSlice.files.length} files to ${remoteProjectRoot} via one remote script\n${runtimeSupportCommand}\n${remoteBuildCommand}\n${validateCommand}\n${activateCommand}\n${stateCommand}\n${frameCommand}`,
+        command: `workspace-resources: stream ${screenSlice.files.length} files to ${remoteProjectRoot} as tar.gz\n${runtimeSupportCommand}\n${remoteBuildCommand}\n${validateCommand}\n${runtimeSupportResult.ok ? hotReloadCommand : activateCommand}\n${stateCommand}\n${frameCommand}`,
         commandResults,
         code: failure ? 1 : 0,
         output,
@@ -349,6 +386,29 @@ async function buildWorkspaceDeliverySlice({ localProjectRoot, playlistEnvelope 
   return { files };
 }
 
+async function buildRuntimeDeliverySlice({ playlistEnvelope }) {
+  const files = [];
+  const runtimeAssets = await generateLvglScreenWorkspaceRuntimeAssets({
+    workspaceRoot: playlistEnvelope.workspaceRoot,
+    playlistId: playlistEnvelope.playlist.id,
+  });
+  files.push({
+    path: "screen/runtime/default.txt",
+    mode: "644",
+    content: await readFile(runtimeAssets.indexPath, "utf8"),
+    encoding: "utf8",
+  });
+  for (const framePath of runtimeAssets.frames) {
+    files.push({
+      path: `screen/runtime/frames/${path.basename(framePath)}`,
+      mode: "644",
+      content: await readFile(framePath),
+      encoding: "binary",
+    });
+  }
+  return { files };
+}
+
 async function readLocalSliceFile(localProjectRoot, relativePath) {
   const root = path.resolve(localProjectRoot);
   const filePath = path.resolve(root, relativePath);
@@ -358,29 +418,24 @@ async function readLocalSliceFile(localProjectRoot, relativePath) {
   return readFile(filePath, "utf8");
 }
 
-async function buildRemoteSliceScript({ remoteProjectRoot, remoteBuildUser, files }) {
-  const archive = await createSliceArchive(files);
-  const archiveBase64 = archive.toString("base64");
+function buildRemoteSliceInputCommand({ remoteProjectRoot, remoteBuildUser, fileCount, includeProjectFiles = true }) {
   const lines = [
     "set -e",
     `ROOT=${shSingleQuote(remoteProjectRoot)}`,
     'install -d "$ROOT"',
-    'TMP_DIR="$(mktemp -d)"',
-    'cleanup() { rm -rf "$TMP_DIR"; }',
-    "trap cleanup EXIT",
-    'base64 -d > "$TMP_DIR/screen-slice.tar.gz" <<\'WALNUT_SCREEN_TARBALL\'',
-    archiveBase64,
-    "WALNUT_SCREEN_TARBALL",
-    'tar -xzf "$TMP_DIR/screen-slice.tar.gz" -C "$ROOT"',
+    'tar -xzf - -C "$ROOT"',
   ];
-  if (remoteBuildUser) {
-    lines.push(
-      `chown -R ${shSingleQuote(`${remoteBuildUser}:${remoteBuildUser}`)} "$ROOT/lvgl_app" "$ROOT/scripts" 2>/dev/null || chown -R ${shSingleQuote(remoteBuildUser)} "$ROOT/lvgl_app" "$ROOT/scripts"`,
-      `chown -R ${shSingleQuote(`${remoteBuildUser}:${remoteBuildUser}`)} "$ROOT/screen/runtime" 2>/dev/null || chown -R ${shSingleQuote(remoteBuildUser)} "$ROOT/screen/runtime"`,
-    );
+  if(includeProjectFiles) {
+    lines.push('chmod 755 "$ROOT/scripts/build-lvgl-app.sh" "$ROOT/scripts/fetch-lvgl.sh"');
   }
-  lines.push("printf 'screen slice delivered: %s files via tar.gz\\n' " + shSingleQuote(String(files.length)));
-  return lines.join("\n");
+  if (remoteBuildUser) {
+    if(includeProjectFiles) {
+      lines.push(`chown -R ${shSingleQuote(`${remoteBuildUser}:${remoteBuildUser}`)} "$ROOT/lvgl_app" "$ROOT/scripts" 2>/dev/null || chown -R ${shSingleQuote(remoteBuildUser)} "$ROOT/lvgl_app" "$ROOT/scripts"`);
+    }
+    lines.push(`chown -R ${shSingleQuote(`${remoteBuildUser}:${remoteBuildUser}`)} "$ROOT/screen/runtime" 2>/dev/null || chown -R ${shSingleQuote(remoteBuildUser)} "$ROOT/screen/runtime"`);
+  }
+  lines.push("printf 'screen slice delivered: %s files via tar.gz stream\\n' " + shSingleQuote(String(fileCount)));
+  return lines.join("; ");
 }
 
 async function createSliceArchive(files) {
@@ -397,6 +452,7 @@ async function createSliceArchive(files) {
         ? Buffer.from(file.content)
         : String(file.content).replace(/\r\n/g, "\n");
       await writeFile(outputPath, content);
+      await chmod(outputPath, Number.parseInt(file.mode || "644", 8));
     }
     await runTar(["-czf", archivePath, "-C", stageDir, "."]);
     return await readFile(archivePath);
@@ -432,37 +488,60 @@ function runTar(args) {
 }
 
 function buildRemoteSyncScript({
-  remoteSliceScript,
-  runtimeSupportCommand,
-  remoteBuildCommand,
   validateCommand,
   artifactCommand,
-  activateCommand,
+  hotReloadCommand,
   stateCommand,
   frameCommand,
 }) {
   return [
     "set +e",
     remoteStageFunction(),
-    `run_stage workspace-slice <<'WALNUT_STAGE_WORKSPACE_SLICE'\n${remoteSliceScript}\nWALNUT_STAGE_WORKSPACE_SLICE`,
-    "workspace_status=$?",
-    "if [ \"$workspace_status\" -ne 0 ]; then exit 0; fi",
-    `run_stage runtime-support <<'WALNUT_STAGE_RUNTIME_SUPPORT'\n${runtimeSupportCommand}\nWALNUT_STAGE_RUNTIME_SUPPORT`,
-    "runtime_status=$?",
-    "if [ \"$runtime_status\" -eq 0 ]; then",
-    "  run_stage build <<'WALNUT_STAGE_BUILD_SKIP'\nprintf 'skipped: runtime-capable LVGL binary already exists\\n'\nWALNUT_STAGE_BUILD_SKIP",
-    "else",
-    `  run_stage build <<'WALNUT_STAGE_BUILD'\n${remoteBuildCommand}\nWALNUT_STAGE_BUILD`,
-    "fi",
-    "build_status=$?",
-    "if [ \"$build_status\" -ne 0 ]; then exit 0; fi",
     `run_stage validate <<'WALNUT_STAGE_VALIDATE'\n${validateCommand}\nWALNUT_STAGE_VALIDATE`,
     "validate_status=$?",
     "if [ \"$validate_status\" -ne 0 ]; then exit 0; fi",
     `run_stage artifact <<'WALNUT_STAGE_ARTIFACT'\n${artifactCommand}\nWALNUT_STAGE_ARTIFACT`,
     "artifact_status=$?",
     "if [ \"$artifact_status\" -ne 0 ]; then exit 0; fi",
-    `run_stage activate <<'WALNUT_STAGE_ACTIVATE'\n${activateCommand}\nWALNUT_STAGE_ACTIVATE`,
+    `run_stage activate <<'WALNUT_STAGE_HOT_RELOAD'\n${hotReloadCommand}\nWALNUT_STAGE_HOT_RELOAD`,
+    "activate_status=$?",
+    "if [ \"$activate_status\" -ne 0 ]; then exit 0; fi",
+    `run_stage evidence <<'WALNUT_STAGE_EVIDENCE'\n${stateCommand}\nWALNUT_STAGE_EVIDENCE`,
+    "evidence_status=$?",
+    "if [ \"$evidence_status\" -ne 0 ]; then exit 0; fi",
+    `run_stage frame <<'WALNUT_STAGE_FRAME'\n${frameCommand}\nWALNUT_STAGE_FRAME`,
+    "exit 0",
+  ].join("\n");
+}
+
+function buildRemoteHotSyncInputCommand({
+  remoteSliceCommand,
+  runtimeSupportCommand,
+  validateCommand,
+  artifactCommand,
+  hotReloadCommand,
+  stateCommand,
+  frameCommand,
+}) {
+  return [
+    "set +e",
+    remoteStageFunction(),
+    "printf '__WALNUT_STAGE_START__ workspace-slice\\n'",
+    remoteSliceCommand,
+    "workspace_status=$?",
+    "printf '__WALNUT_STAGE_END__ workspace-slice %s\\n' \"$workspace_status\"",
+    "if [ \"$workspace_status\" -ne 0 ]; then exit 0; fi",
+    `run_stage runtime-support <<'WALNUT_STAGE_RUNTIME_SUPPORT'\n${runtimeSupportCommand}\nWALNUT_STAGE_RUNTIME_SUPPORT`,
+    "runtime_status=$?",
+    "if [ \"$runtime_status\" -ne 0 ]; then exit 0; fi",
+    "run_stage build <<'WALNUT_STAGE_BUILD_SKIP'\nprintf 'skipped: runtime-capable LVGL binary already exists\\n'\nWALNUT_STAGE_BUILD_SKIP",
+    `run_stage validate <<'WALNUT_STAGE_VALIDATE'\n${validateCommand}\nWALNUT_STAGE_VALIDATE`,
+    "validate_status=$?",
+    "if [ \"$validate_status\" -ne 0 ]; then exit 0; fi",
+    `run_stage artifact <<'WALNUT_STAGE_ARTIFACT'\n${artifactCommand}\nWALNUT_STAGE_ARTIFACT`,
+    "artifact_status=$?",
+    "if [ \"$artifact_status\" -ne 0 ]; then exit 0; fi",
+    `run_stage activate <<'WALNUT_STAGE_HOT_RELOAD'\n${hotReloadCommand}\nWALNUT_STAGE_HOT_RELOAD`,
     "activate_status=$?",
     "if [ \"$activate_status\" -ne 0 ]; then exit 0; fi",
     `run_stage evidence <<'WALNUT_STAGE_EVIDENCE'\n${stateCommand}\nWALNUT_STAGE_EVIDENCE`,
