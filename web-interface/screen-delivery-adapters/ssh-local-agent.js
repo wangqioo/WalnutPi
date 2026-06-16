@@ -16,8 +16,11 @@ export function createSshLocalAgentAdapter({
   sshHost,
   sshUser,
   runRemote,
+  runRemoteRaw,
   runRemoteScript,
+  runRemoteRawScript,
   runRemoteWithInput,
+  runRemoteRawWithInput,
   shellQuote,
   remoteBuildShell,
   sha256,
@@ -28,7 +31,11 @@ export function createSshLocalAgentAdapter({
 }) {
   return {
     id: "ssh-local-agent",
-    async deliverWorkspacePlaylist({ buildId, playlistEnvelope }) {
+    async deliverWorkspacePlaylist({ buildId, playlistEnvelope, evidenceMode = "fast" }) {
+      const fullEvidence = evidenceMode === "full";
+      const inputRunner = fullEvidence ? runRemoteWithInput : (runRemoteRawWithInput || runRemoteWithInput);
+      const commandRunner = fullEvidence ? runRemote : (runRemoteRaw || runRemote);
+      const scriptRunner = fullEvidence ? runRemoteScript : (runRemoteRawScript || runRemoteScript);
       const playlistHash = playlistEnvelope.playlistHash;
       const screenSlice = await buildRuntimeDeliverySlice({
         localProjectRoot,
@@ -74,9 +81,17 @@ export function createSshLocalAgentAdapter({
         `set -e; ROOT=${shellQuote(remoteProjectRoot)}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk '{print $1}'`,
       );
       const activateCommand = "sudo -n systemctl restart walnut-screen.service";
-      const hotReloadCommand = "sleep 0.25; printf 'hot-reload wait complete\\n'";
-      const stateCommand = "walnut screen state";
-      const frameCommand = "sudo -n walnut screen frame";
+      const hotReloadCommand = fullEvidence
+        ? "sleep 0.25; printf 'hot-reload wait complete\\n'"
+        : [
+            "sleep 0.25",
+            "screen_state=$(systemctl is-active walnut-screen.service)",
+            "printf 'hot-reload wait complete\\nwalnut-screen.service %s\\n' \"$screen_state\"",
+            "test \"$screen_state\" = active",
+            "if [ -r /sys/class/vtconsole/vtcon1/bind ]; then printf 'vtcon1 bind %s\\n' \"$(cat /sys/class/vtconsole/vtcon1/bind)\"; fi",
+          ].join("; ");
+      const stateCommand = fullEvidence ? "walnut screen state" : null;
+      const frameCommand = fullEvidence ? "sudo -n walnut screen frame" : null;
 
       const remoteSyncScript = buildRemoteSyncScript({
         validateCommand,
@@ -94,7 +109,7 @@ export function createSshLocalAgentAdapter({
         stateCommand,
         frameCommand,
       });
-      const syncResult = await runRemoteWithInput(hotSyncInputCommand, archive, 90_000, 100_000);
+      const syncResult = await inputRunner(hotSyncInputCommand, archive, 90_000, 100_000);
       const stageResults = parseRemoteSyncStages(syncResult);
       const sliceResult = stageResults["workspace-slice"] || fallbackStageResult(syncResult, "workspace-slice");
       const runtimeSupportResult = stageResults["runtime-support"] || skippedStageResult("skipped because workspace resource delivery failed");
@@ -113,15 +128,15 @@ export function createSshLocalAgentAdapter({
           fileCount: fullSlice.files.length,
           includeProjectFiles: true,
         });
-        const fullSliceResult = await runRemoteWithInput(fullSliceCommand, fullArchive, 60_000, 20_000);
+        const fullSliceResult = await inputRunner(fullSliceCommand, fullArchive, 60_000, 20_000);
         if(!fullSliceResult.ok) {
           buildResult = skippedStageResult("skipped because full workspace delivery failed");
         } else {
-          buildResult = await runRemote(remoteBuildCommand, 300_000);
+          buildResult = await commandRunner(remoteBuildCommand, 300_000);
         }
       }
       const upgradeSyncResult = sliceResult.ok && !runtimeSupportResult.ok && buildResult.ok
-        ? await runRemoteScript(remoteSyncScript, 120_000, 80_000)
+        ? await scriptRunner(remoteSyncScript, 120_000, 80_000)
         : null;
       const upgradeStageResults = upgradeSyncResult ? parseRemoteSyncStages(upgradeSyncResult) : {};
       const finalStageResults = upgradeSyncResult ? upgradeStageResults : stageResults;
@@ -138,20 +153,27 @@ export function createSshLocalAgentAdapter({
         artifactHashValid: validSha256(artifactResult.output.trim().split(/\s+/)[0]),
         screenName: "workspace resources",
       });
-      const stateResult = finalStageResults.evidence || skippedResult({
-        sliceResult,
-        validateResult,
-        buildResult,
-        artifactHashValid: validSha256(artifactResult.output.trim().split(/\s+/)[0]),
-        activationOk: activateResult.ok,
-        screenName: "workspace resources",
-        activationLabel: "activation",
-      });
+      const stateResult = finalStageResults.evidence || (!fullEvidence && activateResult.ok
+        ? {
+            ok: true,
+            code: 0,
+            output: activateResult.output,
+            preflightOutput: activateResult.preflightOutput,
+          }
+        : skippedResult({
+            sliceResult,
+            validateResult,
+            buildResult,
+            artifactHashValid: validSha256(artifactResult.output.trim().split(/\s+/)[0]),
+            activationOk: activateResult.ok,
+            screenName: "workspace resources",
+            activationLabel: "activation",
+          }));
       const artifactHash = artifactResult.ok ? artifactResult.output.trim().split(/\s+/)[0] : null;
       const artifactHashValid = validSha256(artifactHash);
       const frameResult = finalStageResults.frame || (
-        sliceResult.ok && buildResult.ok && validateResult.ok && artifactHashValid && activateResult.ok && stateResult.ok
-          ? await runRemote(frameCommand, 15_000)
+        fullEvidence && sliceResult.ok && buildResult.ok && validateResult.ok && artifactHashValid && activateResult.ok && stateResult.ok
+          ? await commandRunner(frameCommand, 15_000)
           : skippedResult({
               sliceResult,
               validateResult,
@@ -159,7 +181,7 @@ export function createSshLocalAgentAdapter({
               artifactHashValid,
               activationOk: activateResult.ok,
               stateOk: stateResult.ok,
-              screenName: "workspace resources",
+              screenName: fullEvidence ? "workspace resources" : "workspace frame evidence",
             })
       );
       const deliveryManifest = {
@@ -184,6 +206,7 @@ export function createSshLocalAgentAdapter({
           framesDir: "screen/runtime/frames",
           mode: runtimeSupportResult.ok ? "resource-only" : "runtime-upgrade-build",
         },
+        evidenceMode: fullEvidence ? "full" : "fast",
         target: {
           host: sshHost,
           user: sshUser,
@@ -192,7 +215,7 @@ export function createSshLocalAgentAdapter({
           display: "/dev/fb0",
           activate: activateCommand,
           hotReload: runtimeSupportResult.ok ? hotReloadCommand : null,
-          evidence: [stateCommand, frameCommand],
+          evidence: fullEvidence ? [stateCommand, frameCommand] : ["hot-reload service-active check"],
         },
         screenPlaylistHash: playlistHash,
       };
@@ -212,6 +235,7 @@ export function createSshLocalAgentAdapter({
         validSha256,
         sha256,
         stableStringify,
+        fullEvidence,
       });
       const pixelEvidence = workspacePixelEvidence({
         playlistEnvelope,
@@ -232,6 +256,7 @@ export function createSshLocalAgentAdapter({
         frameEvidence,
         visual,
         validSha256,
+        fullEvidence,
       );
       const screenEvidence = {
         kind: "screen-workspace-playlist-frame",
@@ -249,7 +274,7 @@ export function createSshLocalAgentAdapter({
         },
         state: {
           kind: "screen-state",
-          command: stateCommand,
+          command: stateCommand || "hot-reload service-active check",
           output: stateResult.output,
           capturedAt: new Date().toISOString(),
         },
@@ -259,7 +284,7 @@ export function createSshLocalAgentAdapter({
               url: frameImageUrl,
             }
           : {
-              command: frameCommand,
+              command: frameCommand || "skipped: fast sync evidence",
               output: frameResult.output,
               capturedAt: new Date().toISOString(),
             },
@@ -305,14 +330,25 @@ export function createSshLocalAgentAdapter({
               frameSha256: frameEvidence.sha256,
             }
           : null,
-        command: `workspace-resources: stream ${screenSlice.files.length} files to ${remoteProjectRoot} as tar.gz\n${runtimeSupportCommand}\n${remoteBuildCommand}\n${validateCommand}\n${runtimeSupportResult.ok ? hotReloadCommand : activateCommand}\n${stateCommand}\n${frameCommand}`,
+        command: [
+          `workspace-resources: stream ${screenSlice.files.length} files to ${remoteProjectRoot} as tar.gz`,
+          `evidence-mode: ${fullEvidence ? "full" : "fast"}`,
+          runtimeSupportCommand,
+          remoteBuildCommand,
+          validateCommand,
+          runtimeSupportResult.ok ? hotReloadCommand : activateCommand,
+          stateCommand,
+          frameCommand,
+        ].filter(Boolean).join("\n"),
         commandResults,
         code: failure ? 1 : 0,
         output,
         summary: failure
           ? failure.summary
           : runtimeSupportResult.ok
-            ? "已把 Screen Workspace 资源同步到核桃派。未重新编译 LVGL。"
+            ? fullEvidence
+              ? "已把 Screen Workspace 资源同步到核桃派。未重新编译 LVGL，并完成 framebuffer 回证。"
+              : "已把 Screen Workspace 资源同步到核桃派。未重新编译 LVGL。"
             : "已升级 runtime-capable LVGL 并同步 Screen Workspace 资源到核桃派。",
         failedStage: failure?.stage || null,
       };
@@ -494,7 +530,7 @@ function buildRemoteSyncScript({
   stateCommand,
   frameCommand,
 }) {
-  return [
+  const lines = [
     "set +e",
     remoteStageFunction(),
     `run_stage validate <<'WALNUT_STAGE_VALIDATE'\n${validateCommand}\nWALNUT_STAGE_VALIDATE`,
@@ -506,12 +542,19 @@ function buildRemoteSyncScript({
     `run_stage activate <<'WALNUT_STAGE_HOT_RELOAD'\n${hotReloadCommand}\nWALNUT_STAGE_HOT_RELOAD`,
     "activate_status=$?",
     "if [ \"$activate_status\" -ne 0 ]; then exit 0; fi",
-    `run_stage evidence <<'WALNUT_STAGE_EVIDENCE'\n${stateCommand}\nWALNUT_STAGE_EVIDENCE`,
-    "evidence_status=$?",
-    "if [ \"$evidence_status\" -ne 0 ]; then exit 0; fi",
-    `run_stage frame <<'WALNUT_STAGE_FRAME'\n${frameCommand}\nWALNUT_STAGE_FRAME`,
-    "exit 0",
-  ].join("\n");
+  ];
+  if (stateCommand) {
+    lines.push(
+      `run_stage evidence <<'WALNUT_STAGE_EVIDENCE'\n${stateCommand}\nWALNUT_STAGE_EVIDENCE`,
+      "evidence_status=$?",
+      "if [ \"$evidence_status\" -ne 0 ]; then exit 0; fi",
+    );
+  }
+  if (frameCommand) {
+    lines.push(`run_stage frame <<'WALNUT_STAGE_FRAME'\n${frameCommand}\nWALNUT_STAGE_FRAME`);
+  }
+  lines.push("exit 0");
+  return lines.join("\n");
 }
 
 function buildRemoteHotSyncInputCommand({
@@ -523,33 +566,40 @@ function buildRemoteHotSyncInputCommand({
   stateCommand,
   frameCommand,
 }) {
-  return [
+  const lines = [
     "set +e",
-    remoteStageFunction(),
     "printf '__WALNUT_STAGE_START__ workspace-slice\\n'",
     remoteSliceCommand,
     "workspace_status=$?",
     "printf '__WALNUT_STAGE_END__ workspace-slice %s\\n' \"$workspace_status\"",
     "if [ \"$workspace_status\" -ne 0 ]; then exit 0; fi",
-    `run_stage runtime-support <<'WALNUT_STAGE_RUNTIME_SUPPORT'\n${runtimeSupportCommand}\nWALNUT_STAGE_RUNTIME_SUPPORT`,
-    "runtime_status=$?",
-    "if [ \"$runtime_status\" -ne 0 ]; then exit 0; fi",
-    "run_stage build <<'WALNUT_STAGE_BUILD_SKIP'\nprintf 'skipped: runtime-capable LVGL binary already exists\\n'\nWALNUT_STAGE_BUILD_SKIP",
-    `run_stage validate <<'WALNUT_STAGE_VALIDATE'\n${validateCommand}\nWALNUT_STAGE_VALIDATE`,
-    "validate_status=$?",
-    "if [ \"$validate_status\" -ne 0 ]; then exit 0; fi",
-    `run_stage artifact <<'WALNUT_STAGE_ARTIFACT'\n${artifactCommand}\nWALNUT_STAGE_ARTIFACT`,
-    "artifact_status=$?",
-    "if [ \"$artifact_status\" -ne 0 ]; then exit 0; fi",
-    `run_stage activate <<'WALNUT_STAGE_HOT_RELOAD'\n${hotReloadCommand}\nWALNUT_STAGE_HOT_RELOAD`,
-    "activate_status=$?",
-    "if [ \"$activate_status\" -ne 0 ]; then exit 0; fi",
-    `run_stage evidence <<'WALNUT_STAGE_EVIDENCE'\n${stateCommand}\nWALNUT_STAGE_EVIDENCE`,
-    "evidence_status=$?",
-    "if [ \"$evidence_status\" -ne 0 ]; then exit 0; fi",
-    `run_stage frame <<'WALNUT_STAGE_FRAME'\n${frameCommand}\nWALNUT_STAGE_FRAME`,
-    "exit 0",
-  ].join("\n");
+    ...inlineStageLines("runtime-support", runtimeSupportCommand, "runtime_status", { stopOnFailure: true }),
+    ...inlineStageLines("build", "printf 'skipped: runtime-capable LVGL binary already exists\\n'", "build_status", { stopOnFailure: true }),
+    ...inlineStageLines("validate", validateCommand, "validate_status", { stopOnFailure: true }),
+    ...inlineStageLines("artifact", artifactCommand, "artifact_status", { stopOnFailure: true }),
+    ...inlineStageLines("activate", hotReloadCommand, "activate_status", { stopOnFailure: true }),
+  ];
+  if (stateCommand) {
+    lines.push(...inlineStageLines("evidence", stateCommand, "evidence_status", { stopOnFailure: true }));
+  }
+  if (frameCommand) {
+    lines.push(...inlineStageLines("frame", frameCommand, "frame_status", { stopOnFailure: false }));
+  }
+  lines.push("exit 0");
+  return lines.join("\n");
+}
+
+function inlineStageLines(name, command, statusVar, { stopOnFailure }) {
+  const lines = [
+    `printf '__WALNUT_STAGE_START__ ${name}\\n'`,
+    command,
+    `${statusVar}=$?`,
+    `printf '__WALNUT_STAGE_END__ ${name} %s\\n' "$${statusVar}"`,
+  ];
+  if (stopOnFailure) {
+    lines.push(`if [ "$${statusVar}" -ne 0 ]; then exit 0; fi`);
+  }
+  return lines;
 }
 
 function remoteStageFunction() {
@@ -571,7 +621,7 @@ function remoteStageFunction() {
 function parseRemoteSyncStages(syncResult) {
   const stages = {};
   const output = String(syncResult.output || "");
-  const re = /__WALNUT_STAGE_START__ ([^\n]+)\n([\s\S]*?)__WALNUT_STAGE_END__ \1 ([0-9]+)\n/g;
+  const re = /__WALNUT_STAGE_START__ ([^\n]+)\n([\s\S]*?)__WALNUT_STAGE_END__ \1 ([0-9]+)(?:\n|$)/g;
   let match;
   while ((match = re.exec(output)) !== null) {
     const name = match[1].trim();
@@ -784,7 +834,7 @@ function workspaceMatchedDisplayItem(playlistEnvelope, frameEvidence, validSha25
   };
 }
 
-function workspaceVisualStatus({ playlistEnvelope, playlistHash, artifactHash, artifactHashValid, frameEvidence, validSha256, sha256, stableStringify }) {
+function workspaceVisualStatus({ playlistEnvelope, playlistHash, artifactHash, artifactHashValid, frameEvidence, validSha256, sha256, stableStringify, fullEvidence = true }) {
   const frameCaptured = validFrameEvidence(frameEvidence, validSha256);
   const previewSignature = workspacePreviewSignature(playlistEnvelope);
   const deviceSignature = workspaceDeviceSignature({ playlistHash, artifactHash, frameEvidence });
@@ -831,7 +881,11 @@ function workspaceVisualStatus({ playlistEnvelope, playlistHash, artifactHash, a
     activeItem,
   };
   if (!frameCaptured) {
-    return { visualMatch: "unknown", visualChecks, semantic };
+    return {
+      visualMatch: fullEvidence ? "unknown" : "playlist-committed",
+      visualChecks,
+      semantic,
+    };
   }
   return {
     visualMatch: Object.values(visualChecks).every(Boolean) ? "captured" : "mismatch",
@@ -865,7 +919,7 @@ function workspacePixelEvidence({ playlistEnvelope, frameEvidence, validSha256, 
   };
 }
 
-function firstWorkspaceFailure(sliceResult, buildResult, validateResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence, visual, validSha256) {
+function firstWorkspaceFailure(sliceResult, buildResult, validateResult, artifactHash, activateResult, stateResult, frameResult, frameEvidence, visual, validSha256, fullEvidence = true) {
   if (!sliceResult.ok) {
     return {
       stage: "workspace-slice",
@@ -901,6 +955,9 @@ function firstWorkspaceFailure(sliceResult, buildResult, validateResult, artifac
       stage: "evidence",
       summary: "屏幕状态回证失败。请检查 SSH 连接和 walnut screen state 输出。",
     };
+  }
+  if (!fullEvidence) {
+    return null;
   }
   if (!frameResult.ok || !validFrameEvidence(frameEvidence, validSha256)) {
     return {

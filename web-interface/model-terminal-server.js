@@ -752,7 +752,7 @@ function successfulScreenSyncEntry(record) {
     `- activeItem: ${activeItem?.manifestId || "none"} ${activeItem?.outputType || ""}`,
     `- summary: ${String(record.summary || "").replace(/\s+/g, " ").slice(0, 500)}`,
     "",
-    "Reuse this pattern for Screen Workspace playlist sync: require current playlistHash, build with scripts/build-lvgl-app.sh, activate with sudo -n systemctl restart walnut-screen.service, verify with walnut screen state and sudo -n walnut screen frame.",
+    "Reuse this pattern for Screen Workspace playlist sync: require current playlistHash, prefer runtime resource sync with hot reload and fast service-active evidence; request evidenceMode=full only for diagnostic walnut screen state and sudo -n walnut screen frame verification.",
     "",
   ];
   return `${lines.join("\n")}\n`;
@@ -885,12 +885,24 @@ async function runRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPU
   return walnutRemote.run(command, timeoutMs, outputLimit);
 }
 
+async function runRemoteRaw(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+  return walnutRemote.runRaw(command, timeoutMs, outputLimit);
+}
+
 async function runRemoteScript(script, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
   return walnutRemote.runScript(script, timeoutMs, outputLimit);
 }
 
+async function runRemoteRawScript(script, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+  return walnutRemote.runRawScript(script, timeoutMs, outputLimit);
+}
+
 async function runRemoteWithInput(command, input, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
   return walnutRemote.runWithInput(command, input, timeoutMs, outputLimit);
+}
+
+async function runRemoteRawWithInput(command, input, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+  return walnutRemote.runRawWithInput(command, input, timeoutMs, outputLimit);
 }
 
 function validSha256(value) {
@@ -911,8 +923,11 @@ const screenDeliveryAdapters = new Map([
       sshHost: SSH_HOST,
       sshUser: SSH_USER,
       runRemote,
+      runRemoteRaw,
       runRemoteScript,
+      runRemoteRawScript,
       runRemoteWithInput,
+      runRemoteRawWithInput,
       shellQuote,
       remoteBuildShell,
       sha256,

@@ -249,3 +249,21 @@ Reuse this pattern for Screen Workspace playlist sync: require current playlistH
 
 Reuse this pattern for Screen Workspace playlist sync: require current playlistHash, build with scripts/build-lvgl-app.sh, activate with sudo -n systemctl restart walnut-screen.service, verify with walnut screen state and sudo -n walnut screen frame.
 
+## screen-20260616043313-4abca712
+
+- kind: screen-workspace-sync-success
+- finishedAt: 2026-06-16T04:33:27.244Z
+- playlistHash: c5813cb49dc28f2f31bb7435dc8f0b2d15612cd3fbed7ef4441c9f80a2b2da23
+- activeManifestHash: 110047900435a3f083a970f21bf656666fbbacbf029dca2027753cc785e5c2ce
+- artifactHash: 666cd5716f391fc02470ee25ce57846d22f20831e3e9cb30344cbf1e6d5cd406
+- deliveryHash: fc74b98d7917f2c8899d5833d18a8226d4b07762c0acb596ced84d2699c6289f
+- visualMatch: captured
+- frameHash: 4e71ee6dcca099df0be6e995dddff8f16288c71eda2b9b871fb19d9ae67f165a
+- previewSignatureHash: 24e0221db739c2b40de19647836ec4faab939f6d0d0b3b67120bc6da4ad55c5d
+- deviceSignatureHash: 404d851b9f1224bc0a024ff5b0f58a5c3d9149600a07d9e1ecff31ac2aba6a23
+- checks: frameDimensionsMatched=true frameNonblank=true
+- activeItem: giphy-lens-flare animated
+- summary: 已把 Screen Workspace 资源同步到核桃派。未重新编译 LVGL。
+
+Reuse this pattern for Screen Workspace playlist sync: require current playlistHash, build with scripts/build-lvgl-app.sh, activate with sudo -n systemctl restart walnut-screen.service, verify with walnut screen state and sudo -n walnut screen frame.
+

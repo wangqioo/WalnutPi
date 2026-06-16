@@ -122,10 +122,12 @@ export function createScreenWorkspaceSyncWorkflow({
         };
       }
 
+      const evidenceMode = normalizeEvidenceMode(body.evidenceMode);
       const delivery = await runDelivery({
         deliveryAdapter,
         buildId,
         playlistEnvelope: envelope,
+        evidenceMode,
       });
       if (delivery.frameTicket) {
         rememberFrameTicket(buildId, delivery.frameTicket);
@@ -201,9 +203,13 @@ function preDeliveryFailure({ risk, mode, summary, output }) {
   };
 }
 
-async function runDelivery({ deliveryAdapter, buildId, playlistEnvelope }) {
+function normalizeEvidenceMode(value) {
+  return value === "full" ? "full" : "fast";
+}
+
+async function runDelivery({ deliveryAdapter, buildId, playlistEnvelope, evidenceMode }) {
   try {
-    return await deliveryAdapter.deliverWorkspacePlaylist({ buildId, playlistEnvelope });
+    return await deliveryAdapter.deliverWorkspacePlaylist({ buildId, playlistEnvelope, evidenceMode });
   } catch (error) {
     return {
       ok: false,

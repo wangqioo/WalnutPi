@@ -144,9 +144,10 @@ The LVGL delivery slice is v2-only:
 Screen Workspace preview
 -> Screen Playlist v1
 -> Sync to WalnutPi with playlistHash
--> Build LVGL playlist resources
--> Activate walnut-screen.service
--> Read screen state, framebuffer frame evidence, and playlist evidence
+-> Sync runtime resources without rebuilding when the hot-reload runtime is present
+-> Hot reload walnut-screen.service runtime resources
+-> Fast evidence: playlist hash, artifact hash, and service-active state
+-> Full diagnostics, when requested: screen state and framebuffer frame evidence
 ```
 
 The web server exposes the current playlist at `GET /api/screen/workspace/playlist`.
@@ -158,8 +159,8 @@ The first delivery adapter is deliberately narrow:
 - adapter: SSH / local agent
 - build: `scripts/build-lvgl-app.sh`
 - LVGL resource generator: `scripts/generate-lvgl-screen-workspace-config.js`
-- activation: `sudo -n systemctl restart walnut-screen.service`; `walnut screen start` remains the user-facing CLI entry
-- evidence: `walnut screen state` and `sudo -n walnut screen frame`
+- activation: hot reload for runtime-capable binaries; `sudo -n systemctl restart walnut-screen.service` remains the upgrade fallback; `walnut screen start` remains the user-facing CLI entry
+- evidence: default fast sync verifies the runtime playlist and `walnut-screen.service` active state without reading the full framebuffer; `evidenceMode: "full"` also runs `walnut screen state` and `sudo -n walnut screen frame`
 - diagnostics image: `GET /api/screen/frame/<buildId>` calls read-only `walnut screen capture --png-base64` on demand
 - sync history: `GET /api/screen/records` and `GET /api/screen/records/<buildId>` read local developer diagnostics records; cached `frame.png` is served from `GET /api/screen/records/<buildId>/frame.png` without reconnecting to the device
 - pixel diff record: `POST /api/screen/pixel-diff` stores the browser-computed `walnutpi.webDevicePixelDiff.v2` object into a local sync record. It does not connect to WalnutPi, capture a frame, or change sync status.

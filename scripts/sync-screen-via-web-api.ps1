@@ -1,6 +1,7 @@
 param(
     [string]$BaseUri = "http://127.0.0.1:4173",
-    [switch]$PreviewOnly
+    [switch]$PreviewOnly,
+    [switch]$FullEvidence
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,10 +42,15 @@ if (-not $playlist.playlistHash) {
 }
 
 Write-Host ("Syncing screen:    {0}" -f $syncUri)
-$body = @{ playlistHash = $playlist.playlistHash } | ConvertTo-Json -Depth 8 -Compress
+$requestBody = @{ playlistHash = $playlist.playlistHash }
+if ($FullEvidence) {
+    $requestBody.evidenceMode = "full"
+}
+$body = $requestBody | ConvertTo-Json -Depth 8 -Compress
 $syncResult = Invoke-RestMethod -Method Post -Uri $syncUri -ContentType "application/json" -Body $body
 
 Show-KeyValue "playlistHash" $playlist.playlistHash
+Show-KeyValue "evidenceMode" $syncResult.deliveryManifest.evidenceMode
 Show-KeyValue "buildId" $syncResult.buildId
 Show-KeyValue "artifactHash" $syncResult.artifactHash
 Show-KeyValue "deliveryHash" $syncResult.deliveryHash

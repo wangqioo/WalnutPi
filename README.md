@@ -248,13 +248,13 @@ http://127.0.0.1:4173/?nossh
 同步相关接口：
 
 - `GET /api/screen/workspace/playlist`：返回默认 Screen Playlist envelope 和 `playlistHash`。
-- `POST /api/screen/workspace/sync`：要求浏览器提交匹配且格式合法的 `playlistHash`；缺失、非法或过期 hash 会在构建 / SSH 前拒绝。
+- `POST /api/screen/workspace/sync`：要求浏览器提交匹配且格式合法的 `playlistHash`；缺失、非法或过期 hash 会在构建 / SSH 前拒绝。默认使用 fast evidence，只验证 runtime 资源、playlist hash、LVGL artifact hash 和 `walnut-screen.service` active 状态；请求体加 `evidenceMode: "full"` 才同步等待完整 framebuffer hash 回证。
 - `GET /api/screen/manifest`、`POST /api/screen/sync`：已移除；任何调用都应得到 404。
 - `GET /api/screen/frame/<buildId>`：开发者诊断专用，按需只读抓取设备 PNG 画面；默认同步 JSON 不内嵌图片字节或 `pngBase64`。
 - `GET /api/screen/records`、`GET /api/screen/records/<buildId>`、`GET /api/screen/records/<buildId>/frame.png`：开发者诊断历史。
 - `POST /api/screen/pixel-diff`：只把浏览器算出的 `walnutpi.webDevicePixelDiff.v2` 写回本地同步记录；不会连接核桃派、抓图、构建、激活或改变同步状态。
 
-普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、playlist hash、manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、metadata-only pixel evidence、诊断级 Web/device pixel diff、历史记录、AI 总结证据和按需设备截图只放在开发者诊断层。
+普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、playlist hash、manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、metadata-only pixel evidence、诊断级 Web/device pixel diff、历史记录、AI 总结证据和按需设备截图只放在开发者诊断层。fast evidence 下 `visualMatch` 为 `playlist-committed`；完整 framebuffer 回证通过时为 `captured`。
 
 Screen Workspace 只同步已经规范化到 480x320 的输出。静态输出必须是 480x320 PNG；动画输出必须是 480x320 帧序列加时长；同步不会重新下载、搜索或生成缺失输出。LVGL runtime 只消费生成的 Workspace playlist 资源，没有旧组件 manifest fallback。
 
@@ -263,13 +263,15 @@ Screen Workspace 只同步已经规范化到 480x320 的输出。静态输出必
 当前真机闭环目标：
 
 ```text
-Screen Playlist v1 -> POST /api/screen/workspace/sync -> LVGL build -> sudo -n systemctl restart walnut-screen.service -> walnut screen state -> sudo -n walnut screen frame
+Screen Playlist v1 -> POST /api/screen/workspace/sync -> runtime resource sync -> hot reload -> service-active evidence
+Full diagnostics: add evidenceMode="full" -> walnut screen state -> sudo -n walnut screen frame
 ```
 
 真机验证时遇到过两个环境问题：
 
 - 用默认 `root` SSH 登录时，远端 `$HOME/projects/WalnutPi` 会变成 `/root/projects/WalnutPi`，但实际 checkout 在 `/home/pi/projects/WalnutPi`。
 - 旧的 root-owned `build/lvgl_app` 文件会导致 `pi` 构建时无法写入 `lvgl.pc.tmp`、`lv_version.h.tmp` 和 `CMakeCache.txt`。
+- 如果核桃派缺 `ccache` 或 `ninja`，必须编译 LVGL 时会失败而不是退回慢速 Makefiles。先在设备上跑 `sudo /home/pi/projects/WalnutPi/scripts/install-lvgl-build-deps.sh`，确认 `ccache`、`ninja-build`、`cmake`、`nodejs` 都已安装。`scripts/build-lvgl-app.sh` 默认强制使用 Ninja；如果旧 `build/lvgl_app` 是 Makefiles cache，脚本会直接替换成 Ninja build cache。
 
 当前常用 root/root 环境可以直接显式指定远端 checkout：
 
@@ -277,7 +279,7 @@ Screen Playlist v1 -> POST /api/screen/workspace/sync -> LVGL build -> sudo -n s
 SSH_USER=root SSH_PASSWORD=root WALNUT_REMOTE_PROJECT_ROOT=/home/pi/projects/WalnutPi WALNUT_REMOTE_BUILD_USER=pi bun web-interface/model-terminal-server.js
 ```
 
-Web 同步默认用 `pi` 执行 LVGL build。若历史构建留下 root-owned 文件，需要把远端构建目录修回 `pi:pi`：
+Web 同步默认用 `pi` 执行 LVGL build。若历史构建留下 root-owned 文件，需要把远端构建目录修回 `pi:pi`，否则脚本替换旧 CMake cache 或写入 Ninja cache 时会失败：
 
 ```bash
 sudo chown -R pi:pi /home/pi/projects/WalnutPi/build/lvgl_app
@@ -376,7 +378,7 @@ sudo walnut screen restore
 本机构建现在按平台分流：
 
 - Windows：优先用 `scripts/build-lvgl-app.ps1`，产物在 `build/lvgl_app-windows/`
-- Debian / WalnutPi：继续用 `scripts/build-lvgl-app.sh`，产物在 `build/lvgl_app/`
+- Debian / WalnutPi：继续用 `scripts/build-lvgl-app.sh`，强制使用 Ninja，产物在 `build/lvgl_app/`
 - 跨平台入口：`scripts/build-lvgl-app.js`
 
 第一次构建会自动使用 `third_party/lvgl/`。如果源码不存在，脚本会拉取 LVGL v9.2.2：

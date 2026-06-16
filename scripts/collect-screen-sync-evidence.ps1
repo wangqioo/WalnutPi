@@ -153,7 +153,10 @@ try {
     $playlist = Wait-HttpReady "$baseUri/api/screen/workspace/playlist"
     Show-KeyValue "playlistHash" $playlist.playlistHash
 
-    $syncResult = Invoke-JsonPost "$baseUri/api/screen/workspace/sync" @{ playlistHash = $playlist.playlistHash }
+    $syncResult = Invoke-JsonPost "$baseUri/api/screen/workspace/sync" @{
+        playlistHash = $playlist.playlistHash
+        evidenceMode = "full"
+    }
     Show-KeyValue "ok" $syncResult.ok
     Show-KeyValue "buildId" $syncResult.buildId
     Show-KeyValue "failedStage" $syncResult.failedStage
