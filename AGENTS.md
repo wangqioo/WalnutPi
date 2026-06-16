@@ -47,6 +47,17 @@ Commands:
 
 See `docs/real-device-command-scripts.md` before adding or changing real-device command wrappers.
 
+## In-App Browser Automation Notes
+
+- The Codex in-app Browser WebView may re-attach when the Codex app or sidebar focus changes. Tab ids can change mid-test or briefly become `about:blank#codex-browser-sidebar-attach-token=...`; always re-list tabs and reconnect to the current `http://localhost:4173/` tab before continuing.
+- If `browser.tabs.new()` times out waiting for WebView attach, immediately call `browser.tabs.list()`. A usable tab often appears after the timeout with a new id.
+- Do not assume a tab id remains valid after a click, reload, or user focus change. If a command reports `Tab not found`, recover by listing tabs and binding the newest Walnut Agent Console tab.
+- Browser automation `fill()` and bulk `type()` can fail on the Agent Console textarea with a virtual clipboard error. Prefer Playwright `locator.press(...)` key-by-key input for reliable UI tests.
+- DOM CUA can inspect node ids reliably with `tab.dom_cua.get_visible_dom()`, but DOM CUA click/type interactions may cause the WebView automation connection to drop. Prefer Playwright locators for clicks once the page is reachable.
+- A reliable Agent Console input pattern is: focus `#prompt`, press `Control+A`, press `Backspace`, press characters one by one, then click `问 WalnutAI` or `处理意图` with a Playwright role locator.
+- For multi-turn UI smoke tests, verify the visible message count after each submit: each round should append `你`, `系统`, and `WalnutAI`, so three rounds should produce nine `.message` elements.
+- Pair browser checks with API checks when automation is unstable. Useful fallbacks are `POST /api/intent/classify`, `POST /api/action`, and `GET /api/session?sessionId=...`; use these to distinguish UI automation failure from app behavior failure.
+
 ## Screen Sync Contract
 
 - Browser reads `GET /api/screen/workspace/playlist`.

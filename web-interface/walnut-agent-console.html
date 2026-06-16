@@ -22,9 +22,12 @@
         box-sizing: border-box;
       }
 
+      html,
       body {
         margin: 0;
-        min-height: 100vh;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
         background: #101112;
       }
 
@@ -32,6 +35,12 @@
       textarea {
         font: inherit;
         color: inherit;
+      }
+
+      button:disabled,
+      textarea:disabled {
+        cursor: wait;
+        opacity: 0.58;
       }
 
       a {
@@ -43,20 +52,27 @@
         display: grid;
         grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
         gap: 1px;
-        min-height: 100vh;
+        height: 100vh;
+        overflow: hidden;
         background: var(--line);
       }
 
       .pane {
         display: grid;
-        align-content: start;
+        grid-template-rows: auto auto auto minmax(0, 1fr);
+        align-content: stretch;
         gap: 18px;
+        min-height: 0;
+        overflow: hidden;
         padding: 22px;
         background: #101112;
       }
 
       .side {
+        grid-template-rows: auto auto;
+        align-content: start;
         background: #141617;
+        overflow-y: auto;
       }
 
       .topline {
@@ -90,11 +106,14 @@
         display: grid;
         gap: 10px;
         max-width: 860px;
+        min-height: 0;
       }
 
       textarea {
         width: 100%;
-        min-height: 136px;
+        height: 136px;
+        min-height: 96px;
+        max-height: 180px;
         resize: vertical;
         border: 1px solid var(--line);
         border-radius: 0;
@@ -112,16 +131,23 @@
       .actions {
         display: flex;
         flex-wrap: wrap;
+        align-items: center;
         gap: 8px;
       }
 
       .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
         min-height: 38px;
         border: 1px solid var(--line);
         border-radius: 0;
-        padding: 0 13px;
+        padding: 0 16px;
         background: #1b1e1f;
         cursor: pointer;
+        line-height: 1;
+        text-align: center;
+        white-space: nowrap;
       }
 
       .button.primary {
@@ -136,12 +162,49 @@
       }
 
       .result {
-        min-height: 170px;
+        display: grid;
+        align-content: start;
+        gap: 10px;
+        min-height: 0;
+        height: 100%;
+        overflow: auto;
         border: 1px solid var(--line);
         padding: 14px;
         background: #121415;
-        white-space: pre-wrap;
         line-height: 1.5;
+      }
+
+      .message {
+        display: grid;
+        gap: 6px;
+        max-width: 92%;
+      }
+
+      .message.user {
+        justify-self: end;
+      }
+
+      .message.assistant,
+      .message.system {
+        justify-self: start;
+      }
+
+      .message-role {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .message-body {
+        border: 1px solid rgba(239, 236, 226, 0.12);
+        padding: 10px 12px;
+        background: #17191a;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .message.user .message-body {
+        border-color: rgba(124, 203, 197, 0.28);
+        background: rgba(124, 203, 197, 0.1);
       }
 
       .label {
@@ -152,6 +215,11 @@
       .stack {
         display: grid;
         gap: 10px;
+        min-height: 0;
+      }
+
+      .pane:not(.side) > .stack:last-child {
+        grid-template-rows: auto minmax(0, 1fr);
       }
 
       .metric {
@@ -183,9 +251,12 @@
         display: grid;
         place-items: center;
         aspect-ratio: 3 / 2;
+        min-height: 180px;
         border: 1px solid var(--line);
         background: #050606;
         color: var(--muted);
+        line-height: 1;
+        text-align: center;
       }
 
       .status {
@@ -203,6 +274,11 @@
       @media (max-width: 860px) {
         .shell {
           grid-template-columns: 1fr;
+          grid-template-rows: minmax(0, 1fr) auto;
+        }
+
+        .side {
+          max-height: 34vh;
         }
       }
     </style>
@@ -218,7 +294,7 @@
         <form id="composer" class="composer">
           <textarea id="prompt" autocomplete="off" placeholder="例如：核桃派现在还好吗 / 把上海天气做成小屏 / 记一下今天调好了 Wi-Fi"></textarea>
           <div class="actions">
-            <button class="button primary" type="submit">处理意图</button>
+            <button id="submitIntent" class="button primary" type="submit">处理意图</button>
             <button id="askAi" class="button" type="button">问 WalnutAI</button>
             <a class="button" href="/workspace.html">打开 Screen Workspace</a>
           </div>
@@ -240,27 +316,55 @@
           <h2>Screen Preview</h2>
           <a class="preview" href="/workspace.html">Screen Workspace</a>
         </section>
-        <section class="stack">
-          <h2>Local Actions</h2>
-          <div class="quick">
-            <button class="button" data-action="status" type="button">状态</button>
-            <button class="button" data-action="network" type="button">网络</button>
-            <button class="button" data-action="snapshot" type="button">快照</button>
-            <button class="button" data-action="gpio" type="button">GPIO</button>
-          </div>
-        </section>
       </aside>
     </main>
 
-    <script>
+    <script type="module">
+      import { AnsiUp } from "/vendor/ansi_up.js";
+
       const promptEl = document.getElementById("prompt");
       const resultEl = document.getElementById("result");
       const intentEl = document.getElementById("intent");
       const deliveryEl = document.getElementById("delivery");
       const confidenceEl = document.getElementById("confidence");
+      const submitIntentEl = document.getElementById("submitIntent");
+      const askAiEl = document.getElementById("askAi");
+      const ansiUp = new AnsiUp();
+      const sessionId = getSessionId();
 
       function setResult(value) {
-        resultEl.textContent = value || "无输出。";
+        resultEl.textContent = "";
+        appendMessage("assistant", value || "无输出。");
+      }
+
+      function getSessionId() {
+        const key = "walnut-web-session-id";
+        const existing = localStorage.getItem(key);
+        if (existing) return existing;
+        const next = crypto.randomUUID();
+        localStorage.setItem(key, next);
+        return next;
+      }
+
+      function ansiToHtml(value) {
+        return ansiUp.ansi_to_html(String(value || "")) || "无输出。";
+      }
+
+      function appendMessage(role, value) {
+        const message = document.createElement("article");
+        message.className = `message ${role}`;
+
+        const label = document.createElement("div");
+        label.className = "message-role";
+        label.textContent = role === "user" ? "你" : role === "system" ? "系统" : "WalnutAI";
+
+        const body = document.createElement("div");
+        body.className = "message-body";
+        body.innerHTML = ansiToHtml(value);
+
+        message.append(label, body);
+        resultEl.append(message);
+        resultEl.scrollTop = resultEl.scrollHeight;
       }
 
       function updateRoute(classification) {
@@ -284,67 +388,69 @@
         const response = await fetch("/api/action", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action, ...body }),
+          body: JSON.stringify({ action, sessionId, ...body }),
         });
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.output || data.error || "action failed");
         return data;
       }
 
+      function setBusy(busy) {
+        promptEl.disabled = busy;
+        submitIntentEl.disabled = busy;
+        askAiEl.disabled = busy;
+      }
+
+      async function sendPrompt(mode) {
+        const text = promptEl.value.trim();
+        if (!text) return;
+        setBusy(true);
+        appendMessage("user", text);
+        appendMessage("system", mode === "ai" ? "正在询问 WalnutAI..." : "处理中...");
+        try {
+          if (mode === "ai") {
+            const data = await runAction("ai", { text });
+            appendMessage("assistant", data.output);
+          } else {
+            const classification = await classify(text);
+            updateRoute(classification);
+            if (classification.intent === "device.status.read") {
+              const data = await runAction("status");
+              appendMessage("assistant", data.output);
+            } else if (classification.intent === "device.network.read") {
+              const data = await runAction("network");
+              appendMessage("assistant", data.output);
+            } else if (classification.intent === "device.snapshot.read") {
+              const data = await runAction("snapshot");
+              appendMessage("assistant", data.output);
+            } else if (classification.intent === "device.gpio.read") {
+              const data = await runAction("gpio");
+              appendMessage("assistant", data.output);
+            } else if (classification.intent === "screen.generate" || classification.intent === "screen.sync") {
+              appendMessage("assistant", "已识别为小屏工作流。请进入 Screen Workspace 处理 Source Asset、Screen Output、Playlist 和 Sync。");
+            } else {
+              const data = await runAction("ai", { text });
+              appendMessage("assistant", data.output);
+            }
+          }
+          promptEl.value = "";
+        } catch (error) {
+          appendMessage("assistant", error.message);
+        } finally {
+          setBusy(false);
+          promptEl.focus();
+        }
+      }
+
       document.getElementById("composer").addEventListener("submit", async (event) => {
         event.preventDefault();
-        const text = promptEl.value.trim();
-        if (!text) return;
-        setResult("处理中...");
-        try {
-          const classification = await classify(text);
-          updateRoute(classification);
-          if (classification.intent === "device.status.read") {
-            const data = await runAction("status");
-            setResult(data.output);
-          } else if (classification.intent === "device.network.read") {
-            const data = await runAction("network");
-            setResult(data.output);
-          } else if (classification.intent === "device.snapshot.read") {
-            const data = await runAction("snapshot");
-            setResult(data.output);
-          } else if (classification.intent === "device.gpio.read") {
-            const data = await runAction("gpio");
-            setResult(data.output);
-          } else if (classification.intent === "screen.generate" || classification.intent === "screen.sync") {
-            setResult("已识别为小屏工作流。请进入 Screen Workspace 处理 Source Asset、Screen Output、Playlist 和 Sync。");
-          } else {
-            const data = await runAction("ai", { text });
-            setResult(data.output);
-          }
-        } catch (error) {
-          setResult(error.message);
-        }
+        await sendPrompt("intent");
       });
 
-      document.getElementById("askAi").addEventListener("click", async () => {
-        const text = promptEl.value.trim();
-        if (!text) return;
-        setResult("正在询问 WalnutAI...");
-        try {
-          const data = await runAction("ai", { text });
-          setResult(data.output);
-        } catch (error) {
-          setResult(error.message);
-        }
+      askAiEl.addEventListener("click", async () => {
+        await sendPrompt("ai");
       });
 
-      document.querySelectorAll("[data-action]").forEach((button) => {
-        button.addEventListener("click", async () => {
-          setResult("正在执行 Local Action...");
-          try {
-            const data = await runAction(button.dataset.action);
-            setResult(data.output);
-          } catch (error) {
-            setResult(error.message);
-          }
-        });
-      });
     </script>
   </body>
 </html>

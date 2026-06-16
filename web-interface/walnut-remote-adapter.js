@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { Client as SshClient } from "ssh2";
 
 function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
@@ -21,9 +22,16 @@ export function createWalnutRemoteAdapter({
   limitedOutput,
   controlMasterEnabled = process.platform !== "win32",
   controlDir = path.join(tmpdir(), `walnutpi-web-ssh-${process.getuid?.() || "user"}`),
+  ssh2PoolEnabled = process.platform === "win32",
 }) {
   let walnutCliEnsurePromise = null;
   let walnutCliEnsureHash = null;
+  let pooledClient = null;
+  let pooledClientPromise = null;
+
+  function elapsedSince(startedAt) {
+    return Date.now() - startedAt;
+  }
 
   function target() {
     return `${sshUser}@${sshHost}`;
@@ -61,7 +69,300 @@ export function createWalnutRemoteAdapter({
     };
   }
 
-  function runRaw(command, timeoutMs = 15_000, limit = outputLimit) {
+  function closePooledClient() {
+    if (pooledClient) {
+      try {
+        pooledClient.end();
+      } catch {}
+    }
+    pooledClient = null;
+    pooledClientPromise = null;
+  }
+
+  function getPooledClient(timeoutMs = 15_000) {
+    if (!ssh2PoolEnabled) return null;
+    if (pooledClient) return Promise.resolve(pooledClient);
+    if (pooledClientPromise) return pooledClientPromise;
+
+    pooledClientPromise = new Promise((resolve, reject) => {
+      const client = new SshClient();
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try {
+          client.end();
+        } catch {}
+        reject(new Error(`ssh2 connection timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+
+      const fail = (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (pooledClient === client) pooledClient = null;
+        if (pooledClientPromise) pooledClientPromise = null;
+        reject(error);
+      };
+
+      const forgetClient = () => {
+        if (pooledClient === client) pooledClient = null;
+        if (pooledClientPromise) pooledClientPromise = null;
+      };
+
+      client
+        .once("ready", () => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          pooledClient = client;
+          pooledClientPromise = null;
+          resolve(client);
+        })
+        .once("error", fail)
+        .once("end", forgetClient)
+        .once("close", forgetClient)
+        .connect({
+          host: sshHost,
+          port: 22,
+          username: sshUser,
+          password: sshPassword,
+          readyTimeout: Math.min(timeoutMs, 8_000),
+          keepaliveInterval: 15_000,
+          keepaliveCountMax: 3,
+        });
+    });
+
+    return pooledClientPromise;
+  }
+
+  function ssh2FailureResult(error, reusedConnection, messagePrefix = "ssh2") {
+    closePooledClient();
+    return {
+      ok: false,
+      code: null,
+      output: `[local] ${messagePrefix}: ${error.message}`,
+      reusedConnection,
+      remoteTransport: "ssh2",
+    };
+  }
+
+  async function runRawPooled(command, timeoutMs = 15_000, limit = outputLimit) {
+    if (!ssh2PoolEnabled) return runRawProcess(command, timeoutMs, limit);
+    let client;
+    try {
+      client = await getPooledClient(timeoutMs);
+    } catch (error) {
+      closePooledClient();
+      const fallback = await runRawProcess(command, timeoutMs, limit);
+      return fallback.ok ? fallback : ssh2FailureResult(error, false, "ssh2 connection failed");
+    }
+
+    return new Promise((resolve) => {
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const timer = setTimeout(() => {
+        closePooledClient();
+        finish({
+          ok: false,
+          code: null,
+          output: limitedOutput(`${stdout}${stderr}\n[local] ssh2 command timed out after ${timeoutMs}ms`.trim(), limit),
+          reusedConnection: true,
+          remoteTransport: "ssh2",
+        });
+      }, timeoutMs);
+
+      const fail = (error) => finish(ssh2FailureResult(error, true, "ssh2 connection failed"));
+      client.once("error", fail);
+      client.once("close", () => {
+        finish({
+          ok: false,
+          code: null,
+          output: limitedOutput(`${stdout}${stderr}\n[local] ssh2 connection closed before command completed`.trim(), limit),
+          reusedConnection: true,
+          remoteTransport: "ssh2",
+        });
+      });
+
+      client.exec(`sh -lc ${shellQuote(command)}`, { env: { TERM: "xterm-256color" } }, (error, stream) => {
+        if (error) {
+          finish(ssh2FailureResult(error, true, "ssh2 exec failed"));
+          return;
+        }
+
+        stream
+          .on("close", (code) => {
+            client.off("error", fail);
+            finish({
+              ok: code === 0,
+              code,
+              output: limitedOutput(`${stdout}${stderr}`.trim() || "ok", limit),
+              reusedConnection: true,
+              remoteTransport: "ssh2",
+            });
+          })
+          .on("data", (chunk) => {
+            stdout += chunk.toString("utf8");
+          });
+        stream.stderr.on("data", (chunk) => {
+          stderr += chunk.toString("utf8");
+        });
+      });
+    });
+  }
+
+  async function runRawScriptPooled(script, timeoutMs = 15_000, limit = outputLimit) {
+    if (!ssh2PoolEnabled) return runRawScriptProcess(script, timeoutMs, limit);
+    let client;
+    try {
+      client = await getPooledClient(timeoutMs);
+    } catch (error) {
+      closePooledClient();
+      const fallback = await runRawScriptProcess(script, timeoutMs, limit);
+      return fallback.ok ? fallback : ssh2FailureResult(error, false, "ssh2 connection failed");
+    }
+
+    return new Promise((resolve) => {
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const timer = setTimeout(() => {
+        closePooledClient();
+        finish({
+          ok: false,
+          code: null,
+          output: limitedOutput(`${stdout}${stderr}\n[local] ssh2 script timed out after ${timeoutMs}ms`.trim(), limit),
+          reusedConnection: true,
+          remoteTransport: "ssh2",
+        });
+      }, timeoutMs);
+
+      const fail = (error) => finish(ssh2FailureResult(error, true, "ssh2 connection failed"));
+      client.once("error", fail);
+      client.once("close", () => {
+        finish({
+          ok: false,
+          code: null,
+          output: limitedOutput(`${stdout}${stderr}\n[local] ssh2 connection closed before script completed`.trim(), limit),
+          reusedConnection: true,
+          remoteTransport: "ssh2",
+        });
+      });
+
+      client.exec("sh", { env: { TERM: "xterm-256color" } }, (error, stream) => {
+        if (error) {
+          finish(ssh2FailureResult(error, true, "ssh2 exec failed"));
+          return;
+        }
+
+        stream
+          .on("close", (code) => {
+            client.off("error", fail);
+            finish({
+              ok: code === 0,
+              code,
+              output: limitedOutput(`${stdout}${stderr}`.trim() || "ok", limit),
+              reusedConnection: true,
+              remoteTransport: "ssh2",
+            });
+          })
+          .on("data", (chunk) => {
+            stdout += chunk.toString("utf8");
+          });
+        stream.stderr.on("data", (chunk) => {
+          stderr += chunk.toString("utf8");
+        });
+        stream.end(String(script || "").replace(/\r\n/g, "\n"));
+      });
+    });
+  }
+
+  async function runRawWithInputPooled(command, input, timeoutMs = 15_000, limit = outputLimit) {
+    if (!ssh2PoolEnabled) return runRawWithInputProcess(command, input, timeoutMs, limit);
+    let client;
+    try {
+      client = await getPooledClient(timeoutMs);
+    } catch (error) {
+      closePooledClient();
+      const fallback = await runRawWithInputProcess(command, input, timeoutMs, limit);
+      return fallback.ok ? fallback : ssh2FailureResult(error, false, "ssh2 connection failed");
+    }
+
+    return new Promise((resolve) => {
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      const finish = (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const timer = setTimeout(() => {
+        closePooledClient();
+        finish({
+          ok: false,
+          code: null,
+          output: limitedOutput(`${stdout}${stderr}\n[local] ssh2 input command timed out after ${timeoutMs}ms`.trim(), limit),
+          reusedConnection: true,
+          remoteTransport: "ssh2",
+        });
+      }, timeoutMs);
+
+      const fail = (error) => finish(ssh2FailureResult(error, true, "ssh2 connection failed"));
+      client.once("error", fail);
+      client.once("close", () => {
+        finish({
+          ok: false,
+          code: null,
+          output: limitedOutput(`${stdout}${stderr}\n[local] ssh2 connection closed before input command completed`.trim(), limit),
+          reusedConnection: true,
+          remoteTransport: "ssh2",
+        });
+      });
+
+      client.exec(`sh -lc ${shellQuote(command)}`, { env: { TERM: "xterm-256color" } }, (error, stream) => {
+        if (error) {
+          finish(ssh2FailureResult(error, true, "ssh2 exec failed"));
+          return;
+        }
+
+        stream
+          .on("close", (code) => {
+            client.off("error", fail);
+            finish({
+              ok: code === 0,
+              code,
+              output: limitedOutput(`${stdout}${stderr}`.trim() || "ok", limit),
+              reusedConnection: true,
+              remoteTransport: "ssh2",
+            });
+          })
+          .on("data", (chunk) => {
+            stdout += chunk.toString("utf8");
+          });
+        stream.stderr.on("data", (chunk) => {
+          stderr += chunk.toString("utf8");
+        });
+        stream.end(Buffer.isBuffer(input) ? input : Buffer.from(input || ""));
+      });
+    });
+  }
+
+  function runRawProcess(command, timeoutMs = 15_000, limit = outputLimit) {
     return new Promise((resolve) => {
       const child = spawn(
         "sshpass",
@@ -95,6 +396,8 @@ export function createWalnutRemoteAdapter({
           ok: false,
           code: null,
           output: limitedOutput(`${stdout}${stderr}\n[local] action timed out`.trim(), limit),
+          reusedConnection: false,
+          remoteTransport: controlMasterEnabled ? "ssh-controlmaster" : "ssh-process",
         });
       }, timeoutMs);
 
@@ -108,19 +411,35 @@ export function createWalnutRemoteAdapter({
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve({ ok: false, code: null, output: `[local] ${error.message}` });
+        resolve({
+          ok: false,
+          code: null,
+          output: `[local] ${error.message}`,
+          reusedConnection: false,
+          remoteTransport: controlMasterEnabled ? "ssh-controlmaster" : "ssh-process",
+        });
       });
       child.on("close", (code) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
         const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok", limit);
-        resolve({ ok: code === 0, code, output });
+        resolve({
+          ok: code === 0,
+          code,
+          output,
+          reusedConnection: Boolean(controlMasterEnabled),
+          remoteTransport: controlMasterEnabled ? "ssh-controlmaster" : "ssh-process",
+        });
       });
     });
   }
 
-  function runRawScript(script, timeoutMs = 15_000, limit = outputLimit) {
+  function runRaw(command, timeoutMs = 15_000, limit = outputLimit) {
+    return runRawPooled(command, timeoutMs, limit);
+  }
+
+  function runRawScriptProcess(script, timeoutMs = 15_000, limit = outputLimit) {
     return new Promise((resolve) => {
       const child = spawn(
         "sshpass",
@@ -180,7 +499,7 @@ export function createWalnutRemoteAdapter({
     });
   }
 
-  function runRawWithInput(command, input, timeoutMs = 15_000, limit = outputLimit) {
+  function runRawWithInputProcess(command, input, timeoutMs = 15_000, limit = outputLimit) {
     return new Promise((resolve) => {
       const child = spawn(
         "sshpass",
@@ -250,6 +569,14 @@ export function createWalnutRemoteAdapter({
       cliHash: sha256(cli),
       manifestHash: sha256(manifest),
     };
+  }
+
+  function runRawScript(script, timeoutMs = 15_000, limit = outputLimit) {
+    return runRawScriptPooled(script, timeoutMs, limit);
+  }
+
+  function runRawWithInput(command, input, timeoutMs = 15_000, limit = outputLimit) {
+    return runRawWithInputPooled(command, input, timeoutMs, limit);
   }
 
   function walnutCliInstallScript({ bundle }) {
@@ -324,7 +651,9 @@ export function createWalnutRemoteAdapter({
   }
 
   async function run(command, timeoutMs = 15_000, limit = outputLimit) {
+    const preflightStartedAt = Date.now();
     const ensure = await ensureWalnutCli();
+    const preflightMs = elapsedSince(preflightStartedAt);
     if (!ensure.ok) {
       return {
         ok: false,
@@ -339,17 +668,28 @@ export function createWalnutRemoteAdapter({
           ].join("\n"),
           limit,
         ),
+        preflightMs,
+        preflightEnsured: ensure.ensured,
       };
     }
+    const remoteStartedAt = Date.now();
     const result = await runRaw(command, timeoutMs, limit);
+    const remoteMs = elapsedSince(remoteStartedAt);
+    const timings = {
+      preflightMs,
+      remoteMs,
+      preflightEnsured: ensure.ensured,
+    };
     if (ensure.ensured) {
-      return { ...result, preflightOutput: ensure.output };
+      return { ...result, ...timings, preflightOutput: ensure.output };
     }
-    return result;
+    return { ...result, ...timings };
   }
 
   async function runScript(script, timeoutMs = 15_000, limit = outputLimit) {
+    const preflightStartedAt = Date.now();
     const ensure = await ensureWalnutCli();
+    const preflightMs = elapsedSince(preflightStartedAt);
     if (!ensure.ok) {
       return {
         ok: false,
@@ -363,17 +703,28 @@ export function createWalnutRemoteAdapter({
           ].join("\n"),
           limit,
         ),
+        preflightMs,
+        preflightEnsured: ensure.ensured,
       };
     }
+    const remoteStartedAt = Date.now();
     const result = await runRawScript(script, timeoutMs, limit);
+    const remoteMs = elapsedSince(remoteStartedAt);
+    const timings = {
+      preflightMs,
+      remoteMs,
+      preflightEnsured: ensure.ensured,
+    };
     if (ensure.ensured) {
-      return { ...result, preflightOutput: ensure.output };
+      return { ...result, ...timings, preflightOutput: ensure.output };
     }
-    return result;
+    return { ...result, ...timings };
   }
 
   async function runWithInput(command, input, timeoutMs = 15_000, limit = outputLimit) {
+    const preflightStartedAt = Date.now();
     const ensure = await ensureWalnutCli();
+    const preflightMs = elapsedSince(preflightStartedAt);
     if (!ensure.ok) {
       return {
         ok: false,
@@ -387,13 +738,22 @@ export function createWalnutRemoteAdapter({
           ].join("\n"),
           limit,
         ),
+        preflightMs,
+        preflightEnsured: ensure.ensured,
       };
     }
+    const remoteStartedAt = Date.now();
     const result = await runRawWithInput(command, input, timeoutMs, limit);
+    const remoteMs = elapsedSince(remoteStartedAt);
+    const timings = {
+      preflightMs,
+      remoteMs,
+      preflightEnsured: ensure.ensured,
+    };
     if (ensure.ensured) {
-      return { ...result, preflightOutput: ensure.output };
+      return { ...result, ...timings, preflightOutput: ensure.output };
     }
-    return result;
+    return { ...result, ...timings };
   }
 
   async function capturePngBase64() {
@@ -429,5 +789,6 @@ export function createWalnutRemoteAdapter({
     runWithInput,
     capturePngBase64,
     openInteractiveSession,
+    closePooledClient,
   };
 }

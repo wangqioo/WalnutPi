@@ -17,6 +17,25 @@ function numberOrNull(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function stringOrNull(value, limit = 120) {
+  if (value === null || value === undefined || value === "") return null;
+  return String(value).slice(0, limit);
+}
+
+function booleanOrNull(value) {
+  return typeof value === "boolean" ? value : null;
+}
+
+function numericObject(value, allowedKeys) {
+  if (!isPlainObject(value)) return null;
+  const result = {};
+  for (const key of allowedKeys) {
+    const number = numberOrNull(value[key]);
+    if (number !== null) result[key] = number;
+  }
+  return Object.keys(result).length ? result : null;
+}
+
 function usageSummary(usage) {
   if (!isPlainObject(usage)) return null;
   const inputTokens = numberOrNull(usage.input_tokens ?? usage.prompt_tokens);
@@ -39,21 +58,40 @@ function cleanEvent(event) {
     timestamp,
     kind: String(event.kind || "event").slice(0, 80),
     operation: String(event.operation || "").slice(0, 120),
-    ok: typeof event.ok === "boolean" ? event.ok : null,
+    ok: booleanOrNull(event.ok),
     latencyMs: numberOrNull(event.latencyMs),
     status: numberOrNull(event.status),
-    model: event.model ? String(event.model).slice(0, 80) : null,
-    reasoningEffort: event.reasoningEffort ? String(event.reasoningEffort).slice(0, 40) : null,
+    model: stringOrNull(event.model, 80),
+    reasoningEffort: stringOrNull(event.reasoningEffort, 40),
     usage: usageSummary(event.usage),
-    route: event.route ? String(event.route).slice(0, 120) : null,
-    action: event.action ? String(event.action).slice(0, 80) : null,
-    stage: event.stage ? String(event.stage).slice(0, 80) : null,
-    source: event.source ? String(event.source).slice(0, 80) : null,
-    mode: event.mode ? String(event.mode).slice(0, 40) : null,
-    buildId: event.buildId ? String(event.buildId).slice(0, 80) : null,
-    manifestHash: event.manifestHash ? String(event.manifestHash).slice(0, 80) : null,
-    requestId: event.requestId ? String(event.requestId).slice(0, 120) : null,
-    error: event.error ? String(event.error).slice(0, 500) : null,
+    route: stringOrNull(event.route, 120),
+    action: stringOrNull(event.action, 80),
+    stage: stringOrNull(event.stage, 80),
+    source: stringOrNull(event.source, 80),
+    mode: stringOrNull(event.mode, 40),
+    buildId: stringOrNull(event.buildId, 80),
+    manifestHash: stringOrNull(event.manifestHash, 80),
+    requestId: stringOrNull(event.requestId, 120),
+    traceId: stringOrNull(event.traceId, 120),
+    span: stringOrNull(event.span, 80),
+    parentOperation: stringOrNull(event.parentOperation, 120),
+    inputChars: numberOrNull(event.inputChars),
+    classificationSource: stringOrNull(event.classificationSource, 40),
+    ruleShortCircuited: booleanOrNull(event.ruleShortCircuited),
+    aiClassifierUsed: booleanOrNull(event.aiClassifierUsed),
+    remoteTransport: stringOrNull(event.remoteTransport, 80),
+    connectionReused: booleanOrNull(event.connectionReused),
+    preflightEnsured: booleanOrNull(event.preflightEnsured),
+    segments: numericObject(event.segments, [
+      "requestJsonMs",
+      "buildCommandMs",
+      "preflightMs",
+      "remoteMs",
+      "parseMs",
+      "sessionLogMs",
+      "metricsMs",
+    ]),
+    error: stringOrNull(event.error, 500),
   };
 }
 
@@ -70,6 +108,11 @@ function summarize(events) {
       total: 0,
       cached: 0,
       reasoning: 0,
+    },
+    connections: {
+      reused: 0,
+      fresh: 0,
+      unknown: 0,
     },
   };
 
@@ -90,6 +133,9 @@ function summarize(events) {
       summary.tokens.cached += event.usage.cachedTokens || 0;
       summary.tokens.reasoning += event.usage.reasoningTokens || 0;
     }
+    if (event.connectionReused === true) summary.connections.reused += 1;
+    else if (event.connectionReused === false) summary.connections.fresh += 1;
+    else summary.connections.unknown += 1;
   }
 
   for (const [key, values] of latencies.entries()) {

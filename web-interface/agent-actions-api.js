@@ -1,4 +1,9 @@
 import { actionSummary } from "./action-policy.js";
+import { randomUUID } from "node:crypto";
+
+function elapsedSince(startedAt) {
+  return Date.now() - startedAt;
+}
 
 export function createAgentActionsApi({
   policyActions,
@@ -27,10 +32,26 @@ export function createAgentActionsApi({
 
     async handleAction(req) {
       const startedAt = Date.now();
+      const traceId = randomUUID();
+      const segments = {};
       let body;
       try {
+        const requestJsonStartedAt = Date.now();
         body = await req.json();
-      } catch {
+        segments.requestJsonMs = elapsedSince(requestJsonStartedAt);
+      } catch (error) {
+        await webMetricsLedger.append({
+          kind: "agent.action",
+          operation: "agent.action",
+          ok: false,
+          status: 400,
+          latencyMs: elapsedSince(startedAt),
+          action: "unknown",
+          traceId,
+          span: "total",
+          segments,
+          error: error.message || "invalid json",
+        });
         return json({ ok: false, error: "请求不是有效 JSON。" }, 400);
       }
 
@@ -42,8 +63,11 @@ export function createAgentActionsApi({
           operation: "agent.action",
           ok: false,
           status: 400,
-          latencyMs: Date.now() - startedAt,
+          latencyMs: elapsedSince(startedAt),
           action: id || "unknown",
+          traceId,
+          span: "total",
+          segments,
           error: "unknown action",
         });
         return json({ ok: false, error: "未知或未允许的动作。" }, 400);
@@ -54,7 +78,9 @@ export function createAgentActionsApi({
       let contextUsed = null;
       try {
         if (action.buildCommand) {
+          const buildCommandStartedAt = Date.now();
           const built = await action.buildCommand(body);
+          segments.buildCommandMs = elapsedSince(buildCommandStartedAt);
           if (typeof built === "string") {
             command = built;
           } else if (built && typeof built === "object") {
@@ -68,9 +94,13 @@ export function createAgentActionsApi({
           operation: "agent.action",
           ok: false,
           status: 400,
-          latencyMs: Date.now() - startedAt,
+          latencyMs: elapsedSince(startedAt),
           action: id,
           mode: action.mode,
+          traceId,
+          span: "total",
+          inputChars: typeof body.text === "string" ? body.text.length : null,
+          segments,
           error: error.message,
         });
         return json({ ok: false, error: error.message }, 400);
@@ -82,6 +112,8 @@ export function createAgentActionsApi({
           id,
           command,
           startedAt,
+          traceId,
+          segments,
           sessionId,
           walnutRemote,
           webSessionLedger,
@@ -91,18 +123,24 @@ export function createAgentActionsApi({
         });
       }
 
+      const remoteStartedAt = Date.now();
       const result = await runRemote(command, action.timeoutMs);
+      segments.preflightMs = result.preflightMs ?? null;
+      segments.remoteMs = result.remoteMs ?? elapsedSince(remoteStartedAt);
       const outputFailed = id === "ai" && aiActionOutputFailed(result.output);
       let actionEvidence = null;
       let output = result.output;
       let remoteOk = result.ok;
       if (action.parseJsonOutput && result.output) {
+        const parseStartedAt = Date.now();
         try {
           actionEvidence = JSON.parse(result.output);
           if (typeof actionEvidence?.output === "string") output = actionEvidence.output;
           if (typeof actionEvidence?.ok === "boolean") remoteOk = result.ok && actionEvidence.ok;
         } catch {
           actionEvidence = null;
+        } finally {
+          segments.parseMs = elapsedSince(parseStartedAt);
         }
       }
       const responseBody = {
@@ -115,8 +153,16 @@ export function createAgentActionsApi({
         output,
         actionEvidence,
         contextUsed,
+        diagnostics: {
+          traceId,
+          remoteTransport: result.remoteTransport || null,
+          connectionReused: typeof result.reusedConnection === "boolean" ? result.reusedConnection : null,
+          preflightEnsured: typeof result.preflightEnsured === "boolean" ? result.preflightEnsured : null,
+          segments,
+        },
       };
       if (sessionId) {
+        const sessionLogStartedAt = Date.now();
         await webSessionLedger.appendEvent(sessionId, {
           role: "action",
           action: id,
@@ -125,17 +171,27 @@ export function createAgentActionsApi({
           ok: responseBody.ok,
           contextUsed,
         });
+        segments.sessionLogMs = elapsedSince(sessionLogStartedAt);
       }
+      const metricsStartedAt = Date.now();
       await webMetricsLedger.append({
         kind: "agent.action",
         operation: "agent.action",
         ok: responseBody.ok,
-        latencyMs: Date.now() - startedAt,
+        latencyMs: elapsedSince(startedAt),
         action: id,
         mode: action.mode,
         source: contextUsed?.delegatedTo || "remote",
+        traceId,
+        span: "total",
+        inputChars: typeof body.text === "string" ? body.text.length : null,
+        remoteTransport: result.remoteTransport,
+        connectionReused: result.reusedConnection,
+        preflightEnsured: result.preflightEnsured,
+        segments,
         error: responseBody.ok ? null : output || result.output,
       });
+      segments.metricsMs = elapsedSince(metricsStartedAt);
       return json(responseBody);
     },
   };
@@ -196,6 +252,8 @@ async function handleTerminalAction({
   id,
   command,
   startedAt,
+  traceId,
+  segments,
   sessionId,
   walnutRemote,
   webSessionLedger,
@@ -203,16 +261,22 @@ async function handleTerminalAction({
   limitedOutput,
   json,
 }) {
+  const preflightStartedAt = Date.now();
   const ensure = await walnutRemote.ensureWalnutCli();
+  segments.preflightMs = elapsedSince(preflightStartedAt);
   if (!ensure.ok) {
     await webMetricsLedger.append({
       kind: "agent.action",
       operation: "agent.action",
       ok: false,
       status: 500,
-      latencyMs: Date.now() - startedAt,
+      latencyMs: elapsedSince(startedAt),
       action: id,
       mode: action.mode,
+      traceId,
+      span: "total",
+      preflightEnsured: ensure.ensured,
+      segments,
       error: "walnut cli preflight failed",
     });
     return json({
@@ -238,6 +302,7 @@ async function handleTerminalAction({
     preflightOutput: ensure.ensured ? ensure.output : "",
   };
   if (sessionId) {
+    const sessionLogStartedAt = Date.now();
     await webSessionLedger.appendEvent(sessionId, {
       role: "action",
       action: id,
@@ -245,16 +310,23 @@ async function handleTerminalAction({
       command,
       ok: true,
     });
+    segments.sessionLogMs = elapsedSince(sessionLogStartedAt);
   }
+  const metricsStartedAt = Date.now();
   await webMetricsLedger.append({
     kind: "agent.action",
     operation: "agent.action",
     ok: true,
-    latencyMs: Date.now() - startedAt,
+    latencyMs: elapsedSince(startedAt),
     action: id,
     mode: action.mode,
     source: "terminal",
+    traceId,
+    span: "total",
+    preflightEnsured: ensure.ensured,
+    segments,
   });
+  segments.metricsMs = elapsedSince(metricsStartedAt);
   return json(responseBody);
 }
 

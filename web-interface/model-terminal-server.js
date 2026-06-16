@@ -89,6 +89,7 @@ const files = new Map([
   ["/", "walnut-agent-console.html"],
   ["/workspace.html", "screen-workspace-preview.html"],
   ["/ssh-terminal.html", "ssh-terminal.html"],
+  ["/vendor/ansi_up.js", "vendor/ansi_up.js"],
   [`/${MODEL_FILE}`, MODEL_FILE],
 ]);
 
@@ -515,7 +516,17 @@ const INTENT_DELIVERIES = new Set(["none", "sync_after_preview", "sync_existing"
 
 function wantsScreenDeliveryIntent(text) {
   const value = String(text || "").trim().toLowerCase();
+  if (/不(?:要|用|必)?\s*(?:同步|部署|推送|运行到|显示到|烧录)|别\s*(?:同步|部署|推送|运行到|显示到|烧录)|只\s*(?:预览|生成|看看)|preview\s*only|no\s*(?:sync|deploy)/i.test(value)) {
+    return false;
+  }
   return /同步|部署|推送|运行到|显示到|烧录|sync|deploy|flash/.test(value);
+}
+
+function looksLikeAssistantQuestion(input) {
+  const text = String(input || "").trim().toLowerCase();
+  if (!text) return false;
+  return /^(?:你|walnutai|walnut ai|ai)\s*(?:是?谁|能做什么|可以做什么|会做什么|有什么功能|介绍(?:一下)?(?:你自己|自己)?)/i.test(text)
+    || /(?:你是?谁|你能做什么|你可以做什么|你会做什么|介绍一下你自己|介绍一下自己|有什么功能)/i.test(text);
 }
 
 function screenIntentSubject(input) {
@@ -554,6 +565,16 @@ function ruleBasedIntentClassification(text) {
     }, trimmed);
   }
 
+  if (looksLikeAssistantQuestion(trimmed)) {
+    return normalizeIntentClassification({
+      intent: "ai.chat",
+      subject: trimmed,
+      delivery: "none",
+      confidence: 0.92,
+      source: "rule",
+    }, trimmed);
+  }
+
   if (/清屏|clear|重连|断开|ssh|连接/.test(lower)) {
     return normalizeIntentClassification({ intent: "terminal.open", subject: trimmed, confidence: 0.92, source: "rule" }, trimmed);
   }
@@ -576,8 +597,8 @@ function ruleBasedIntentClassification(text) {
     return normalizeIntentClassification({ intent: "device.note.write", subject: noteMatch[1].trim(), confidence: 0.9, source: "rule" }, trimmed);
   }
 
-  if (/状态|健康|还好吗|status|系统|服务|docker|内存|存储|磁盘|空间/.test(lower) || (/怎么样/.test(lower) && /核桃派|设备|板子|系统|服务/.test(lower))) {
-    return normalizeIntentClassification({ intent: "device.status.read", subject: trimmed, confidence: 0.86, source: "rule" }, trimmed);
+  if (/gpio|引脚|针脚|i2c|spi|uart|pwm|总线|bus|set-device/.test(lower)) {
+    return normalizeIntentClassification({ intent: "device.gpio.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
   }
   if (/快照|snapshot|release|os-release|kernel|内核|hostname|启动配置|boot|设备信息|板子信息|硬件信息/.test(lower)) {
     return normalizeIntentClassification({ intent: "device.snapshot.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
@@ -585,8 +606,8 @@ function ruleBasedIntentClassification(text) {
   if (/网络|联网|wifi|wi-fi|(?<![a-z])ip(?![a-z])|路由|route|network/.test(lower)) {
     return normalizeIntentClassification({ intent: "device.network.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
   }
-  if (/gpio|引脚|针脚|i2c|spi|uart|pwm|总线|bus|set-device/.test(lower)) {
-    return normalizeIntentClassification({ intent: "device.gpio.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
+  if (/状态|健康|还好吗|status|系统|服务|docker|内存|存储|磁盘|空间/.test(lower) || (/怎么样/.test(lower) && /核桃派|设备|板子|系统|服务/.test(lower))) {
+    return normalizeIntentClassification({ intent: "device.status.read", subject: trimmed, confidence: 0.86, source: "rule" }, trimmed);
   }
   if (/今天.*(笔记|记录)|笔记.*今天|记了什么|notes|today/.test(lower)) {
     return normalizeIntentClassification({ intent: "device.notes.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
@@ -660,6 +681,7 @@ async function aiIntentClassification(text, ruleIntent) {
 
 function intentClassificationAllowed(aiIntent, ruleIntent, text) {
   if (!aiIntent || aiIntent.confidence < 0.72) return false;
+  if (ruleIntent.intent === "ai.chat" && looksLikeAssistantQuestion(text) && aiIntent.intent !== "ai.chat") return false;
   if (ruleIntent.intent === "screen.generate" && aiIntent.intent !== "screen.generate") return false;
   if (ruleIntent.intent === "screen.sync" && !["screen.sync", "screen.generate"].includes(aiIntent.intent)) return false;
   if (ruleIntent.intent.startsWith("device.") && aiIntent.intent === "terminal.tool") return false;
@@ -667,29 +689,104 @@ function intentClassificationAllowed(aiIntent, ruleIntent, text) {
   return true;
 }
 
+function canUseRuleIntentWithoutAi(ruleIntent) {
+  if (!ruleIntent || ruleIntent.source !== "rule") return false;
+  if (ruleIntent.confidence < 0.84) return false;
+  return [
+    "ai.chat",
+    "screen.sync",
+    "device.status.read",
+    "device.snapshot.read",
+    "device.network.read",
+    "device.gpio.read",
+    "device.notes.read",
+    "device.note.write",
+    "terminal.open",
+  ].includes(ruleIntent.intent);
+}
+
 async function classifyIntent(text) {
   const ruleIntent = ruleBasedIntentClassification(text);
+  if (canUseRuleIntentWithoutAi(ruleIntent)) {
+    return {
+      classification: ruleIntent,
+      ruleIntent,
+      ruleShortCircuited: true,
+      aiClassifierUsed: false,
+    };
+  }
+  let aiClassifierUsed = false;
   try {
+    aiClassifierUsed = true;
     const aiIntent = await aiIntentClassification(text, ruleIntent);
     if (intentClassificationAllowed(aiIntent, ruleIntent, text)) {
-      return { ...aiIntent, fallback: ruleIntent };
+      return {
+        classification: { ...aiIntent, fallback: ruleIntent },
+        ruleIntent,
+        ruleShortCircuited: false,
+        aiClassifierUsed,
+      };
     }
   } catch {
     // Rule-based classification remains the safety boundary if the AI classifier fails.
   }
-  return ruleIntent;
+  return {
+    classification: ruleIntent,
+    ruleIntent,
+    ruleShortCircuited: false,
+    aiClassifierUsed,
+  };
 }
 
 async function handleIntentClassify(req) {
+  const startedAt = Date.now();
+  const traceId = randomUUID();
   let body;
   try {
     body = await readJsonRequest(req);
   } catch (error) {
+    await webMetricsLedger.append({
+      kind: "web.intent.classify",
+      operation: "intent.classify",
+      ok: false,
+      status: 400,
+      latencyMs: Date.now() - startedAt,
+      traceId,
+      span: "request",
+      error: error.message,
+    });
     return json({ ok: false, error: error.message }, 400);
   }
   const text = String(body.text || "").trim();
-  if (!text) return json({ ok: false, error: "missing text" }, 400);
-  const classification = await classifyIntent(text);
+  if (!text) {
+    await webMetricsLedger.append({
+      kind: "web.intent.classify",
+      operation: "intent.classify",
+      ok: false,
+      status: 400,
+      latencyMs: Date.now() - startedAt,
+      traceId,
+      span: "request",
+      inputChars: 0,
+      error: "missing text",
+    });
+    return json({ ok: false, error: "missing text" }, 400);
+  }
+  const result = await classifyIntent(text);
+  const classification = result.classification;
+  await webMetricsLedger.append({
+    kind: "web.intent.classify",
+    operation: "intent.classify",
+    ok: true,
+    status: 200,
+    latencyMs: Date.now() - startedAt,
+    traceId,
+    span: "total",
+    inputChars: text.length,
+    classificationSource: classification.source || "unknown",
+    ruleShortCircuited: result.ruleShortCircuited,
+    aiClassifierUsed: result.aiClassifierUsed,
+  });
   return json({ ok: true, classification });
 }
 
