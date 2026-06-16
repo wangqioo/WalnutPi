@@ -105,9 +105,9 @@ def compact_architecture_preferences(text: str) -> list[MemoryCandidate]:
         if "记忆" in text and ("后台" in text or "提炼" in text or "蒸馏" in text or "已存储" in text):
             candidates.append(MemoryCandidate("workflows", "所有对话应先完整存储；长期记忆应由后台从已存储会话中提炼。"))
         else:
-            candidates.append(MemoryCandidate("workflows", "所有对话应先完整存储，作为后续检索和记忆提炼的事实源。"))
-    if "hardware cursor" in lowered or "硬件版 cursor" in lowered:
-        candidates.append(MemoryCandidate("goals", "WalnutPi 的长期方向是真正的“硬件版 Cursor”：项目记忆、成功代码沉淀、检索生成闭环。"))
+            candidates.append(MemoryCandidate("workflows", "所有对话应先完整存储为 Session Log；长期记忆只从用户明确表达的内容中保守提炼，不能把原始会话整体当作 Retrieval Corpus。"))
+    if "walnut agent console" in lowered or "walnut agent console" in text or "agent console" in lowered:
+        candidates.append(MemoryCandidate("goals", "WalnutPi 的长期方向是 Walnut Agent Console：项目记忆、成功代码沉淀、检索生成闭环和受控设备执行。"))
     if "项目推进" in text:
         candidates.append(MemoryCandidate("preferences", "用户希望对话优先推进 WalnutPi 项目落地，而不是停留在泛泛讨论。"))
     if "gpt-5.4-mini" in lowered and "默认" in text:
@@ -117,7 +117,7 @@ def compact_architecture_preferences(text: str) -> list[MemoryCandidate]:
 
 def classify_field(text: str) -> str | None:
     lowered = text.casefold()
-    if any(word in text for word in ("目标", "方向", "闭环", "愿景", "硬件版 Cursor")):
+    if any(word in text for word in ("目标", "方向", "闭环", "愿景", "Walnut Agent Console")):
         return "goals"
     if any(word in text for word in ("项目", "WalnutPi", "核桃派", "third/walnutpi", "代码库", "repo")):
         return "projects"
@@ -137,7 +137,7 @@ def has_durable_signal(text: str) -> bool:
     durable_markers = (
         "记住", "记着", "以后", "下次", "默认", "偏好", "习惯", "我的项目", "我的设备",
         "我用", "我在用", "我要的是", "我希望", "目标", "方向", "应该", "所有对话",
-        "memory", "retrieval", "corpus", "skills", "gpt-5.4-mini", "hardware cursor", "硬件版 cursor",
+        "memory", "retrieval", "corpus", "skills", "gpt-5.4-mini", "walnut agent console",
     )
     return any(marker.casefold() in lowered for marker in durable_markers)
 

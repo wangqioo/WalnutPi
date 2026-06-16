@@ -14,6 +14,7 @@ export function createWalnutRemoteAdapter({
   sshPassword,
   remoteProjectRoot,
   walnutCliSourcePath,
+  actionPolicyManifestPath,
   outputLimit,
   captureOutputLimit,
   sha256,
@@ -239,58 +240,79 @@ export function createWalnutRemoteAdapter({
     });
   }
 
-  async function localWalnutCliHash() {
-    const source = await readFile(walnutCliSourcePath, "utf8");
-    return sha256(source.replace(/\r\n/g, "\n"));
+  async function localWalnutCliBundle() {
+    const cli = (await readFile(walnutCliSourcePath, "utf8")).replace(/\r\n/g, "\n");
+    const manifest = (await readFile(actionPolicyManifestPath, "utf8")).replace(/\r\n/g, "\n");
+    return {
+      cli,
+      manifest,
+      hash: sha256(`${cli}\n--ACTION-POLICY-MANIFEST--\n${manifest}`),
+      cliHash: sha256(cli),
+      manifestHash: sha256(manifest),
+    };
   }
 
-  function walnutCliInstallScript({ expectedHash, content }) {
-    const base64 = Buffer.from(String(content || "").replace(/\r\n/g, "\n"), "utf8").toString("base64");
+  function walnutCliInstallScript({ bundle }) {
+    const cliBase64 = Buffer.from(bundle.cli, "utf8").toString("base64");
+    const manifestBase64 = Buffer.from(bundle.manifest, "utf8").toString("base64");
     return [
       "set -e",
-      `EXPECTED=${shellQuote(expectedHash)}`,
+      `EXPECTED_CLI=${shellQuote(bundle.cliHash)}`,
+      `EXPECTED_MANIFEST=${shellQuote(bundle.manifestHash)}`,
       `ROOT=${shellQuote(remoteProjectRoot)}`,
       "REMOTE=$(command -v walnut 2>/dev/null || true)",
-      "REMOTE_HASH=",
-      'if [ -n "$REMOTE" ] && [ -f "$REMOTE" ]; then REMOTE_HASH=$(sha256sum "$REMOTE" | awk \'{print $1}\'); fi',
-      'if [ "$REMOTE_HASH" = "$EXPECTED" ]; then',
-      '  printf "walnut cli ok: %s\\n" "$REMOTE_HASH"',
+      "REMOTE_CLI_HASH=",
+      "REMOTE_MANIFEST_HASH=",
+      'if [ -n "$REMOTE" ] && [ -f "$REMOTE" ]; then REMOTE_CLI_HASH=$(sha256sum "$REMOTE" | awk \'{print $1}\'); fi',
+      'if [ -f "$ROOT/action-policy-manifest.json" ]; then REMOTE_MANIFEST_HASH=$(sha256sum "$ROOT/action-policy-manifest.json" | awk \'{print $1}\'); fi',
+      'if [ "$REMOTE_CLI_HASH" = "$EXPECTED_CLI" ] && [ "$REMOTE_MANIFEST_HASH" = "$EXPECTED_MANIFEST" ]; then',
+      '  printf "walnut cli ok: %s\\naction policy manifest ok: %s\\n" "$REMOTE_CLI_HASH" "$REMOTE_MANIFEST_HASH"',
       "  exit 0",
       "fi",
       'install -d "$ROOT/walnut-assistant"',
       "base64 -d > \"$ROOT/walnut-assistant/walnut\" <<'WALNUT_CLI_FILE'",
-      base64,
+      cliBase64,
       "WALNUT_CLI_FILE",
+      "base64 -d > \"$ROOT/action-policy-manifest.json\" <<'WALNUT_ACTION_POLICY_FILE'",
+      manifestBase64,
+      "WALNUT_ACTION_POLICY_FILE",
       'chmod 0755 "$ROOT/walnut-assistant/walnut"',
       'if command -v sudo >/dev/null 2>&1; then sudo -n install -m 0755 "$ROOT/walnut-assistant/walnut" /usr/local/bin/walnut; else install -m 0755 "$ROOT/walnut-assistant/walnut" /usr/local/bin/walnut; fi',
       'INSTALLED_HASH=$(sha256sum /usr/local/bin/walnut | awk \'{print $1}\')',
-      'if [ "$INSTALLED_HASH" != "$EXPECTED" ]; then',
-      '  printf "walnut cli install hash mismatch: expected=%s installed=%s\\n" "$EXPECTED" "$INSTALLED_HASH" >&2',
+      'INSTALLED_MANIFEST_HASH=$(sha256sum "$ROOT/action-policy-manifest.json" | awk \'{print $1}\')',
+      'if [ "$INSTALLED_HASH" != "$EXPECTED_CLI" ]; then',
+      '  printf "walnut cli install hash mismatch: expected=%s installed=%s\\n" "$EXPECTED_CLI" "$INSTALLED_HASH" >&2',
+      "  exit 1",
+      "fi",
+      'if [ "$INSTALLED_MANIFEST_HASH" != "$EXPECTED_MANIFEST" ]; then',
+      '  printf "action policy manifest install hash mismatch: expected=%s installed=%s\\n" "$EXPECTED_MANIFEST" "$INSTALLED_MANIFEST_HASH" >&2',
       "  exit 1",
       "fi",
       'printf "walnut cli installed: %s -> /usr/local/bin/walnut\\n" "$INSTALLED_HASH"',
+      'printf "action policy manifest installed: %s -> $ROOT/action-policy-manifest.json\\n" "$INSTALLED_MANIFEST_HASH"',
     ].join("\n");
   }
 
   async function ensureWalnutCli({ force = false } = {}) {
-    const expectedHash = await localWalnutCliHash();
-    if (!force && walnutCliEnsureHash === expectedHash) {
-      return { ok: true, code: 0, output: `walnut cli ok: ${expectedHash}`, ensured: false };
+    const bundle = await localWalnutCliBundle();
+    if (!force && walnutCliEnsureHash === bundle.hash) {
+      return { ok: true, code: 0, output: `walnut cli ok: ${bundle.cliHash}\naction policy manifest ok: ${bundle.manifestHash}`, ensured: false };
     }
     if (!force && walnutCliEnsurePromise) return walnutCliEnsurePromise;
 
     walnutCliEnsurePromise = (async () => {
-      const content = await readFile(walnutCliSourcePath, "utf8");
       const result = await runRawScript(
-        walnutCliInstallScript({ expectedHash, content }),
+        walnutCliInstallScript({ bundle }),
         20_000,
         outputLimit,
       );
-      if (result.ok) walnutCliEnsureHash = expectedHash;
+      if (result.ok) walnutCliEnsureHash = bundle.hash;
       return {
         ...result,
         ensured: result.ok && /installed/.test(result.output),
-        expectedHash,
+        expectedHash: bundle.hash,
+        cliHash: bundle.cliHash,
+        manifestHash: bundle.manifestHash,
       };
     })();
 

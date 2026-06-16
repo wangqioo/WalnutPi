@@ -2,7 +2,7 @@
   "type": "module",
   "scripts": {
     "screen:workspace:process": "bun scripts/process-screen-workspace-source.js",
-    "screen:workspace:lvgl-build": "bun scripts/build-lvgl-app.js --workspace-lvgl 1",
+    "screen:workspace:lvgl-build": "bun scripts/build-lvgl-app.js",
     "web": "bun web-interface/model-terminal-server.js"
   },
   "dependencies": {

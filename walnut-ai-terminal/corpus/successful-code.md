@@ -10,8 +10,10 @@ Use the Screen Workspace flow for the small screen:
 Screen Manifest v2 outputs under screen/
 -> Screen Playlist v1
 -> POST /api/screen/workspace/sync with current playlistHash
--> scripts/build-lvgl-app.sh
--> sudo -n systemctl restart walnut-screen.service
+-> sync `screen/runtime/default.txt` and RGB565 frame files
+-> hot reload `walnut-screen.service` when supported
+-> scripts/build-lvgl-app.sh only when the LVGL runtime must be upgraded
+-> sudo -n systemctl restart walnut-screen.service as the upgrade fallback
 -> walnut screen state
 -> sudo -n walnut screen frame
 -> diagnostics-only walnut screen capture
@@ -22,9 +24,10 @@ Stable files:
 - `screen/playlists/default.json`
 - `screen/manifests/*.json`
 - `screen/outputs/*`
+- `screen/runtime/default.txt`
+- `screen/runtime/frames/*.rgb565`
 - `scripts/screen-workspace-vocabulary.js`
-- `scripts/generate-lvgl-screen-workspace-config.js`
-- `lvgl_app/generated/screen_workspace_config.h`
+- `scripts/generate-lvgl-screen-workspace-runtime-assets.js`
 - `lvgl_app/src/main.c`
 - `scripts/build-lvgl-app.sh`
 - `web-interface/model-terminal-server.js`
@@ -42,8 +45,6 @@ walnut screen frame
 walnut screen capture
 walnut screen capture --png-base64
 ```
-
-Do not start SSH, build, delivery, activation, or device writes in `?nossh` mode.
 
 ## Local Action JSON Pattern
 

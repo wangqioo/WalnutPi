@@ -2,42 +2,40 @@
 
 ## Project Direction
 
-WalnutPi is an AI-native terminal system for a headless Debian device.
+WalnutPi is an AI-native terminal system for a headless Debian WalnutPi Device.
 
-Current core loop:
+Current product spine:
 
 ```text
-Web conversation
--> generate a 480x320 pixel-style Screen Manifest
--> preview with LVGL
--> explicitly sync to the real WalnutPi
--> collect screen/device evidence
+Walnut Agent Console
+-> Intent Route
+-> Screen Content / Source Asset
+-> 480x320 Screen Manifest v2
+-> Screen Playlist v1
+-> Runtime Screen Assets
+-> explicit Playlist Sync
+-> Real-Device Verification
 ```
-
-Keep the project focused on this loop. Do not turn it into a generic IDE, desktop app, ESP32 platform, or VibeBoard clone.
 
 ## Main Paths
 
-- `web-interface/`: Web conversation, preview, sync API, diagnostics.
-- `lvgl_app/`: Screen Workspace playlist LVGL framebuffer runtime.
+- `web-interface/`: Walnut Agent Console, Screen Workspace UI, sync APIs, diagnostics.
+- `screen/`: Screen Workspace assets, manifests, outputs, playlists, runtime assets.
+- `lvgl_app/`: LVGL framebuffer runtime for Screen Playlist playback.
 - `scripts/screen-workspace-vocabulary.js`: Screen Manifest v2 / Playlist v1 validation and hash behavior.
-- `scripts/generate-lvgl-screen-workspace-config.js`: canonical LVGL playlist resource generator.
-- `scripts/build-lvgl-app.sh`: LVGL build helper.
-- `walnut-assistant/`: installed `walnut` CLI and `walnut screen` commands.
-- `archive/experiments/`: archived tools and experiments.
-- `archive/install-scripts/`: archived installers.
-- `third/` and `third_party/`: references and vendored dependencies.
+- `scripts/screen-workspace-pipeline.js`: Source Asset / Screen Content processing.
+- `scripts/generate-lvgl-screen-workspace-runtime-assets.js`: Runtime Screen Assets generator.
+- `scripts/build-lvgl-app.sh`: LVGL runtime build helper.
+- `walnut-assistant/`: Device Execution Surface and `walnut` CLI.
+- `walnut-ai-terminal/`: WalnutAI runtime, Durable Memory, Retrieval Corpus, device skills.
+- `docs/adr/`: architectural decisions.
+- `archive/experiments/`: Archived Capabilities.
 
-## Real-Device Debugging
+## Real-Device Verification
 
-Default to real-device testing.
+Default to real-device verification for sync, delivery, activation, service state, frame evidence, and capture evidence.
 
-- Use normal Web URLs without `?nossh` for real-device sync/debug.
-- Use `?nossh` only for preview-only local checks and safety regression tests.
-- Do not use `?nossh` when verifying build, SSH, delivery, activation, frame evidence, or service state.
-- `?nossh` must never build, SSH, deliver, activate, capture, or write to the device.
-
-Real-device commands:
+Commands:
 
 - Start Web console: `pwsh ./scripts/start-web-console.ps1`
 - Full sync/evidence pass: `pwsh ./scripts/collect-screen-sync-evidence.ps1 -Sync`
@@ -45,11 +43,7 @@ Real-device commands:
 - Save current frame PNG: `pwsh ./scripts/save-screen-capture.ps1`
 - Invoke screen CLI remotely: `pwsh ./scripts/invoke-walnut-screen.ps1 -Action state`
 - Build LVGL on device: `pwsh ./scripts/build-lvgl-on-device.ps1`
-
-Local/safety commands:
-
 - Local Web server: `bun run web`
-- Preview-only sync safety check: `pwsh ./scripts/sync-screen-via-web-api.ps1 -PreviewOnly`
 
 See `docs/real-device-command-scripts.md` before adding or changing real-device command wrappers.
 
@@ -57,35 +51,23 @@ See `docs/real-device-command-scripts.md` before adding or changing real-device 
 
 - Browser reads `GET /api/screen/workspace/playlist`.
 - Browser syncs with `POST /api/screen/workspace/sync`.
-- Sync requests must include the current `playlistHash`.
-- Missing, invalid, or stale hashes must fail before build or SSH.
-- Build uses `scripts/build-lvgl-app.sh`.
-- Remote root is `WALNUT_REMOTE_PROJECT_ROOT`, then `WALNUT_PROJECT_ROOT`, then `/home/pi/projects/WalnutPi`.
-- Web activation currently uses `sudo -n systemctl restart walnut-screen.service`.
+- Sync requests include the current `playlistHash`.
+- Runtime delivery syncs `screen/runtime/default.txt` and RGB565 frame files.
+- LVGL builds happen when the runtime needs an upgrade.
+- Remote root resolution: `WALNUT_REMOTE_PROJECT_ROOT`, then `WALNUT_PROJECT_ROOT`, then `/home/pi/projects/WalnutPi`.
+- Activation prefers runtime hot reload; `sudo -n systemctl restart walnut-screen.service` is the upgrade fallback.
 - `sudo -n walnut screen start` remains the user-facing CLI entry.
-- Evidence uses `walnut screen state` and `sudo -n walnut screen frame`.
-- Diagnostic screenshots use read-only `walnut screen capture`.
-- Artifact and delivery evidence must use real SHA-256 hashes.
+- Evidence uses service state, `walnut screen state`, `sudo -n walnut screen frame`, and read-only `walnut screen capture`.
+- Beginner Sync Status stays limited to `未同步`, `同步中`, `已同步到核桃派`, and `同步失败`.
+- Hashes, `buildId`, command output, delivery manifests, raw device evidence, frame URLs, and image bytes stay in Developer Diagnostics.
 
-Beginner UI should only show states like `未同步`, `同步中`, `已同步到核桃派`, and `同步失败`. Keep hashes, `buildId`, command output, delivery manifests, raw device evidence, frame URLs, and image bytes in developer diagnostics.
+## Agent And CLI
 
-## Walnut CLI
-
-Preserve the `walnut screen` command surface:
-
-```text
-start stop toggle state frame capture status test demo off image ai app lvgl lvgl-demo restore
-```
-
-Do not add new top-level launchers under `/usr/local/bin` when an existing `walnut` subcommand fits.
-
-## Safety Boundaries
-
-- Preserve existing `walnut screen` behavior.
-- Do not expose public root shells.
-- Do not add unauthenticated high-risk write operations.
-- High-risk actions require explicit confirmation: system writes, service replacement, reboot, shutdown, GPIO output, eMMC writes, image flashing, firmware delivery.
-- Treat install scripts, service changes, boot enablement, and new `/usr/local/bin` commands as system-write operations requiring explicit user confirmation.
+- `walnut` is the Device Execution Surface.
+- Human CLI Commands and Agent Action Commands have separate contracts.
+- Agent Action Commands should be governed by the Action Policy Manifest.
+- System Writes and high-risk Local Actions use explicit confirmation.
+- Public command additions should fit the existing `walnut` command surface when practical.
 
 ## Tool Defaults
 
@@ -94,22 +76,10 @@ Do not add new top-level launchers under `/usr/local/bin` when an existing `waln
 - Install missing tools directly when needed.
 - For local Windows tools, resolve/install in this order: `scoop`, `winget`, language package managers, then system PATH/defaults.
 
-## Compatibility
+## Domain Docs
 
-- Preserve Screen Manifest schema and hash semantics unless intentionally changing the sync contract.
-- Preserve public WalnutPi command compatibility.
-- Do not add compatibility shims, fallback scripts, broad refactors, fixtures, or snapshots unless explicitly requested.
-
-## Agent skills
-
-### Issue tracker
-
-Issues and PRDs are tracked in GitHub Issues for `wangqioo/WalnutPi`. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Use the default five-label triage vocabulary. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-This is a single-context repo. See `docs/agents/domain.md`.
+- Glossary: `CONTEXT.md`
+- Decisions: `docs/adr/`
+- Issue tracker: `docs/agents/issue-tracker.md`
+- Triage labels: `docs/agents/triage-labels.md`
+- Domain map: `docs/agents/domain.md`

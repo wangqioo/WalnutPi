@@ -1,8 +1,15 @@
 #!/usr/bin/env node
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { generateLvglScreenWorkspaceConfig } from "./generate-lvgl-screen-workspace-config.js";
+import sharp from "sharp";
+import {
+  rgb565BufferFromRgba,
+  screenManifestV2EnvelopeHash,
+  screenPlaylistV1Hash,
+  validateScreenManifestV2,
+  validateScreenPlaylistV1,
+} from "./screen-workspace-vocabulary.js";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
@@ -24,11 +31,7 @@ export async function generateLvglScreenWorkspaceRuntimeAssets({
   const framesDir = path.join(runtimeDir, "frames");
   await mkdir(framesDir, { recursive: true });
 
-  const config = await generateLvglScreenWorkspaceConfig({
-    workspaceRoot: workspace,
-    playlistId,
-    enabled: "1",
-  });
+  const config = await runtimeConfigFromWorkspace({ workspace, playlistId });
 
   const lines = [
     "schema walnutpi.lvgl-runtime-assets.v1",
@@ -79,6 +82,105 @@ export async function generateLvglScreenWorkspaceRuntimeAssets({
     frames: config.frames.map((_, index) => path.join(framesDir, `frame-${String(index).padStart(3, "0")}.rgb565`)),
     playlistHash: config.playlistHash,
   };
+}
+
+async function runtimeConfigFromWorkspace({ workspace, playlistId }) {
+  const playlistPath = path.join(workspace, "playlists", `${playlistId}.json`);
+  const playlist = JSON.parse(await readFile(playlistPath, "utf8"));
+  const normalizedPlaylist = await validateScreenPlaylistV1(playlist, {
+    playlistPath,
+    workspaceRoot: workspace,
+  });
+
+  const frames = [];
+  const items = [];
+  for (const [index, item] of normalizedPlaylist.items.entries()) {
+    const manifestPath = resolveWorkspaceReference(item.manifest, path.dirname(playlistPath), workspace, `items[${index}].manifest`);
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    const normalizedManifest = await validateScreenManifestV2(manifest, {
+      manifestPath,
+      workspaceRoot: workspace,
+    });
+    const firstFrame = frames.length;
+    const outputFrames = await imageFramesForManifest({
+      manifest: normalizedManifest,
+      manifestPath,
+      item,
+      workspaceRoot: workspace,
+    });
+    frames.push(...outputFrames);
+    items.push({
+      manifestId: normalizedManifest.id,
+      manifestHash: screenManifestV2EnvelopeHash(normalizedManifest),
+      outputType: normalizedManifest.output.type,
+      firstFrame,
+      frameCount: outputFrames.length,
+      durationMs: item.durationMs,
+      repeat: item.repeat,
+      transition: item.transition,
+    });
+  }
+
+  return {
+    playlistId: normalizedPlaylist.id,
+    playlistHash: screenPlaylistV1Hash(normalizedPlaylist),
+    loop: normalizedPlaylist.loop,
+    frames,
+    items,
+  };
+}
+
+async function imageFramesForManifest({ manifest, manifestPath, item, workspaceRoot }) {
+  const manifestDir = path.dirname(manifestPath);
+  if (manifest.output.type === "static") {
+    return [
+      await imageFrame({
+        imagePath: resolveWorkspaceReference(manifest.output.path, manifestDir, workspaceRoot, "output.path"),
+        fileSha256: manifest.output.fileSha256,
+        rgbaPixelSha256: manifest.output.rgbaPixelSha256,
+        rgb565PixelSha256: manifest.output.rgb565PixelSha256,
+        durationMs: item.durationMs,
+      }),
+    ];
+  }
+
+  return Promise.all(
+    manifest.output.frames.map((frame, index) =>
+      imageFrame({
+        imagePath: resolveWorkspaceReference(frame.path, manifestDir, workspaceRoot, `output.frames[${index}].path`),
+        fileSha256: frame.fileSha256,
+        rgbaPixelSha256: frame.rgbaPixelSha256,
+        rgb565PixelSha256: frame.rgb565PixelSha256,
+        durationMs: frame.durationMs,
+      }),
+    ),
+  );
+}
+
+async function imageFrame({ imagePath, fileSha256, rgbaPixelSha256, rgb565PixelSha256, durationMs }) {
+  const { data, info } = await sharp(imagePath)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  if (info.width !== WIDTH || info.height !== HEIGHT || info.channels !== 4) {
+    throw new Error(`runtime frame must decode to ${WIDTH}x${HEIGHT} RGBA pixels: ${imagePath}`);
+  }
+  return {
+    rgb565: rgb565BufferFromRgba(data, info),
+    fileSha256,
+    rgbaPixelSha256,
+    rgb565PixelSha256,
+    durationMs,
+  };
+}
+
+function resolveWorkspaceReference(relativePath, baseDir, workspaceRoot, field) {
+  const resolved = path.resolve(baseDir, relativePath);
+  const relative = path.relative(workspaceRoot, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`${field} must stay inside the screen workspace`);
+  }
+  return resolved;
 }
 
 function field(value) {

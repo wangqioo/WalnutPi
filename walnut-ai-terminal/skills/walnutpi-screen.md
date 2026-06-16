@@ -9,9 +9,10 @@ Known screen facts:
 - Color: RGB565
 - LVGL runtime: fbdev
 - Main playlist: `screen/playlists/default.json`
-- Generated config: `lvgl_app/generated/screen_workspace_config.h`
+- Runtime assets: `screen/runtime/default.txt` and `screen/runtime/frames/*.rgb565`
 - Build helper: `scripts/build-lvgl-app.sh`
-- Activation: `sudo -n walnut screen start`
+- Web activation: runtime hot reload when supported; `sudo -n systemctl restart walnut-screen.service` is the upgrade fallback
+- User-facing activation: `sudo -n walnut screen start`
 
 Stable `walnut screen` commands that must not be broken:
 
@@ -20,6 +21,8 @@ Stable `walnut screen` commands that must not be broken:
 - `walnut screen stop`
 - `walnut screen toggle`
 - `walnut screen state`
+
+Human screen controls remain valid CLI commands, but they are not the Web sync contract. Agent and evidence flows should prefer `walnut screen state`, `sudo -n walnut screen frame`, and `walnut screen capture` for Real-Device Verification.
 
 Read-only evidence commands:
 

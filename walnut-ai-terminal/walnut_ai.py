@@ -41,6 +41,9 @@ APP_DIR = Path(__file__).resolve().parent
 SKILLS_DIR = Path(os.getenv("WALNUT_AI_SKILLS_DIR", str(APP_DIR / "skills"))).expanduser()
 PRIMARY_SKILL = os.getenv("WALNUT_AI_PRIMARY_SKILL", "walnutpi-1b-zerow").strip() or "walnutpi-1b-zerow"
 CORPUS_DIR = Path(os.getenv("WALNUT_AI_CORPUS_DIR", str(APP_DIR / "corpus"))).expanduser()
+ACTION_POLICY_MANIFEST = Path(
+    os.getenv("WALNUT_ACTION_POLICY_MANIFEST", str(APP_DIR.parent / "action-policy-manifest.json"))
+).expanduser()
 CONTEXT_FILE_LIMIT = 5000
 RETRIEVAL_SOURCE_LIMIT = 6
 RETRIEVAL_CONTEXT_LIMIT = 14000
@@ -65,13 +68,13 @@ MUSIC_DIR_CANDIDATES = [
     Path("/home/pi/music-library"),
     Path("/root/music-library"),
 ]
-LOCAL_ACTION_TIMEOUTS = {
+DEFAULT_LOCAL_ACTION_TIMEOUTS = {
     "status": 25,
     "network": 15,
     "gpio": 25,
     "snapshot": 25,
 }
-LOCAL_ACTION_TITLES = {
+DEFAULT_LOCAL_ACTION_TITLES = {
     "status": "设备状态",
     "network": "网络检查",
     "gpio": "GPIO 只读检查",
@@ -545,6 +548,45 @@ def walnut_cli_command() -> list[str] | None:
     return [installed] if installed else None
 
 
+def load_action_policy_manifest() -> dict[str, object]:
+    try:
+        data = json.loads(ACTION_POLICY_MANIFEST.read_text(encoding="utf-8"))
+    except Exception:
+        return {"actions": {}}
+    if data.get("schema") != "walnutpi.action-policy-manifest.v1":
+        return {"actions": {}}
+    actions = data.get("actions")
+    return data if isinstance(actions, dict) else {"actions": {}}
+
+
+def walnut_ai_policy_actions() -> dict[str, dict[str, object]]:
+    manifest = load_action_policy_manifest()
+    out: dict[str, dict[str, object]] = {}
+    for action_id, spec in manifest.get("actions", {}).items():
+        if not isinstance(spec, dict):
+            continue
+        allowed = spec.get("allowedExecutors")
+        if isinstance(allowed, list) and "walnut-ai" in allowed:
+            out[str(action_id)] = spec
+    return out
+
+
+def local_action_title(action_id: str) -> str:
+    spec = walnut_ai_policy_actions().get(action_id)
+    if spec and isinstance(spec.get("title"), str):
+        return str(spec["title"])
+    return DEFAULT_LOCAL_ACTION_TITLES.get(action_id, action_id)
+
+
+def local_action_timeout(action_id: str) -> int:
+    spec = walnut_ai_policy_actions().get(action_id)
+    ai = spec.get("walnutAi") if isinstance(spec, dict) and isinstance(spec.get("walnutAi"), dict) else {}
+    timeout = ai.get("timeoutSeconds") if isinstance(ai, dict) else None
+    if isinstance(timeout, int) and 1 <= timeout <= 300:
+        return timeout
+    return DEFAULT_LOCAL_ACTION_TIMEOUTS.get(action_id, 20)
+
+
 def process_text(value: object) -> str:
     if value is None:
         return ""
@@ -554,7 +596,7 @@ def process_text(value: object) -> str:
 
 
 def walnut_action(action_id: str) -> LocalActionResult:
-    title = LOCAL_ACTION_TITLES.get(action_id, action_id)
+    title = local_action_title(action_id)
     command = walnut_cli_command()
     if not command:
         return title, "WalnutPi Local Action 入口不可用：找不到 `walnut` 命令。", False
@@ -566,7 +608,7 @@ def walnut_action(action_id: str) -> LocalActionResult:
             errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            timeout=LOCAL_ACTION_TIMEOUTS.get(action_id, 20),
+            timeout=local_action_timeout(action_id),
         )
     except subprocess.TimeoutExpired as e:
         output = (process_text(e.stdout) + process_text(e.stderr)).strip()

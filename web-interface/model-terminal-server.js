@@ -1,4 +1,3 @@
-import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -13,6 +12,12 @@ import { createWebSessionLedger } from "./web-session-ledger.js";
 import { createWebMetricsLedger } from "./web-metrics-ledger.js";
 import { createWalnutRemoteAdapter } from "./walnut-remote-adapter.js";
 import { createScreenWorkspaceStore, workspaceErrorResponse } from "./screen-workspace-store.js";
+import { actionsForExecutor, loadActionPolicyManifest } from "./action-policy.js";
+import { createAgentActionsApi } from "./agent-actions-api.js";
+import { createProjectMemoryApi } from "./project-memory-api.js";
+import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.js";
+import { createScreenWorkspaceApi } from "./screen-workspace-api.js";
+import { createStaticUiHost } from "./static-ui-host.js";
 import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.js";
 import { stableStringify } from "../scripts/screen-workspace-vocabulary.js";
 import { generateLvglScreenWorkspaceRuntimeAssets } from "../scripts/generate-lvgl-screen-workspace-runtime-assets.js";
@@ -27,6 +32,7 @@ const REMOTE_BUILD_USER = process.env.WALNUT_REMOTE_BUILD_USER || "pi";
 const BASE_DIR = import.meta.dir;
 const PROJECT_ROOT = path.resolve(BASE_DIR, "..");
 const MODEL_FILE = "0c6390ea8b1ccf186ec099456954fd42.glb";
+const ACTION_POLICY_MANIFEST_PATH = path.join(PROJECT_ROOT, "action-policy-manifest.json");
 const CODEX_AUTH_PATH = process.env.CODEX_AUTH_PATH
   ? path.resolve(process.env.CODEX_AUTH_PATH)
   : path.join(process.env.USERPROFILE || process.env.HOME || "", ".codex", "auth.json");
@@ -45,6 +51,8 @@ const SCREEN_SOURCE_IMPORT_MAX_BYTES = Number(process.env.WALNUT_SCREEN_SOURCE_I
 const SCREEN_LVGL_PREVIEW_OUTPUT_DIR = path.join(SCREEN_WORKSPACE_ROOT, "outputs", "lvgl-preview");
 const WALNUT_AI_CORPUS_DIR = process.env.WALNUT_AI_CORPUS_DIR || path.join(PROJECT_ROOT, "walnut-ai-terminal", "corpus");
 const SCREEN_SUCCESS_CORPUS_PATH = path.join(WALNUT_AI_CORPUS_DIR, "screen-sync-successes.md");
+const ACTION_POLICY_MANIFEST = await loadActionPolicyManifest(ACTION_POLICY_MANIFEST_PATH);
+const WEB_ACTIONS = actionsForExecutor(ACTION_POLICY_MANIFEST, "web");
 
 const AI_MODEL = process.env.WALNUT_AI_MODEL || "gpt-5.4-mini";
 const AI_BASE_URL = (process.env.WALNUT_AI_BASE_URL || "https://rehdasu.cn/v1").replace(/\/+$/, "");
@@ -78,23 +86,13 @@ const webMetricsLedger = createWebMetricsLedger({
 });
 
 const files = new Map([
-  ["/", "screen-workspace-preview.html"],
+  ["/", "walnut-agent-console.html"],
   ["/workspace.html", "screen-workspace-preview.html"],
   ["/ssh-terminal.html", "ssh-terminal.html"],
   [`/${MODEL_FILE}`, MODEL_FILE],
 ]);
 
-const mime = new Map([
-  [".html", "text/html; charset=utf-8"],
-  [".js", "text/javascript; charset=utf-8"],
-  [".css", "text/css; charset=utf-8"],
-  [".glb", "model/gltf-binary"],
-]);
-
-function contentType(pathname) {
-  const extension = pathname.match(/\.[^.]+$/)?.[0] || "";
-  return mime.get(extension) || "application/octet-stream";
-}
+const staticUiHost = createStaticUiHost({ baseDir: BASE_DIR, files });
 
 function json(data, status = 200) {
   return Response.json(data, { status });
@@ -254,36 +252,6 @@ async function retrieveWalnutContext(query) {
   return results.slice(0, RETRIEVAL_RESULT_LIMIT);
 }
 
-async function handleSession(req, url) {
-  const sessionId = webSessionLedger.safeSessionId(url.searchParams.get("sessionId"));
-  if (!sessionId) return json({ ok: false, error: "invalid sessionId" }, 400);
-
-  if (req.method === "GET") {
-    const limit = Math.max(1, Math.min(1000, Number(url.searchParams.get("limit") || WEB_SESSION_EVENT_LIMIT) || WEB_SESSION_EVENT_LIMIT));
-    const events = await webSessionLedger.readEvents(sessionId, limit);
-    return json({
-      ok: true,
-      schema: "walnutpi.webSession.v1",
-      sessionId,
-      events: events || [],
-    });
-  }
-
-  if (req.method === "POST") {
-    let body;
-    try {
-      body = await readJsonRequest(req);
-  } catch (error) {
-      return json({ ok: false, error: error.message }, 400);
-    }
-    const event = await webSessionLedger.appendEvent(sessionId, body.event || body);
-    if (!event) return json({ ok: false, error: "invalid session event" }, 400);
-    return json({ ok: true, schema: "walnutpi.webSessionAppend.v1", sessionId, event });
-  }
-
-  return json({ ok: false, error: "Method not allowed" }, 405);
-}
-
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -324,6 +292,7 @@ const walnutRemote = createWalnutRemoteAdapter({
   sshPassword: SSH_PASSWORD,
   remoteProjectRoot: REMOTE_PROJECT_ROOT,
   walnutCliSourcePath: WALNUT_CLI_SOURCE_PATH,
+  actionPolicyManifestPath: ACTION_POLICY_MANIFEST_PATH,
   outputLimit: ACTION_OUTPUT_LIMIT,
   captureOutputLimit: CAPTURE_OUTPUT_LIMIT,
   sha256,
@@ -417,11 +386,15 @@ const screenEvidenceLedger = createScreenEvidenceLedger({
   buildRepairHint: buildScreenRepairHint,
 });
 
-const safeRecordId = screenEvidenceLedger.safeRecordId;
-const screenRecordFrameUrl = screenEvidenceLedger.frameUrl;
-const readScreenRecord = screenEvidenceLedger.readRecord;
-const updateScreenRecord = screenEvidenceLedger.updateRecord;
-const listScreenRecords = screenEvidenceLedger.listRecords;
+const screenDiagnosticsApi = createScreenDiagnosticsApi({
+  screenEvidenceLedger,
+  screenFrameTickets,
+  screenFrameTicketTtlMs: SCREEN_FRAME_TICKET_TTL_MS,
+  walnutRemote,
+  validSha256,
+  sha256,
+  json,
+});
 
 function parseResponsesOutput(data) {
   if (typeof data?.output_text === "string" && data.output_text.trim()) return data.output_text.trim();
@@ -952,9 +925,21 @@ function newScreenBuildId(startedAt = new Date()) {
 const screenWorkspaceSyncWorkflow = createScreenWorkspaceSyncWorkflow({
   readPlaylistEnvelope: () => screenWorkspaceStore.readPlaylistEnvelope("default"),
   deliveryAdapter: screenDeliveryAdapter(),
-  rememberFrameTicket: rememberScreenFrameTicket,
+  rememberFrameTicket: screenDiagnosticsApi.rememberScreenFrameTicket,
   validSha256,
   newBuildId: newScreenBuildId,
+});
+
+const agentActionsApi = createAgentActionsApi({
+  policyActions: WEB_ACTIONS,
+  walnutRemote,
+  runRemote,
+  webSessionLedger,
+  webMetricsLedger,
+  shellQuote,
+  limitedOutput,
+  json,
+  aiTimeoutSeconds: AI_TIMEOUT_SECONDS,
 });
 
 async function readJsonRequest(req) {
@@ -965,1120 +950,42 @@ async function readJsonRequest(req) {
   }
 }
 
+const projectMemoryApi = createProjectMemoryApi({
+  webSessionLedger,
+  readWalnutMemory,
+  retrieveWalnutContext,
+  memoryFile: WALNUT_AI_MEMORY_FILE,
+  skillsDir: WALNUT_AI_SKILLS_DIR,
+  corpusDir: WALNUT_AI_CORPUS_DIR,
+  eventLimit: WEB_SESSION_EVENT_LIMIT,
+  readJsonRequest,
+  json,
+});
+
 function frameUrl(buildId) {
   return `/api/screen/frame/${encodeURIComponent(buildId)}`;
 }
 
-function cleanupScreenFrameTickets() {
-  const now = Date.now();
-  for (const [buildId, ticket] of screenFrameTickets.entries()) {
-    if (now - ticket.createdAt > SCREEN_FRAME_TICKET_TTL_MS) {
-      screenFrameTickets.delete(buildId);
-    }
-  }
-}
-
-function rememberScreenFrameTicket(buildId, ticket) {
-  cleanupScreenFrameTickets();
-  screenFrameTickets.set(buildId, {
-    ...ticket,
-    createdAt: Date.now(),
-  });
-}
-
-function validPngBytes(bytes) {
-  const signature = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
-  return bytes.length > signature.length && bytes.subarray(0, signature.length).equals(signature);
-}
-
-function parseCaptureResult(result) {
-  if (!result.ok) return null;
-  let capture;
-  try {
-    capture = JSON.parse(result.output);
-  } catch {
-    return null;
-  }
-
-  if (!capture || typeof capture !== "object" || !validSha256(capture.pngSha256) || typeof capture.pngBase64 !== "string") {
-    return null;
-  }
-
-  const bytes = Buffer.from(capture.pngBase64, "base64");
-  if (!validPngBytes(bytes) || sha256(bytes) !== capture.pngSha256) {
-    return null;
-  }
-  return { capture, bytes };
-}
-
-async function handleScreenFrame(buildId) {
-  cleanupScreenFrameTickets();
-  const ticket = screenFrameTickets.get(buildId);
-  if (!ticket) {
-    return json(
-      {
-        ok: false,
-        error: "unknown or expired screen frame",
-        summary: "screen frame evidence is only available after a recent successful sync",
-      },
-      404,
-    );
-  }
-
-  const captureResult = await walnutRemote.capturePngBase64();
-  const parsed = parseCaptureResult(captureResult);
-  if (!parsed) {
-    return json(
-      {
-        ok: false,
-        error: "screen capture failed",
-        output: captureResult.output,
-      },
-      502,
-    );
-  }
-
-  let recordWarning = "";
-  try {
-    await cacheScreenFramePng(buildId, parsed);
-  } catch (error) {
-    recordWarning = `screen record frame was not cached: ${error.message}`;
-  }
-
-  return new Response(parsed.bytes, {
-    headers: {
-      "content-type": "image/png",
-      "cache-control": "no-store",
-      "x-walnut-png-sha256": parsed.capture.pngSha256,
-      "x-walnut-raw-sha256": parsed.capture.rawSha256,
-      "x-walnut-sync-raw-sha256": ticket.frameSha256 || "",
-      "x-walnut-playlist-sha256": ticket.playlistHash || "",
-      "x-walnut-manifest-sha256": ticket.manifestHash || "",
-      "x-walnut-artifact-sha256": ticket.artifactHash || "",
-      "x-walnut-record-warning": recordWarning,
-    },
-  });
-}
-
-async function cacheScreenFramePng(buildId, parsed) {
-  await screenEvidenceLedger.writeFramePng(buildId, parsed);
-}
-
-async function handleScreenRecordFrame(buildId) {
-  const { id, bytes } = await screenEvidenceLedger.readFramePng(buildId);
-  if (!id) return json({ ok: false, error: "Invalid screen record id" }, 400);
-  if (!bytes) return json({ ok: false, error: "screen record frame not found" }, 404);
-
-  if (!validPngBytes(bytes)) {
-    return json({ ok: false, error: "screen record frame is not a valid PNG" }, 500);
-  }
-
-  const record = await readScreenRecord(id);
-  return new Response(bytes, {
-    headers: {
-      "content-type": "image/png",
-      "cache-control": "no-store",
-      "x-walnut-png-sha256": record?.framePng?.pngSha256 || sha256(bytes),
-      "x-walnut-raw-sha256": record?.framePng?.rawSha256 || record?.screenEvidence?.frame?.sha256 || "",
-      "x-walnut-playlist-sha256": record?.playlistHash || "",
-      "x-walnut-manifest-sha256": record?.manifestHash || "",
-      "x-walnut-artifact-sha256": record?.artifactHash || "",
-    },
-  });
-}
-
-async function handleScreenRecord(buildId) {
-  const id = safeRecordId(buildId);
-  if (!id) return json({ ok: false, error: "Invalid screen record id" }, 400);
-
-  const record = await readScreenRecord(id);
-  if (!record) return json({ ok: false, error: "screen record not found" }, 404);
-
-  return json({
-    ok: true,
-    record: {
-      ...record,
-      framePng: record.framePng
-        ? {
-            ...record.framePng,
-            url: screenRecordFrameUrl(record.buildId),
-          }
-        : null,
-    },
-  });
-}
-
-async function handleScreenRecordList() {
-  return json({
-    ok: true,
-    records: await listScreenRecords(),
-  });
-}
-
-async function handleScreenWorkspacePlaylist(url) {
-  try {
-    const playlistId = url.searchParams.get("id") || "default";
-    return json(await screenWorkspaceStore.readPlaylistEnvelope(playlistId));
-  } catch (error) {
-    return workspaceErrorResponse(error, json);
-  }
-}
-
-async function handleScreenWorkspaceManifest(manifestId) {
-  try {
-    const envelope = await screenWorkspaceStore.readManifest(manifestId);
-    return json({
-      ok: true,
-      schema: "walnutpi.screenWorkspaceManifestEnvelope.v1",
-      manifest: envelope.manifest,
-      manifestHash: envelope.manifestHash,
-    });
-  } catch (error) {
-    return workspaceErrorResponse(error, json);
-  }
-}
-
-async function handleScreenWorkspaceAsset(url) {
-  try {
-    const asset = await screenWorkspaceStore.assetResponse(url.pathname);
-    if (!asset) return json({ ok: false, error: "asset route not found" }, 404);
-    return new Response(Bun.file(asset.filePath), {
-      headers: asset.headers,
-    });
-  } catch (error) {
-    return workspaceErrorResponse(error, json);
-  }
-}
-
-async function handleScreenWorkspaceImport(req) {
-  let body;
-  try {
-    body = await readJsonRequest(req);
-  } catch (error) {
-    return json({ ok: false, error: error.message }, 400);
-  }
-
-  try {
-    const sourceId = cleanScreenWorkspaceId(body.sourceId || body.id || `source-${Date.now()}`, "sourceId");
-    const sourceUrl = cleanWorkspaceSourceUrl(body.url || body.sourceUrl);
-    const imported = await importWorkspaceSourceUrl({
-      sourceId,
-      sourceUrl,
-      license: body.license || "unknown-personal-sync",
-      title: body.title,
-    });
-
-    await webMetricsLedger.append({
-      kind: "screen.workspace.import",
-      operation: "screen.workspace.import",
-      ok: true,
-      sourceId,
-      mediaType: imported.mediaType,
-      bytes: imported.bytes,
-    });
-
-    return json({
-      ok: true,
-      schema: "walnutpi.screenWorkspaceImportResult.v1",
-      source: imported.sourceRecord,
-      sourceAssetId: sourceId,
-    });
-  } catch (error) {
-    await webMetricsLedger.append({
-      kind: "screen.workspace.import",
-      operation: "screen.workspace.import",
-      ok: false,
-      error: error.message,
-    });
-    return json({
-      ok: false,
-      error: "screen workspace import failed",
-      output: error.message,
-    }, error.status || 400);
-  }
-}
-
-async function handleScreenWorkspaceProcess(req) {
-  let body;
-  try {
-    body = await readJsonRequest(req);
-  } catch (error) {
-    return json({ ok: false, error: error.message }, 400);
-  }
-
-  try {
-    const sourceAssetRecord = body.sourceAssetId
-      ? await readWorkspaceSourceAsset(body.sourceAssetId)
-      : null;
-    const sourcePath = sourceAssetRecord?.originalPath || cleanWorkspaceSourcePath(body.sourcePath || body.path);
-    const screenId = cleanScreenWorkspaceId(body.screenId || body.id, "screenId");
-    const sourceId = body.sourceId
-      ? cleanScreenWorkspaceId(body.sourceId, "sourceId")
-      : sourceAssetRecord?.id || `${screenId}-source`;
-    const outputType = cleanWorkspaceOutputType(body.outputType || body.type || "static");
-    const preset = cleanWorkspacePreset(body.preset || "fit-cover:480x320");
-    const animation = cleanWorkspaceAnimation(body.animation || {});
-    const result = await processSourceAssetToScreenOutput({
-      workspaceRoot: SCREEN_WORKSPACE_ROOT,
-      plan: {
-        id: body.planId,
-        screenId,
-        title: body.title,
-        description: body.description,
-        animation,
-      },
-      sourceAsset: {
-        id: sourceId,
-        path: sourcePath,
-        selected: true,
-        mediaType: body.mediaType || sourceAssetRecord?.mediaType,
-        license: body.license || sourceAssetRecord?.license || "unknown-personal-sync",
-        origin: body.origin || sourceAssetRecord?.origin || null,
-      },
-      outputType,
-      preset,
-    });
-
-    let playlist = null;
-    if (body.playlist !== false) {
-      const playlistMode = cleanWorkspacePlaylistMode(body.playlistMode || body.playlistAction || "replace");
-      const writePlaylist = playlistMode === "append" ? appendScreenPlaylistItem : writeDefaultScreenPlaylist;
-      playlist = await writePlaylist({
-        workspaceRoot: SCREEN_WORKSPACE_ROOT,
-        playlistId: typeof body.playlist === "string" ? body.playlist : "default",
-        manifestId: result.screenId,
-        durationMs: cleanWorkspaceInteger(body.durationMs || 8000, "durationMs", 1, 86400000),
-        repeat: cleanWorkspaceInteger(body.repeat || 1, "repeat", 1, 1000),
-        loop: body.loop === undefined ? true : Boolean(body.loop),
-      });
-    }
-
-    await webMetricsLedger.append({
-      kind: "screen.workspace.process",
-      operation: "screen.workspace.process",
-      ok: true,
-      outputType: result.output.type,
-      screenId: result.screenId,
-      preset,
-    });
-
-    return json({
-      ok: true,
-      schema: "walnutpi.screenWorkspaceProcessResult.v1",
-      workspaceRoot: SCREEN_WORKSPACE_ROOT,
-      screenId: result.screenId,
-      manifest: result.manifest,
-      output: result.output,
-      playlist: playlist?.playlist || null,
-    });
-  } catch (error) {
-    await webMetricsLedger.append({
-      kind: "screen.workspace.process",
-      operation: "screen.workspace.process",
-      ok: false,
-      error: error.message,
-    });
-    return json({
-      ok: false,
-      error: "screen workspace processing failed",
-      output: error.message,
-    }, 400);
-  }
-}
-
-async function handleScreenWorkspaceLvglPreview() {
-  try {
-    const envelope = await screenWorkspaceStore.readPlaylistEnvelope("default");
-    await mkdir(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, { recursive: true });
-    const runtimeAssets = await generateLvglScreenWorkspaceRuntimeAssets({
-      workspaceRoot: SCREEN_WORKSPACE_ROOT,
-      playlistId: "default",
-    });
-
-    const build = await runLvglPreviewBuild();
-    if (!build.ok) {
-      return json({
-        ok: false,
-        error: "LVGL preview build failed",
-        output: build.output,
-      }, 500);
-    }
-
-    const exePath = lvglPreviewExePath();
-    if (!existsSync(exePath)) {
-      return json({
-        ok: false,
-        error: "LVGL preview executable is missing",
-        output: exePath,
-      }, 500);
-    }
-
-    const advanceMs = lvglPreviewAdvanceTimes(envelope);
-    const frames = [];
-    for (const ms of advanceMs) {
-      const stem = `lvgl-${String(ms).padStart(5, "0")}ms`;
-      const bmpPath = path.join(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, `${stem}.bmp`);
-      const pngPath = path.join(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, `${stem}.png`);
-      const rendered = await runLocal(exePath, [bmpPath, "--advance-ms", String(ms), "--runtime", runtimeAssets.indexPath], {
-        timeoutMs: 30_000,
-        outputLimit: 12_000,
-      });
-      if (!rendered.ok) {
-        return json({
-          ok: false,
-          error: "LVGL preview render failed",
-          output: rendered.output,
-          advanceMs: ms,
-        }, 500);
-      }
-      await ensurePreviewPng(bmpPath, pngPath);
-      frames.push({
-        advanceMs: ms,
-        bmp: screenWorkspaceAssetUrl(bmpPath),
-        png: screenWorkspaceAssetUrl(pngPath),
-      });
-    }
-
-    return json({
-      ok: true,
-      schema: "walnutpi.screenWorkspaceLvglPreview.v1",
-      playlistHash: envelope.playlistHash,
-      runtimeIndex: screenWorkspaceAssetUrl(runtimeAssets.indexPath),
-      itemCount: envelope.items.length,
-      frameCount: frames.length,
-      frames,
-      buildOutput: build.output,
-    });
-  } catch (error) {
-    return json({
-      ok: false,
-      error: "LVGL preview failed",
-      output: error.message,
-    }, 500);
-  }
-}
-
-async function readWorkspaceSourceAsset(sourceAssetId) {
-  const cleanId = cleanScreenWorkspaceId(sourceAssetId, "sourceAssetId");
-  const sourceJsonPath = path.resolve(SCREEN_WORKSPACE_ROOT, "sources", cleanId, "source.json");
-  const sourceRoot = path.resolve(SCREEN_WORKSPACE_ROOT, "sources");
-  const relativeToSources = path.relative(sourceRoot, sourceJsonPath);
-  if (relativeToSources.startsWith("..") || path.isAbsolute(relativeToSources)) {
-    throw new Error("sourceAssetId must stay inside the Screen Workspace sources");
-  }
-  const sourceRecord = JSON.parse(await readFile(sourceJsonPath, "utf8"));
-  if (!sourceRecord || typeof sourceRecord !== "object" || Array.isArray(sourceRecord)) {
-    throw new Error("source asset record must be an object");
-  }
-  if (sourceRecord.selected === false) {
-    throw new Error("source asset must be selected before processing");
-  }
-  const original = String(sourceRecord.original || "").trim();
-  if (!original) throw new Error("source asset original is missing");
-  const originalPath = path.resolve(path.dirname(sourceJsonPath), original);
-  const relativeToWorkspace = path.relative(SCREEN_WORKSPACE_ROOT, originalPath);
-  if (relativeToWorkspace.startsWith("..") || path.isAbsolute(relativeToWorkspace)) {
-    throw new Error("source asset original must stay inside the Screen Workspace");
-  }
-  return {
-    ...sourceRecord,
-    id: cleanId,
-    sourceJsonPath,
-    originalPath,
-  };
-}
-
-async function importWorkspaceSourceUrl({
-  sourceId,
-  sourceUrl,
-  license,
-  title,
-}) {
-  const response = await fetch(sourceUrl, {
-    redirect: "follow",
-    signal: typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
-      ? AbortSignal.timeout(30_000)
-      : undefined,
-    headers: {
-      "user-agent": "WalnutPi Screen Workspace source importer",
-      accept: "image/png,image/jpeg,image/gif,image/webp,video/mp4,video/webm,video/quicktime,*/*;q=0.2",
-    },
-  });
-  if (!response.ok) {
-    throw new Error(`source download failed with HTTP ${response.status}`);
-  }
-
-  const contentLength = Number(response.headers.get("content-length") || 0);
-  if (contentLength > SCREEN_SOURCE_IMPORT_MAX_BYTES) {
-    throw new Error(`source is too large; max ${SCREEN_SOURCE_IMPORT_MAX_BYTES} bytes`);
-  }
-
-  const mediaType = cleanWorkspaceImportMediaType(response.headers.get("content-type"));
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length === 0) throw new Error("source download was empty");
-  if (bytes.length > SCREEN_SOURCE_IMPORT_MAX_BYTES) {
-    throw new Error(`source is too large; max ${SCREEN_SOURCE_IMPORT_MAX_BYTES} bytes`);
-  }
-
-  const sourceDir = path.join(SCREEN_WORKSPACE_ROOT, "sources", sourceId);
-  const extension = workspaceImportExtension(mediaType, sourceUrl);
-  const originalFileName = `original${extension}`;
-  const originalPath = path.join(sourceDir, originalFileName);
-  await mkdir(sourceDir, { recursive: true });
-  await writeFile(originalPath, bytes);
-
-  const sourceRecord = {
-    schema: "walnutpi.screen-source-asset.v1",
-    id: sourceId,
-    ...(title ? { title: String(title).replace(/\s+/g, " ").trim().slice(0, 80) } : {}),
-    selected: true,
-    importedAt: new Date().toISOString(),
-    original: originalFileName,
-    fileSha256: sha256(bytes),
-    mediaType,
-    license: String(license || "unknown-personal-sync").replace(/\s+/g, " ").trim().slice(0, 120),
-    origin: sourceUrl,
-  };
-  await writeFile(path.join(sourceDir, "source.json"), `${JSON.stringify(sourceRecord, null, 2)}\n`, "utf8");
-
-  return {
-    sourceRecord,
-    mediaType,
-    bytes: bytes.length,
-  };
-}
-
-function cleanScreenWorkspaceId(value, field) {
-  const text = String(value || "").trim();
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(text)) {
-    throw new Error(`${field} must be a simple slug`);
-  }
-  return text;
-}
-
-function cleanWorkspaceSourceUrl(value) {
-  const text = String(value || "").trim();
-  if (!text) throw new Error("sourceUrl is required");
-  let parsed;
-  try {
-    parsed = new URL(text);
-  } catch {
-    throw new Error("sourceUrl must be a valid URL");
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    throw new Error("sourceUrl must use http or https");
-  }
-  parsed.hash = "";
-  return parsed.toString();
-}
-
-function cleanWorkspaceImportMediaType(value) {
-  const mediaType = String(value || "").split(";")[0].trim().toLowerCase();
-  const allowed = new Set([
-    "image/png",
-    "image/jpeg",
-    "image/gif",
-    "image/webp",
-    "video/mp4",
-    "video/webm",
-    "video/quicktime",
-  ]);
-  if (!allowed.has(mediaType)) {
-    throw new Error("source URL must point to a PNG, JPEG, GIF, WebP, MP4, WebM, or MOV file");
-  }
-  return mediaType;
-}
-
-function workspaceImportExtension(mediaType, sourceUrl) {
-  const byType = {
-    "image/png": ".png",
-    "image/jpeg": ".jpg",
-    "image/gif": ".gif",
-    "image/webp": ".webp",
-    "video/mp4": ".mp4",
-    "video/webm": ".webm",
-    "video/quicktime": ".mov",
-  };
-  const extension = path.extname(new URL(sourceUrl).pathname).toLowerCase();
-  if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".webm", ".mov"].includes(extension)) {
-    return extension === ".jpeg" ? ".jpg" : extension;
-  }
-  return byType[mediaType] || ".bin";
-}
-
-function lvglPreviewExePath() {
-  return process.platform === "win32"
-    ? path.join(PROJECT_ROOT, "build", "lvgl_app-windows", "walnut-lvgl-preview.exe")
-    : path.join(PROJECT_ROOT, "build", "lvgl_app", "walnut-lvgl-preview");
-}
-
-async function runLvglPreviewBuild() {
-  if (process.platform === "win32") {
-    const pwsh = findWindowsCommand("pwsh.exe") || findWindowsCommand("powershell.exe") || "pwsh";
-    return runLocal(pwsh, ["./scripts/build-lvgl-app.ps1", "-WorkspaceLvgl", "1"], {
-      timeoutMs: 120_000,
-      outputLimit: 24_000,
-    });
-  }
-  return runLocal("bash", ["./scripts/build-lvgl-app.sh"], {
-    timeoutMs: 120_000,
-    outputLimit: 24_000,
-  });
-}
-
-function lvglPreviewAdvanceTimes(envelope) {
-  const first = envelope?.items?.[0];
-  const output = first?.output;
-  if (!output || output.type === "static") return [0];
-  const frames = Array.isArray(output.frames) ? output.frames : [];
-  const duration = frames.reduce((sum, frame) => sum + Math.max(1, Number(frame.durationMs || 100)), 0);
-  if (duration <= 0) return [0];
-  const count = Math.min(24, Math.max(1, frames.length));
-  if (count === 1) return [0];
-  return [...new Set(Array.from({ length: count }, (_, index) => (
-    Math.floor(index * (duration - 1) / (count - 1))
-  )))];
-}
-
-async function ensurePreviewPng(bmpPath, pngPath) {
-  if (process.platform === "win32") {
-    const script = [
-      "Add-Type -AssemblyName System.Drawing",
-      `$bmp = [System.Drawing.Image]::FromFile('${escapePowershellSingleQuoted(bmpPath)}')`,
-      "try {",
-      `  $bmp.Save('${escapePowershellSingleQuoted(pngPath)}', [System.Drawing.Imaging.ImageFormat]::Png)`,
-      "} finally {",
-      "  $bmp.Dispose()",
-      "}",
-    ].join("\n");
-    const pwsh = findWindowsCommand("pwsh.exe") || findWindowsCommand("powershell.exe") || "pwsh";
-    const converted = await runLocal(pwsh, ["-NoProfile", "-Command", script], {
-      timeoutMs: 30_000,
-      outputLimit: 8_000,
-    });
-    if (!converted.ok) throw new Error(`LVGL preview PNG conversion failed: ${converted.output}`);
-    return;
-  }
-  await copyFile(bmpPath, pngPath);
-}
-
-function screenWorkspaceAssetUrl(filePath) {
-  const resolved = path.resolve(filePath);
-  const relative = path.relative(SCREEN_WORKSPACE_ROOT, resolved);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error("LVGL preview output must stay inside the Screen Workspace");
-  }
-  return `/api/screen/workspace/assets/${encodeURIComponent(relative.replaceAll("\\", "/"))}`;
-}
-
-function escapePowershellSingleQuoted(value) {
-  return String(value).replace(/'/g, "''");
-}
-
-function cleanWorkspaceSourcePath(value) {
-  const text = String(value || "").trim();
-  if (!text) throw new Error("sourcePath is required");
-  const resolved = path.resolve(text);
-  const relativeToProject = path.relative(PROJECT_ROOT, resolved);
-  if (relativeToProject.startsWith("..") || path.isAbsolute(relativeToProject)) {
-    throw new Error("sourcePath must stay inside the WalnutPi project");
-  }
-  return resolved;
-}
-
-function cleanWorkspaceOutputType(value) {
-  const text = String(value || "static").trim();
-  if (text !== "static" && text !== "animated") throw new Error("outputType must be static or animated");
-  return text;
-}
-
-function cleanWorkspacePreset(value) {
-  const text = String(value || "").trim();
-  const allowed = new Set([
-    "fit-cover:480x320",
-    "fit-contain:480x320",
-    "pixel-grid:120x80@4x",
-    "pixel-grid:240x160@2x",
-  ]);
-  if (!allowed.has(text)) throw new Error("preset is not supported");
-  return text;
-}
-
-function cleanWorkspaceAnimation(value) {
-  const animation = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
-    fps: cleanWorkspaceInteger(animation.fps || 6, "animation.fps", 1, 60),
-    maxSeconds: cleanWorkspaceInteger(animation.maxSeconds || 8, "animation.maxSeconds", 1, 60),
-    maxFrames: cleanWorkspaceInteger(animation.maxFrames || 24, "animation.maxFrames", 1, 80),
-  };
-}
-
-function cleanWorkspacePlaylistMode(value) {
-  const text = String(value || "replace").trim();
-  if (text !== "replace" && text !== "append") throw new Error("playlistMode must be replace or append");
-  return text;
-}
-
-function cleanWorkspaceInteger(value, field, low, high) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) throw new Error(`${field} must be a number`);
-  const rounded = Math.round(number);
-  if (rounded !== number || rounded < low || rounded > high) {
-    throw new Error(`${field} must be an integer between ${low} and ${high}`);
-  }
-  return rounded;
-}
-
-function cleanPixelDiffHash(value, field) {
-  const text = String(value || "").trim();
-  if (!/^[a-f0-9]{8}$/i.test(text) && !validSha256(text)) {
-    throw new Error(`${field} must be an 8-char FNV hash or SHA-256 hex`);
-  }
-  return text.toLowerCase();
-}
-
-function cleanPixelDiffNumber(value, field, min, max, digits = 6) {
-  const number = Number(value);
-  if (!Number.isFinite(number) || number < min || number > max) {
-    throw new Error(`${field} must be between ${min} and ${max}`);
-  }
-  return Number(number.toFixed(digits));
-}
-
-function cleanPixelDiffInteger(value, field, min, max) {
-  if (!Number.isInteger(value) || value < min || value > max) {
-    throw new Error(`${field} must be an integer between ${min} and ${max}`);
-  }
-  return value;
-}
-
-function normalizeWebDevicePixelDiff(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("webDevicePixelDiff must be an object");
-  }
-  const schema = String(value.schema || "").trim();
-  if (!["walnutpi.webDevicePixelDiff.v1", "walnutpi.webDevicePixelDiff.v2"].includes(schema)) {
-    throw new Error("webDevicePixelDiff schema must be walnutpi.webDevicePixelDiff.v1 or walnutpi.webDevicePixelDiff.v2");
-  }
-  const status = String(value.status || "").trim();
-  if (!["matched", "different", "unavailable"].includes(status)) {
-    throw new Error("webDevicePixelDiff status is invalid");
-  }
-  const limitations = Array.isArray(value.limitations)
-    ? value.limitations.map((item) => String(item || "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 4)
-    : [];
-  const manifestHash = value.manifestHash ? String(value.manifestHash).trim() : null;
-  if (manifestHash && !validSha256(manifestHash)) {
-    throw new Error("manifestHash must be SHA-256 hex");
-  }
-  const width = cleanPixelDiffInteger(value.width, "width", 1, 4096);
-  const height = cleanPixelDiffInteger(value.height, "height", 1, 4096);
-  const comparedPixels = schema === "walnutpi.webDevicePixelDiff.v2"
-    ? cleanPixelDiffInteger(value.comparedPixels, "comparedPixels", 1, 4096 * 4096)
-    : width * height;
-  const differentPixels = cleanPixelDiffInteger(value.differentPixels, "differentPixels", 0, 4096 * 4096);
-  if (differentPixels > comparedPixels) {
-    throw new Error("differentPixels must not exceed comparedPixels");
-  }
-  return {
-    schema,
-    status,
-    claim: String(value.claim || "web-lvgl-preview-compared-to-device-png").slice(0, 120),
-    source: String(value.source || (schema.endsWith(".v2") ? "actual-lvgl-offscreen-bmp" : "semantic-canvas-preview"))
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 80),
-    manifestHash,
-    frameUrl: value.frameUrl ? String(value.frameUrl).slice(0, 240) : null,
-    previewHash: cleanPixelDiffHash(value.previewHash, "previewHash"),
-    devicePngHash: cleanPixelDiffHash(value.devicePngHash, "devicePngHash"),
-    width,
-    height,
-    comparedPixels,
-    threshold: cleanPixelDiffNumber(value.threshold, "threshold", 0, 1),
-    differentPixels,
-    diffRatio: cleanPixelDiffNumber(value.diffRatio, "diffRatio", 0, 1),
-    averageChannelDelta: cleanPixelDiffNumber(value.averageChannelDelta, "averageChannelDelta", 0, 255, 3),
-    limitations,
-    capturedAt: new Date().toISOString(),
-  };
-}
-
-async function handleScreenPixelDiff(req) {
-  let body;
-  try {
-    body = await readJsonRequest(req);
-  } catch (error) {
-    return json({ ok: false, error: error.message }, 400);
-  }
-
-  const buildId = String(body.buildId || "").trim();
-  const safeBuildId = safeRecordId(buildId);
-  if (!safeBuildId) {
-    return json({ ok: false, error: "invalid buildId", summary: "缺少有效的同步记录。" }, 400);
-  }
-
-  let webDevicePixelDiff;
-  try {
-    webDevicePixelDiff = normalizeWebDevicePixelDiff(body.webDevicePixelDiff);
-  } catch (error) {
-    return json({ ok: false, error: error.message, summary: "Web/device pixel diff 格式无效。" }, 400);
-  }
-
-  const existingRecord = await readScreenRecord(safeBuildId);
-  if (!existingRecord) {
-    return json({ ok: false, error: "screen record not found", summary: "找不到这次同步记录。" }, 404);
-  }
-  if (
-    webDevicePixelDiff.manifestHash
-    && existingRecord.manifestHash
-    && webDevicePixelDiff.manifestHash !== existingRecord.manifestHash
-  ) {
-    return json({
-      ok: false,
-      error: "stale pixel diff manifestHash",
-      summary: "Web/device pixel diff 对应的 manifest 和同步记录不一致，请重新打开设备截图。",
-      manifestHash: existingRecord.manifestHash,
-    }, 409);
-  }
-
-  const record = await updateScreenRecord(safeBuildId, (nextRecord) => {
-    nextRecord.webDevicePixelDiff = webDevicePixelDiff;
-    return nextRecord;
-  });
-
-  return json({
-    ok: true,
-    buildId: safeBuildId,
-    webDevicePixelDiff: record.webDevicePixelDiff,
-  });
-}
-
-async function handleMemory() {
-  const memory = await readWalnutMemory();
-  return json({
-    ok: true,
-    schema: "walnutpi.memoryView.v1",
-    memoryFile: WALNUT_AI_MEMORY_FILE,
-    memory,
-  });
-}
-
-async function handleRetrieval(url) {
-  const query = url.searchParams.get("query") || "";
-  const results = await retrieveWalnutContext(query);
-  return json({
-    ok: true,
-    schema: "walnutpi.retrievalView.v1",
-    query,
-    skillsDir: WALNUT_AI_SKILLS_DIR,
-    corpusDir: WALNUT_AI_CORPUS_DIR,
-    results,
-  });
-}
-
-async function handleProjectMemory(url) {
-  const query = url.searchParams.get("query") || "";
-  const [memory, retrieval] = await Promise.all([
-    readWalnutMemory(),
-    retrieveWalnutContext(query),
-  ]);
-  return json({
-    ok: true,
-    schema: "walnutpi.projectMemoryView.v1",
-    query,
-    memoryFile: WALNUT_AI_MEMORY_FILE,
-    skillsDir: WALNUT_AI_SKILLS_DIR,
-    corpusDir: WALNUT_AI_CORPUS_DIR,
-    memory,
-    retrieval,
-  });
-}
-
-async function handleScreenWorkspaceSync(req, mode = "remote") {
-  const startedAt = Date.now();
-  const outcome = await screenWorkspaceSyncWorkflow.run({
-    requestJson: () => req.json(),
-    mode,
-  });
-  await webMetricsLedger.append({
-    kind: "screen.workspace.sync",
-    operation: "screen.workspace.sync",
-    ok: Boolean(outcome.result?.ok),
-    status: outcome.status,
-    latencyMs: Date.now() - startedAt,
-    mode: outcome.result?.mode,
-    stage: outcome.result?.failedStage || "complete",
-    buildId: outcome.result?.buildId,
-    playlistHash: outcome.result?.playlistHash,
-    error: outcome.result?.ok ? null : outcome.result?.summary || outcome.result?.output,
-  });
-  return persistScreenSyncResult(outcome.result, outcome.commandResults, outcome.status);
-}
-
-const ACTIONS = {
-  status: {
-    title: "查状态",
-    risk: "read",
-    mode: "remote",
-    command: "if walnut action --help >/dev/null 2>&1; then walnut action run status --json; else walnut status; fi",
-    parseJsonOutput: true,
-    reply: "我会读取系统、网络、存储、服务和音频状态。",
-    timeoutMs: 20_000,
-  },
-  snapshot: {
-    title: "设备快照",
-    risk: "read",
-    mode: "remote",
-    command: "if walnut action --help >/dev/null 2>&1; then walnut action run snapshot --json; else hostname; uname -a; cat /etc/os-release 2>/dev/null | head -n 6; walnut screen state 2>/dev/null || true; fi",
-    parseJsonOutput: true,
-    reply: "我会先做只读设备快照，确认板子、系统、引脚和 overlay 状态。",
-    timeoutMs: 20_000,
-  },
-  network: {
-    title: "网络检查",
-    risk: "read",
-    mode: "remote",
-    command: "if walnut action --help >/dev/null 2>&1; then walnut action run network --json; else ip -brief addr; ip route; command -v nmcli >/dev/null 2>&1 && nmcli -t -f DEVICE,STATE,CONNECTION device status || true; fi",
-    parseJsonOutput: true,
-    reply: "我会检查 IP、默认路由和 Wi-Fi 状态。",
-    timeoutMs: 12_000,
-  },
-  gpio: {
-    title: "GPIO 检查",
-    risk: "read",
-    mode: "remote",
-    command: "if walnut action --help >/dev/null 2>&1; then walnut action run gpio --json; elif command -v gpio >/dev/null 2>&1; then gpio pins; gpio pin i2c; gpio pin spi; gpio pin uart; else echo 'gpio unavailable'; fi",
-    parseJsonOutput: true,
-    reply: "我会只读检查引脚、总线和 overlay，避免误占用 GPIO。",
-    timeoutMs: 20_000,
-  },
-  notes: {
-    title: "今天笔记",
-    risk: "read",
-    mode: "remote",
-    command: "walnut today",
-    reply: "我会读取今天保存的核桃派笔记。",
-    timeoutMs: 10_000,
-  },
-  note: {
-    title: "记录笔记",
-    risk: "write-low",
-    mode: "remote",
-    buildCommand(body) {
-      const text = String(body.text || "").trim();
-      if (!text) throw new Error("缺少要记录的内容。");
-      return `walnut note ${shellQuote(text)}`;
-    },
-    reply: "我会把这句话写进核桃派本地笔记。",
-    timeoutMs: 10_000,
-  },
-  ai: {
-    title: "WalnutAI Agent",
-    risk: "read",
-    mode: "remote",
-    async buildCommand(body) {
-      const text = String(body.text || "").trim();
-      if (!text) throw new Error("缺少要问 WalnutAI 的内容。");
-      return {
-        command: `WALNUT_AI_TIMEOUT=${shellQuote(AI_TIMEOUT_SECONDS)} WALNUT_AI_ENABLE_INLINE_MEMORY=0 WALNUT_AI_DISABLE_SESSION_LOG=1 walnut-ai ${shellQuote(text)}`,
-        contextUsed: {
-          schema: "walnutpi.webAiDelegation.v1",
-          delegatedTo: "walnut-ai",
-          toolRouting: "device-side",
-          memoryDistillCandidate: /记住|记着|以后|下次|我的偏好|我喜欢|我不喜欢|我习惯|我是|我叫|我用|我在用|我的项目|我的设备|所有对话|目标|默认/.test(text),
-        },
-      };
-    },
-    reply: "",
-    timeoutMs: (AI_TIMEOUT_SECONDS + 15) * 1000,
-  },
-  video: {
-    title: "彩色视频",
-    risk: "interactive",
-    mode: "terminal",
-    command: "walnut video color",
-    reply: "我会直接运行彩色 ASCII 视频命令，不打开菜单。",
-  },
-};
-
-function actionSummary(action, id) {
-  return {
-    id,
-    title: action.title,
-    risk: action.risk,
-    mode: action.mode,
-    reply: action.reply,
-  };
-}
-
-function aiActionOutputFailed(output) {
-  const firstLine = String(output || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean) || "";
-  return /^(API 请求失败|API HTTP|OPENAI_API_KEY|usage:|walnut: error:|ERR:|\[local\])/i.test(firstLine);
-}
-
-async function handleAction(req) {
-  const startedAt = Date.now();
-  let body;
-  try {
-    body = await req.json();
-  } catch {
-    return json({ ok: false, error: "请求不是有效 JSON。" }, 400);
-  }
-
-  const id = String(body.action || "");
-  const action = ACTIONS[id];
-  if (!action) {
-    await webMetricsLedger.append({
-      kind: "agent.action",
-      operation: "agent.action",
-      ok: false,
-      status: 400,
-      latencyMs: Date.now() - startedAt,
-      action: id || "unknown",
-      error: "unknown action",
-    });
-    return json({ ok: false, error: "未知或未允许的动作。" }, 400);
-  }
-  const sessionId = webSessionLedger.safeSessionId(body.sessionId);
-
-  let command = action.command;
-  let contextUsed = null;
-  try {
-    if (action.buildCommand) {
-      const built = await action.buildCommand(body);
-      if (typeof built === "string") {
-        command = built;
-      } else if (built && typeof built === "object") {
-        command = built.command;
-        contextUsed = built.contextUsed || null;
-      }
-    }
-    } catch (error) {
-    await webMetricsLedger.append({
-      kind: "agent.action",
-      operation: "agent.action",
-      ok: false,
-      status: 400,
-      latencyMs: Date.now() - startedAt,
-      action: id,
-      mode: action.mode,
-      error: error.message,
-    });
-    return json({ ok: false, error: error.message }, 400);
-  }
-
-  if (action.mode === "terminal") {
-    const ensure = await walnutRemote.ensureWalnutCli();
-    if (!ensure.ok) {
-      await webMetricsLedger.append({
-        kind: "agent.action",
-        operation: "agent.action",
-        ok: false,
-        status: 500,
-        latencyMs: Date.now() - startedAt,
-        action: id,
-        mode: action.mode,
-        error: "walnut cli preflight failed",
-      });
-      return json({
-        ok: false,
-        ...actionSummary(action, id),
-        command,
-        code: ensure.code,
-        remoteOk: false,
-        output: limitedOutput(
-          [
-            "[walnut cli preflight failed]",
-            ensure.output,
-            "",
-            "[terminal command skipped]",
-            command,
-          ].join("\n"),
-        ),
-      }, 500);
-    }
-    const responseBody = {
-      ok: true,
-      ...actionSummary(action, id),
-      command,
-      preflightOutput: ensure.ensured ? ensure.output : "",
-    };
-    if (sessionId) {
-      await webSessionLedger.appendEvent(sessionId, {
-        role: "action",
-        action: id,
-        content: action.reply || "",
-        command,
-        ok: true,
-      });
-    }
-    await webMetricsLedger.append({
-      kind: "agent.action",
-      operation: "agent.action",
-      ok: true,
-      latencyMs: Date.now() - startedAt,
-      action: id,
-      mode: action.mode,
-      source: "terminal",
-    });
-    return json(responseBody);
-  }
-
-  const result = await runRemote(command, action.timeoutMs);
-  const outputFailed = id === "ai" && aiActionOutputFailed(result.output);
-  let actionEvidence = null;
-  let output = result.output;
-  let remoteOk = result.ok;
-  if (action.parseJsonOutput && result.output) {
-    try {
-      actionEvidence = JSON.parse(result.output);
-      if (typeof actionEvidence?.output === "string") {
-        output = actionEvidence.output;
-      }
-      if (typeof actionEvidence?.ok === "boolean") {
-        remoteOk = result.ok && actionEvidence.ok;
-      }
-    } catch {
-      actionEvidence = null;
-    }
-  }
-  const responseBody = {
-    ok: remoteOk && !outputFailed,
-    ...actionSummary(action, id),
-    command,
-    code: result.code,
-    remoteOk,
-    outputFailed,
-    output,
-    actionEvidence,
-    contextUsed,
-  };
-  if (sessionId) {
-    await webSessionLedger.appendEvent(sessionId, {
-      role: "action",
-      action: id,
-      content: output || result.output || "",
-      command,
-      ok: responseBody.ok,
-      contextUsed,
-    });
-  }
-  await webMetricsLedger.append({
-    kind: "agent.action",
-    operation: "agent.action",
-    ok: responseBody.ok,
-    latencyMs: Date.now() - startedAt,
-    action: id,
-    mode: action.mode,
-    source: contextUsed?.delegatedTo || "remote",
-    error: responseBody.ok ? null : output || result.output,
-  });
-  return json(responseBody);
-}
+const screenWorkspaceApi = createScreenWorkspaceApi({
+  screenWorkspaceStore,
+  screenWorkspaceSyncWorkflow,
+  readJsonRequest,
+  json,
+  workspaceErrorResponse,
+  webMetricsLedger,
+  processSourceAssetToScreenOutput,
+  appendScreenPlaylistItem,
+  writeDefaultScreenPlaylist,
+  generateLvglScreenWorkspaceRuntimeAssets,
+  persistScreenSyncResult,
+  runLocal,
+  findWindowsCommand,
+  sha256,
+  projectRoot: PROJECT_ROOT,
+  screenWorkspaceRoot: SCREEN_WORKSPACE_ROOT,
+  screenSourceImportMaxBytes: SCREEN_SOURCE_IMPORT_MAX_BYTES,
+  screenLvglPreviewOutputDir: SCREEN_LVGL_PREVIEW_OUTPUT_DIR,
+});
 
 function startSsh(ws) {
   const target = `${SSH_USER}@${SSH_HOST}`;
@@ -2169,25 +1076,29 @@ const server = Bun.serve({
     }
 
     if (url.pathname === "/api/actions") {
-      return json({
+      return json(agentActionsApi.actionPolicyView({
         target: `${SSH_USER}@${SSH_HOST}`,
-        actions: Object.fromEntries(Object.entries(ACTIONS).map(([id, action]) => [id, actionSummary(action, id)])),
-      });
+        manifest: {
+          schema: ACTION_POLICY_MANIFEST.schema,
+          version: ACTION_POLICY_MANIFEST.version,
+          path: path.relative(PROJECT_ROOT, ACTION_POLICY_MANIFEST_PATH).replaceAll("\\", "/"),
+        },
+      }));
     }
 
     if (url.pathname === "/api/memory") {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleMemory();
+      return projectMemoryApi.handleMemory();
     }
 
     if (url.pathname === "/api/retrieval") {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleRetrieval(url);
+      return projectMemoryApi.handleRetrieval(url);
     }
 
     if (url.pathname === "/api/project-memory") {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleProjectMemory(url);
+      return projectMemoryApi.handleProjectMemory(url);
     }
 
     if (url.pathname === "/api/metrics") {
@@ -2197,7 +1108,7 @@ const server = Bun.serve({
     }
 
     if (url.pathname === "/api/session") {
-      return handleSession(req, url);
+      return projectMemoryApi.handleSession(req, url);
     }
 
     if (url.pathname === "/api/intent/classify") {
@@ -2207,27 +1118,27 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/screen/workspace/playlist") {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleScreenWorkspacePlaylist(url);
+      return screenWorkspaceApi.handleScreenWorkspacePlaylist(url);
     }
 
     if (url.pathname === "/api/screen/workspace/process") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleScreenWorkspaceProcess(req);
+      return screenWorkspaceApi.handleScreenWorkspaceProcess(req);
     }
 
     if (url.pathname === "/api/screen/workspace/import") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleScreenWorkspaceImport(req);
+      return screenWorkspaceApi.handleScreenWorkspaceImport(req);
     }
 
     if (url.pathname === "/api/screen/workspace/lvgl-preview") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleScreenWorkspaceLvglPreview();
+      return screenWorkspaceApi.handleScreenWorkspaceLvglPreview();
     }
 
     if (url.pathname === "/api/screen/workspace/sync") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleScreenWorkspaceSync(req, previewOnly(url) ? "preview" : "remote");
+      return screenWorkspaceApi.handleScreenWorkspaceSync(req, previewOnly(url) ? "preview" : "remote");
     }
 
     const screenWorkspaceManifestMatch = url.pathname.match(/^\/api\/screen\/workspace\/manifest\/([^/]+)$/);
@@ -2239,22 +1150,22 @@ const server = Bun.serve({
       } catch {
         return json({ ok: false, error: "Invalid screen workspace manifest id" }, 400);
       }
-      return handleScreenWorkspaceManifest(manifestId);
+      return screenWorkspaceApi.handleScreenWorkspaceManifest(manifestId);
     }
 
     if (url.pathname.startsWith("/api/screen/workspace/assets/")) {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleScreenWorkspaceAsset(url);
+      return screenWorkspaceApi.handleScreenWorkspaceAsset(url);
     }
 
     if (url.pathname === "/api/screen/pixel-diff") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleScreenPixelDiff(req);
+      return screenDiagnosticsApi.handleScreenPixelDiff(req, readJsonRequest);
     }
 
     if (url.pathname === "/api/screen/records") {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
-      return handleScreenRecordList();
+      return screenDiagnosticsApi.handleScreenRecordList();
     }
 
     const screenRecordFrameMatch = url.pathname.match(/^\/api\/screen\/records\/([^/]+)\/frame\.png$/);
@@ -2266,7 +1177,7 @@ const server = Bun.serve({
       } catch {
         return json({ ok: false, error: "Invalid screen record id" }, 400);
       }
-      return handleScreenRecordFrame(buildId);
+      return screenDiagnosticsApi.handleScreenRecordFrame(buildId);
     }
 
     const screenRecordMatch = url.pathname.match(/^\/api\/screen\/records\/([^/]+)$/);
@@ -2278,7 +1189,7 @@ const server = Bun.serve({
       } catch {
         return json({ ok: false, error: "Invalid screen record id" }, 400);
       }
-      return handleScreenRecord(buildId);
+      return screenDiagnosticsApi.handleScreenRecord(buildId);
     }
 
     const screenFrameMatch = url.pathname.match(/^\/api\/screen\/frame\/([^/]+)$/);
@@ -2291,30 +1202,16 @@ const server = Bun.serve({
       } catch {
         return json({ ok: false, error: "Invalid screen frame id" }, 400);
       }
-      return handleScreenFrame(buildId);
+      return screenDiagnosticsApi.handleScreenFrame(buildId);
     }
 
     if (url.pathname === "/api/action") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       if (previewOnly(url)) return previewOnlyJson();
-      return handleAction(req);
+      return agentActionsApi.handleAction(req);
     }
 
-    const file = files.get(url.pathname);
-    if (!file) {
-      return new Response("Not found", { status: 404 });
-    }
-
-    const body = Bun.file(`${BASE_DIR}/${file}`);
-    if (!(await body.exists())) {
-      return new Response("Not found", { status: 404 });
-    }
-
-    return new Response(body, {
-      headers: {
-        "content-type": contentType(file),
-      },
-    });
+    return (await staticUiHost.handle(url.pathname)) || new Response("Not found", { status: 404 });
   },
   websocket: {
     open(ws) {

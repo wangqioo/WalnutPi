@@ -1,32 +1,88 @@
 # WalnutPi
 
-WalnutPi is an AI-native terminal system for a headless Debian device with a 480x320 screen. This context defines the language for describing what appears on that screen and how the result is synchronized to the device.
+WalnutPi is an AI-native terminal system for a headless Debian device with a 480x320 screen. This context defines the language for the Walnut Agent Console, the device capabilities it can orchestrate, and the screen results it can synchronize to the device.
 
 ## Language
 
-**Screen Manifest**:
-A contract for one or more final 480x320 WalnutPi screen images, including the source material, processing steps, and evidence needed to reproduce or verify the displayed result. The final screen image is authoritative; recipes, searches, and source references support that output.
-_Avoid_: Screen config, LVGL config, component manifest, display spec, launch command
+### Product And Device
 
-**LVGL Screen App**:
-The program that displays a Screen Manifest result on the real WalnutPi framebuffer. It renders the final screen output; it is not the Screen Manifest itself.
-_Avoid_: Manifest, screen contract
+**Walnut Agent Console**:
+The natural-language user surface for WalnutPi that interprets intent, orchestrates controlled device capabilities, creates screen results, and presents evidence. It may use CLI commands, memory, retrieval, and the Screen Workspace, but it is not a general-purpose IDE.
+_Avoid_: IDE, generic IDE, tool button panel, desktop application platform
 
-**Screen Output**:
-The local final 480x320 image artifact referenced by a Screen Manifest and identified by file and pixel SHA-256 hashes. Synchronization and device evidence should be tied to this artifact's pixel content rather than to live search results or remote source material.
-_Avoid_: Remote image, search result, processing recipe
+**WalnutPi Device**:
+The headless Debian hardware target that runs the Device Execution Surface, WalnutAI, and the LVGL Screen App. It is the real device synchronized by the Walnut Agent Console, not a simulated preview or generic Linux computer.
+_Avoid_: generic board, desktop Linux, preview device, ESP32 board
 
-**Animated Screen Output**:
-A local animation artifact whose frames are final 480x320 screen images with explicit timing. A GIF may be a Source Asset or derived export, but the canonical animation output is a 480x320 frame sequence plus timing; its overall hash is derived from each frame's pixel hash and duration.
-_Avoid_: Source GIF, live animation recipe, single-frame hash
+### Agent And Execution
 
-**Animation Budget**:
-The default processing limit for Animated Screen Outputs. The first version should default to 10 fps, 8 seconds, and at most 80 final 480x320 frames, with larger outputs requiring an explicit advanced choice.
-_Avoid_: Unlimited GIF import, video archive, unbounded frame dump
+**Intent Route**:
+The controlled interpretation of a user request that selects whether it should enter normal answering, the Screen Workspace, a Local Action, Daily Notes, Durable Memory, Retrieval Corpus, or a confirmation flow. It may be produced by local rules or AI assistance, but it is only a planning entry point and must be validated against Local Action Policy before any Local Action executes.
+_Avoid_: model decision, free-form command, execution permission
 
-**Pixel Hash**:
-A SHA-256 hash of normalized decoded 480x320 pixel content. RGBA pixel hashes support preview and processing checks, while RGB565 pixel hashes are authoritative for device framebuffer evidence; file hashes prove delivery integrity for specific encoded artifacts.
-_Avoid_: File hash, manifest hash, source hash
+**Device Execution Surface**:
+The stable command surface on WalnutPi for executing device capabilities such as status checks, screen control, notes, media tools, maintenance, and controlled local actions. The Walnut Agent Console orchestrates this surface, while advanced users may also use it directly in a terminal.
+_Avoid_: IDE backend, shell wrapper, random scripts, tool menu
+
+**Human CLI Command**:
+A `walnut` command intended for a person using the terminal directly, including menus, TUI tools, demos, maintenance entry points, and manual operations. It may prioritize discoverability and terminal experience, but it is not automatically a stable Agent contract.
+_Avoid_: agent action, policy action, machine contract
+
+**Agent Action Command**:
+A stable, policy-governed command in the Device Execution Surface intended for Walnut Agent Console or WalnutAI invocation. It should have an action identifier, risk class, parameters, machine-readable evidence shape, and Action Policy Manifest entry.
+_Avoid_: menu command, TUI command, human shortcut, arbitrary shell
+
+**Device Transport**:
+The controlled connection path between the Walnut Agent Console and the WalnutPi Device for running Local Actions, synchronizing Runtime Screen Assets, and collecting evidence. It may use SSH or a local agent, but it does not define Local Action Policy or the Screen Sync contract.
+_Avoid_: random SSH, public shell, sync contract
+
+**Local Action**:
+A single controlled device action requested through the Device Execution Surface by the Walnut Agent Console or WalnutAI. Read-only Local Actions may run directly, while high-risk Local Actions must enter a confirmation flow before any side effect.
+_Avoid_: Arbitrary shell, terminal command, script execution, tool call
+
+**Confirmed Local Action**:
+A high-risk Local Action that requires explicit user confirmation before execution, such as system writes, service replacement, reboot, shutdown, GPIO output, storage writes, image flashing, firmware delivery, or eMMC changes. Without confirmation, the system may explain the impact or prepare the action but must not perform the side effect.
+_Avoid_: automatic fix, silent write, direct shell command
+
+**System Write**:
+An operation that changes WalnutPi Device system state, such as installing services, writing `/usr/local/bin` or `/opt`, replacing systemd units, enabling boot services, installing packages, changing overlays, rebooting, or shutting down. System Writes must be handled as Confirmed Local Actions or explicit manual operations.
+_Avoid_: setup helper, silent install, safe write
+
+**Local Action Policy**:
+The explicit, auditable policy layer that decides which Local Actions may run directly, require confirmation, or must be refused. It may use rules, allowlists, risk categories, and AI-assisted intent recognition, but execution authority must not depend on a model freely choosing commands.
+_Avoid_: prompt-only safety, model decides execution, ad hoc if statements
+
+**Action Policy Manifest**:
+The auditable declaration source for Local Action Policy, defining action identifiers, risk classes, confirmation requirements, allowed executors, input parameters, evidence shapes, and whether an action may be exposed through the Walnut Agent Console. Web, WalnutAI, and the Device Execution Surface should derive Local Action behavior from it.
+_Avoid_: router hints, hard-coded action list, prompt schema only
+
+**WalnutAI**:
+The local AI agent runtime for WalnutPi, usable directly from the CLI and available to support the Walnut Agent Console with intent routing, Local Action summaries, Durable Memory, and Retrieval Corpus context. It is not a separate chat product or the cloud model itself.
+_Avoid_: chatbot only, separate product, cloud model
+
+### Memory And Retrieval
+
+**Durable Memory**:
+Long-lived, non-secret facts, preferences, environment notes, workflows, and goals distilled from user-authored conversations or explicit notes. It is not the raw chat history, daily note text, command logs, or project corpus.
+_Avoid_: Chat history, daily notes, logs, corpus
+
+**Daily Notes**:
+User-authored dated notes kept as raw personal material for later reading or memory distillation. Daily Notes may inform Durable Memory, but they remain the user's original note text.
+_Avoid_: memory.json, chat log, retrieval corpus
+
+**Session Log**:
+An append-only record of raw Walnut Agent Console or WalnutAI interactions used as source material for later Durable Memory distillation. It is not Durable Memory, Daily Notes, or a user-facing knowledge base.
+_Avoid_: memory, notes, corpus, transcript database
+
+**Retrieval Corpus**:
+Project knowledge that WalnutAI and the Walnut Agent Console can search before answering or planning, including device skills, compact real-device success patterns, verified workflows, and screen sync experience. It is not user private memory, raw conversation history, or the authoritative Sync Record.
+_Avoid_: memory, daily notes, chat history, docs dump, sync record
+
+### Screen Workspace
+
+**Screen Content**:
+The semantic material a user wants to show on the WalnutPi screen, such as text, weather, device status, notes, images, GIFs, videos, or generated visuals. Screen Content must be turned into Source Assets or directly rendered into Screen Outputs before Sync.
+_Avoid_: Screen Output, playlist item, LVGL widget
 
 **Source Asset**:
 An original image, GIF, sprite sheet, frame sequence, palette, hand-authored pixel-art file, generated image, or programmatically generated visual used to create a Screen Output. Source Assets may have any dimensions; they must be processed into a final 480x320 Screen Output before Sync.
@@ -36,33 +92,73 @@ _Avoid_: Screen Output, framebuffer evidence, synced artifact
 A search result or discovered asset that may become a Source Asset after user selection. Candidate Source Assets are not automatically downloaded, processed, synced, or treated as part of the current screen contract.
 _Avoid_: Source Asset, Screen Output, selected asset
 
-**Sync**:
-The explicit operation that delivers the current local Screen Output to the real WalnutPi and collects device evidence. Sync uses local artifacts and hashes; it does not re-fetch source material, depend on live search results, or regenerate missing outputs. Missing artifacts or hash mismatches fail Sync and must be fixed through the processing pipeline.
-_Avoid_: Regeneration, remote search, live download
+**Unknown-License Source**:
+A Source Asset whose license or usage rights are not known. It may be used for personal device Sync when clearly marked in Processing Provenance, but it must not be treated as commercially cleared material.
+_Avoid_: Open asset, commercial asset, license-free source
 
-**Playlist Sync**:
-The default Sync mode that delivers the current Screen Playlist and every referenced Screen Manifest output needed for playback. A single-output test can still sync one manifest directly, but normal user-facing sync targets the current playlist.
-_Avoid_: Source sync, search sync, partial playlist delivery
+**Screen Plan**:
+An AI- or user-authored intent for what the WalnutPi screen should show, including Screen Content, source selection, search terms, style direction, processing parameters, and playlist suggestions. It guides the Tool-Assisted Processing Pipeline but is not the authoritative Screen Manifest.
+_Avoid_: Screen Manifest, output hash, synced artifact
 
-**Playlist Evidence**:
-Device evidence that ties the current framebuffer state to a Screen Playlist, the active Playlist Item, that item's Screen Manifest, and the displayed output or frame hash. It proves the current display belongs to the playlist without requiring a full playlist cycle during ordinary Sync.
-_Avoid_: Full playback audit, source-material proof, preview-only evidence
+**Executed Screen Plan**:
+A Screen Plan that led to a selected Source Asset and generated Screen Output. Executed plans should be saved in the Screen Workspace so the creative intent and processing choices remain traceable.
+_Avoid_: Chat transcript, abandoned idea, authoritative manifest
 
-**Screen Playlist**:
-A playback contract that sequences multiple Screen Manifests for the WalnutPi screen. It owns playback concerns such as item order, duration, repeat behavior, and transitions while each referenced manifest keeps its own output artifact hash and provenance; it only accepts already-normalized Screen Manifest v2 outputs.
-_Avoid_: Multi-page manifest, asset folder, LVGL config
+**Tool-Assisted Processing Pipeline**:
+The process that turns Source Assets into Screen Outputs by composing established tools for decoding, frame extraction, resizing, cropping, pixelation, compositing, hashing, and LVGL resource preparation. It should prefer tools such as ffmpeg, Sharp, and LVGL converters over hand-written image processing cores.
+_Avoid_: Hand-rolled decoder, bespoke scaler, runtime asset search
 
-**Screen Manifest v2**:
-The `walnutpi.screen-manifest.v2` schema for one Screen Output or Animated Screen Output plus Processing Provenance.
-_Avoid_: component manifest, playlist
+**Processing Provenance**:
+The source and transformation history used to create a Screen Output, such as search terms, prompts, source names, source URLs, local source hashes, license or usage notes, crop boxes, scaling choices, pixelation settings, palette choices, tool names and versions, seeds when available, and source hashes. It explains how the output was produced, but Sync is authoritative only for the local Screen Output hash.
+_Avoid_: Sync input, live recipe, runtime dependency
+
+**Screen Output**:
+The local final 480x320 image artifact referenced by a Screen Manifest and identified by file and pixel SHA-256 hashes. Synchronization and device evidence should be tied to this artifact's pixel content rather than to live search results or remote source material.
+_Avoid_: Remote image, search result, processing recipe
+
+**Animated Screen Output**:
+A local animation artifact whose frames are final 480x320 screen images with explicit timing. A GIF may be a Source Asset or derived export, but the canonical animation output is a 480x320 frame sequence plus timing; its overall hash is derived from each frame's pixel hash and duration.
+_Avoid_: Source GIF, live animation recipe, single-frame hash
 
 **Pre-rendered Screen**:
 A Screen Output where text, UI, imagery, and visual styling have already been composed into final 480x320 pixels before Sync. The LVGL Screen App displays these pixels instead of interpreting UI components at runtime.
 _Avoid_: Runtime UI component, LVGL layout, device-side text rendering
 
+**Default Screen Output**:
+The first Screen Output generated automatically after a user selects a Source Asset, using conservative processing defaults such as fitting or cropping to 480x320, nearest-neighbor scaling for pixel styles, and bounded animation frame rates. Users can adjust processing parameters and regenerate before Sync.
+_Avoid_: Final approval, source selection, manual-only render
+
+**Pixel Style**:
+The recommended visual treatment for many Screen Outputs, usually created by downscaling Source Assets to a smaller pixel grid and scaling back to 480x320 with nearest-neighbor sampling. Pixel Style is a processing choice, not a mandatory rule for every Screen Output.
+_Avoid_: Required output format, component style, LVGL widget theme
+
+**Pixel Hash**:
+A SHA-256 hash of normalized decoded 480x320 pixel content. RGBA pixel hashes support preview and processing checks, while RGB565 pixel hashes are authoritative for device framebuffer evidence; file hashes prove delivery integrity for specific encoded artifacts.
+_Avoid_: File hash, manifest hash, source hash
+
+**Screen Manifest**:
+A contract for one final 480x320 Screen Output or Animated Screen Output, including the source material, processing steps, and evidence needed to reproduce or verify the displayed result. The final screen output is authoritative; recipes, searches, and source references support that output.
+_Avoid_: Screen config, LVGL config, component manifest, display spec, launch command
+
+**Screen Manifest v2**:
+The `walnutpi.screen-manifest.v2` schema for one Screen Output or Animated Screen Output plus Processing Provenance.
+_Avoid_: component manifest, playlist
+
+**Screen Playlist**:
+A playback contract that sequences multiple Screen Manifests for the WalnutPi screen. It owns playback concerns such as item order, duration, repeat behavior, and transitions while each referenced manifest keeps its own output artifact hash and provenance; it only accepts already-normalized Screen Manifest v2 outputs.
+_Avoid_: Multi-page manifest, asset folder, LVGL config
+
 **Screen Playlist v1**:
 The `walnutpi.screen-playlist.v1` schema for sequencing multiple Screen Manifest v2 files.
 _Avoid_: multi-page manifest, source folder
+
+**Playlist Item**:
+One entry in a Screen Playlist. The first version should identify a Screen Manifest and include the playback duration, repeat count, and a simple cut transition.
+_Avoid_: Raw output file, source asset, nested manifest
+
+**Playlist Loop**:
+The behavior that restarts a Screen Playlist from the beginning after its last Playlist Item. Infinite playback belongs to the playlist loop setting, while Playlist Item repeat counts remain finite.
+_Avoid_: Item repeat, animation frame timing, sync completion
 
 **Screen Workspace**:
 The root-level `screen/` area that owns Screen Manifests, Screen Outputs, Screen Playlists, Source Assets, and their provenance. The LVGL app consumes generated resources from this workspace but does not own the screen contract.
@@ -73,41 +169,77 @@ The Screen Manifests, Screen Playlist files, and Screen Outputs needed to reprod
 _Avoid_: Search cache, candidate dump, generated build output
 
 **Screen Workspace UI**:
-The user-facing workflow for searching or selecting Source Assets, processing them into Screen Outputs, previewing playback, adding items to a Screen Playlist, and explicitly syncing to the WalnutPi. Manifest JSON, hashes, and raw evidence belong in developer diagnostics rather than the beginner flow.
-_Avoid_: JSON editor, hash dashboard, generic IDE
+The screen-focused workspace within the Walnut Agent Console for selecting Source Assets, processing them into Screen Outputs, previewing playback, adding items to a Screen Playlist, and explicitly syncing to the WalnutPi. Manifest JSON, hashes, and raw evidence belong in developer diagnostics rather than the beginner flow.
+_Avoid_: Full Agent Console, JSON editor, hash dashboard, generic IDE
 
-**Default Screen Output**:
-The first Screen Output generated automatically after a user selects a Source Asset, using conservative processing defaults such as fitting or cropping to 480x320, nearest-neighbor scaling for pixel styles, and bounded animation frame rates. Users can adjust processing parameters and regenerate before Sync.
-_Avoid_: Final approval, source selection, manual-only render
+**Screen Preview**:
+A local preview shown in the Walnut Agent Console or Screen Workspace UI for checking the expected Screen Output or Screen Playlist playback before Sync. It is not device evidence and does not prove that the WalnutPi Device is displaying the result.
+_Avoid_: device evidence, sync result, frame capture
 
-**Screen Plan**:
-An AI- or user-authored intent for what the WalnutPi screen should show, including search terms, style direction, candidate processing parameters, and playlist suggestions. It guides the Tool-Assisted Processing Pipeline but is not the authoritative Screen Manifest.
-_Avoid_: Screen Manifest, output hash, synced artifact
+**LVGL Screen App**:
+The program that displays a Screen Manifest result on the real WalnutPi framebuffer. It renders the final screen output; it is not the Screen Manifest itself.
+_Avoid_: Manifest, screen contract
 
-**Executed Screen Plan**:
-A Screen Plan that led to a selected Source Asset and generated Screen Output. Executed plans should be saved in the Screen Workspace so the creative intent and processing choices remain traceable.
-_Avoid_: Chat transcript, abandoned idea, authoritative manifest
+**Interactive Screen App**:
+A local WalnutPi screen application that accepts user input such as keys, buttons, or touch. It is distinct from Screen Output and Screen Playlist playback, and should enter the current product spine only after a separate interaction contract is defined.
+_Avoid_: Screen Manifest, Playlist Item, pre-rendered screen
 
-**Playlist Item**:
-One entry in a Screen Playlist. The first version should identify a Screen Manifest and include the playback duration, repeat count, and a simple cut transition.
-_Avoid_: Raw output file, source asset, nested manifest
+**Runtime Screen Assets**:
+The hot-reloadable assets consumed by the LVGL Screen App on WalnutPi, including the runtime playlist index and RGB565 frame files under `screen/runtime/`. They are the normal delivery format for Screen Playlist playback.
+_Avoid_: Embedded C array, rebuilt LVGL binary, source asset
 
-**Playlist Loop**:
-The behavior that restarts a Screen Playlist from the beginning after its last Playlist Item. Infinite playback belongs to the playlist loop setting, while Playlist Item repeat counts remain finite.
-_Avoid_: Item repeat, animation frame timing, sync completion
+**Runtime Asset Budget**:
+The processing and sync budget for Runtime Screen Assets. The first version defaults to 6 fps, 8 seconds, and at most 24 final 480x320 frames; larger or smoother outputs are explicit advanced choices governed by transfer size, storage, validation time, and runtime stability.
+_Avoid_: Unlimited GIF import, video archive, C compile budget
 
-**Processing Provenance**:
-The source and transformation history used to create a Screen Output, such as search terms, prompts, source names, source URLs, local source hashes, license or usage notes, crop boxes, scaling choices, pixelation settings, palette choices, tool names and versions, seeds when available, and source hashes. It explains how the output was produced, but Sync is authoritative only for the local Screen Output hash.
-_Avoid_: Sync input, live recipe, runtime dependency
+**Sync**:
+The explicit operation that delivers the current local Screen Output to the real WalnutPi and collects device evidence. Sync uses local artifacts and hashes; it does not re-fetch source material, depend on live search results, or regenerate missing outputs. Missing artifacts or hash mismatches fail Sync and must be fixed through the processing pipeline.
+_Avoid_: Regeneration, remote search, live download
 
-**Tool-Assisted Processing Pipeline**:
-The process that turns Source Assets into Screen Outputs by composing established tools for decoding, frame extraction, resizing, cropping, pixelation, compositing, hashing, and LVGL resource preparation. It should prefer tools such as ffmpeg, Sharp, and LVGL converters over hand-written image processing cores.
-_Avoid_: Hand-rolled decoder, bespoke scaler, runtime asset search
+**Playlist Sync**:
+The default Sync mode that delivers the current Screen Playlist and every referenced Screen Manifest output needed for playback. A single-output test can still sync one manifest directly, but normal user-facing sync targets the current playlist.
+_Avoid_: Source sync, search sync, partial playlist delivery
 
-**Unknown-License Source**:
-A Source Asset whose license or usage rights are not known. It may be used for personal device Sync when clearly marked in Processing Provenance, but it must not be treated as commercially cleared material.
-_Avoid_: Open asset, commercial asset, license-free source
+### Evidence And Diagnostics
 
-**Pixel Style**:
-The recommended visual treatment for many Screen Outputs, usually created by downscaling Source Assets to a smaller pixel grid and scaling back to 480x320 with nearest-neighbor sampling. Pixel Style is a processing choice, not a mandatory rule for every Screen Output.
-_Avoid_: Required output format, component style, LVGL widget theme
+**Beginner Sync Status**:
+The simplified Screen Playlist Sync state shown to ordinary users, limited to whether the screen is unsynced, syncing, synced to WalnutPi, or failed. It does not expose hashes, build identifiers, command output, or raw device evidence.
+_Avoid_: developer diagnostics, hash status, build status, raw evidence
+
+**Developer Diagnostics**:
+Detailed technical evidence for debugging synchronization, device execution, and screen rendering, including hashes, command output, delivery evidence, frame evidence, pixel differences, and sync history. It is not the beginner-facing status or normal user result.
+_Avoid_: beginner status, user-facing result, normal UI
+
+**Agent Observability**:
+Developer and operator visibility into Walnut Agent Console behavior, including calls, latency, failures, token use, cost signals, and tool execution metrics. It is not user memory, ordinary chat content, or Beginner Sync Status.
+_Avoid_: user memory, chat content, beginner status
+
+**Sync Record**:
+A persisted Developer Diagnostics record for one Screen Playlist Sync, including the sync result, delivery evidence, device evidence, optional captured frame, and later pixel-diff findings. It is not Durable Memory, a Session Log, or a beginner-facing status.
+_Avoid_: log file, memory, screenshot cache, chat record
+
+**Repair Proposal**:
+A Developer Diagnostics recommendation based on a Sync Record or failure evidence that explains a likely fix and may prepare a safe patch. Applying the patch or re-running Sync requires user confirmation.
+_Avoid_: auto repair, silent patch, automatic resync
+
+**Playlist Evidence**:
+Device evidence that ties the current framebuffer state to a Screen Playlist, the active Playlist Item, that item's Screen Manifest, and the displayed output or frame hash. It proves the current display belongs to the playlist without requiring a full playlist cycle during ordinary Sync.
+_Avoid_: Full playback audit, source-material proof, preview-only evidence
+
+**Real-Device Verification**:
+Verification performed against the real WalnutPi Device, including Sync, delivery, activation, service state, frame evidence, or capture evidence. Screen Preview and preview-only safety modes may help inspect or regress local behavior, but they do not prove that the device is running the intended result.
+_Avoid_: preview verification, nossh verification, local-only proof
+
+### Archived And Extension Capabilities
+
+**Archived Capability**:
+A historical experiment or prototype that may inform the Walnut Agent Console, Device Execution Surface, input methods, or media processing, but is not part of the current product spine. Archived Capabilities must not be treated as parallel platforms or shortcuts around current safety boundaries.
+_Avoid_: current product, core workflow, parallel platform
+
+**Input Accessory**:
+A hardware add-on that expands how users interact with WalnutPi, such as a microphone for voice input. Input Accessories may enable future Walnut Agent Console workflows, but an accessory does not automatically make an archived implementation part of the current product spine.
+_Avoid_: separate platform, required core hardware, archived experiment
+
+**Hardware Peripheral**:
+A hardware add-on connected to the WalnutPi Device, such as sensors, cameras, microphones, USB devices, or GPIO, I2C, SPI, and UART modules. Hardware Peripherals can extend device capabilities, but using or configuring them must still follow Local Action Policy and System Write boundaries.
+_Avoid_: separate platform, built-in device, unrestricted hardware access

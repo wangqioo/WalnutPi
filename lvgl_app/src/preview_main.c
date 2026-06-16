@@ -1,5 +1,4 @@
 #include "lvgl.h"
-#include "generated/screen_workspace_config.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -127,8 +126,8 @@ int main(int argc, char ** argv)
     if(runtime_path != NULL) {
         walnut_screen_workspace_load_runtime(runtime_path);
     }
-    if(walnut_screen_workspace_active_playlist_hash()[0] == '\0' && WALNUT_SCREEN_WORKSPACE_ITEM_COUNT > 0) {
-        fprintf(stderr, "workspace playlist hash missing\n");
+    if(runtime_path == NULL) {
+        fprintf(stderr, "runtime playlist path is required for preview\n");
         return 1;
     }
     memset(preview_framebuffer, 0, sizeof(preview_framebuffer));

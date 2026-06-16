@@ -1,0 +1,340 @@
+{
+  "schema": "walnutpi.action-policy-manifest.v1",
+  "version": 1,
+  "actions": {
+    "status": {
+      "title": "查状态",
+      "description": "Read system, network, storage, services, Docker, and audio state.",
+      "risk": "read",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web", "walnut-ai", "walnut-cli"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "evidence": {
+        "schema": "walnut.local-action-result.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "code", "output"]
+      },
+      "web": {
+        "command": "walnut action run status --json",
+        "parseJsonOutput": true,
+        "reply": "我会读取系统、网络、存储、服务和音频状态。",
+        "timeoutMs": 20000
+      },
+      "walnutCli": {
+        "handler": "status"
+      },
+      "walnutAi": {
+        "route": "status",
+        "timeoutSeconds": 25
+      }
+    },
+    "snapshot": {
+      "title": "设备快照",
+      "description": "Read device identity, OS, kernel, framebuffer, boot config, GPIO, and bus state.",
+      "risk": "read",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web", "walnut-ai", "walnut-cli"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "evidence": {
+        "schema": "walnut.local-action-result.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "code", "output"]
+      },
+      "web": {
+        "command": "walnut action run snapshot --json",
+        "parseJsonOutput": true,
+        "reply": "我会先做只读设备快照，确认板子、系统、引脚和 overlay 状态。",
+        "timeoutMs": 20000
+      },
+      "walnutCli": {
+        "handler": "snapshot"
+      },
+      "walnutAi": {
+        "route": "snapshot",
+        "timeoutSeconds": 25
+      }
+    },
+    "network": {
+      "title": "网络检查",
+      "description": "Read IP addresses, routes, and Wi-Fi state.",
+      "risk": "read",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web", "walnut-ai", "walnut-cli"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "evidence": {
+        "schema": "walnut.local-action-result.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "code", "output"]
+      },
+      "web": {
+        "command": "walnut action run network --json",
+        "parseJsonOutput": true,
+        "reply": "我会检查 IP、默认路由和 Wi-Fi 状态。",
+        "timeoutMs": 12000
+      },
+      "walnutCli": {
+        "handler": "network"
+      },
+      "walnutAi": {
+        "route": "network",
+        "timeoutSeconds": 15
+      }
+    },
+    "gpio": {
+      "title": "GPIO 检查",
+      "description": "Read GPIO pin, bus, and overlay state without changing pins.",
+      "risk": "read",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web", "walnut-ai", "walnut-cli"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "evidence": {
+        "schema": "walnut.local-action-result.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "code", "output"]
+      },
+      "web": {
+        "command": "walnut action run gpio --json",
+        "parseJsonOutput": true,
+        "reply": "我会只读检查引脚、总线和 overlay，避免误占用 GPIO。",
+        "timeoutMs": 20000
+      },
+      "walnutCli": {
+        "handler": "gpio"
+      },
+      "walnutAi": {
+        "route": "gpio_read",
+        "timeoutSeconds": 25
+      }
+    },
+    "notes": {
+      "title": "今天笔记",
+      "description": "Read today's local Walnut notes.",
+      "risk": "read",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web", "walnut-ai"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "evidence": {
+        "schema": "walnut.local-action-output.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "code", "output"]
+      },
+      "web": {
+        "command": "walnut today",
+        "reply": "我会读取今天保存的核桃派笔记。",
+        "timeoutMs": 10000
+      },
+      "walnutAi": {
+        "route": "notes_today",
+        "timeoutSeconds": 10
+      }
+    },
+    "note": {
+      "title": "记录笔记",
+      "description": "Append one note to the local daily Walnut notes file.",
+      "risk": "write-low",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web", "walnut-ai"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        }
+      },
+      "evidence": {
+        "schema": "walnut.local-action-output.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "code", "output"]
+      },
+      "web": {
+        "commandTemplate": "walnut note {text}",
+        "reply": "我会把这句话写进核桃派本地笔记。",
+        "timeoutMs": 10000
+      },
+      "walnutAi": {
+        "route": "note_add",
+        "timeoutSeconds": 10
+      }
+    },
+    "ai": {
+      "title": "WalnutAI Agent",
+      "description": "Delegate a user question to the WalnutAI device-side agent.",
+      "risk": "read",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text"],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        }
+      },
+      "evidence": {
+        "schema": "walnut.local-action-output.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "code", "output", "contextUsed"]
+      },
+      "web": {
+        "commandTemplate": "walnut-ai {text}",
+        "reply": "",
+        "timeoutMs": 75000
+      }
+    },
+    "video": {
+      "title": "彩色视频",
+      "description": "Open the color ASCII video demo in the terminal surface.",
+      "risk": "interactive",
+      "mode": "terminal",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "evidence": {
+        "schema": "walnut.terminal-action.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "command"]
+      },
+      "web": {
+        "command": "walnut video color",
+        "reply": "我会直接运行彩色 ASCII 视频命令，不打开菜单。"
+      }
+    },
+    "reboot": {
+      "title": "重启 WalnutPi",
+      "description": "Reboot the WalnutPi device.",
+      "risk": "high",
+      "mode": "confirmable",
+      "confirmationRequired": true,
+      "allowedExecutors": ["walnut-cli"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "evidence": {
+        "schema": "walnut.pending-local-action.v1",
+        "fields": ["id", "title", "risk", "mode", "command", "explanation", "token", "expires_at"]
+      },
+      "walnutCli": {
+        "command": "reboot",
+        "explanation": "这会断开当前终端和 Web Agent Console，会中断正在运行的任务。"
+      }
+    },
+    "shutdown": {
+      "title": "关闭 WalnutPi",
+      "description": "Power off the WalnutPi device.",
+      "risk": "high",
+      "mode": "refused",
+      "confirmationRequired": false,
+      "allowedExecutors": ["policy"],
+      "parameters": { "type": "object", "additionalProperties": false, "properties": {} },
+      "evidence": {
+        "schema": "walnut.refused-local-action.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "reason"]
+      },
+      "refusal": "Shutdown is a System Write class. It is not executable through the current Agent Action surface."
+    },
+    "package-install": {
+      "title": "安装或卸载软件包",
+      "description": "Install, remove, or upgrade system packages.",
+      "risk": "high",
+      "mode": "refused",
+      "confirmationRequired": false,
+      "allowedExecutors": ["policy"],
+      "parameters": { "type": "object", "additionalProperties": false, "properties": {} },
+      "evidence": {
+        "schema": "walnut.refused-local-action.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "reason"]
+      },
+      "refusal": "Package changes are System Writes and require a future explicit confirmed action contract."
+    },
+    "service-change": {
+      "title": "修改系统服务",
+      "description": "Install, replace, enable, disable, start, or stop persistent system services outside the screen sync contract.",
+      "risk": "high",
+      "mode": "refused",
+      "confirmationRequired": false,
+      "allowedExecutors": ["policy"],
+      "parameters": { "type": "object", "additionalProperties": false, "properties": {} },
+      "evidence": {
+        "schema": "walnut.refused-local-action.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "reason"]
+      },
+      "refusal": "Persistent service changes are System Writes and require a future explicit confirmed action contract."
+    },
+    "overlay-change": {
+      "title": "修改硬件 overlay",
+      "description": "Change device-tree overlays, boot configuration, or GPIO alternate-function configuration.",
+      "risk": "high",
+      "mode": "refused",
+      "confirmationRequired": false,
+      "allowedExecutors": ["policy"],
+      "parameters": { "type": "object", "additionalProperties": false, "properties": {} },
+      "evidence": {
+        "schema": "walnut.refused-local-action.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "reason"]
+      },
+      "refusal": "Overlay and boot configuration writes are System Writes and require a future explicit confirmed action contract."
+    },
+    "storage-delete": {
+      "title": "删除或清理数据",
+      "description": "Delete files, clean storage, or remove user/project data.",
+      "risk": "high",
+      "mode": "refused",
+      "confirmationRequired": false,
+      "allowedExecutors": ["policy"],
+      "parameters": { "type": "object", "additionalProperties": false, "properties": {} },
+      "evidence": {
+        "schema": "walnut.refused-local-action.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "reason"]
+      },
+      "refusal": "Deletes and cleanup operations are System Writes unless covered by a narrow explicit command."
+    },
+    "image-flash": {
+      "title": "刷写镜像或固件",
+      "description": "Flash images, firmware, eMMC, SD card, or boot media.",
+      "risk": "high",
+      "mode": "refused",
+      "confirmationRequired": false,
+      "allowedExecutors": ["policy"],
+      "parameters": { "type": "object", "additionalProperties": false, "properties": {} },
+      "evidence": {
+        "schema": "walnut.refused-local-action.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "reason"]
+      },
+      "refusal": "Flashing and firmware operations are outside the current Agent Action surface."
+    }
+  }
+}

@@ -1,22 +1,22 @@
 # WalnutPi Core Context
 
-WalnutPi is a beginner-first AI terminal workspace for a headless Debian Linux device.
+WalnutPi is a beginner-first AI-native terminal system for a headless Debian WalnutPi Device.
 
 Product direction:
 
-- Natural language or guided intent.
-- Web preview of a small LVGL screen.
-- Sync to WalnutPi after confirmation.
-- WalnutPi screen shows the same interface.
-- Web shows status, execution evidence, and an AI-readable summary.
+- Walnut Agent Console is the natural-language user surface.
+- Device Execution Surface provides controlled device capabilities.
+- Screen Workspace creates 480x320 Screen Manifest v2 outputs and Screen Playlist v1 playback.
+- Playlist Sync delivers Runtime Screen Assets to the WalnutPi Device after user confirmation.
+- Real-Device Verification proves delivery, activation, service state, frame evidence, or capture evidence.
 
-Current boundaries:
+Current working style:
 
-- Do not treat this as a generic IDE, desktop app, ESP32 board platform, or VibeBoard clone.
 - Prefer small, guided, reversible workflows.
-- Keep beginner UI simple; put hashes, command output, delivery manifests, frame URLs, and raw evidence in developer diagnostics.
-- Do not expose public root shells.
-- Do not claim a command ran unless local output or sync evidence proves it.
+- Keep Beginner Sync Status simple.
+- Put hashes, command output, delivery manifests, frame URLs, raw evidence, and Agent Observability in Developer Diagnostics.
+- Treat Device Transport as an implementation path, not a user-facing shell.
+- Ground action summaries in local output or sync evidence.
 
 High-risk actions require explicit visible confirmation:
 
@@ -36,4 +36,3 @@ Never store or summarize secrets as memory:
 - SSH passwords
 - tokens
 - private keys
-

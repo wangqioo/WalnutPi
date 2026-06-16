@@ -1,28 +1,54 @@
 # WalnutPi Web Interface
 
-`web-interface/` is the browser-facing entry for WalnutPi's AI-native terminal system.
+`web-interface/` is the browser-facing home for the Walnut Agent Console.
 
-The current core experience is: the user describes what they want, the Web conversation turns that requirement into a playful 480x320 WalnutPi screen, the browser previews the LVGL result, and an explicit sync sends the same interface to the device.
+The current implemented screen slice is the Screen Workspace UI: the user prepares Screen Content or a Source Asset, turns it into a playful 480x320 WalnutPi screen, previews the result, and explicitly syncs it to the WalnutPi Device for Real-Device Verification.
 
-The Web conversation and the CLI tool layer do not conflict. The conversation is the beginner-facing orchestration surface. The `walnut` CLI, screen commands, terminal tools, media conversion utilities, and device checks are controlled capabilities the Web surface can call, summarize, or expose as evidence.
+The Walnut Agent Console and the Device Execution Surface do not conflict. The Console is the beginner-facing orchestration surface. `walnut` commands, screen commands, terminal tools, media conversion utilities, and device checks are controlled capabilities the Console can call, summarize, or expose as evidence.
+
+Local Action metadata comes from the repository-level Action Policy Manifest:
+
+```text
+action-policy-manifest.json
+```
+
+`GET /api/actions` exposes the Web-allowed subset of that manifest. `POST /api/action` executes only those policy-backed Agent Action Commands; terminal menus and arbitrary shell snippets are not action policy entries.
 
 ## Interaction Principle
 
-The Web page should feel like one intent-driven surface:
+The Walnut Agent Console should feel like one intent-driven surface:
 
 ```text
 user says what they want
--> WalnutPi classifies the intent
+-> WalnutPi chooses an Intent Route
 -> screen requests become bounded 480x320 Screen Manifests
 -> image, text, or video material can be searched/summarized/ASCII-converted/pixelized
--> local tools run only through controlled routes
+-> Local Actions run only through Local Action Policy
 -> risky actions ask for confirmation
--> the browser previews the screen and summarizes evidence
+-> Screen Preview helps inspect the result
+-> Real-Device Verification proves the device result after explicit Sync
 ```
 
-The screen-generation path is the primary product loop. The right-side terminal, SSH fallback, and diagnostic panels are supporting surfaces for advanced use and proof, not separate products.
+The screen-generation path is the primary implemented loop. The current `/workspace.html` page is a Screen Workspace UI slice, not the complete Walnut Agent Console. The right-side terminal, SSH fallback, and diagnostic panels are supporting surfaces for advanced use and proof, not separate products.
 
-Normal users should not be pushed into `walnut` menus or `1 / 2 / 3` terminal choices. Those menus remain valid CLI affordances, but the Web console should call the underlying direct actions when it needs device state, media conversion, or sync evidence.
+Normal users should not be pushed into `walnut` menus or `1 / 2 / 3` terminal choices. Those menus remain valid Human CLI Command affordances, but the Walnut Agent Console should call policy-backed Agent Action Commands when it needs device state, media conversion, or sync evidence.
+
+## Server Boundaries
+
+The Bun server is still one process, but the implementation is split by WalnutPi domain boundary:
+
+```text
+model-terminal-server.js        route assembly and shared process wiring
+agent-actions-api.js            Agent Action API and policy-backed execution
+action-policy.js                Action Policy Manifest validation
+project-memory-api.js           Session Log, Durable Memory, and Retrieval Corpus views
+screen-diagnostics-api.js       Sync Record, frame capture, and pixel-diff diagnostics
+screen-workspace-api.js         Screen Workspace import/process/LVGL preview routes
+screen-workspace-store.js       Screen Workspace manifest/playlist store
+screen-workspace-sync-workflow.js  playlist hash gate and sync orchestration
+screen-delivery-adapters/       Device Transport implementations
+static-ui-host.js               static Walnut Agent Console / Workspace hosting
+```
 
 ## Request Types
 
@@ -102,6 +128,8 @@ The distiller reads user-authored events only, merges durable non-secret facts i
 Current APIs:
 
 ```text
+GET  /api/actions
+POST /api/action
 GET  /api/session?sessionId=...
 POST /api/session?sessionId=...
 ```
@@ -129,7 +157,7 @@ For these, the agent should explain what will change, what can break, and ask fo
 The first screen should have:
 
 - one conversational input
-- a concise chat history
+- concise recent Session Log context
 - a live 480x320 LVGL screen preview
 - explicit sync status
 - developer diagnostics and terminal evidence available without taking over the beginner flow
@@ -158,7 +186,7 @@ The first delivery adapter is deliberately narrow:
 
 - adapter: SSH / local agent
 - build: `scripts/build-lvgl-app.sh`
-- LVGL resource generator: `scripts/generate-lvgl-screen-workspace-config.js`
+- LVGL runtime asset generator: `scripts/generate-lvgl-screen-workspace-runtime-assets.js`
 - activation: hot reload for runtime-capable binaries; `sudo -n systemctl restart walnut-screen.service` remains the upgrade fallback; `walnut screen start` remains the user-facing CLI entry
 - evidence: default fast sync verifies the runtime playlist and `walnut-screen.service` active state without reading the full framebuffer; `evidenceMode: "full"` also runs `walnut screen state` and `sudo -n walnut screen frame`
 - diagnostics image: `GET /api/screen/frame/<buildId>` calls read-only `walnut screen capture --png-base64` on demand

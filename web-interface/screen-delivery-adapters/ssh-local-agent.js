@@ -3,10 +3,6 @@ import { spawn } from "node:child_process";
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  generateLvglScreenWorkspaceConfig,
-  renderLvglScreenWorkspaceConfig,
-} from "../../scripts/generate-lvgl-screen-workspace-config.js";
 import { generateLvglScreenWorkspaceRuntimeAssets } from "../../scripts/generate-lvgl-screen-workspace-runtime-assets.js";
 
 export function createSshLocalAgentAdapter({
@@ -52,7 +48,7 @@ export function createSshLocalAgentAdapter({
         "set -e",
         `ROOT=${shellQuote(remoteProjectRoot)}`,
         'cd "$ROOT"',
-        "WALNUT_SCREEN_WORKSPACE_LVGL=prebuilt scripts/build-lvgl-app.sh",
+        "scripts/build-lvgl-app.sh",
       ].join("; ");
       const runtimeSupportCommand = remoteBuildShell(
         [
@@ -360,7 +356,6 @@ const SCREEN_SLICE_FILES = [
   "package.json",
   "scripts/build-lvgl-app.sh",
   "scripts/fetch-lvgl.sh",
-  "scripts/generate-lvgl-screen-workspace-config.js",
   "scripts/generate-lvgl-screen-workspace-runtime-assets.js",
   "scripts/screen-workspace-vocabulary.js",
   "lvgl_app/CMakeLists.txt",
@@ -381,26 +376,6 @@ async function buildWorkspaceDeliverySlice({ localProjectRoot, playlistEnvelope 
     });
   }
 
-  const config = await generateLvglScreenWorkspaceConfig({
-    workspaceRoot: playlistEnvelope.workspaceRoot,
-    playlistId: playlistEnvelope.playlist.id,
-    enabled: "0",
-  });
-  const generated = renderLvglScreenWorkspaceConfig(config);
-  files.push(
-    {
-      path: "lvgl_app/generated/screen_workspace_config.h",
-      mode: "644",
-      content: generated.header,
-      encoding: "utf8",
-    },
-    {
-      path: "lvgl_app/generated/screen_workspace_config.c",
-      mode: "644",
-      content: generated.source,
-      encoding: "utf8",
-    },
-  );
   const runtimeAssets = await generateLvglScreenWorkspaceRuntimeAssets({
     workspaceRoot: playlistEnvelope.workspaceRoot,
     playlistId: playlistEnvelope.playlist.id,

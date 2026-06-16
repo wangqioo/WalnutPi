@@ -1,0 +1,350 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Walnut Agent Console</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+        background: #101112;
+        color: #efece2;
+        --muted: #949c97;
+        --line: rgba(239, 236, 226, 0.14);
+        --panel: #17191a;
+        --green: #78c58a;
+        --cyan: #7ccbc5;
+        --red: #d86d67;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #101112;
+      }
+
+      button,
+      textarea {
+        font: inherit;
+        color: inherit;
+      }
+
+      a {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+        gap: 1px;
+        min-height: 100vh;
+        background: var(--line);
+      }
+
+      .pane {
+        display: grid;
+        align-content: start;
+        gap: 18px;
+        padding: 22px;
+        background: #101112;
+      }
+
+      .side {
+        background: #141617;
+      }
+
+      .topline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      h1,
+      h2 {
+        margin: 0;
+        letter-spacing: 0;
+      }
+
+      h1 {
+        font-size: clamp(24px, 4vw, 48px);
+        line-height: 1;
+        font-weight: 650;
+      }
+
+      h2 {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .composer {
+        display: grid;
+        gap: 10px;
+        max-width: 860px;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 136px;
+        resize: vertical;
+        border: 1px solid var(--line);
+        border-radius: 0;
+        padding: 14px;
+        background: var(--panel);
+        color: #f5f2e8;
+        outline: none;
+        line-height: 1.5;
+      }
+
+      textarea:focus {
+        border-color: rgba(124, 203, 197, 0.72);
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .button {
+        min-height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 0;
+        padding: 0 13px;
+        background: #1b1e1f;
+        cursor: pointer;
+      }
+
+      .button.primary {
+        border-color: rgba(124, 203, 197, 0.54);
+        background: rgba(124, 203, 197, 0.12);
+      }
+
+      .button:hover,
+      .button:focus-visible {
+        border-color: rgba(239, 236, 226, 0.34);
+        outline: none;
+      }
+
+      .result {
+        min-height: 170px;
+        border: 1px solid var(--line);
+        padding: 14px;
+        background: #121415;
+        white-space: pre-wrap;
+        line-height: 1.5;
+      }
+
+      .label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .stack {
+        display: grid;
+        gap: 10px;
+      }
+
+      .metric {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 8px;
+        border-bottom: 1px solid rgba(239, 236, 226, 0.1);
+        padding: 9px 0;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .metric strong {
+        color: #f3f0e7;
+        font-weight: 600;
+      }
+
+      .quick {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .quick .button {
+        width: 100%;
+      }
+
+      .preview {
+        display: grid;
+        place-items: center;
+        aspect-ratio: 3 / 2;
+        border: 1px solid var(--line);
+        background: #050606;
+        color: var(--muted);
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        background: var(--green);
+      }
+
+      @media (max-width: 860px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="pane">
+        <div class="topline">
+          <span>WalnutPi</span>
+          <span class="status"><span class="dot"></span><span>Agent Console</span></span>
+        </div>
+        <h1>Walnut Agent Console</h1>
+        <form id="composer" class="composer">
+          <textarea id="prompt" autocomplete="off" placeholder="例如：核桃派现在还好吗 / 把上海天气做成小屏 / 记一下今天调好了 Wi-Fi"></textarea>
+          <div class="actions">
+            <button class="button primary" type="submit">处理意图</button>
+            <button id="askAi" class="button" type="button">问 WalnutAI</button>
+            <a class="button" href="/workspace.html">打开 Screen Workspace</a>
+          </div>
+        </form>
+        <section class="stack">
+          <h2>当前结果</h2>
+          <div id="result" class="result">等待输入。</div>
+        </section>
+      </section>
+
+      <aside class="pane side">
+        <section class="stack">
+          <h2>Intent Route</h2>
+          <div class="metric"><span>intent</span><strong id="intent">-</strong></div>
+          <div class="metric"><span>delivery</span><strong id="delivery">-</strong></div>
+          <div class="metric"><span>confidence</span><strong id="confidence">-</strong></div>
+        </section>
+        <section class="stack">
+          <h2>Screen Preview</h2>
+          <a class="preview" href="/workspace.html">Screen Workspace</a>
+        </section>
+        <section class="stack">
+          <h2>Local Actions</h2>
+          <div class="quick">
+            <button class="button" data-action="status" type="button">状态</button>
+            <button class="button" data-action="network" type="button">网络</button>
+            <button class="button" data-action="snapshot" type="button">快照</button>
+            <button class="button" data-action="gpio" type="button">GPIO</button>
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <script>
+      const promptEl = document.getElementById("prompt");
+      const resultEl = document.getElementById("result");
+      const intentEl = document.getElementById("intent");
+      const deliveryEl = document.getElementById("delivery");
+      const confidenceEl = document.getElementById("confidence");
+
+      function setResult(value) {
+        resultEl.textContent = value || "无输出。";
+      }
+
+      function updateRoute(classification) {
+        intentEl.textContent = classification?.intent || "-";
+        deliveryEl.textContent = classification?.delivery || "-";
+        confidenceEl.textContent = classification?.confidence ?? "-";
+      }
+
+      async function classify(text) {
+        const response = await fetch("/api/intent/classify", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || "intent classify failed");
+        return data.classification;
+      }
+
+      async function runAction(action, body = {}) {
+        const response = await fetch("/api/action", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action, ...body }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.output || data.error || "action failed");
+        return data;
+      }
+
+      document.getElementById("composer").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const text = promptEl.value.trim();
+        if (!text) return;
+        setResult("处理中...");
+        try {
+          const classification = await classify(text);
+          updateRoute(classification);
+          if (classification.intent === "device.status.read") {
+            const data = await runAction("status");
+            setResult(data.output);
+          } else if (classification.intent === "device.network.read") {
+            const data = await runAction("network");
+            setResult(data.output);
+          } else if (classification.intent === "device.snapshot.read") {
+            const data = await runAction("snapshot");
+            setResult(data.output);
+          } else if (classification.intent === "device.gpio.read") {
+            const data = await runAction("gpio");
+            setResult(data.output);
+          } else if (classification.intent === "screen.generate" || classification.intent === "screen.sync") {
+            setResult("已识别为小屏工作流。请进入 Screen Workspace 处理 Source Asset、Screen Output、Playlist 和 Sync。");
+          } else {
+            const data = await runAction("ai", { text });
+            setResult(data.output);
+          }
+        } catch (error) {
+          setResult(error.message);
+        }
+      });
+
+      document.getElementById("askAi").addEventListener("click", async () => {
+        const text = promptEl.value.trim();
+        if (!text) return;
+        setResult("正在询问 WalnutAI...");
+        try {
+          const data = await runAction("ai", { text });
+          setResult(data.output);
+        } catch (error) {
+          setResult(error.message);
+        }
+      });
+
+      document.querySelectorAll("[data-action]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          setResult("正在执行 Local Action...");
+          try {
+            const data = await runAction(button.dataset.action);
+            setResult(data.output);
+          } catch (error) {
+            setResult(error.message);
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

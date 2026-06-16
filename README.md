@@ -1,21 +1,22 @@
 # WalnutPi
 
-WalnutPi 当前主线是一个 AI 原生终端系统，其中 Web 对话是普通用户入口，CLI 是设备工具层，480x320 小屏是可玩的输出面：
+WalnutPi 当前主线是一个 AI 原生终端系统，其中 Walnut Agent Console 是普通用户入口，Device Execution Surface 是设备执行层，480x320 小屏是可玩的输出面。当前最成熟的工作区是 Screen Workspace：
 
 ```text
 用户提出需求
--> Web 对话理解意图并调用受控工具
--> 生成或处理 Source Asset
+-> Walnut Agent Console 选择 Intent Route
+-> Device Execution Surface 执行受控 Local Action
+-> 生成或处理 Screen Content / Source Asset
 -> 规范化为 480x320 Screen Manifest v2 输出
 -> 写入 Screen Playlist v1
--> Web 预览 LVGL 小屏效果
+-> Screen Preview 检查小屏效果
 -> 用户显式同步到 WalnutPi
--> WalnutPi 屏幕运行同一个界面并回传证据
+-> WalnutPi Device 运行对应的 Runtime Screen Assets 并完成 Real-Device Verification
 ```
 
 本文档以中文为主，命令名、软件名和少数技术术语保留英文原名。
 
-这个仓库里的终端界面、音频、部署配置、ASCII 视频、中文控制台和硬件实验不是要砍掉的平行产品；它们是 WalnutPi CLI 工具能力、素材处理能力或设备支持面。当前要优先打磨的是 Web 对话入口如何把这些能力组织起来，并把结果变成可预览、可同步、可验证的 480x320 核桃派小屏界面。WalnutPi 不应变成 generic IDE、桌面应用平台、ESP32 烧录平台或 VibeBoard clone。
+这个仓库里的终端界面、音频、部署配置、ASCII 视频、中文控制台和硬件实验都按 Human CLI Command、Archived Capability、素材处理能力或设备支持面来组织。当前要优先打磨的是 Walnut Agent Console 如何把这些能力组织起来，并把结果变成可预览、可同步、可真机验证的 480x320 核桃派小屏界面。
 
 ## 这台设备是什么
 
@@ -34,24 +35,21 @@ WalnutPi 当前主线是一个 AI 原生终端系统，其中 Web 对话是普�
 - 监控：Docker 中运行 Uptime Kuma
 - 远程访问：frpc 连接到已有 frps 服务
 
-这台设备被刻意当作轻量本地交互载体，而不是本地大模型推理机器。
+这台设备定位为轻量本地交互载体，云端模型负责主要 AI 推理。
 
 ## 当前核心体验
 
 当前要优先维护的用户路径是：
 
-- 用户在 Web 对话或 Workspace 里准备小屏素材：图片、GIF、视频帧、生成图、手写像素图或其他 480x320 画面。
-- Web agent 将素材收敛为 Screen Manifest v2 输出，而不是任意 shell、任意 LVGL/C 或无边界代码生成。
-- 工具层用 Screen Workspace pipeline 把源素材规范化为 480x320 PNG 或 480x320 帧序列。
-- Web 读取 `GET /api/screen/workspace/playlist` 并预览 Screen Playlist v1。
+- 用户在 Walnut Agent Console 或 Screen Workspace UI 里准备 Screen Content / Source Asset：文字、状态、图片、GIF、视频帧、生成图、手写像素图或其他 480x320 画面。
+- Walnut Agent Console 选择 Intent Route，并通过 Local Action Policy 调用受控能力。
+- Screen Workspace pipeline 把输入规范化为 480x320 PNG 或 480x320 帧序列。
+- Web 读取 `GET /api/screen/workspace/playlist` 并显示 Screen Preview。
 - 用户确认后调用 `POST /api/screen/workspace/sync`，请求必须携带当前 `playlistHash`。
-- 后端用 `scripts/build-lvgl-app.sh` 构建设备端 LVGL 程序。
-- Web delivery adapter 激活已验证路径 `sudo -n systemctl restart walnut-screen.service`。
-- 设备证据来自 `walnut screen state` 和 `sudo -n walnut screen frame`。
+- Web delivery adapter 同步 Runtime Screen Assets，优先 hot reload；LVGL runtime 需要升级时再运行 `scripts/build-lvgl-app.sh`。
+- Real-Device Verification 使用服务状态、`walnut screen state`、`sudo -n walnut screen frame` 和按需 capture evidence。
 - 初学者 UI 只显示 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。
-- `buildId`、hash、命令输出、delivery manifest、frame route、截图字节、repair 和 AI summary evidence 都留在开发者诊断层。
-
-`?nossh` 是 preview-only 模式：它不能触发 build、SSH、delivery、activation、截图或设备写入。
+- `buildId`、hash、命令输出、delivery manifest、frame route、截图字节和 repairHint 都留在 Developer Diagnostics。
 
 ## 核心思路
 
@@ -59,12 +57,12 @@ WalnutPi 当前主线是一个 AI 原生终端系统，其中 Web 对话是普�
 
 > 无桌面 Linux + 命令行交互 + 结构化卡片 + 云端 AI API + 轻量本地硬件控制。
 
-更准确地说，WalnutPi 不是一个“只能聊天的前端”，而是一台有本地执行能力的 AI 终端。
+更准确地说，WalnutPi 是一台有本地执行能力的 AI 终端。
 它有 Linux shell、网络访问、Python / CLI 脚本、GPIO / I2C / SPI / UART、本地文件、长驻服务，以及可以展示执行现场的真实终端和小屏幕。
 
 Web 里的对话入口和 CLI 工具调用不冲突。对话负责理解用户需求、组织步骤、判断风险和总结结果；CLI 负责稳定执行设备能力，例如 `walnut screen`、状态读取、笔记、音频/视频/ASCII 工具、网络检查和维护命令。
 
-自然语言入口的目标不是 MCP 风格的工具按钮面板，而是设备 agent：
+自然语言入口是设备 agent：
 
 ```text
 用户自然语言
@@ -75,7 +73,7 @@ Web 里的对话入口和 CLI 工具调用不冲突。对话负责理解用户�
 -> AI 总结结果
 ```
 
-例如用户说“做一个上海天气的像素小屏”，Web agent 可以先获得天气信息，再生成像素风 480x320 小屏预览，最后让用户确认是否同步到核桃派。用户问“核桃派现在还好吗”时，agent 可以调用本地状态检查并总结，而不是要求用户自己运行命令。
+例如用户说“做一个上海天气的像素小屏”，Walnut Agent Console 可以先获得天气信息，再生成像素风 480x320 小屏预览，最后让用户确认是否同步到核桃派。用户问“核桃派现在还好吗”时，agent 可以调用本地状态检查并总结。
 
 本地设备负责：
 
@@ -120,7 +118,7 @@ Web 里的对话入口和 CLI 工具调用不冲突。对话负责理解用户�
 - 在终端里显示系统状态
 - 通过 frpc 暴露 SSH 远程访问
 - 通过 AirPods / A2DP 播放音频
-- 通过 `fbterm` 在本地 framebuffer 控制台显示中文
+- 通过 `fbterm` 支持本地 framebuffer 中文显示
 - 使用 ASCII 视频和终端玩具作为素材/可玩性工具
 - 保持正常 CLI 启动，不强制接管系统启动 shell
 
@@ -133,7 +131,6 @@ Web 里的对话入口和 CLI 工具调用不冲突。对话负责理解用户�
 - `walnut ai` 直接进入云端 AI 终端
 - `walnut-ai "上海天气怎么样"` 运行一次性本地 agent 回合
 - `walnut play` 体验音乐、数字雨、时钟和 ASCII 视频
-- `walnut console` 进入中文 framebuffer 控制台
 - `walnut maintenance` 进入浏览器、监控和修复菜单
 
 ## 适合做什么
@@ -150,24 +147,16 @@ Web 里的对话入口和 CLI 工具调用不冲突。对话负责理解用户�
 - 远程访问实验
 - 后续加入可靠 USB 麦克风后的语音输入原型
 
-## 不适合做什么
+## 硬件适配
 
-当前原型不适合：
-
-- 运行大型本地 LLM
-- 代替桌面 Linux 工作站
-- 做 Android 风格的多应用交互
-- 承载重型 GPU / 3D UI
-- 依赖板载蓝牙控制器稳定采集 AirPods 麦克风
-
-AirPods 播放是可用的，但 AirPods 麦克风捕获在这块板子的板载蓝牙控制器上失败了，因为 Linux 下 SCO 麦克风数据没有正常通过 HCI 到达。详细记录见 `archive/experiments/audio/airpods-linux/`。
+当前原型适合轻量本地交互、云端 AI 外壳、终端工具、小屏显示、服务监控和外设实验。硬件目标集中在低功耗终端体验、Runtime Screen Assets 播放和 Hardware Peripheral 扩展。AirPods 播放可用；语音输入优先使用 USB 麦克风这类 Input Accessory。详细记录见 `archive/experiments/audio/airpods-linux/`。
 
 ## 仓库结构
 
 ```text
 WalnutPi/
 ├── web-interface/           # Product spine: Web preview, sync API, evidence diagnostics
-├── lvgl_app/                # Product spine: manifest-driven LVGL fbdev app
+├── lvgl_app/                # Product spine: LVGL Screen App for Runtime Screen Assets
 ├── scripts/                 # Product spine scripts plus device install helpers
 ├── walnut-assistant/        # Device execution surface: walnut CLI and screen commands
 ├── framebuffer_ui/          # Device execution surface: framebuffer experiments and install path
@@ -179,9 +168,7 @@ WalnutPi/
 └── README.md                # Project overview
 ```
 
-`third/VibeBoard` 只是产品架构参考，可以借鉴 artifact manifest、delivery adapter、build evidence、device evidence 等概念；不要复制它的 React app、ESP-IDF 假设、OTA/flash 流程、board profile 或服务。`third/walnutpi` 只是 WalnutPi 体验参考，可以借鉴 device presence、rich terminal evidence、memory 和 WalnutPi-specific skills；不要用它整体替换当前项目。
-
-未来新增模块先判断是否服务 Screen Sync 主线；如果不是，先放在 support、experiment 或 reference 身份下，不进入产品主线。
+`third/` 和 `third_party/` 保留为参考和依赖来源；当前产品语言和决策以 `CONTEXT.md` 与 `docs/adr/` 为准。
 
 ## 项目分区
 
@@ -197,11 +184,11 @@ WalnutPi/
 walnut
 ```
 
-### Web Agent 控制台
+### Walnut Agent Console
 
 路径：`web-interface/`
 
-这是面向小白的浏览器入口。目标交互不是让用户点击一排工具按钮，也不是把用户推进右侧终端菜单，而是只提供一个自然语言输入框：
+这是面向普通用户的浏览器入口。目标交互是一个自然语言输入框，由 Walnut Agent Console 选择 Intent Route 并组织受控能力：
 
 ```text
 我想知道核桃派现在还好吗
@@ -211,20 +198,20 @@ walnut
 记一下今天调好了 Wi-Fi
 ```
 
-左侧负责理解、计划、执行和总结；右侧负责展示 3D 设备、执行现场和高级交互终端。普通用户不需要知道 `walnut status`、`gpio pins`、`curl wttr.in` 这些命令。
+左侧负责理解、计划、执行和总结；右侧负责展示 3D 设备、执行现场和高级交互终端。普通用户通过意图表达需求，Agent Action Command 和 Developer Diagnostics 留给系统内部与高级用户。
 
-当前 Web 控制台承载 Screen Workspace v2 同步闭环：
+当前 Walnut Agent Console 承载 Screen Workspace v2 同步闭环：
 
 ```text
 Web conversation / workspace source processing
 -> Screen Manifest v2 output
 -> Screen Playlist v1
 -> Playlist hash gate
--> LVGL playlist resources
+-> Runtime Screen Assets
 -> real-device sync and evidence
 ```
 
-当前小屏 contract 归 `screen/` 工作区所有。`screen/manifests/*.json` 使用 `walnutpi.screen-manifest.v2`，`screen/playlists/default.json` 使用 `walnutpi.screen-playlist.v1`。`scripts/screen-workspace-vocabulary.js` 是验证和 hash 规则事实来源，`scripts/generate-lvgl-screen-workspace-config.js` 是 LVGL 资源生成器。LVGL runtime 只消费 Screen Workspace 生成的 playlist 资源。
+当前小屏 contract 归 `screen/` 工作区所有。`screen/manifests/*.json` 使用 `walnutpi.screen-manifest.v2`，`screen/playlists/default.json` 使用 `walnutpi.screen-playlist.v1`。`scripts/screen-workspace-vocabulary.js` 是验证和 hash 规则事实来源，`scripts/generate-lvgl-screen-workspace-runtime-assets.js` 是 Runtime Screen Assets 生成器。LVGL Screen App 只消费由当前 Screen Playlist 派生的 Runtime Screen Assets。
 
 运行本地控制台：
 
@@ -239,12 +226,6 @@ PORT=4173 bun web-interface/model-terminal-server.js
 http://127.0.0.1:4173/
 ```
 
-如果只想看 Web 预览、不连接 SSH 或真实核桃派：
-
-```text
-http://127.0.0.1:4173/?nossh
-```
-
 同步相关接口：
 
 - `GET /api/screen/workspace/playlist`：返回默认 Screen Playlist envelope 和 `playlistHash`。
@@ -252,13 +233,13 @@ http://127.0.0.1:4173/?nossh
 - `GET /api/screen/manifest`、`POST /api/screen/sync`：已移除；任何调用都应得到 404。
 - `GET /api/screen/frame/<buildId>`：开发者诊断专用，按需只读抓取设备 PNG 画面；默认同步 JSON 不内嵌图片字节或 `pngBase64`。
 - `GET /api/screen/records`、`GET /api/screen/records/<buildId>`、`GET /api/screen/records/<buildId>/frame.png`：开发者诊断历史。
-- `POST /api/screen/pixel-diff`：只把浏览器算出的 `walnutpi.webDevicePixelDiff.v2` 写回本地同步记录；不会连接核桃派、抓图、构建、激活或改变同步状态。
+- `POST /api/screen/pixel-diff`：把浏览器算出的 `walnutpi.webDevicePixelDiff.v2` 写回本地 Sync Record，用于 Developer Diagnostics。
 
-普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、playlist hash、manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、metadata-only pixel evidence、诊断级 Web/device pixel diff、历史记录、AI 总结证据和按需设备截图只放在开发者诊断层。fast evidence 下 `visualMatch` 为 `playlist-committed`；完整 framebuffer 回证通过时为 `captured`。
+普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、playlist hash、manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、metadata-only pixel evidence、诊断级 Web/device pixel diff、历史记录、repairHint 和按需设备截图放在 Developer Diagnostics。fast evidence 下 `visualMatch` 为 `playlist-committed`；完整 framebuffer 回证通过时为 `captured`。
 
-Screen Workspace 只同步已经规范化到 480x320 的输出。静态输出必须是 480x320 PNG；动画输出必须是 480x320 帧序列加时长；同步不会重新下载、搜索或生成缺失输出。LVGL runtime 只消费生成的 Workspace playlist 资源，没有旧组件 manifest fallback。
+Screen Workspace 同步已经规范化到 480x320 的输出。静态输出是 480x320 PNG；动画输出是 480x320 帧序列加时长；Sync 使用本地 Screen Output 和 Runtime Screen Assets。LVGL Screen App 消费由 Screen Playlist 派生的 Runtime Screen Assets。
 
-同步记录默认保存在 `web-interface/screen-sync-records/`，该目录不进入 Git。每条记录保存 `record.json`、`summary.json`，开发者展开诊断截图后还会缓存 `frame.png`。默认保留最近 50 条，可用 `WALNUT_SCREEN_RECORD_LIMIT` 调整，也可用 `WALNUT_SCREEN_RECORDS_DIR` 改变保存目录。`?nossh` 模式仍然不会连接核桃派或触发构建 / 激活 / 设备写入；它只会在本地记录一次 preview 拒绝结果，方便确认同步路径被拦截。
+同步记录默认保存在 `web-interface/screen-sync-records/`，该目录不进入 Git。每条记录保存 `record.json`、`summary.json`，开发者展开诊断截图后还会缓存 `frame.png`。默认保留最近 50 条，可用 `WALNUT_SCREEN_RECORD_LIMIT` 调整，也可用 `WALNUT_SCREEN_RECORDS_DIR` 改变保存目录。
 
 当前真机闭环目标：
 
@@ -271,7 +252,7 @@ Full diagnostics: add evidenceMode="full" -> walnut screen state -> sudo -n waln
 
 - 用默认 `root` SSH 登录时，远端 `$HOME/projects/WalnutPi` 会变成 `/root/projects/WalnutPi`，但实际 checkout 在 `/home/pi/projects/WalnutPi`。
 - 旧的 root-owned `build/lvgl_app` 文件会导致 `pi` 构建时无法写入 `lvgl.pc.tmp`、`lv_version.h.tmp` 和 `CMakeCache.txt`。
-- 如果核桃派缺 `ccache` 或 `ninja`，必须编译 LVGL 时会失败而不是退回慢速 Makefiles。先在设备上跑 `sudo /home/pi/projects/WalnutPi/scripts/install-lvgl-build-deps.sh`，确认 `ccache`、`ninja-build`、`cmake`、`nodejs` 都已安装。`scripts/build-lvgl-app.sh` 默认强制使用 Ninja；如果旧 `build/lvgl_app` 是 Makefiles cache，脚本会直接替换成 Ninja build cache。
+- LVGL runtime 升级需要 `ccache`、`ninja-build`、`cmake`、`nodejs`。先在设备上跑 `sudo /home/pi/projects/WalnutPi/scripts/install-lvgl-build-deps.sh`。`scripts/build-lvgl-app.sh` 默认使用 Ninja；旧 Makefiles cache 会被替换成 Ninja build cache。
 
 当前常用 root/root 环境可以直接显式指定远端 checkout：
 
@@ -291,10 +272,10 @@ sudo chown -R pi:pi /home/pi/projects/WalnutPi/build/lvgl_app
 
 这里记录本地屏幕上的中文显示方案：
 
-- Linux TTY 本身不适合稳定显示中文
+- Linux TTY 的 CJK 字形支持由 `fbterm` 补足
 - 使用 `fbterm` 配合 WenQuanYi / Noto / Droid 回退字体
-- `walnut-cn` 会手动打开支持中文的 framebuffer 终端
-- 本地 `tty1` 登录会自动进入 `fbterm`，SSH 会话不受影响
+- `walnut-cn` / `walnut console` 是历史 Human CLI Command 入口
+- 当前本地 `tty1` 可以通过 `fbterm` 进入支持中文的普通 shell，SSH 会话不受影响
 
 ### 终端玩具（已归档）
 
@@ -313,7 +294,7 @@ sudo chown -R pi:pi /home/pi/projects/WalnutPi/build/lvgl_app
 
 路径：`framebuffer_ui/`
 
-这是无桌面系统直接写 `/dev/fb0` 的屏幕 UI 实验。它不依赖 X11、Wayland、Chromium 或桌面环境。
+这是无桌面系统直接写 `/dev/fb0` 的屏幕 UI 实验，使用 Linux framebuffer 路径运行。
 
 在 WalnutPi 小电脑本地或 SSH 进入项目：
 
@@ -373,7 +354,7 @@ sudo walnut screen restore
 
 路径：`lvgl_app/`
 
-这是无桌面系统上的 LVGL 原型。它不启动桌面，不需要 X11/Wayland，直接通过 LVGL 的 Linux fbdev 驱动写 `/dev/fb0`。
+这是无桌面系统上的 LVGL 原型，直接通过 LVGL 的 Linux fbdev 驱动写 `/dev/fb0`。
 
 本机构建现在按平台分流：
 
@@ -467,16 +448,15 @@ sudo walnut screen ai "WalnutPi screen AI page is live"
 
 Web 同步第一版复用现有 LVGL 运行边界，不改变 `walnut screen` 命令：
 
-- 构建：`scripts/build-lvgl-app.sh`
-- 激活：`sudo -n systemctl restart walnut-screen.service`。这是当前 Web delivery adapter 已验证的真机路径；`walnut screen start` 仍保留为用户可见 CLI 入口。
-- 回证：`walnut screen state` + `sudo -n walnut screen frame`
+- 内容交付：同步 `screen/runtime/default.txt` 和 RGB565 frame 文件
+- 构建：仅在远端 LVGL runtime 需要升级时运行 `scripts/build-lvgl-app.sh`
+- 激活：runtime hot reload 优先，`sudo -n systemctl restart walnut-screen.service` 是升级 fallback；`walnut screen start` 仍保留为用户可见 CLI 入口。
+- 回证：默认快速检查服务和 playlist 绑定；完整诊断时使用 `walnut screen state` + `sudo -n walnut screen frame`
 - 诊断截图：`walnut screen capture`，通过 `/api/screen/frame/<buildId>` 按需返回 PNG
-- 修复候选：`POST /api/screen/repair-candidate`，只读分析本地同步记录，不自动应用修复
-- 修复提案：`POST /api/screen/repair-proposal` + `POST /api/screen/repair-apply`，只允许确认后应用安全本地补丁，不自动同步
-- AI 总结：`POST /api/screen/ai-summary`，只读总结本地同步记录，证据范围固定为该记录的 compact evidence
+- 同步记录：保存 Sync Record 和 repairHint；Repair Proposal 尚未作为 API 实现
 - 目标：`/dev/fb0`，480x320，RGB565
 
-这里的“同步到核桃派”不是把 Web 前端搬到设备上，也不是 VibeBoard/ESP32 烧录链路；它是把同一个小屏 manifest 对应的 LVGL 产物交付给 WalnutPi 本地屏幕运行时，并记录可诊断的 delivery/evidence。
+这里的“同步到核桃派”是把当前 Screen Playlist 及其引用的 Screen Manifest v2 输出转换为 Runtime Screen Assets，交付给 WalnutPi 本地 LVGL Screen App，并记录可诊断的 delivery/evidence。
 
 ### WalnutAI 终端 V0
 
@@ -503,7 +483,7 @@ walnut-ai "上海天气怎么样"
 /exit                退出
 ```
 
-不带参数时进入交互式聊天；带参数时运行一次性 agent 回合。一次性回合会优先判断是否可以由 WalnutPi 本地执行，例如天气、状态、网络、笔记和硬件只读检查；不能本地执行的问题再交给云端 AI。
+不带参数时进入交互式聊天；带参数时运行一次性 agent 回合。一次性回合会优先判断是否可以由 WalnutPi 本地执行，例如天气、状态、网络、笔记和硬件只读检查；其他问题交给云端 AI。
 
 ### AirPods Linux 音频说明（已归档）
 
@@ -525,19 +505,17 @@ walnut-ai "上海天气怎么样"
 - Walnut Home 启动器：`/usr/local/bin/walnut`
 - WalnutAI 启动器：`/usr/local/bin/walnut-ai`
 - WalnutAI 代码：`/opt/walnut-ai/walnut_ai.py`
-- 中文控制台助手：`/usr/local/bin/walnut-cn`
+- 中文控制台助手：历史安装中可能存在 `/usr/local/bin/walnut-cn`，当前按 Archived Capability 处理
 
 ## 开发规则
 
-- 每个新实验都放在独立子目录里。
-- 不要把设备本地秘密信息提交进仓库。
-- 保持正常启动行为：设备仍然应该先进入标准 CLI。
-- 自定义交互系统应该手动进入，例如 `walnut` 或 `walnut-ai`。
-- 功能有重叠时优先扩展 `walnut`，不要继续增加顶层启动器。
-- 优先使用简单、可审计的 Linux 服务和脚本，不要轻易上重型 UI 栈。
-- 保持 `/home/pi/projects` 归 `pi:pi` 所有，避免本地 Git 权限问题。
-- 把 `/usr/local/bin` 当作公开命令面，避免无理由添加重复入口。
-- 把 `/opt` 当作已安装运行态，源码真相保留在当前用户的 `~/projects/WalnutPi` 路径或 `WALNUT_PROJECT_ROOT` 指向的位置。
+- 新实验放在独立子目录，成熟后再进入产品路径。
+- 设备本地秘密信息留在本机配置或环境变量里。
+- 设备启动先进入标准 CLI，自定义交互通过 `walnut`、`walnut-ai` 或 Walnut Agent Console 进入。
+- 功能有重叠时优先扩展 `walnut` Device Execution Surface。
+- Linux 服务和脚本保持简单、可审计。
+- `/home/pi/projects` 保持 `pi:pi` 所有，源码真相保留在项目 checkout 或 `WALNUT_PROJECT_ROOT`。
+- `/usr/local/bin` 是公开命令面，`/opt` 是已安装运行态。
 
 ## 近期路线
 

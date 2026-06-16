@@ -1,6 +1,6 @@
 # WalnutAI Terminal V0
 
-WalnutAI is the local agent layer for WalnutPi. It is not only a chat wrapper: it can use safe local actions, long-term memory, WalnutPi skills, and a small successful-code corpus before answering.
+WalnutAI is the local AI agent runtime for WalnutPi. It is not only a chat wrapper: it can use Local Actions governed by Local Action Policy, Durable Memory, WalnutPi skills, and the Retrieval Corpus before answering.
 
 ## Usage
 
@@ -29,8 +29,9 @@ WalnutAI routes requests through this shape:
 
 ```text
 natural language
--> intent classification
--> safe local action or normal chat
+-> Intent Route
+-> Local Action Policy check
+-> safe Local Action or normal chat
 -> structured evidence
 -> concise Chinese summary
 ```
@@ -43,6 +44,14 @@ walnut action run network --json
 walnut action run gpio --json
 walnut action run snapshot --json
 ```
+
+The action ids, risk classes, confirmation requirements, and evidence shape are declared in the repository Action Policy Manifest:
+
+```text
+action-policy-manifest.json
+```
+
+WalnutAI reads this manifest when available and still executes device reads through `walnut action`, so summaries stay grounded in the Device Execution Surface instead of arbitrary shell commands.
 
 High-risk operations such as GPIO output, overlay changes, package installs, service changes, reboot, shutdown, deletes, flashing, firmware, or eMMC writes must not run directly.
 
@@ -114,6 +123,7 @@ WALNUT_AI_SKILLS_DIR        Skills directory, default walnut_ai.py sibling skill
 WALNUT_AI_PRIMARY_SKILL     Primary skill, default walnutpi-1b-zerow
 WALNUT_AI_CORPUS_DIR        Successful-code corpus, default walnut_ai.py sibling corpus/
 WALNUT_CLI                  Optional explicit walnut CLI path
+WALNUT_ACTION_POLICY_MANIFEST Optional manifest path, default repository action-policy-manifest.json
 WALNUT_WEB_SESSIONS_DIR     Web conversation JSONL directory consumed by walnut-memory-distill
 ```
 

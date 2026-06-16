@@ -32,7 +32,6 @@ set_target_properties(lvgl PROPERTIES SOURCES "${LVGL_SOURCES}")
 if(NOT WIN32)
   add_executable(walnut-lvgl-screen
     src/main.c
-    generated/screen_workspace_config.c
   )
 
   target_link_libraries(walnut-lvgl-screen PRIVATE lvgl m)
@@ -41,7 +40,6 @@ endif()
 add_executable(walnut-lvgl-preview
   src/main.c
   src/preview_main.c
-  generated/screen_workspace_config.c
 )
 
 target_compile_definitions(walnut-lvgl-preview PRIVATE WALNUT_LVGL_NO_FBDEV=1)

@@ -1,5 +1,4 @@
 #include "lvgl.h"
-#include "generated/screen_workspace_config.h"
 #ifndef WALNUT_LVGL_NO_FBDEV
 #include "src/drivers/display/fb/lv_linux_fbdev.h"
 #endif
@@ -242,73 +241,47 @@ bool walnut_screen_workspace_load_runtime(const char * index_path)
 const char * walnut_screen_workspace_active_playlist_hash(void)
 {
     if(runtime_workspace.loaded) return runtime_workspace.playlist_hash;
-    return walnut_screen_workspace_config_playlist_hash();
+    return "";
 }
 
 static bool workspace_playlist_enabled(void)
 {
-    if(runtime_workspace.loaded) return runtime_workspace.item_count > 0 && runtime_workspace.frame_count > 0;
-    return WALNUT_SCREEN_WORKSPACE_ITEM_COUNT > 0 && WALNUT_SCREEN_WORKSPACE_FRAME_COUNT > 0;
+    return runtime_workspace.loaded && runtime_workspace.item_count > 0 && runtime_workspace.frame_count > 0;
 }
 
 static int workspace_frame_duration_ms(int item_index, int frame_index)
 {
-    if(runtime_workspace.loaded) {
-        if(item_index < 0 || item_index >= runtime_workspace.item_count) return 1000;
-        const runtime_item_t * item = &runtime_workspace.items[item_index];
-        if(item->frame_count <= 1) return clamp_int(item->duration_ms, 1, 86400000);
-        if(frame_index < 0 || frame_index >= runtime_workspace.frame_count) return 1000;
-        return clamp_int(runtime_workspace.frames[frame_index].duration_ms, 1, 600000);
-    }
-    if(item_index < 0 || item_index >= WALNUT_SCREEN_WORKSPACE_ITEM_COUNT) return 1000;
-    const walnut_screen_workspace_item_config_t * item = &walnut_screen_workspace_items[item_index];
+    if(item_index < 0 || item_index >= runtime_workspace.item_count) return 1000;
+    const runtime_item_t * item = &runtime_workspace.items[item_index];
     if(item->frame_count <= 1) return clamp_int(item->duration_ms, 1, 86400000);
-    if(frame_index < 0 || frame_index >= WALNUT_SCREEN_WORKSPACE_FRAME_COUNT) return 1000;
-    return clamp_int(walnut_screen_workspace_frames[frame_index].duration_ms, 1, 600000);
+    if(frame_index < 0 || frame_index >= runtime_workspace.frame_count) return 1000;
+    return clamp_int(runtime_workspace.frames[frame_index].duration_ms, 1, 600000);
 }
 
 static void workspace_apply_frame(workspace_ui_t * ui)
 {
     if(ui == NULL || ui->image == NULL || !workspace_playlist_enabled()) return;
-    if(runtime_workspace.loaded) {
-        ui->item = clamp_int(ui->item, 0, runtime_workspace.item_count - 1);
-        const runtime_item_t * item = &runtime_workspace.items[ui->item];
-        int first_frame = clamp_int(item->first_frame, 0, runtime_workspace.frame_count - 1);
-        int frame_count = clamp_int(item->frame_count, 1, runtime_workspace.frame_count - first_frame);
-        ui->frame = clamp_int(ui->frame, first_frame, first_frame + frame_count - 1);
-        runtime_frame_t * frame = &runtime_workspace.frames[ui->frame];
-        if(read_runtime_frame_pixels(frame)) lv_image_set_src(ui->image, &frame->image);
-        return;
-    }
-    ui->item = clamp_int(ui->item, 0, WALNUT_SCREEN_WORKSPACE_ITEM_COUNT - 1);
-    const walnut_screen_workspace_item_config_t * item = &walnut_screen_workspace_items[ui->item];
-    int first_frame = clamp_int(item->first_frame, 0, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - 1);
-    int frame_count = clamp_int(item->frame_count, 1, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - first_frame);
+    ui->item = clamp_int(ui->item, 0, runtime_workspace.item_count - 1);
+    const runtime_item_t * item = &runtime_workspace.items[ui->item];
+    int first_frame = clamp_int(item->first_frame, 0, runtime_workspace.frame_count - 1);
+    int frame_count = clamp_int(item->frame_count, 1, runtime_workspace.frame_count - first_frame);
     ui->frame = clamp_int(ui->frame, first_frame, first_frame + frame_count - 1);
-    const walnut_screen_workspace_frame_config_t * frame = &walnut_screen_workspace_frames[ui->frame];
-    if(frame->image != NULL) lv_image_set_src(ui->image, frame->image);
+    runtime_frame_t * frame = &runtime_workspace.frames[ui->frame];
+    if(read_runtime_frame_pixels(frame)) lv_image_set_src(ui->image, &frame->image);
 }
 
 static void workspace_advance(workspace_ui_t * ui)
 {
     if(ui == NULL || ui->stopped || !workspace_playlist_enabled()) return;
-    int item_count = runtime_workspace.loaded ? runtime_workspace.item_count : WALNUT_SCREEN_WORKSPACE_ITEM_COUNT;
-    int frame_total = runtime_workspace.loaded ? runtime_workspace.frame_count : WALNUT_SCREEN_WORKSPACE_FRAME_COUNT;
+    int item_count = runtime_workspace.item_count;
+    int frame_total = runtime_workspace.frame_count;
     int first_frame = 0;
     int frame_count = 1;
     int repeat = 1;
-    if(runtime_workspace.loaded) {
-        const runtime_item_t * item = &runtime_workspace.items[ui->item];
-        first_frame = clamp_int(item->first_frame, 0, frame_total - 1);
-        frame_count = clamp_int(item->frame_count, 1, frame_total - first_frame);
-        repeat = clamp_int(item->repeat, 1, 1000);
-    }
-    else {
-        const walnut_screen_workspace_item_config_t * item = &walnut_screen_workspace_items[ui->item];
-        first_frame = clamp_int(item->first_frame, 0, frame_total - 1);
-        frame_count = clamp_int(item->frame_count, 1, frame_total - first_frame);
-        repeat = clamp_int(item->repeat, 1, 1000);
-    }
+    const runtime_item_t * item = &runtime_workspace.items[ui->item];
+    first_frame = clamp_int(item->first_frame, 0, frame_total - 1);
+    frame_count = clamp_int(item->frame_count, 1, frame_total - first_frame);
+    repeat = clamp_int(item->repeat, 1, 1000);
     if(frame_count > 1 && ui->frame < first_frame + frame_count - 1) {
         ui->frame++;
         return;
@@ -322,7 +295,7 @@ static void workspace_advance(workspace_ui_t * ui)
     if(ui->item < item_count - 1) {
         ui->item++;
     }
-    else if(runtime_workspace.loaded ? runtime_workspace.loop : WALNUT_SCREEN_WORKSPACE_PLAYLIST_LOOP) {
+    else if(runtime_workspace.loop) {
         ui->item = 0;
     }
     else {
@@ -330,14 +303,8 @@ static void workspace_advance(workspace_ui_t * ui)
         ui->frame = first_frame + frame_count - 1;
         return;
     }
-    if(runtime_workspace.loaded) {
-        const runtime_item_t * next_item = &runtime_workspace.items[ui->item];
-        ui->frame = clamp_int(next_item->first_frame, 0, frame_total - 1);
-    }
-    else {
-        const walnut_screen_workspace_item_config_t * next_item = &walnut_screen_workspace_items[ui->item];
-        ui->frame = clamp_int(next_item->first_frame, 0, frame_total - 1);
-    }
+    const runtime_item_t * next_item = &runtime_workspace.items[ui->item];
+    ui->frame = clamp_int(next_item->first_frame, 0, frame_total - 1);
 }
 
 static void workspace_timer_cb(lv_timer_t * timer)
@@ -359,12 +326,7 @@ static void workspace_restart_from_first_frame(void)
     workspace_ui.item = 0;
     workspace_ui.repeat = 0;
     workspace_ui.stopped = false;
-    if(runtime_workspace.loaded) {
-        workspace_ui.frame = clamp_int(runtime_workspace.items[0].first_frame, 0, runtime_workspace.frame_count - 1);
-    }
-    else {
-        workspace_ui.frame = clamp_int(walnut_screen_workspace_items[0].first_frame, 0, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - 1);
-    }
+    workspace_ui.frame = clamp_int(runtime_workspace.items[0].first_frame, 0, runtime_workspace.frame_count - 1);
     workspace_apply_frame(&workspace_ui);
 }
 
@@ -389,29 +351,20 @@ static void workspace_apply_time(int advance_ms)
     if(advance_ms < 0) advance_ms = 0;
 
     int total = 0;
-    int item_count = runtime_workspace.loaded ? runtime_workspace.item_count : WALNUT_SCREEN_WORKSPACE_ITEM_COUNT;
-    int frame_total = runtime_workspace.loaded ? runtime_workspace.frame_count : WALNUT_SCREEN_WORKSPACE_FRAME_COUNT;
-    bool loop = runtime_workspace.loaded ? runtime_workspace.loop : WALNUT_SCREEN_WORKSPACE_PLAYLIST_LOOP;
+    int item_count = runtime_workspace.item_count;
+    int frame_total = runtime_workspace.frame_count;
+    bool loop = runtime_workspace.loop;
 
     for(int item_index = 0; item_index < item_count; item_index++) {
         int first_frame = 0;
         int frame_count = 1;
         int duration_ms = 1000;
         int repeat = 1;
-        if(runtime_workspace.loaded) {
-            const runtime_item_t * item = &runtime_workspace.items[item_index];
-            first_frame = clamp_int(item->first_frame, 0, frame_total - 1);
-            frame_count = clamp_int(item->frame_count, 1, frame_total - first_frame);
-            duration_ms = item->duration_ms;
-            repeat = item->repeat;
-        }
-        else {
-            const walnut_screen_workspace_item_config_t * item = &walnut_screen_workspace_items[item_index];
-            first_frame = clamp_int(item->first_frame, 0, frame_total - 1);
-            frame_count = clamp_int(item->frame_count, 1, frame_total - first_frame);
-            duration_ms = item->duration_ms;
-            repeat = item->repeat;
-        }
+        const runtime_item_t * item = &runtime_workspace.items[item_index];
+        first_frame = clamp_int(item->first_frame, 0, frame_total - 1);
+        frame_count = clamp_int(item->frame_count, 1, frame_total - first_frame);
+        duration_ms = item->duration_ms;
+        repeat = item->repeat;
         int cycle = 0;
         if(frame_count <= 1) {
             cycle = clamp_int(duration_ms, 1, 86400000);
@@ -431,20 +384,11 @@ static void workspace_apply_time(int advance_ms)
         int frame_count = 1;
         int duration_ms = 1000;
         int repeat = 1;
-        if(runtime_workspace.loaded) {
-            const runtime_item_t * item = &runtime_workspace.items[item_index];
-            first_frame = clamp_int(item->first_frame, 0, frame_total - 1);
-            frame_count = clamp_int(item->frame_count, 1, frame_total - first_frame);
-            duration_ms = item->duration_ms;
-            repeat = item->repeat;
-        }
-        else {
-            const walnut_screen_workspace_item_config_t * item = &walnut_screen_workspace_items[item_index];
-            first_frame = clamp_int(item->first_frame, 0, frame_total - 1);
-            frame_count = clamp_int(item->frame_count, 1, frame_total - first_frame);
-            duration_ms = item->duration_ms;
-            repeat = item->repeat;
-        }
+        const runtime_item_t * item = &runtime_workspace.items[item_index];
+        first_frame = clamp_int(item->first_frame, 0, frame_total - 1);
+        frame_count = clamp_int(item->frame_count, 1, frame_total - first_frame);
+        duration_ms = item->duration_ms;
+        repeat = item->repeat;
         int cycle = 0;
         if(frame_count <= 1) {
             cycle = clamp_int(duration_ms, 1, 86400000);
@@ -500,7 +444,7 @@ static void build_empty_workspace_screen(void)
     lv_obj_align(note, LV_ALIGN_TOP_LEFT, 18, 72);
 
     lv_obj_t * reason = lv_label_create(scr);
-    lv_label_set_text(reason, WALNUT_SCREEN_WORKSPACE_GENERATION_NOTE);
+    lv_label_set_text(reason, "Runtime screen playlist not loaded.");
     lv_obj_set_style_text_color(reason, lv_color_hex(0x95a1a6), 0);
     lv_obj_set_style_text_font(reason, &lv_font_montserrat_14, 0);
     lv_obj_set_width(reason, 440);
@@ -520,12 +464,7 @@ void walnut_build_screen_ui(void)
     lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
     workspace_ui.item = 0;
     workspace_ui.repeat = 0;
-    if(runtime_workspace.loaded) {
-        workspace_ui.frame = clamp_int(runtime_workspace.items[0].first_frame, 0, runtime_workspace.frame_count - 1);
-    }
-    else {
-        workspace_ui.frame = clamp_int(walnut_screen_workspace_items[0].first_frame, 0, WALNUT_SCREEN_WORKSPACE_FRAME_COUNT - 1);
-    }
+    workspace_ui.frame = clamp_int(runtime_workspace.items[0].first_frame, 0, runtime_workspace.frame_count - 1);
     workspace_ui.image = lv_image_create(scr);
     lv_obj_align(workspace_ui.image, LV_ALIGN_TOP_LEFT, 0, 0);
     workspace_apply_frame(&workspace_ui);

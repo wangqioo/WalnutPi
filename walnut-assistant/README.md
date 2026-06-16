@@ -1,8 +1,16 @@
 # Walnut Home
 
-Walnut Home 是这台无桌面 WalnutPi 终端的 CLI 工具层。
+Walnut Home 是这台无桌面 WalnutPi 终端的 Device Execution Surface。
 
-Web 对话是普通用户入口，`walnut` 是设备上稳定、可审计的执行入口。Web agent 可以调用这些能力来读取状态、生成证据、处理素材、操作小屏或引导高级用户；用户也可以直接在 SSH/本地终端里使用它。
+Walnut Agent Console 是普通用户入口，`walnut` 是设备上稳定、可审计的执行入口。它同时提供给人直接使用的 Human CLI Command，以及给 Walnut Agent Console / WalnutAI 调用的 Agent Action Command。Agent Action Command 应由 Action Policy Manifest 管理；菜单、TUI 和演示入口不自动成为 Agent 契约。
+
+当前 Action Policy Manifest 位于仓库根目录：
+
+```text
+action-policy-manifest.json
+```
+
+`walnut action run ... --json` 和 `walnut action prepare ... --json` 会从这个 manifest 派生可用的 Agent Action Command、风险等级和确认边界。
 
 它把原本分散的 Linux 命令收拢成一个入口：
 
@@ -17,7 +25,7 @@ walnut                 # 交互式菜单
 walnut ai              # 打开 WalnutAI 聊天
 walnut notes           # 笔记子菜单
 walnut play            # 打开音乐、数字雨、时钟和视频演示
-walnut console         # 打开中文 framebuffer 控制台子菜单
+walnut console         # 历史 / 可选中文 framebuffer 控制台入口，不是 Agent Action Command
 walnut status          # 系统、网络、服务、Docker、蓝牙状态
 walnut maintenance     # 打开修复 / 项目 / 清理 / 浏览器 / 监控子菜单
 walnut video [mode]    # 播放 ASCII 视频演示：color 或 gray

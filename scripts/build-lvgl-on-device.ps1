@@ -39,12 +39,15 @@ Write-Host ("Remote root: {0}" -f $RemoteProjectRoot)
 Write-Host ("Build user:  {0}" -f $RemoteBuildUser)
 Write-Host ""
 
+$remoteCommand = $remoteCommand -replace "`r`n", "`n"
+$remoteCommandBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($remoteCommand))
+
 & sshpass -p $Password ssh `
     -o StrictHostKeyChecking=no `
     -o UserKnownHostsFile=/dev/null `
     -o LogLevel=ERROR `
     "$User@$HostName" `
-    $remoteCommand
+    "printf '%s' '$remoteCommandBase64' | base64 -d | sh"
 
 if ($LASTEXITCODE -ne 0) {
     throw "Remote LVGL build failed with code $LASTEXITCODE."

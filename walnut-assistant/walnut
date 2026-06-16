@@ -32,12 +32,14 @@ def user_home() -> Path:
 
 
 HOME = user_home()
+SCRIPT_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MEMORY_ROOT = Path(os.getenv("WALNUT_MEMORY_DIR", str(HOME / "walnut-memory")))
 NOTES_DIR = MEMORY_ROOT / "daily"
 MUSIC_LINK = HOME / "Music" / "WalnutMusic"
 CMUS_PLAYLIST = HOME / ".config" / "cmus" / "walnut-library.pls"
 PROJECT_ROOT_CANDIDATES = [
     Path(os.environ["WALNUT_PROJECT_ROOT"]) if "WALNUT_PROJECT_ROOT" in os.environ else None,
+    SCRIPT_PROJECT_ROOT if (SCRIPT_PROJECT_ROOT / "action-policy-manifest.json").exists() else None,
     HOME / "projects" / "WalnutPi",
     Path("/home/pi/projects/WalnutPi"),
 ]
@@ -51,6 +53,10 @@ BROWSER_URL = "https://lite.duckduckgo.com/lite/"
 MUSIC_EXTENSIONS = {".mp3", ".ogg", ".oga", ".flac", ".wav"}
 ACTION_OUTPUT_LIMIT = 24000
 PENDING_ACTION_TTL_SECONDS = 300
+ACTION_POLICY_MANIFEST_CANDIDATES = [
+    Path(os.environ["WALNUT_ACTION_POLICY_MANIFEST"]) if "WALNUT_ACTION_POLICY_MANIFEST" in os.environ else None,
+    *(root / "action-policy-manifest.json" for root in PROJECT_ROOT_CANDIDATES if root is not None),
+]
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -131,6 +137,38 @@ def music_dir() -> Path:
 
 def project_root() -> Path:
     return first_existing_path(PROJECT_ROOT_CANDIDATES, HOME / "projects" / "WalnutPi")
+
+
+def action_policy_manifest_path() -> Path:
+    return first_existing_path(ACTION_POLICY_MANIFEST_CANDIDATES, project_root() / "action-policy-manifest.json")
+
+
+def load_action_policy_manifest() -> dict[str, object]:
+    path = action_policy_manifest_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise RuntimeError(f"Action Policy Manifest is missing: {path}") from error
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"Action Policy Manifest is invalid JSON: {path}: {error}") from error
+    if data.get("schema") != "walnutpi.action-policy-manifest.v1":
+        raise RuntimeError("Action Policy Manifest schema is not supported")
+    actions = data.get("actions")
+    if not isinstance(actions, dict):
+        raise RuntimeError("Action Policy Manifest actions must be an object")
+    return data
+
+
+def policy_actions_for_executor(executor: str) -> dict[str, dict[str, object]]:
+    manifest = load_action_policy_manifest()
+    out: dict[str, dict[str, object]] = {}
+    for action_id, spec in manifest["actions"].items():
+        if not isinstance(spec, dict):
+            continue
+        allowed = spec.get("allowedExecutors")
+        if isinstance(allowed, list) and executor in allowed:
+            out[str(action_id)] = spec
+    return out
 
 
 def prepare_music() -> tuple[Path, Path, Path]:
@@ -526,47 +564,59 @@ def action_snapshot(_: argparse.Namespace | None = None) -> int:
     return 0
 
 
-READ_ACTIONS = {
+READ_ACTION_HANDLERS = {
     "status": {
-        "title": "查状态",
-        "risk": "read",
-        "mode": "read",
         "handler": status,
     },
     "network": {
-        "title": "网络检查",
-        "risk": "read",
-        "mode": "read",
         "handler": action_network,
     },
     "gpio": {
-        "title": "GPIO 检查",
-        "risk": "read",
-        "mode": "read",
         "handler": action_gpio,
     },
     "snapshot": {
-        "title": "设备快照",
-        "risk": "read",
-        "mode": "read",
         "handler": action_snapshot,
     },
 }
 
 
-PREPARE_ACTIONS = {
-    "reboot": {
-        "title": "重启 WalnutPi",
-        "risk": "high",
-        "mode": "confirmable",
-        "command": "reboot",
-        "explanation": "这会断开当前终端和 Web Agent Console，会中断正在运行的任务。",
-    },
-}
+def read_actions() -> dict[str, dict[str, object]]:
+    actions: dict[str, dict[str, object]] = {}
+    for action_id, spec in policy_actions_for_executor("walnut-cli").items():
+        if spec.get("risk") != "read" or action_id not in READ_ACTION_HANDLERS:
+            continue
+        actions[action_id] = {
+            "title": spec["title"],
+            "risk": spec["risk"],
+            "mode": "read",
+            "handler": READ_ACTION_HANDLERS[action_id]["handler"],
+        }
+    return actions
+
+
+def prepare_actions() -> dict[str, dict[str, object]]:
+    actions: dict[str, dict[str, object]] = {}
+    for action_id, spec in policy_actions_for_executor("walnut-cli").items():
+        if spec.get("mode") != "confirmable" or not spec.get("confirmationRequired"):
+            continue
+        cli = spec.get("walnutCli") if isinstance(spec.get("walnutCli"), dict) else {}
+        command = cli.get("command")
+        explanation = cli.get("explanation")
+        if not command or not explanation:
+            continue
+        actions[action_id] = {
+            "title": spec["title"],
+            "risk": spec["risk"],
+            "mode": spec["mode"],
+            "command": command,
+            "explanation": explanation,
+        }
+    return actions
 
 
 def action_result(action_id: str, spec: dict[str, object], code: int | None, output: str) -> dict[str, object]:
     return {
+        "schema": "walnut.local-action-result.v1",
         "ok": code == 0,
         "id": action_id,
         "title": spec["title"],
@@ -590,10 +640,11 @@ def print_action_result(result: dict[str, object], as_json: bool) -> None:
 
 def action_run(args: argparse.Namespace) -> int:
     action_id = args.action
-    spec = READ_ACTIONS.get(action_id)
+    actions = read_actions()
+    spec = actions.get(action_id)
     if spec is None:
         print(f"Unknown read action: {action_id}", file=sys.stderr)
-        print("Available: " + ", ".join(sorted(READ_ACTIONS)), file=sys.stderr)
+        print("Available: " + ", ".join(sorted(actions)), file=sys.stderr)
         return 2
 
     code, output = captured_function_output(spec["handler"])
@@ -635,10 +686,11 @@ def print_pending_action(pending: dict[str, object], as_json: bool) -> None:
 
 def action_prepare(args: argparse.Namespace) -> int:
     action_id = args.action
-    spec = PREPARE_ACTIONS.get(action_id)
+    actions = prepare_actions()
+    spec = actions.get(action_id)
     if spec is None:
         print(f"Unknown confirmable action: {action_id}", file=sys.stderr)
-        print("Available: " + ", ".join(sorted(PREPARE_ACTIONS)), file=sys.stderr)
+        print("Available: " + ", ".join(sorted(actions)), file=sys.stderr)
         return 2
 
     print_pending_action(pending_action(action_id, spec), args.json)
@@ -661,7 +713,7 @@ def validate_pending_action(data: dict[str, object]) -> str | None:
     if data.get("schema") != "walnut.pending-local-action.v1":
         return "pending action schema is not supported"
     action_id = str(data.get("id", ""))
-    spec = PREPARE_ACTIONS.get(action_id)
+    spec = prepare_actions().get(action_id)
     if spec is None:
         return "pending action id is not allowed"
     for key in ("title", "risk", "mode", "command", "explanation"):
@@ -1008,14 +1060,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_action = sub.add_parser("action")
     p_action.set_defaults(func=action_cli)
     action_sub = p_action.add_subparsers(dest="action_cmd")
+    try:
+        read_action_choices = sorted(read_actions())
+        prepare_action_choices = sorted(prepare_actions())
+    except RuntimeError:
+        read_action_choices = sorted(READ_ACTION_HANDLERS)
+        prepare_action_choices = ["reboot"]
 
     p_action_run = action_sub.add_parser("run")
-    p_action_run.add_argument("action", choices=sorted(READ_ACTIONS))
+    p_action_run.add_argument("action", choices=read_action_choices)
     p_action_run.add_argument("--json", action="store_true")
     p_action_run.set_defaults(func=action_cli)
 
     p_action_prepare = action_sub.add_parser("prepare")
-    p_action_prepare.add_argument("action", choices=sorted(PREPARE_ACTIONS))
+    p_action_prepare.add_argument("action", choices=prepare_action_choices)
     p_action_prepare.add_argument("--json", action="store_true")
     p_action_prepare.set_defaults(func=action_cli)
 
