@@ -12,3 +12,13 @@ web-interface/data/
 web-interface/screen-sync-records/
 third_party/lvgl/
 third/
+
+# Local Screen Workspace generation/test artifacts.
+screen/manifests/agent-freeform-*.json
+screen/manifests/api-*.json
+screen/outputs/agent-freeform-*/
+screen/outputs/api-*/
+screen/plans/agent-freeform-*-plan.json
+screen/plans/api-*-plan.json
+screen/sources/agent-freeform-*-source/
+screen/sources/api-*-source/
