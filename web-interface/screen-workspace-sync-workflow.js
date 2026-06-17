@@ -123,6 +123,7 @@ export function createScreenWorkspaceSyncWorkflow({
       }
 
       const evidenceMode = normalizeEvidenceMode(body.evidenceMode);
+      const deliveryStartedAt = now();
       const delivery = await runDelivery({
         deliveryAdapter,
         buildId,
@@ -152,6 +153,10 @@ export function createScreenWorkspaceSyncWorkflow({
           output: delivery.output,
           summary: delivery.summary,
           failedStage: delivery.failedStage,
+          remoteExecution: delivery.remoteExecution || null,
+          segments: {
+            deliveryMs: now().getTime() - deliveryStartedAt.getTime(),
+          },
         },
       };
     },

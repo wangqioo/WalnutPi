@@ -373,6 +373,22 @@
         confidenceEl.textContent = classification?.confidence ?? "-";
       }
 
+      function asksForLocalAssistantInfo(text) {
+        const value = String(text || "").trim().toLowerCase();
+        if (!value) return false;
+        const asksCapability = /你\s*(?:现在|目前|到底)?\s*(?:是?谁|能做什么|能帮我做(?:什么|哪些事)|可以做什么|会做什么|有什么功能|介绍(?:一下)?(?:你自己|自己)?|职责)|walnut\s*ai|walnutai/.test(value);
+        const forbidsDevice = /不要\s*(?:连接|碰|访问|检查|操作).{0,8}(?:设备|核桃派)|别\s*(?:连接|碰|访问|检查|操作).{0,8}(?:设备|核桃派)|不(?:要|用)\s*(?:ssh|远端|真机|设备)|只\s*(?:说明|介绍|回答)|local\s*only|no\s*(?:ssh|device|remote)/i.test(value);
+        return asksCapability && forbidsDevice;
+      }
+
+      function localAssistantInfoReply() {
+        return [
+          "我是 Walnut Agent Console 的 Web 入口，可以帮你把自然语言请求路由到受控能力。",
+          "当前可以处理：只读设备状态、网络、快照、GPIO 检查；Screen Workspace 小屏内容与预览；笔记；以及需要时委托设备侧 WalnutAI。",
+          "这次你要求不要连接设备，所以我没有执行 SSH、真机检查或设备侧 WalnutAI。"
+        ].join("\n");
+      }
+
       async function classify(text) {
         const response = await fetch("/api/intent/classify", {
           method: "POST",
@@ -395,6 +411,30 @@
         return data;
       }
 
+      async function generateScreen(text, classification) {
+        const response = await fetch("/api/screen/workspace/generate", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            prompt: text,
+            screenId: `agent-freeform-${Date.now()}`,
+            playlist: "default",
+            outputType: "static",
+            preset: "fit-cover:480x320",
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.output || data.error || "screen generation failed");
+        const syncHint = classification.delivery === "sync_after_preview"
+          ? "你要求生成后同步：我已先生成并更新预览，请在 Screen Workspace 确认画面后点击“同步到核桃派”。"
+          : "你要求先预览：我没有连接设备，也没有同步。";
+        return [
+          `已自由生成 480x320 小屏：${data.screenId}`,
+          syncHint,
+          "打开右侧 Screen Workspace 查看和同步。",
+        ].join("\n");
+      }
+
       function setBusy(busy) {
         promptEl.disabled = busy;
         submitIntentEl.disabled = busy;
@@ -409,8 +449,12 @@
         appendMessage("system", mode === "ai" ? "正在询问 WalnutAI..." : "处理中...");
         try {
           if (mode === "ai") {
-            const data = await runAction("ai", { text });
-            appendMessage("assistant", data.output);
+            if (asksForLocalAssistantInfo(text)) {
+              appendMessage("assistant", localAssistantInfoReply());
+            } else {
+              const data = await runAction("ai", { text });
+              appendMessage("assistant", data.output);
+            }
           } else {
             const classification = await classify(text);
             updateRoute(classification);
@@ -426,8 +470,12 @@
             } else if (classification.intent === "device.gpio.read") {
               const data = await runAction("gpio");
               appendMessage("assistant", data.output);
-            } else if (classification.intent === "screen.generate" || classification.intent === "screen.sync") {
-              appendMessage("assistant", "已识别为小屏工作流。请进入 Screen Workspace 处理 Source Asset、Screen Output、Playlist 和 Sync。");
+            } else if (classification.intent === "screen.generate") {
+              appendMessage("assistant", await generateScreen(text, classification));
+            } else if (classification.intent === "screen.sync") {
+              appendMessage("assistant", "已识别为同步工作流。请进入 Screen Workspace 确认当前播放列表后同步到核桃派。");
+            } else if (classification.intent === "ai.chat" && asksForLocalAssistantInfo(text)) {
+              appendMessage("assistant", localAssistantInfoReply());
             } else {
               const data = await runAction("ai", { text });
               appendMessage("assistant", data.output);

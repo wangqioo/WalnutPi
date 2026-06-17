@@ -81,9 +81,13 @@ function cleanEvent(event) {
     aiClassifierUsed: booleanOrNull(event.aiClassifierUsed),
     remoteTransport: stringOrNull(event.remoteTransport, 80),
     connectionReused: booleanOrNull(event.connectionReused),
+    fallbackRemoteTransport: stringOrNull(event.fallbackRemoteTransport, 80),
+    fallbackConnectionReused: booleanOrNull(event.fallbackConnectionReused),
     preflightEnsured: booleanOrNull(event.preflightEnsured),
     segments: numericObject(event.segments, [
       "requestJsonMs",
+      "workspaceSyncMs",
+      "deliveryMs",
       "buildCommandMs",
       "preflightMs",
       "remoteMs",
@@ -183,14 +187,24 @@ export function createWebMetricsLedger({ metricsPath, limit = DEFAULT_LIMIT }) {
     });
   }
 
-  async function report(requestedLimit = limit) {
-    const events = await readRecent(Math.min(MAX_SUMMARY_EVENTS, requestedLimit));
+  async function report(requestedLimit = limit, options = {}) {
+    const sinceMs = options?.since ? Date.parse(options.since) : NaN;
+    const readLimit = Number.isFinite(sinceMs)
+      ? MAX_SUMMARY_EVENTS
+      : Math.min(MAX_SUMMARY_EVENTS, requestedLimit);
+    const events = await readRecent(readLimit);
+    const filteredEvents = Number.isFinite(sinceMs)
+      ? events.filter((event) => Date.parse(event.timestamp) > sinceMs)
+      : events;
     return {
       ok: true,
       schema: "walnutpi.webMetrics.v1",
       metricsPath,
-      summary: summarize(events),
-      events: events.slice(-Math.max(1, Math.min(limit, requestedLimit))),
+      summary: summarize(filteredEvents),
+      events: filteredEvents.slice(-Math.max(1, Math.min(limit, requestedLimit))),
+      filters: {
+        since: Number.isFinite(sinceMs) ? new Date(sinceMs).toISOString() : null,
+      },
     };
   }
 

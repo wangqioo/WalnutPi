@@ -187,6 +187,8 @@ export function createAgentActionsApi({
         inputChars: typeof body.text === "string" ? body.text.length : null,
         remoteTransport: result.remoteTransport,
         connectionReused: result.reusedConnection,
+        fallbackRemoteTransport: result.fallbackRemoteTransport,
+        fallbackConnectionReused: result.fallbackReusedConnection,
         preflightEnsured: result.preflightEnsured,
         segments,
         error: responseBody.ok ? null : output || result.output,
@@ -265,6 +267,10 @@ async function handleTerminalAction({
   const ensure = await walnutRemote.ensureWalnutCli();
   segments.preflightMs = elapsedSince(preflightStartedAt);
   if (!ensure.ok) {
+    const remoteTransport = ensure.remoteTransport || null;
+    const connectionReused = typeof ensure.reusedConnection === "boolean" ? ensure.reusedConnection : null;
+    const fallbackRemoteTransport = ensure.fallbackRemoteTransport || null;
+    const fallbackConnectionReused = typeof ensure.fallbackReusedConnection === "boolean" ? ensure.fallbackReusedConnection : null;
     await webMetricsLedger.append({
       kind: "agent.action",
       operation: "agent.action",
@@ -276,6 +282,10 @@ async function handleTerminalAction({
       traceId,
       span: "total",
       preflightEnsured: ensure.ensured,
+      remoteTransport,
+      connectionReused,
+      fallbackRemoteTransport,
+      fallbackConnectionReused,
       segments,
       error: "walnut cli preflight failed",
     });
@@ -292,6 +302,15 @@ async function handleTerminalAction({
         "[terminal command skipped]",
         command,
       ].join("\n")),
+      diagnostics: {
+        traceId,
+        remoteTransport,
+        connectionReused,
+        fallbackRemoteTransport,
+        fallbackConnectionReused,
+        preflightEnsured: typeof ensure.ensured === "boolean" ? ensure.ensured : null,
+        segments,
+      },
     }, 500);
   }
 

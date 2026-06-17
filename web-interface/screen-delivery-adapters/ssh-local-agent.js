@@ -82,7 +82,7 @@ export function createSshLocalAgentAdapter({
         : [
             "sleep 0.25",
             "screen_state=$(systemctl is-active walnut-screen.service)",
-            "printf 'hot-reload wait complete\\nwalnut-screen.service %s\\n' \"$screen_state\"",
+            "if [ \"$screen_state\" != active ]; then printf 'hot-reload skipped: walnut-screen.service %s\\n' \"$screen_state\"; sudo -n systemctl restart walnut-screen.service; sleep 0.75; screen_state=$(systemctl is-active walnut-screen.service); printf 'restart fallback complete\\nwalnut-screen.service %s\\n' \"$screen_state\"; else printf 'hot-reload wait complete\\nwalnut-screen.service %s\\n' \"$screen_state\"; fi",
             "test \"$screen_state\" = active",
             "if [ -r /sys/class/vtconsole/vtcon1/bind ]; then printf 'vtcon1 bind %s\\n' \"$(cat /sys/class/vtconsole/vtcon1/bind)\"; fi",
           ].join("; ");
@@ -96,19 +96,13 @@ export function createSshLocalAgentAdapter({
         stateCommand,
         frameCommand,
       });
-      const hotSyncInputCommand = buildRemoteHotSyncInputCommand({
-        remoteSliceCommand,
-        runtimeSupportCommand,
-        validateCommand,
-        artifactCommand,
-        hotReloadCommand,
-        stateCommand,
-        frameCommand,
-      });
+      const hotSyncInputCommand = buildRemoteHotSyncInputCommand({ remoteSliceCommand });
       const syncResult = await inputRunner(hotSyncInputCommand, archive, 90_000, 100_000);
       const stageResults = parseRemoteSyncStages(syncResult);
       const sliceResult = stageResults["workspace-slice"] || fallbackStageResult(syncResult, "workspace-slice");
-      const runtimeSupportResult = stageResults["runtime-support"] || skippedStageResult("skipped because workspace resource delivery failed");
+      const runtimeSupportResult = sliceResult.ok
+        ? await commandRunner(runtimeSupportCommand, 30_000)
+        : skippedStageResult("skipped because workspace resource delivery failed");
       let buildResult = runtimeSupportResult.ok
         ? { ok: true, code: 0, output: "skipped: runtime-capable LVGL binary already exists" }
         : skippedStageResult(sliceResult.ok ? "skipped before full workspace delivery" : "skipped because workspace resource delivery failed");
@@ -131,7 +125,7 @@ export function createSshLocalAgentAdapter({
           buildResult = await commandRunner(remoteBuildCommand, 300_000);
         }
       }
-      const upgradeSyncResult = sliceResult.ok && !runtimeSupportResult.ok && buildResult.ok
+      const upgradeSyncResult = sliceResult.ok && buildResult.ok
         ? await scriptRunner(remoteSyncScript, 120_000, 80_000)
         : null;
       const upgradeStageResults = upgradeSyncResult ? parseRemoteSyncStages(upgradeSyncResult) : {};
@@ -142,12 +136,15 @@ export function createSshLocalAgentAdapter({
         : buildResult.ok
           ? "skipped because runtime validation failed"
           : "skipped because build failed");
+      const artifactHash = artifactResult.ok ? artifactResult.output.trim().split(/\s+/)[0] : null;
+      const artifactHashValid = validSha256(artifactHash);
       const activateResult = finalStageResults.activate || skippedResult({
         sliceResult,
         validateResult,
         buildResult,
-        artifactHashValid: validSha256(artifactResult.output.trim().split(/\s+/)[0]),
+        artifactHashValid,
         screenName: "workspace resources",
+        missingStage: "activate",
       });
       const stateResult = finalStageResults.evidence || (!fullEvidence && activateResult.ok
         ? {
@@ -165,8 +162,6 @@ export function createSshLocalAgentAdapter({
             screenName: "workspace resources",
             activationLabel: "activation",
           }));
-      const artifactHash = artifactResult.ok ? artifactResult.output.trim().split(/\s+/)[0] : null;
-      const artifactHashValid = validSha256(artifactHash);
       const frameResult = finalStageResults.frame || (
         fullEvidence && sliceResult.ok && buildResult.ok && validateResult.ok && artifactHashValid && activateResult.ok && stateResult.ok
           ? await commandRunner(frameCommand, 15_000)
@@ -337,6 +332,7 @@ export function createSshLocalAgentAdapter({
           frameCommand,
         ].filter(Boolean).join("\n"),
         commandResults,
+        remoteExecution: summarizeRemoteExecution(commandResults),
         code: failure ? 1 : 0,
         output,
         summary: failure
@@ -508,68 +504,36 @@ function buildRemoteSyncScript({
   const lines = [
     "set +e",
     remoteStageFunction(),
-    `run_stage validate <<'WALNUT_STAGE_VALIDATE'\n${validateCommand}\nWALNUT_STAGE_VALIDATE`,
-    "validate_status=$?",
-    "if [ \"$validate_status\" -ne 0 ]; then exit 0; fi",
-    `run_stage artifact <<'WALNUT_STAGE_ARTIFACT'\n${artifactCommand}\nWALNUT_STAGE_ARTIFACT`,
-    "artifact_status=$?",
-    "if [ \"$artifact_status\" -ne 0 ]; then exit 0; fi",
-    `run_stage activate <<'WALNUT_STAGE_HOT_RELOAD'\n${hotReloadCommand}\nWALNUT_STAGE_HOT_RELOAD`,
-    "activate_status=$?",
-    "if [ \"$activate_status\" -ne 0 ]; then exit 0; fi",
+    ...stageScriptLines("validate", validateCommand, "validate_status", { stopOnFailure: true }),
+    ...stageScriptLines("artifact", artifactCommand, "artifact_status", { stopOnFailure: true }),
+    ...stageScriptLines("activate", hotReloadCommand, "activate_status", { stopOnFailure: true }),
   ];
   if (stateCommand) {
-    lines.push(
-      `run_stage evidence <<'WALNUT_STAGE_EVIDENCE'\n${stateCommand}\nWALNUT_STAGE_EVIDENCE`,
-      "evidence_status=$?",
-      "if [ \"$evidence_status\" -ne 0 ]; then exit 0; fi",
-    );
+    lines.push(...stageScriptLines("evidence", stateCommand, "evidence_status", { stopOnFailure: true }));
   }
   if (frameCommand) {
-    lines.push(`run_stage frame <<'WALNUT_STAGE_FRAME'\n${frameCommand}\nWALNUT_STAGE_FRAME`);
+    lines.push(...stageScriptLines("frame", frameCommand, "frame_status", { stopOnFailure: false }));
   }
   lines.push("exit 0");
   return lines.join("\n");
 }
 
-function buildRemoteHotSyncInputCommand({
-  remoteSliceCommand,
-  runtimeSupportCommand,
-  validateCommand,
-  artifactCommand,
-  hotReloadCommand,
-  stateCommand,
-  frameCommand,
-}) {
+function buildRemoteHotSyncInputCommand({ remoteSliceCommand }) {
   const lines = [
     "set +e",
     "printf '__WALNUT_STAGE_START__ workspace-slice\\n'",
     remoteSliceCommand,
     "workspace_status=$?",
     "printf '__WALNUT_STAGE_END__ workspace-slice %s\\n' \"$workspace_status\"",
-    "if [ \"$workspace_status\" -ne 0 ]; then exit 0; fi",
-    ...inlineStageLines("runtime-support", runtimeSupportCommand, "runtime_status", { stopOnFailure: true }),
-    ...inlineStageLines("build", "printf 'skipped: runtime-capable LVGL binary already exists\\n'", "build_status", { stopOnFailure: true }),
-    ...inlineStageLines("validate", validateCommand, "validate_status", { stopOnFailure: true }),
-    ...inlineStageLines("artifact", artifactCommand, "artifact_status", { stopOnFailure: true }),
-    ...inlineStageLines("activate", hotReloadCommand, "activate_status", { stopOnFailure: true }),
   ];
-  if (stateCommand) {
-    lines.push(...inlineStageLines("evidence", stateCommand, "evidence_status", { stopOnFailure: true }));
-  }
-  if (frameCommand) {
-    lines.push(...inlineStageLines("frame", frameCommand, "frame_status", { stopOnFailure: false }));
-  }
   lines.push("exit 0");
   return lines.join("\n");
 }
 
-function inlineStageLines(name, command, statusVar, { stopOnFailure }) {
+function stageScriptLines(name, command, statusVar, { stopOnFailure }) {
   const lines = [
-    `printf '__WALNUT_STAGE_START__ ${name}\\n'`,
-    command,
+    `run_stage ${name} ${shSingleQuote(command)}`,
     `${statusVar}=$?`,
-    `printf '__WALNUT_STAGE_END__ ${name} %s\\n' "$${statusVar}"`,
   ];
   if (stopOnFailure) {
     lines.push(`if [ "$${statusVar}" -ne 0 ]; then exit 0; fi`);
@@ -581,12 +545,10 @@ function remoteStageFunction() {
   return [
     "run_stage() {",
     "  name=\"$1\"",
-    "  tmp=\"$(mktemp)\"",
-    "  cat > \"$tmp\"",
+    "  script=\"$2\"",
     "  printf '__WALNUT_STAGE_START__ %s\\n' \"$name\"",
-    "  sh \"$tmp\" 2>&1",
+    "  sh -c \"$script\" 2>&1",
     "  code=$?",
-    "  rm -f \"$tmp\"",
     "  printf '__WALNUT_STAGE_END__ %s %s\\n' \"$name\" \"$code\"",
     "  return \"$code\"",
     "}",
@@ -602,10 +564,14 @@ function parseRemoteSyncStages(syncResult) {
     const name = match[1].trim();
     const code = Number(match[3]);
     stages[name] = {
-      ok: syncResult.ok && code === 0,
+      ok: code === 0,
       code,
       output: match[2].trim() || "ok",
       preflightOutput: syncResult.preflightOutput,
+      remoteTransport: syncResult.remoteTransport || null,
+      reusedConnection: typeof syncResult.reusedConnection === "boolean" ? syncResult.reusedConnection : null,
+      fallbackRemoteTransport: syncResult.fallbackRemoteTransport || null,
+      fallbackReusedConnection: typeof syncResult.fallbackReusedConnection === "boolean" ? syncResult.fallbackReusedConnection : null,
     };
   }
   return stages;
@@ -617,11 +583,33 @@ function fallbackStageResult(syncResult, stage) {
     code: syncResult.code,
     output: syncResult.output || `missing remote sync stage: ${stage}`,
     preflightOutput: syncResult.preflightOutput,
+    remoteTransport: syncResult.remoteTransport || null,
+    reusedConnection: typeof syncResult.reusedConnection === "boolean" ? syncResult.reusedConnection : null,
+    fallbackRemoteTransport: syncResult.fallbackRemoteTransport || null,
+    fallbackReusedConnection: typeof syncResult.fallbackReusedConnection === "boolean" ? syncResult.fallbackReusedConnection : null,
   };
 }
 
 function skippedStageResult(output) {
   return { ok: false, code: null, output };
+}
+
+function summarizeRemoteExecution(commandResults) {
+  const transports = [];
+  const reused = [];
+  for (const result of Object.values(commandResults || {})) {
+    if (!result || typeof result !== "object") continue;
+    if (result.remoteTransport) transports.push(result.remoteTransport);
+    if (typeof result.reusedConnection === "boolean") reused.push(result.reusedConnection);
+  }
+  return {
+    remoteTransport: transports[0] || null,
+    connectionReused: reused.length ? reused.some(Boolean) : null,
+    segments: {
+      preflightMs: null,
+      remoteMs: null,
+    },
+  };
 }
 
 function preflightBlockResult(...results) {
@@ -949,7 +937,7 @@ function firstWorkspaceFailure(sliceResult, buildResult, validateResult, artifac
   return null;
 }
 
-function skippedResult({ sliceResult, validateResult, buildResult, artifactHashValid, activationOk = true, stateOk = true, screenName = "screen slice" }) {
+function skippedResult({ sliceResult, validateResult, buildResult, artifactHashValid, activationOk = true, stateOk = true, screenName = "screen slice", missingStage = null }) {
   let output = "skipped";
   if (!sliceResult.ok) output = `skipped because ${screenName} delivery failed`;
   else if (!validateResult.ok) output = "skipped because runtime validation failed";
@@ -957,6 +945,7 @@ function skippedResult({ sliceResult, validateResult, buildResult, artifactHashV
   else if (!artifactHashValid) output = "skipped because artifact hash is invalid";
   else if (!activationOk) output = "skipped because activation failed";
   else if (!stateOk) output = "skipped because screen state evidence failed";
+  else if (missingStage) output = `missing remote sync stage: ${missingStage}`;
   return { ok: false, code: null, output };
 }
 

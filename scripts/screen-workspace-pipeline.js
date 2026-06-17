@@ -438,6 +438,7 @@ async function writeSelectedSourceAsset({ workspace, sourceAsset, sourceAssetId,
   const sourceRecord = {
     schema: SCREEN_SOURCE_ASSET_SCHEMA,
     id: sourceAssetId,
+    ...(sourceAsset.title ? { title: cleanText(sourceAsset.title, "sourceAsset.title", 80) } : {}),
     selected: true,
     importedAt: generatedAt,
     original: originalFileName,

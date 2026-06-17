@@ -1,0 +1,42 @@
+[
+  {
+    "text": "自由生成一个像素风 480x320 小屏，先只预览，不要同步。",
+    "intent": "screen.generate",
+    "delivery": "none"
+  },
+  {
+    "text": "生成一个天气小屏，然后同步到核桃派。",
+    "intent": "screen.generate",
+    "delivery": "sync_after_preview"
+  },
+  {
+    "text": "把当前小屏同步到核桃派。",
+    "intent": "screen.sync",
+    "delivery": "sync_existing"
+  },
+  {
+    "text": "只看一下核桃派 wlan0 和 IP，不要改配置。",
+    "intent": "device.network.read",
+    "delivery": "none"
+  },
+  {
+    "text": "GPIO 和 wlan0 都帮我看一下，只读，不要重启服务。",
+    "intent": "device.gpio.read",
+    "delivery": "none"
+  },
+  {
+    "text": "核桃派 health 看起来怪怪的，don't restart, just read status。",
+    "intent": "device.status.read",
+    "delivery": "none"
+  },
+  {
+    "text": "你现在能帮我做哪些事？不要连接设备，只说明职责。",
+    "intent": "ai.chat",
+    "delivery": "none"
+  },
+  {
+    "text": "记一下今天调好了 Wi-Fi",
+    "intent": "device.note.write",
+    "delivery": "none"
+  }
+]

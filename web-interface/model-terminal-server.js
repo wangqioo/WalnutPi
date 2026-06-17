@@ -18,9 +18,11 @@ import { createProjectMemoryApi } from "./project-memory-api.js";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.js";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.js";
 import { createStaticUiHost } from "./static-ui-host.js";
+import { evaluateRuleIntent } from "./intent-rules/evaluator.js";
 import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.js";
 import { stableStringify } from "../scripts/screen-workspace-vocabulary.js";
 import { generateLvglScreenWorkspaceRuntimeAssets } from "../scripts/generate-lvgl-screen-workspace-runtime-assets.js";
+import { z } from "zod";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.PORT || 4173);
@@ -513,6 +515,25 @@ const INTENT_TYPES = new Set([
   "ai.chat",
 ]);
 const INTENT_DELIVERIES = new Set(["none", "sync_after_preview", "sync_existing"]);
+const IntentClassificationSchema = z.object({
+  intent: z.enum([
+    "screen.generate",
+    "screen.sync",
+    "device.status.read",
+    "device.snapshot.read",
+    "device.network.read",
+    "device.gpio.read",
+    "device.notes.read",
+    "device.note.write",
+    "terminal.open",
+    "terminal.tool",
+    "ai.chat",
+  ]),
+  subject: z.string().optional(),
+  delivery: z.enum(["none", "sync_after_preview", "sync_existing"]).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  source: z.enum(["rule", "ai"]).optional(),
+});
 
 function wantsScreenDeliveryIntent(text) {
   const value = String(text || "").trim().toLowerCase();
@@ -525,8 +546,47 @@ function wantsScreenDeliveryIntent(text) {
 function looksLikeAssistantQuestion(input) {
   const text = String(input || "").trim().toLowerCase();
   if (!text) return false;
-  return /^(?:你|walnutai|walnut ai|ai)\s*(?:是?谁|能做什么|可以做什么|会做什么|有什么功能|介绍(?:一下)?(?:你自己|自己)?)/i.test(text)
-    || /(?:你是?谁|你能做什么|你可以做什么|你会做什么|介绍一下你自己|介绍一下自己|有什么功能)/i.test(text);
+  return /^(?:你|walnutai|walnut ai|ai)\s*(?:现在|目前|到底)?\s*(?:是?谁|能做什么|能帮我做(?:什么|哪些事)|可以做什么|会做什么|有什么功能|介绍(?:一下)?(?:你自己|自己)?)/i.test(text)
+    || /(?:你是?谁|你能做什么|你能帮我做(?:什么|哪些事)|你可以做什么|你会做什么|介绍一下你自己|介绍一下自己|有什么功能)/i.test(text);
+}
+
+function hasWriteOrDeliveryNegation(input) {
+  const text = String(input || "").trim().toLowerCase();
+  return /不(?:要|用|必)?\s*(?:执行|同步|部署|推送|运行到|显示到|烧录|重启|修改|改|变更|写|写入|保存|安装|配置)|别\s*(?:执行|同步|部署|推送|运行到|显示到|烧录|重启|修改|改|变更|写|写入|保存|安装|配置)|只(?:做|进行)?\s*(?:只读|读|看|检查|查询|看看)|read[-\s]*only|no\s*(?:sync|deploy|write|restart|change|modify|execute)|don'?t\s*(?:sync|deploy|write|restart|change|modify|execute)/i.test(text);
+}
+
+function looksLikeReadOnlyDeviceRequest(input) {
+  const text = String(input || "").trim();
+  const lower = text.toLowerCase();
+  if (!text) return false;
+  if (looksLikeExplicitScreenGeneration(text)) {
+    return false;
+  }
+  if (!/(核桃派|设备|板子|系统|服务|屏幕服务|网络|联网|wifi|wi-fi|(?<![a-z])ip(?![a-z])|路由|route|network|gpio|引脚|针脚|i2c|spi|uart|pwm|状态|健康|还好[吗嘛]|status|health|内存|存储|磁盘|空间)/i.test(lower)) {
+    return false;
+  }
+  return hasWriteOrDeliveryNegation(text)
+    || /(?:看|查|检查|查询|确认|了解|判断|诊断|health|check|inspect|status|read)\S*(?:核桃派|设备|板子|系统|服务|屏幕服务|网络|联网|wifi|wi-fi|(?<![a-z])ip(?![a-z])|gpio|引脚|针脚|i2c|spi|uart|pwm|状态|健康|还好)/i.test(lower);
+}
+
+function looksLikeExplicitScreenGeneration(input) {
+  const text = String(input || "").trim();
+  if (!text) return false;
+  return /(?:生成|创建|设计|做|做成|整理成|来一个|写个|做个).{0,24}(?:小屏|屏幕|卡片|状态卡|界面|面板|screen|480x320|480\s*[x×]\s*320)|(?:小屏|屏幕|screen|480x320|480\s*[x×]\s*320).{0,24}(?:生成|创建|设计|预览|同步|卡片|界面|面板)/i.test(text);
+}
+
+function readOnlyDeviceIntent(input) {
+  const lower = String(input || "").toLowerCase();
+  const mentionsNetwork = /网络|联网|wifi|wi-fi|(?<![a-z])ip(?![a-z])|路由|route|network/.test(lower);
+  const mentionsGpio = /gpio|引脚|针脚|i2c|spi|uart|pwm|总线|bus|set-device/.test(lower);
+  const mentionsStatus = /屏幕服务|状态|健康|还好[吗嘛]|status|health|系统|服务|docker|内存|存储|磁盘|空间/.test(lower)
+    || (/怎么样/.test(lower) && /核桃派|设备|板子|系统|服务/.test(lower));
+  if ((mentionsNetwork && mentionsStatus) || (mentionsGpio && mentionsStatus) || (mentionsNetwork && mentionsGpio)) {
+    return "device.status.read";
+  }
+  if (mentionsGpio) return "device.gpio.read";
+  if (mentionsNetwork) return "device.network.read";
+  return "device.status.read";
 }
 
 function screenIntentSubject(input) {
@@ -545,6 +605,7 @@ function looksLikeScreenProgramRequest(input) {
   const text = String(input || "").trim();
   if (!text) return false;
   if (/^(?:同步|sync|生成\s*AI\s*总结|总结)$/i.test(text)) return false;
+  if (!looksLikeExplicitScreenGeneration(text) && looksLikeReadOnlyDeviceRequest(text)) return false;
   return /(小屏|屏幕|界面|lvgl|screen|程序|应用|app|面板|工具|播放列表|workspace)/i.test(text)
     || /(?:给我|帮我)?\s*(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个)\s*\S{2,}/i.test(text);
 }
@@ -571,6 +632,26 @@ function ruleBasedIntentClassification(text) {
       subject: trimmed,
       delivery: "none",
       confidence: 0.92,
+      source: "rule",
+    }, trimmed);
+  }
+
+  if (looksLikeExplicitScreenGeneration(trimmed)) {
+    return normalizeIntentClassification({
+      intent: "screen.generate",
+      subject: screenIntentSubject(trimmed),
+      delivery: wantsScreenDeliveryIntent(trimmed) ? "sync_after_preview" : "none",
+      confidence: 0.92,
+      source: "rule",
+    }, trimmed);
+  }
+
+  if (looksLikeReadOnlyDeviceRequest(trimmed)) {
+    return normalizeIntentClassification({
+      intent: readOnlyDeviceIntent(trimmed),
+      subject: trimmed,
+      delivery: "none",
+      confidence: 0.9,
       source: "rule",
     }, trimmed);
   }
@@ -606,7 +687,7 @@ function ruleBasedIntentClassification(text) {
   if (/网络|联网|wifi|wi-fi|(?<![a-z])ip(?![a-z])|路由|route|network/.test(lower)) {
     return normalizeIntentClassification({ intent: "device.network.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
   }
-  if (/状态|健康|还好吗|status|系统|服务|docker|内存|存储|磁盘|空间/.test(lower) || (/怎么样/.test(lower) && /核桃派|设备|板子|系统|服务/.test(lower))) {
+  if (/状态|健康|还好[吗嘛]|status|health|系统|服务|docker|内存|存储|磁盘|空间/.test(lower) || (/怎么样/.test(lower) && /核桃派|设备|板子|系统|服务/.test(lower))) {
     return normalizeIntentClassification({ intent: "device.status.read", subject: trimmed, confidence: 0.86, source: "rule" }, trimmed);
   }
   if (/今天.*(笔记|记录)|笔记.*今天|记了什么|notes|today/.test(lower)) {
@@ -622,17 +703,19 @@ function ruleBasedIntentClassification(text) {
 
 function normalizeIntentClassification(value, fallbackText = "") {
   const fallback = String(fallbackText || "").trim();
-  const intent = INTENT_TYPES.has(value?.intent) ? value.intent : "ai.chat";
-  const delivery = INTENT_DELIVERIES.has(value?.delivery) ? value.delivery : "none";
-  const confidence = Math.max(0, Math.min(1, Number(value?.confidence ?? 0.5)));
-  const subject = String(value?.subject || fallback).trim().slice(0, 120) || fallback || "";
+  const parsed = IntentClassificationSchema.safeParse(value || {});
+  const clean = parsed.success ? parsed.data : {};
+  const intent = clean.intent || "ai.chat";
+  const delivery = clean.delivery || "none";
+  const confidence = Math.max(0, Math.min(1, Number(clean.confidence ?? 0.5)));
+  const subject = String(clean.subject || fallback).trim().slice(0, 120) || fallback || "";
   return {
     schema: "walnutpi.intent.classification.v1",
     intent,
     subject,
     delivery,
     confidence: Number(confidence.toFixed(2)),
-    source: value?.source === "ai" ? "ai" : "rule",
+    source: clean.source === "ai" ? "ai" : "rule",
   };
 }
 
@@ -686,6 +769,7 @@ function intentClassificationAllowed(aiIntent, ruleIntent, text) {
   if (ruleIntent.intent === "screen.sync" && !["screen.sync", "screen.generate"].includes(aiIntent.intent)) return false;
   if (ruleIntent.intent.startsWith("device.") && aiIntent.intent === "terminal.tool") return false;
   if (wantsScreenDeliveryIntent(text) && aiIntent.intent === "ai.chat") return false;
+  if (!wantsScreenDeliveryIntent(text) && aiIntent.delivery !== "none") return false;
   return true;
 }
 
@@ -706,7 +790,15 @@ function canUseRuleIntentWithoutAi(ruleIntent) {
 }
 
 async function classifyIntent(text) {
-  const ruleIntent = ruleBasedIntentClassification(text);
+  let ruleIntent;
+  try {
+    const evaluated = await evaluateRuleIntent(text);
+    ruleIntent = evaluated.classification
+      ? normalizeIntentClassification(evaluated.classification, text)
+      : ruleBasedIntentClassification(text);
+  } catch {
+    ruleIntent = ruleBasedIntentClassification(text);
+  }
   if (canUseRuleIntentWithoutAi(ruleIntent)) {
     return {
       classification: ruleIntent,
@@ -717,8 +809,8 @@ async function classifyIntent(text) {
   }
   let aiClassifierUsed = false;
   try {
-    aiClassifierUsed = true;
     const aiIntent = await aiIntentClassification(text, ruleIntent);
+    aiClassifierUsed = Boolean(aiIntent);
     if (intentClassificationAllowed(aiIntent, ruleIntent, text)) {
       return {
         classification: { ...aiIntent, fallback: ruleIntent },
@@ -1201,7 +1293,10 @@ const server = Bun.serve({
     if (url.pathname === "/api/metrics") {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
       const limit = Number(url.searchParams.get("limit") || 200);
-      return json(await webMetricsLedger.report(Number.isFinite(limit) ? limit : 200));
+      return json(await webMetricsLedger.report(
+        Number.isFinite(limit) ? limit : 200,
+        { since: url.searchParams.get("since") || null },
+      ));
     }
 
     if (url.pathname === "/api/session") {
@@ -1226,6 +1321,11 @@ const server = Bun.serve({
     if (url.pathname === "/api/screen/workspace/import") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       return screenWorkspaceApi.handleScreenWorkspaceImport(req);
+    }
+
+    if (url.pathname === "/api/screen/workspace/generate") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return screenWorkspaceApi.handleScreenWorkspaceGenerate(req);
     }
 
     if (url.pathname === "/api/screen/workspace/lvgl-preview") {

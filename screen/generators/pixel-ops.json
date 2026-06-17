@@ -1,0 +1,92 @@
+{
+  "schema": "walnutpi.pixelGeneratorTemplate.v1",
+  "id": "pixel-ops",
+  "canvas": {
+    "logicalWidth": 120,
+    "logicalHeight": 80,
+    "scale": 4
+  },
+  "palette": {
+    "background": "#101412",
+    "backgroundDark": "#090d0f",
+    "panel": "#0d1312",
+    "panelBorder": "#25342f",
+    "board": "#121d19",
+    "boardBorder": "#31443d",
+    "muted": "#7f8d87",
+    "muted2": "#8a9791",
+    "text": "#f2efe3",
+    "cyan": "#8ee0d6",
+    "green": "#78c58a",
+    "yellow": "#e0b45e",
+    "red": "#e06a5f",
+    "barTrack": "#26342f",
+    "trace": "#2b3b36",
+    "chip": "#1f2d29",
+    "wifi": "#d8efe3",
+    "dither": "#121b18"
+  },
+  "layout": {
+    "title": { "x": 8, "y": 9, "scale": 2, "maxChars": 12 },
+    "primaryLabel": { "x": 10, "y": 30, "scale": 1, "maxChars": 12 },
+    "primaryValue": { "x": 10, "y": 39, "scale": 2, "maxChars": 16 },
+    "footer": { "x": 10, "y": 59, "scale": 1, "maxChars": 16 },
+    "metric": {
+      "x": 78,
+      "valueX": 92,
+      "y": 32,
+      "gapY": 13,
+      "markerX": 74,
+      "markerOffsetY": -5,
+      "markerWidth": 2,
+      "markerHeight": 8
+    },
+    "wifi": { "x": 101, "y": 12 },
+    "progress": { "x": 8, "y": 70, "width": 96, "height": 2 },
+    "shell": { "x": 4, "y": 4, "width": 112, "height": 72 },
+    "board": { "x": 9, "y": 24, "width": 58, "height": 34 }
+  },
+  "defaults": {
+    "accent": "#78c58a",
+    "darkBackground": "#090d0f",
+    "lightBackground": "#101412",
+    "footer": "AGENT PIXEL",
+    "progress": 64,
+    "batteryProgress": 86,
+    "metrics": [
+      { "label": "CPU", "value": "LIVE", "color": "#f2efe3", "bar": 11 },
+      { "label": "TEMP", "value": "OK", "color": "#e0b45e", "bar": 20 },
+      { "label": "PWR", "value": "8.0S", "color": "#78c58a", "bar": 29 }
+    ]
+  },
+  "sprites": {
+    "board": [
+      { "rect": [9, 24, 58, 34], "fill": "board" },
+      { "rect": [9, 24, 58, 1], "fill": "boardBorder" },
+      { "rect": [9, 57, 58, 1], "fill": "boardBorder" },
+      { "rect": [9, 24, 1, 34], "fill": "boardBorder" },
+      { "rect": [66, 24, 1, 34], "fill": "boardBorder" },
+      { "rect": [16, 27, 12, 5], "fill": "accent" },
+      { "rect": [32, 28, 22, 2], "fill": "trace" },
+      { "rect": [32, 32, 16, 2], "fill": "trace" },
+      { "rect": [13, 49, 3, 3], "fill": "barTrack" },
+      { "rect": [20, 49, 3, 3], "fill": "barTrack" },
+      { "rect": [27, 49, 3, 3], "fill": "barTrack" },
+      { "rect": [54, 47, 7, 7], "fill": "chip" },
+      { "rect": [56, 49, 3, 3], "fill": "green" }
+    ],
+    "wifi": [
+      { "rect": [5, 0, 5, 5], "fill": "accent" },
+      { "rect": [2, 9, 2, 2], "fill": "accent" },
+      { "rect": [4, 7, 2, 2], "fill": "accent" },
+      { "rect": [6, 6, 5, 2], "fill": "accent" },
+      { "rect": [11, 7, 2, 2], "fill": "accent" },
+      { "rect": [13, 9, 2, 2], "fill": "accent" },
+      { "rect": [0, 15, 2, 2], "fill": "wifi" },
+      { "rect": [2, 13, 2, 2], "fill": "wifi" },
+      { "rect": [4, 12, 9, 2], "fill": "wifi" },
+      { "rect": [13, 13, 2, 2], "fill": "wifi" },
+      { "rect": [15, 15, 2, 2], "fill": "wifi" }
+    ]
+  }
+}

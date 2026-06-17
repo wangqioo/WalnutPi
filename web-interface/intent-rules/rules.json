@@ -1,0 +1,118 @@
+[
+  {
+    "name": "assistant-info",
+    "priority": 100,
+    "conditions": { "all": [{ "fact": "asksAssistantInfo", "operator": "equal", "value": true }] },
+    "event": { "type": "ai.chat", "params": { "delivery": "none", "confidence": 0.92 } }
+  },
+  {
+    "name": "screen-generate-preview",
+    "priority": 95,
+    "conditions": {
+      "all": [
+        { "fact": "hasScreenNoun", "operator": "equal", "value": true },
+        { "fact": "hasGenerateVerb", "operator": "equal", "value": true },
+        { "fact": "hasNegatedSync", "operator": "equal", "value": true }
+      ]
+    },
+    "event": { "type": "screen.generate", "params": { "delivery": "none", "confidence": 0.94 } }
+  },
+  {
+    "name": "screen-generate-sync-after-preview",
+    "priority": 94,
+    "conditions": {
+      "all": [
+        { "fact": "hasScreenNoun", "operator": "equal", "value": true },
+        { "fact": "hasGenerateVerb", "operator": "equal", "value": true },
+        { "fact": "hasSyncVerb", "operator": "equal", "value": true }
+      ]
+    },
+    "event": { "type": "screen.generate", "params": { "delivery": "sync_after_preview", "confidence": 0.93 } }
+  },
+  {
+    "name": "screen-generate",
+    "priority": 90,
+    "conditions": {
+      "all": [
+        { "fact": "hasScreenNoun", "operator": "equal", "value": true },
+        { "fact": "hasGenerateVerb", "operator": "equal", "value": true }
+      ]
+    },
+    "event": { "type": "screen.generate", "params": { "delivery": "none", "confidence": 0.9 } }
+  },
+  {
+    "name": "screen-sync-existing",
+    "priority": 86,
+    "conditions": {
+      "all": [
+        { "fact": "hasScreenNoun", "operator": "equal", "value": true },
+        { "fact": "hasSyncVerb", "operator": "equal", "value": true },
+        { "fact": "hasGenerateVerb", "operator": "equal", "value": false }
+      ]
+    },
+    "event": { "type": "screen.sync", "params": { "delivery": "sync_existing", "confidence": 0.86 } }
+  },
+  {
+    "name": "read-network",
+    "priority": 83,
+    "conditions": {
+      "all": [
+        { "fact": "mentionsNetwork", "operator": "equal", "value": true },
+        { "fact": "hasReadOnly", "operator": "equal", "value": true }
+      ]
+    },
+    "event": { "type": "device.network.read", "params": { "delivery": "none", "confidence": 0.86 } }
+  },
+  {
+    "name": "read-gpio",
+    "priority": 85,
+    "conditions": {
+      "all": [
+        { "fact": "mentionsGpio", "operator": "equal", "value": true },
+        { "fact": "hasReadOnly", "operator": "equal", "value": true }
+      ]
+    },
+    "event": { "type": "device.gpio.read", "params": { "delivery": "none", "confidence": 0.86 } }
+  },
+  {
+    "name": "read-status",
+    "priority": 82,
+    "conditions": {
+      "all": [
+        { "fact": "mentionsStatus", "operator": "equal", "value": true },
+        { "fact": "mentionsDevice", "operator": "equal", "value": true }
+      ]
+    },
+    "event": { "type": "device.status.read", "params": { "delivery": "none", "confidence": 0.84 } }
+  },
+  {
+    "name": "snapshot",
+    "priority": 80,
+    "conditions": { "all": [{ "fact": "hasSnapshot", "operator": "equal", "value": true }] },
+    "event": { "type": "device.snapshot.read", "params": { "delivery": "none", "confidence": 0.84 } }
+  },
+  {
+    "name": "notes-read",
+    "priority": 70,
+    "conditions": { "all": [{ "fact": "hasNotesRead", "operator": "equal", "value": true }] },
+    "event": { "type": "device.notes.read", "params": { "delivery": "none", "confidence": 0.84 } }
+  },
+  {
+    "name": "note-write",
+    "priority": 70,
+    "conditions": { "all": [{ "fact": "hasNoteWrite", "operator": "equal", "value": true }] },
+    "event": { "type": "device.note.write", "params": { "delivery": "none", "confidence": 0.9 } }
+  },
+  {
+    "name": "terminal-open",
+    "priority": 60,
+    "conditions": { "all": [{ "fact": "hasTerminalIntent", "operator": "equal", "value": true }] },
+    "event": { "type": "terminal.open", "params": { "delivery": "none", "confidence": 0.9 } }
+  },
+  {
+    "name": "terminal-tool",
+    "priority": 50,
+    "conditions": { "all": [{ "fact": "hasToolIntent", "operator": "equal", "value": true }] },
+    "event": { "type": "terminal.tool", "params": { "delivery": "none", "confidence": 0.78 } }
+  }
+]

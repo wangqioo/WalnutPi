@@ -147,6 +147,31 @@ export function createWalnutRemoteAdapter({
     };
   }
 
+  function ssh2FailureWithFallbackResult(error, fallback, messagePrefix = "ssh2 connection failed") {
+    closePooledClient();
+    return {
+      ok: false,
+      code: fallback?.code ?? null,
+      output: limitedOutput([
+        `[local] ${messagePrefix}: ${error.message}`,
+        "",
+        "[local] OpenSSH fallback also failed:",
+        fallback?.output || "unknown fallback failure",
+      ].join("\n"), outputLimit),
+      reusedConnection: false,
+      remoteTransport: `ssh2-fallback-${fallback?.remoteTransport || "ssh-process"}`,
+      fallbackRemoteTransport: fallback?.remoteTransport || null,
+      fallbackReusedConnection: typeof fallback?.reusedConnection === "boolean" ? fallback.reusedConnection : null,
+    };
+  }
+
+  function remoteConnectionFields(result) {
+    return {
+      remoteTransport: result?.remoteTransport || null,
+      reusedConnection: typeof result?.reusedConnection === "boolean" ? result.reusedConnection : null,
+    };
+  }
+
   async function runRawPooled(command, timeoutMs = 15_000, limit = outputLimit) {
     if (!ssh2PoolEnabled) return runRawProcess(command, timeoutMs, limit);
     let client;
@@ -155,7 +180,7 @@ export function createWalnutRemoteAdapter({
     } catch (error) {
       closePooledClient();
       const fallback = await runRawProcess(command, timeoutMs, limit);
-      return fallback.ok ? fallback : ssh2FailureResult(error, false, "ssh2 connection failed");
+      return fallback.ok ? fallback : ssh2FailureWithFallbackResult(error, fallback, "ssh2 connection failed");
     }
 
     return new Promise((resolve) => {
@@ -226,7 +251,7 @@ export function createWalnutRemoteAdapter({
     } catch (error) {
       closePooledClient();
       const fallback = await runRawScriptProcess(script, timeoutMs, limit);
-      return fallback.ok ? fallback : ssh2FailureResult(error, false, "ssh2 connection failed");
+      return fallback.ok ? fallback : ssh2FailureWithFallbackResult(error, fallback, "ssh2 connection failed");
     }
 
     return new Promise((resolve) => {
@@ -298,7 +323,7 @@ export function createWalnutRemoteAdapter({
     } catch (error) {
       closePooledClient();
       const fallback = await runRawWithInputProcess(command, input, timeoutMs, limit);
-      return fallback.ok ? fallback : ssh2FailureResult(error, false, "ssh2 connection failed");
+      return fallback.ok ? fallback : ssh2FailureWithFallbackResult(error, fallback, "ssh2 connection failed");
     }
 
     return new Promise((resolve) => {
@@ -423,7 +448,8 @@ export function createWalnutRemoteAdapter({
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok", limit);
+        const rawOutput = `${stdout}${stderr}`.trim();
+        const output = limitedOutput(rawOutput || (code === 0 ? "ok" : `[local] ssh process exited with code ${code}`), limit);
         resolve({
           ok: code === 0,
           code,
@@ -472,6 +498,8 @@ export function createWalnutRemoteAdapter({
           ok: false,
           code: null,
           output: limitedOutput(`${stdout}${stderr}\n[local] remote script timed out after ${timeoutMs}ms`.trim(), limit),
+          reusedConnection: false,
+          remoteTransport: controlMasterEnabled ? "ssh-controlmaster" : "ssh-process",
         });
       }, timeoutMs);
 
@@ -486,14 +514,27 @@ export function createWalnutRemoteAdapter({
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve({ ok: false, code: null, output: `[local] ${error.message}` });
+        resolve({
+          ok: false,
+          code: null,
+          output: `[local] ${error.message}`,
+          reusedConnection: false,
+          remoteTransport: controlMasterEnabled ? "ssh-controlmaster" : "ssh-process",
+        });
       });
       child.on("close", (code) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok", limit);
-        resolve({ ok: code === 0, code, output });
+        const rawOutput = `${stdout}${stderr}`.trim();
+        const output = limitedOutput(rawOutput || (code === 0 ? "ok" : `[local] ssh script process exited with code ${code}`), limit);
+        resolve({
+          ok: code === 0,
+          code,
+          output,
+          reusedConnection: Boolean(controlMasterEnabled),
+          remoteTransport: controlMasterEnabled ? "ssh-controlmaster" : "ssh-process",
+        });
       });
       child.stdin.end(String(script || "").replace(/\r\n/g, "\n"));
     });
@@ -532,6 +573,8 @@ export function createWalnutRemoteAdapter({
           ok: false,
           code: null,
           output: limitedOutput(`${stdout}${stderr}\n[local] remote input command timed out after ${timeoutMs}ms`.trim(), limit),
+          reusedConnection: false,
+          remoteTransport: controlMasterEnabled ? "ssh-controlmaster" : "ssh-process",
         });
       }, timeoutMs);
 
@@ -546,14 +589,27 @@ export function createWalnutRemoteAdapter({
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        resolve({ ok: false, code: null, output: `[local] ${error.message}` });
+        resolve({
+          ok: false,
+          code: null,
+          output: `[local] ${error.message}`,
+          reusedConnection: false,
+          remoteTransport: controlMasterEnabled ? "ssh-controlmaster" : "ssh-process",
+        });
       });
       child.on("close", (code) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        const output = limitedOutput(`${stdout}${stderr}`.trim() || "ok", limit);
-        resolve({ ok: code === 0, code, output });
+        const rawOutput = `${stdout}${stderr}`.trim();
+        const output = limitedOutput(rawOutput || (code === 0 ? "ok" : `[local] ssh input process exited with code ${code}`), limit);
+        resolve({
+          ok: code === 0,
+          code,
+          output,
+          reusedConnection: Boolean(controlMasterEnabled),
+          remoteTransport: controlMasterEnabled ? "ssh-controlmaster" : "ssh-process",
+        });
       });
       child.stdin.end(Buffer.isBuffer(input) ? input : Buffer.from(input || ""));
     });
@@ -670,6 +726,7 @@ export function createWalnutRemoteAdapter({
         ),
         preflightMs,
         preflightEnsured: ensure.ensured,
+        ...remoteConnectionFields(ensure),
       };
     }
     const remoteStartedAt = Date.now();
@@ -705,6 +762,7 @@ export function createWalnutRemoteAdapter({
         ),
         preflightMs,
         preflightEnsured: ensure.ensured,
+        ...remoteConnectionFields(ensure),
       };
     }
     const remoteStartedAt = Date.now();
@@ -740,6 +798,7 @@ export function createWalnutRemoteAdapter({
         ),
         preflightMs,
         preflightEnsured: ensure.ensured,
+        ...remoteConnectionFields(ensure),
       };
     }
     const remoteStartedAt = Date.now();

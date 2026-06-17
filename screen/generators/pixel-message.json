@@ -1,0 +1,66 @@
+{
+  "schema": "walnutpi.pixelGeneratorTemplate.v1",
+  "id": "pixel-message",
+  "canvas": { "logicalWidth": 120, "logicalHeight": 80, "scale": 4 },
+  "palette": {
+    "background": "#121210",
+    "backgroundDark": "#090908",
+    "panel": "#151410",
+    "panelBorder": "#3d3525",
+    "board": "#1a1812",
+    "boardBorder": "#5a4930",
+    "muted": "#a2947a",
+    "muted2": "#91866f",
+    "text": "#f3ead6",
+    "cyan": "#f3ead6",
+    "green": "#8ccf87",
+    "yellow": "#e5b95c",
+    "red": "#dc6f5f",
+    "barTrack": "#312b20",
+    "trace": "#4a3c28",
+    "chip": "#2b251c",
+    "wifi": "#f3ead6",
+    "dither": "#181711"
+  },
+  "layout": {
+    "title": { "x": 8, "y": 9, "scale": 2, "maxChars": 12 },
+    "primaryLabel": { "x": 10, "y": 30, "scale": 1, "maxChars": 12 },
+    "primaryValue": { "x": 10, "y": 39, "scale": 2, "maxChars": 16 },
+    "footer": { "x": 10, "y": 59, "scale": 1, "maxChars": 16 },
+    "metric": { "x": 78, "valueX": 92, "y": 32, "gapY": 13, "markerX": 74, "markerOffsetY": -5, "markerWidth": 2, "markerHeight": 8 },
+    "wifi": { "x": 101, "y": 12 },
+    "progress": { "x": 8, "y": 70, "width": 96, "height": 2 },
+    "shell": { "x": 4, "y": 4, "width": 112, "height": 72 },
+    "board": { "x": 9, "y": 24, "width": 58, "height": 34 }
+  },
+  "defaults": {
+    "accent": "#e5b95c",
+    "darkBackground": "#090908",
+    "lightBackground": "#121210",
+    "footer": "PIXEL MESSAGE",
+    "progress": 50,
+    "batteryProgress": 72,
+    "metrics": [
+      { "label": "MODE", "value": "MSG", "color": "#f3ead6", "bar": 12 },
+      { "label": "TIME", "value": "NOW", "color": "#e5b95c", "bar": 18 },
+      { "label": "OK", "value": "YES", "color": "#8ccf87", "bar": 29 }
+    ]
+  },
+  "sprites": {
+    "board": [
+      { "rect": [9, 24, 58, 34], "fill": "board" },
+      { "rect": [9, 24, 58, 1], "fill": "boardBorder" },
+      { "rect": [9, 57, 58, 1], "fill": "boardBorder" },
+      { "rect": [9, 24, 1, 34], "fill": "boardBorder" },
+      { "rect": [66, 24, 1, 34], "fill": "boardBorder" },
+      { "rect": [18, 31, 38, 3], "fill": "text" },
+      { "rect": [18, 39, 30, 3], "fill": "yellow" },
+      { "rect": [18, 47, 22, 3], "fill": "muted" }
+    ],
+    "wifi": [
+      { "rect": [4, 2, 9, 13], "fill": "yellow" },
+      { "rect": [6, 5, 5, 2], "fill": "panel" },
+      { "rect": [6, 9, 5, 2], "fill": "panel" }
+    ]
+  }
+}
