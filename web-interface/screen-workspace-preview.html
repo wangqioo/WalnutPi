@@ -48,7 +48,7 @@
 
       .shell {
         display: grid;
-        width: min(100%, 1120px);
+        width: min(100%, 960px);
         gap: 14px;
         margin: 0 auto;
       }
@@ -99,7 +99,7 @@
 
       .workspace {
         display: grid;
-        grid-template-columns: minmax(0, 480px) minmax(280px, 1fr);
+        grid-template-columns: minmax(0, 480px) minmax(280px, 420px);
         gap: 18px;
         align-items: start;
       }
@@ -251,13 +251,10 @@
 
       .lvgl-preview {
         display: none;
-        gap: 10px;
-        border-top: 1px solid rgba(241, 239, 231, 0.1);
-        padding-top: 10px;
       }
 
       .lvgl-preview.is-visible {
-        display: grid;
+        display: none;
       }
 
       .lvgl-preview-grid {
@@ -281,27 +278,11 @@
       }
 
       .lvgl-stage-label {
-        position: absolute;
-        right: 8px;
-        bottom: 7px;
-        border: 1px solid rgba(241, 239, 231, 0.16);
-        padding: 3px 6px;
-        background: rgba(0, 0, 0, 0.58);
-        color: #d8e7dc;
-        font-size: 11px;
+        display: none;
       }
 
       .lvgl-nav {
-        position: absolute;
-        top: 50%;
-        width: 30px;
-        height: 44px;
-        transform: translateY(-50%);
-        border: 1px solid rgba(241, 239, 231, 0.2);
-        background: rgba(0, 0, 0, 0.56);
-        color: #f1efe7;
-        font-size: 20px;
-        line-height: 1;
+        display: none;
       }
 
       .lvgl-nav:hover,
@@ -319,12 +300,7 @@
       }
 
       .lvgl-strip {
-        display: flex;
-        gap: 5px;
-        overflow-x: auto;
-        overscroll-behavior-x: contain;
-        scroll-snap-type: x mandatory;
-        padding-bottom: 3px;
+        display: none;
       }
 
       .lvgl-thumb {
@@ -426,7 +402,7 @@
           <div class="controls">
             <button id="reload" class="button" type="button">重新读取</button>
             <button id="toggle" class="button" type="button">暂停预览</button>
-            <button id="lvglPreview" class="button" type="button">生成 LVGL 预览</button>
+            <button id="lvglPreview" class="button" type="button">刷新预览</button>
             <button id="sync" class="button" type="button">同步到核桃派</button>
           </div>
           <form id="processor" class="processor">
@@ -592,7 +568,11 @@
           activeRepeat = 0;
           renderEnvelope();
           setStatus("未同步");
-          if (!paused) scheduleNext(0);
+          const hasWidgetApp = envelope.items.some((item) => item.hasWidgetApp || item.hasRuntimeWidgets);
+          if (hasWidgetApp) {
+            await loadLvglPreview();
+          }
+          if (!paused && !hasWidgetApp) scheduleNext(0);
         } catch (error) {
           envelope = null;
           screenImage.hidden = true;
@@ -643,6 +623,18 @@
           node.classList.toggle("is-active", index === activeItemIndex);
         }
         if (!item || !frame) return;
+        if (item.hasWidgetApp || item.hasRuntimeWidgets) {
+          if (lvglFrames.length) {
+            renderLvglCarousel(activeLvglFrame);
+          } else {
+            screenImage.hidden = true;
+            empty.hidden = false;
+            empty.textContent = "LVGL Widget Preview";
+          }
+          itemLabel.textContent = `${activeItemIndex + 1}/${envelope.items.length} ${item.manifestId}`;
+          outputLabel.textContent = item.hasWidgetApp ? "widget app" : "lvgl widgets";
+          return;
+        }
         empty.hidden = true;
         screenImage.hidden = false;
         screenImage.src = `${frame.url}?v=${encodeURIComponent(item.manifestHash)}`;
@@ -691,7 +683,12 @@
         activeLvglFrame = (index + lvglFrames.length) % lvglFrames.length;
         const frame = lvglFrames[activeLvglFrame];
         lvglStageImage.src = `${frame.png}?v=${encodeURIComponent(frame.playlistHash)}`;
-        lvglStageLabel.textContent = `${activeLvglFrame + 1}/${lvglFrames.length} · ${frame.advanceMs}ms`;
+        if (currentItem()?.hasWidgetApp || currentItem()?.hasRuntimeWidgets) {
+          empty.hidden = true;
+          screenImage.hidden = false;
+          screenImage.src = lvglStageImage.src;
+        }
+        lvglStageLabel.textContent = "LVGL";
         for (const [thumbIndex, node] of [...lvglStrip.children].entries()) {
           node.classList.toggle("is-active", thumbIndex === activeLvglFrame);
           if (thumbIndex === activeLvglFrame) {
@@ -728,7 +725,7 @@
         if (paused) clearTimer();
         else scheduleNext(0);
       });
-      lvglPreviewButton.addEventListener("click", async () => {
+      async function loadLvglPreview() {
         lvglPreviewButton.disabled = true;
         setStatus("同步中");
         summary.textContent = "正在构建 LVGL 离屏预览。";
@@ -742,7 +739,7 @@
           if (!response.ok) throw new Error(result.output || result.error || "LVGL preview failed");
           diagnostics.textContent = JSON.stringify(result, null, 2);
           lvglPreviewPanel.classList.add("is-visible");
-          lvglPreviewLabel.textContent = `${result.frameCount} frames from walnut-lvgl-preview`;
+          lvglPreviewLabel.textContent = "预览已就绪";
           setLvglFrames(result);
           summary.textContent = "已生成 LVGL 离屏渲染预览。";
           setStatus("未同步");
@@ -753,7 +750,9 @@
         } finally {
           lvglPreviewButton.disabled = false;
         }
-      });
+      }
+
+      lvglPreviewButton.addEventListener("click", loadLvglPreview);
       lvglPrevButton.addEventListener("click", () => renderLvglCarousel(activeLvglFrame - 1));
       lvglNextButton.addEventListener("click", () => renderLvglCarousel(activeLvglFrame + 1));
       lvglPreviewPanel.addEventListener("keydown", (event) => {

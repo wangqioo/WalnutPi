@@ -213,6 +213,7 @@
       }
 
       .stack {
+        position: relative;
         display: grid;
         gap: 10px;
         min-height: 0;
@@ -257,6 +258,29 @@
         color: var(--muted);
         line-height: 1;
         text-align: center;
+      }
+
+      .preview img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        image-rendering: pixelated;
+      }
+
+      .preview.has-image {
+        padding: 0;
+      }
+
+      .preview-toggle {
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        min-height: 28px;
+        padding: 0 9px;
+        border: 1px solid rgba(239, 236, 226, 0.24);
+        background: rgba(5, 6, 6, 0.72);
+        color: #efece2;
+        cursor: pointer;
       }
 
       .status {
@@ -314,7 +338,11 @@
         </section>
         <section class="stack">
           <h2>Screen Preview</h2>
-          <a class="preview" href="/workspace.html">Screen Workspace</a>
+          <a id="screenPreview" class="preview" href="/workspace.html">
+            <span id="screenPreviewText">Screen Workspace</span>
+            <img id="screenPreviewImage" alt="Screen Workspace preview" hidden />
+          </a>
+          <button id="screenPreviewToggle" class="preview-toggle" type="button" hidden>暂停</button>
         </section>
       </aside>
     </main>
@@ -329,6 +357,14 @@
       const confidenceEl = document.getElementById("confidence");
       const submitIntentEl = document.getElementById("submitIntent");
       const askAiEl = document.getElementById("askAi");
+      const screenPreviewEl = document.getElementById("screenPreview");
+      const screenPreviewTextEl = document.getElementById("screenPreviewText");
+      const screenPreviewImageEl = document.getElementById("screenPreviewImage");
+      const screenPreviewToggleEl = document.getElementById("screenPreviewToggle");
+      let previewFrames = [];
+      let previewFrameIndex = 0;
+      let previewTimer = 0;
+      let previewPaused = false;
       const ansiUp = new AnsiUp();
       const sessionId = getSessionId();
 
@@ -371,6 +407,71 @@
         intentEl.textContent = classification?.intent || "-";
         deliveryEl.textContent = classification?.delivery || "-";
         confidenceEl.textContent = classification?.confidence ?? "-";
+      }
+
+      function updateScreenPreview(output, screenId) {
+        const imagePath = output?.path;
+        if (!imagePath) return;
+        const relativePath = imagePath.replace(/^\.\.\//, "");
+        screenPreviewImageEl.src = `/api/screen/workspace/assets/${encodeURIComponent(relativePath)}?v=${Date.now()}`;
+        screenPreviewImageEl.alt = `${screenId || "Screen"} preview`;
+        screenPreviewImageEl.hidden = false;
+        screenPreviewTextEl.hidden = true;
+        screenPreviewEl.classList.add("has-image");
+      }
+
+      function stopPreviewPlayer() {
+        window.clearTimeout(previewTimer);
+        previewTimer = 0;
+        previewFrames = [];
+        previewFrameIndex = 0;
+        previewPaused = false;
+        screenPreviewToggleEl.hidden = true;
+        screenPreviewToggleEl.textContent = "暂停";
+      }
+
+      function showPreviewFrame(index) {
+        if (!previewFrames.length) return;
+        previewFrameIndex = (index + previewFrames.length) % previewFrames.length;
+        const frame = previewFrames[previewFrameIndex];
+        screenPreviewImageEl.src = `${frame.png}?v=${encodeURIComponent(frame.playlistHash || Date.now())}`;
+        screenPreviewImageEl.hidden = false;
+        screenPreviewTextEl.hidden = true;
+        screenPreviewEl.classList.add("has-image");
+      }
+
+      function schedulePreviewFrame() {
+        window.clearTimeout(previewTimer);
+        if (previewPaused || previewFrames.length <= 1) return;
+        previewTimer = window.setTimeout(() => {
+          showPreviewFrame(previewFrameIndex + 1);
+          schedulePreviewFrame();
+        }, Math.max(80, previewFrames[previewFrameIndex]?.durationMs || 160));
+      }
+
+      function startPreviewPlayer(frames, playlistHash) {
+        stopPreviewPlayer();
+        previewFrames = frames.map((frame) => ({ ...frame, playlistHash }));
+        screenPreviewToggleEl.hidden = previewFrames.length <= 1;
+        showPreviewFrame(0);
+        schedulePreviewFrame();
+      }
+
+      async function updateLvglScreenPreview(fallbackOutput, screenId) {
+        try {
+          const response = await fetch("/api/screen/workspace/lvgl-preview", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({}),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok || !data.frames?.[0]?.png) throw new Error(data.output || data.error || "lvgl preview failed");
+          screenPreviewImageEl.alt = `${screenId || "Screen"} LVGL preview`;
+          startPreviewPlayer(data.frames, data.playlistHash);
+        } catch {
+          stopPreviewPlayer();
+          updateScreenPreview(fallbackOutput, screenId);
+        }
       }
 
       function asksForLocalAssistantInfo(text) {
@@ -419,19 +520,20 @@
             prompt: text,
             screenId: `agent-freeform-${Date.now()}`,
             playlist: "default",
-            outputType: "static",
+            outputType: "animated",
             preset: "fit-cover:480x320",
           }),
         });
         const data = await response.json();
         if (!response.ok || !data.ok) throw new Error(data.output || data.error || "screen generation failed");
+        await updateLvglScreenPreview(data.output, data.screenId);
         const syncHint = classification.delivery === "sync_after_preview"
           ? "你要求生成后同步：我已先生成并更新预览，请在 Screen Workspace 确认画面后点击“同步到核桃派”。"
           : "你要求先预览：我没有连接设备，也没有同步。";
         return [
-          `已自由生成 480x320 小屏：${data.screenId}`,
+          `已生成 Widget App 小屏：${data.screenId}`,
           syncHint,
-          "打开右侧 Screen Workspace 查看和同步。",
+          "右侧 LVGL 预览已更新；打开 Screen Workspace 可查看和同步。",
         ].join("\n");
       }
 
@@ -497,6 +599,14 @@
 
       askAiEl.addEventListener("click", async () => {
         await sendPrompt("ai");
+      });
+
+      screenPreviewToggleEl.addEventListener("click", (event) => {
+        event.preventDefault();
+        previewPaused = !previewPaused;
+        screenPreviewToggleEl.textContent = previewPaused ? "播放" : "暂停";
+        if (previewPaused) window.clearTimeout(previewTimer);
+        else schedulePreviewFrame();
       });
 
     </script>

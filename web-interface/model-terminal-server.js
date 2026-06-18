@@ -1174,7 +1174,64 @@ const screenWorkspaceApi = createScreenWorkspaceApi({
   screenWorkspaceRoot: SCREEN_WORKSPACE_ROOT,
   screenSourceImportMaxBytes: SCREEN_SOURCE_IMPORT_MAX_BYTES,
   screenLvglPreviewOutputDir: SCREEN_LVGL_PREVIEW_OUTPUT_DIR,
+  generateWidgetCatalog,
 });
+
+async function generateWidgetCatalog({ prompt, fallbackCatalog }) {
+  if (!AI_API_KEY) return null;
+  const data = await callResponsesApi({
+    operation: "screen.widget.catalog.generate",
+    body: {
+      model: AI_MODEL,
+      input: [
+        {
+          role: "system",
+          content: [
+            "You design a playable 480x320 WalnutPi LVGL widget app as JSON.",
+            "Return JSON only.",
+            "Do not generate an image. Do not use markdown.",
+            "Schema must be walnutpi.lvgl-widget-catalog.v1.",
+            "Canvas is exactly 480x320. All layout rectangles must stay inside it.",
+            "Use a small, readable pixel-style dashboard composition.",
+            "Allowed node kinds: container, rect, text, image, button, toggle, progress, gauge, list, status_tile.",
+            "Allowed style tokens: screen, panel, text, muted, muted2, primary, accent, danger, trace, chip, panelBorder, barTrack.",
+            "Root node id must exist and usually be a full-screen container.",
+            "Return useful actions as action names, never shell commands.",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            prompt,
+            fallbackCatalog,
+            outputSchema: {
+              schema: "walnutpi.lvgl-widget-catalog.v1",
+              id: "simple slug",
+              title: "1-80 chars",
+              size: { width: 480, height: 320 },
+              theme: "pixel-default",
+              data: {},
+              root: "root",
+              nodes: [
+                {
+                  id: "unique slug",
+                  kind: "container|rect|text|button|progress|gauge|status_tile",
+                  parent: "root except root itself",
+                  layout: { x: "0..479", y: "0..319", w: "1..480", h: "1..320" },
+                  text: "optional display text",
+                  style: "style token",
+                  value: "optional number",
+                  action: { name: "optional.action.name", params: {} },
+                },
+              ],
+            },
+          }, null, 2),
+        },
+      ],
+    },
+  });
+  return parseJsonObjectText(parseResponsesOutput(data));
+}
 
 function startSsh(ws) {
   const target = `${SSH_USER}@${SSH_HOST}`;

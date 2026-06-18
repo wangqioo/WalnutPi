@@ -3,6 +3,21 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
 import { z } from "zod";
+import {
+  animatedOutputSha256,
+  rgbaPixelSha256FromImage,
+  rgb565PixelSha256FromImage,
+  staticOutputFileSha256,
+  validateScreenManifestV2,
+} from "../scripts/screen-workspace-vocabulary.js";
+import {
+  WALNUT_WIDGET_APP_SCHEMA,
+  WALNUT_WIDGET_APP_SOURCE_SCHEMA,
+  WALNUT_WIDGET_SNAPSHOT_SOURCE_SCHEMA,
+  a2uiSurfaceFromWalnutCatalog,
+  validateWalnutWidgetApp,
+  walnutWidgetCatalogFromPixelSpec,
+} from "../scripts/walnut-lvgl-widget-catalog.js";
 
 const FreeformGenerateRequestSchema = z.object({
   prompt: z.string().optional(),
@@ -88,6 +103,18 @@ const PixelScreenSpecSchema = z.object({
   primaryValue: z.string().min(1).max(16),
   footer: z.string().min(1).max(16),
   metrics: z.array(PixelMetricSchema).min(1).max(3),
+  elements: z.array(z.object({
+    type: z.enum(["text", "rect", "bar", "arc"]),
+    x: z.number().int().min(0).max(119),
+    y: z.number().int().min(0).max(79),
+    width: z.number().int().min(1).max(120).optional(),
+    height: z.number().int().min(1).max(80).optional(),
+    text: z.string().max(24).optional(),
+    fill: z.string().min(1).max(32).optional(),
+    scale: z.number().int().min(1).max(2).optional(),
+    value: z.number().int().min(0).max(100).optional(),
+    required: z.boolean().optional(),
+  })).max(40).optional(),
 });
 
 export function createScreenWorkspaceApi({
@@ -109,13 +136,13 @@ export function createScreenWorkspaceApi({
   screenWorkspaceRoot,
   screenSourceImportMaxBytes,
   screenLvglPreviewOutputDir,
+  generateWidgetCatalog,
 }) {
   const PROJECT_ROOT = projectRoot;
   const SCREEN_WORKSPACE_ROOT = screenWorkspaceRoot;
   const SCREEN_SOURCE_IMPORT_MAX_BYTES = screenSourceImportMaxBytes;
   const SCREEN_LVGL_PREVIEW_OUTPUT_DIR = screenLvglPreviewOutputDir;
   const PIXEL_GENERATORS_ROOT = path.join(SCREEN_WORKSPACE_ROOT, "generators");
-  const pixelTemplateCache = new Map();
 
   async function handleScreenWorkspacePlaylist(url) {
     try {
@@ -303,11 +330,51 @@ export function createScreenWorkspaceApi({
       const screenId = cleanScreenWorkspaceId(request.screenId || `agent-freeform-${Date.now()}`, "screenId");
       const sourceId = cleanScreenWorkspaceId(request.sourceId || `${screenId}-source`, "sourceId");
       const template = await readPixelGeneratorTemplate(selectPixelGeneratorTemplate(prompt));
-      const screenSpec = buildFreeformPixelScreenSpec({
+      let screenSpec = buildFreeformPixelScreenSpec({
         prompt,
         title: request.title || freeformTitle(prompt),
         template,
       });
+      screenSpec = PixelScreenSpecSchema.parse(repairLvglWidgetLayout(screenSpec));
+      const generatedCatalog = generateWidgetCatalog
+        ? await generateWidgetCatalog({
+          prompt,
+          fallbackCatalog: walnutWidgetCatalogFromPixelSpec({ ...screenSpec, id: screenId }),
+        }).catch(() => null)
+        : null;
+      if (cleanWorkspaceOutputType(request.outputType || "static") === "animated") {
+        const result = await writeGeneratedAnimatedScreenOutput({
+          screenId,
+          sourceId,
+          prompt,
+          screenSpec,
+          template,
+          generatedCatalog,
+        });
+        let playlist = null;
+        if (request.playlist !== false) {
+          playlist = await writeDefaultScreenPlaylist({
+            workspaceRoot: SCREEN_WORKSPACE_ROOT,
+            playlistId: typeof request.playlist === "string" ? request.playlist : "default",
+            manifestId: result.screenId,
+            durationMs: cleanWorkspaceInteger(request.durationMs || 8000, "durationMs", 1, 86400000),
+            repeat: cleanWorkspaceInteger(request.repeat || 1, "repeat", 1, 1000),
+            loop: request.loop === undefined ? true : Boolean(request.loop),
+          });
+        }
+        return json({
+          ok: true,
+          schema: "walnutpi.screenWorkspaceGenerateResult.v1",
+          workspaceRoot: SCREEN_WORKSPACE_ROOT,
+          screenId: result.screenId,
+          screenSpec,
+          widgetApp: result.manifest.provenance.widgetApp || null,
+          source: result.source,
+          manifest: result.manifest,
+          output: result.output,
+          playlist: playlist?.playlist || null,
+        });
+      }
       const source = await writeGeneratedPromptSource({
         sourceId,
         prompt,
@@ -334,6 +401,15 @@ export function createScreenWorkspaceApi({
         outputType: cleanWorkspaceOutputType(request.outputType || "static"),
         preset: cleanWorkspacePreset(request.preset || "fit-cover:480x320"),
       });
+      const widgetApp = await writeWidgetAppFromPixelSpec({
+        screenId,
+        prompt,
+        screenSpec,
+        catalog: generatedCatalog,
+        sourcePath: source.originalPath,
+      });
+      result.manifest.provenance.widgetApp = widgetApp.provenance;
+      await writeFile(result.manifestPath, `${JSON.stringify(result.manifest, null, 2)}\n`, "utf8");
 
       let playlist = null;
       if (request.playlist !== false) {
@@ -363,6 +439,7 @@ export function createScreenWorkspaceApi({
         workspaceRoot: SCREEN_WORKSPACE_ROOT,
         screenId: result.screenId,
         screenSpec,
+        widgetApp: result.manifest.provenance.widgetApp || null,
         source,
         manifest: result.manifest,
         output: result.output,
@@ -580,17 +657,97 @@ export function createScreenWorkspaceApi({
     };
   }
 
+  async function writeGeneratedAnimatedScreenOutput({ screenId, sourceId, prompt, screenSpec, template, generatedCatalog }) {
+    const generatedAt = new Date().toISOString();
+    const outputDir = path.join(SCREEN_WORKSPACE_ROOT, "outputs", screenId);
+    const framesDir = path.join(outputDir, "frames");
+    const sourceDir = path.join(SCREEN_WORKSPACE_ROOT, "sources", sourceId);
+    const planPath = path.join(SCREEN_WORKSPACE_ROOT, "plans", `${screenId}-plan.json`);
+    const manifestPath = path.join(SCREEN_WORKSPACE_ROOT, "manifests", `${screenId}.json`);
+    await mkdir(framesDir, { recursive: true });
+    await mkdir(sourceDir, { recursive: true });
+    const frames = [];
+    for (let index = 0; index < 4; index += 1) {
+      const framePath = path.join(framesDir, `frame-${String(index).padStart(3, "0")}.png`);
+      await writeFile(framePath, await renderPixelScreenSpecPng(animatedPixelSpec(screenSpec, index), template));
+      frames.push({
+        path: `../outputs/${screenId}/frames/frame-${String(index).padStart(3, "0")}.png`,
+        width: 480,
+        height: 320,
+        durationMs: 160,
+        fileSha256: await staticOutputFileSha256(framePath),
+        rgbaPixelSha256: await rgbaPixelSha256FromImage(framePath),
+        rgb565PixelSha256: await rgb565PixelSha256FromImage(framePath),
+      });
+    }
+    const sourceRecord = {
+      schema: "walnutpi.screen-source-asset.v1",
+      id: sourceId,
+      title: screenSpec.title,
+      selected: true,
+      importedAt: generatedAt,
+      original: "scene.json",
+      fileSha256: sha256(JSON.stringify(screenSpec)),
+      width: 480,
+      height: 320,
+      mediaType: "application/json",
+      license: "local-freeform-generation",
+      origin: { kind: "agent-freeform", prompt, screenSpec },
+    };
+    await writeFile(path.join(sourceDir, "scene.json"), `${JSON.stringify(screenSpec, null, 2)}\n`, "utf8");
+    await writeFile(path.join(sourceDir, "source.json"), `${JSON.stringify(sourceRecord, null, 2)}\n`, "utf8");
+    const output = {
+      type: "animated",
+      path: `../outputs/${screenId}/output.json`,
+      width: 480,
+      height: 320,
+      frameCount: frames.length,
+      frames,
+      animatedOutputSha256: animatedOutputSha256(frames),
+    };
+    await writeFile(path.join(outputDir, "output.json"), `${JSON.stringify({ schema: "walnutpi.screen-output.v1", id: screenId, generatedAt, manifest: `../../manifests/${screenId}.json`, output }, null, 2)}\n`, "utf8");
+    const manifest = await validateScreenManifestV2({
+      schema: "walnutpi.screen-manifest.v2",
+      id: screenId,
+      title: screenSpec.title,
+      description: prompt,
+      output,
+      provenance: {
+        plan: `../plans/${screenId}-plan.json`,
+        sourceAssets: [{
+          id: sourceId,
+          source: `../sources/${sourceId}/source.json`,
+          original: `../sources/${sourceId}/scene.json`,
+          width: 480,
+          height: 320,
+          mediaType: "application/json",
+          license: "local-freeform-generation",
+          selected: true,
+        }],
+        widgetApp: (await writeWidgetAppFromPixelSpec({
+          screenId,
+          prompt,
+          screenSpec,
+          catalog: generatedCatalog,
+          sourcePath: path.join(sourceDir, "scene.json"),
+        })).provenance,
+        processing: { preset: "pixel-grid:120x80@4x", tools: [{ name: "sharp", version: sharp.versions.sharp }] },
+      },
+    }, { manifestPath, workspaceRoot: SCREEN_WORKSPACE_ROOT });
+    await writeFile(path.join(outputDir, "output.json"), `${JSON.stringify({ schema: "walnutpi.screen-output.v1", id: screenId, generatedAt, manifest: `../../manifests/${screenId}.json`, output: manifest.output }, null, 2)}\n`, "utf8");
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    await writeFile(planPath, `${JSON.stringify({ schema: "walnutpi.screen-plan.v1", id: `${screenId}-plan`, screenId, outputType: "animated", selectedSourceAsset: `../sources/${sourceId}/source.json`, processing: { preset: "pixel-grid:120x80@4x", animation: { fps: 6, maxSeconds: 1, maxFrames: 4 } }, requestedAt: generatedAt, executedAt: generatedAt }, null, 2)}\n`, "utf8");
+    return { screenId, source: { ...sourceRecord, originalPath: path.join(sourceDir, "scene.json") }, manifest, output: manifest.output };
+  }
+
   async function readPixelGeneratorTemplate(templateId) {
     const cleanId = cleanScreenWorkspaceId(templateId, "templateId");
-    if (pixelTemplateCache.has(cleanId)) return pixelTemplateCache.get(cleanId);
     const templatePath = path.join(PIXEL_GENERATORS_ROOT, `${cleanId}.json`);
     const relativeToGenerators = path.relative(PIXEL_GENERATORS_ROOT, templatePath);
     if (relativeToGenerators.startsWith("..") || path.isAbsolute(relativeToGenerators)) {
       throw new Error("templateId must stay inside screen generators");
     }
-    const parsed = PixelGeneratorTemplateSchema.parse(JSON.parse(await readFile(templatePath, "utf8")));
-    pixelTemplateCache.set(cleanId, parsed);
-    return parsed;
+    return PixelGeneratorTemplateSchema.parse(JSON.parse(await readFile(templatePath, "utf8")));
   }
 
   function selectPixelGeneratorTemplate(prompt) {
@@ -651,6 +808,97 @@ export function createScreenWorkspaceApi({
       .trim() || "HELLO";
   }
 
+  function cleanAiPixelSceneSpec(spec) {
+    if (!Array.isArray(spec.elements)) return spec;
+    return {
+      ...spec,
+      title: compactText(spec.title, 12),
+      background: /^#[0-9a-fA-F]{6}$/.test(String(spec.background || "")) ? spec.background : "#101412",
+      accent: /^#[0-9a-fA-F]{6}$/.test(String(spec.accent || "")) ? spec.accent : "#78c58a",
+      elements: spec.elements.slice(0, 24).map((element) => ({
+        ...element,
+        x: Math.max(0, Math.min(119, Math.round(Number(element.x) || 0))),
+        y: Math.max(0, Math.min(79, Math.round(Number(element.y) || 0))),
+        width: element.width === undefined ? undefined : Math.max(1, Math.min(120, Math.round(Number(element.width) || 1))),
+        height: element.height === undefined ? undefined : Math.max(1, Math.min(80, Math.round(Number(element.height) || 1))),
+        scale: element.scale === 2 ? 2 : 1,
+      })),
+    };
+  }
+
+  function repairLvglWidgetLayout(spec) {
+    if (!Array.isArray(spec.elements) || spec.elements.length === 0) return spec;
+    const elements = [];
+    const texts = spec.elements.filter((item) => item.type === "text").slice(0, 5);
+    const controls = spec.elements.filter((item) => item.type === "bar" || item.type === "arc").slice(0, 4);
+    const rects = spec.elements.filter((item) => item.type === "rect" && item.width >= 2 && item.height >= 2).slice(0, 3);
+    const fallbackTexts = [
+      { text: spec.title, fill: "text", scale: 2 },
+      { text: spec.primaryValue, fill: "accent", scale: 2 },
+      { text: spec.footer, fill: "muted2", scale: 1 },
+    ];
+    const textSource = texts.length ? texts : fallbackTexts;
+    const textSlots = [
+      { x: 6, y: 12, width: 54, scale: 2 },
+      { x: 6, y: 32, width: 54, scale: 2 },
+      { x: 6, y: 51, width: 54, scale: 1 },
+      { x: 66, y: 12, width: 48, scale: 1 },
+      { x: 66, y: 35, width: 48, scale: 1 },
+    ];
+    const controlSlots = [
+      { x: 66, y: 19, width: 46, height: 6 },
+      { x: 66, y: 42, width: 46, height: 6 },
+      { x: 86, y: 52, width: 22, height: 22 },
+      { x: 64, y: 52, width: 18, height: 18 },
+    ];
+
+    elements.push(
+      { type: "rect", x: 3, y: 3, width: 114, height: 1, fill: "panelBorder", required: false },
+      { type: "rect", x: 3, y: 76, width: 114, height: 1, fill: "panelBorder", required: false },
+      { type: "rect", x: 3, y: 4, width: 1, height: 72, fill: "panelBorder", required: false },
+      { type: "rect", x: 116, y: 4, width: 1, height: 72, fill: "panelBorder", required: false },
+    );
+    for (const [index, source] of textSource.entries()) {
+      const slot = textSlots[index];
+      if (!slot) break;
+      elements.push({
+        type: "text",
+        x: slot.x,
+        y: slot.y,
+        text: compactDisplayText(source.text || fallbackTexts[index % fallbackTexts.length].text, slot.scale === 2 ? 11 : 16),
+        fill: source.fill || fallbackTexts[index % fallbackTexts.length].fill,
+        scale: slot.scale,
+        required: true,
+      });
+    }
+    for (const [index, source] of controls.entries()) {
+      const slot = controlSlots[index];
+      elements.push({
+        type: index >= 2 ? "arc" : "bar",
+        x: slot.x,
+        y: slot.y,
+        width: slot.width,
+        height: slot.height,
+        fill: source.fill || "accent",
+        value: Math.max(0, Math.min(100, Math.round(Number(source.value ?? spec.progress ?? 50)))),
+        required: true,
+      });
+    }
+    for (const [index, source] of rects.entries()) {
+      if (elements.length >= 12) break;
+      elements.push({
+        type: "rect",
+        x: [14, 36, 103][index],
+        y: [63, 67, 10][index],
+        width: Math.min(14, Math.max(4, source.width || 4)),
+        height: Math.min(6, Math.max(2, source.height || 2)),
+        fill: source.fill || "trace",
+        required: false,
+      });
+    }
+    return { ...spec, elements: elements.slice(0, 12) };
+  }
+
   async function renderPixelScreenSpecPng(screenSpec, template) {
     const spec = PixelScreenSpecSchema.parse(screenSpec);
     const resolvedTemplate = template || await readPixelGeneratorTemplate(spec.template);
@@ -664,6 +912,10 @@ export function createScreenWorkspaceApi({
   function renderPixelScreenSpecSvg(spec, template) {
     const palette = resolvePalette(template.palette, spec);
     const layout = template.layout;
+    if (Array.isArray(spec.elements) && spec.elements.length) {
+      return renderFreePixelSceneSvg(spec, palette);
+    }
+    const protectedRects = protectedPixelRects(spec, layout);
     const rows = spec.metrics.map((metric, index) => {
       const y = layout.metric.y + index * layout.metric.gapY;
       return [
@@ -678,11 +930,11 @@ export function createScreenWorkspaceApi({
       pixelDither(palette),
       drawShell(layout.shell, palette),
       pxText(layout.title.x, layout.title.y, spec.title, palette.text, layout.title.scale),
-      drawSprite(template.sprites.board, 0, 0, palette),
+      drawFreeElements(template.sprites.board, 0, 0, palette, protectedRects),
       pxText(layout.primaryLabel.x, layout.primaryLabel.y, spec.primaryLabel, palette.muted, layout.primaryLabel.scale),
       pxText(layout.primaryValue.x, layout.primaryValue.y, spec.primaryValue, palette.cyan, layout.primaryValue.scale),
       pxText(layout.footer.x, layout.footer.y, spec.footer, palette.muted2, layout.footer.scale),
-      drawSprite(template.sprites.wifi, layout.wifi.x, layout.wifi.y, palette),
+      drawFreeElements(template.sprites.wifi, layout.wifi.x, layout.wifi.y, palette, protectedRects),
       rows,
       rect(layout.progress.x, layout.progress.y, layout.progress.width, layout.progress.height, palette.barTrack),
       rect(layout.progress.x, layout.progress.y, Math.min(spec.progress, layout.progress.width), layout.progress.height, spec.accent),
@@ -697,6 +949,52 @@ export function createScreenWorkspaceApi({
   function pxText(x, y, text, fill, scale = 1) {
     const size = scale === 2 ? 7 : 4;
     return `<text x="${x}" y="${y}" fill="${fill}" font-family="monospace" font-size="${size}" font-weight="700">${escapeSvg(String(text).toUpperCase())}</text>`;
+  }
+
+  function renderFreePixelSceneSvg(spec, palette) {
+    const occupied = [];
+    const nodes = [
+      `<svg xmlns="http://www.w3.org/2000/svg" width="${spec.logicalWidth}" height="${spec.logicalHeight}" viewBox="0 0 ${spec.logicalWidth} ${spec.logicalHeight}" shape-rendering="crispEdges">`,
+      rect(0, 0, 120, 80, spec.background),
+      pixelDither(palette),
+    ];
+    for (const element of spec.elements) {
+      const drawn = drawFreeSceneElement(element, palette, occupied);
+      if (drawn) nodes.push(drawn);
+    }
+    nodes.push(`</svg>`);
+    return nodes.join("");
+  }
+
+  function animatedPixelSpec(spec, frame) {
+    if (!Array.isArray(spec.elements)) return spec;
+    return {
+      ...spec,
+      elements: spec.elements.map((element, index) => {
+        if (element.required || element.type !== "rect") return element;
+        const dx = ((frame + index) % 3) - 1;
+        const dy = ((frame + index) % 2);
+        return {
+          ...element,
+          x: Math.max(0, Math.min(119, element.x + dx)),
+          y: Math.max(0, Math.min(79, element.y + dy)),
+        };
+      }),
+    };
+  }
+
+  function drawFreeSceneElement(element, palette, occupied) {
+    const scale = element.scale || 1;
+    const box = element.type === "text"
+      ? textRect(element.x, element.y, element.text || "", scale)
+      : { x: element.x, y: element.y, width: element.width || 1, height: element.height || 1 };
+    const placed = element.required ? (rectInsideCanvas(box) && !occupied.some((item) => rectsOverlap(box, item)) ? box : null) : placeFreeRect(box, occupied);
+    if (!placed) return "";
+    occupied.push(placed);
+    if (element.type === "text") {
+      return pxText(placed.x + 1, placed.y + (scale === 2 ? 8 : 5), element.text || "", palette[element.fill || "text"] || element.fill || palette.text, scale);
+    }
+    return rect(placed.x, placed.y, placed.width, placed.height, palette[element.fill || "accent"] || element.fill || palette.accent);
   }
 
   function compactText(text, maxChars) {
@@ -727,11 +1025,69 @@ export function createScreenWorkspaceApi({
     ].join("");
   }
 
-  function drawSprite(items, offsetX, offsetY, palette) {
+  function drawFreeElements(items, offsetX, offsetY, palette, protectedRects = []) {
+    const occupiedRects = [...protectedRects];
     return items.map((item) => {
       const [x, y, width, height] = item.rect;
-      return rect(offsetX + x, offsetY + y, width, height, palette[item.fill] || item.fill);
+      const placed = placeFreeRect({ x: offsetX + x, y: offsetY + y, width, height }, occupiedRects);
+      if (!placed) return "";
+      occupiedRects.push(placed);
+      return rect(placed.x, placed.y, width, height, palette[item.fill] || item.fill);
     }).join("");
+  }
+
+  function placeFreeRect(candidate, occupiedRects) {
+    const offsets = [
+      [0, 0], [0, -6], [0, 6], [-6, 0], [6, 0],
+      [-6, -6], [6, -6], [-6, 6], [6, 6],
+      [0, -12], [0, 12], [-12, 0], [12, 0],
+    ];
+    for (const [dx, dy] of offsets) {
+      const next = { ...candidate, x: candidate.x + dx, y: candidate.y + dy };
+      if (!rectInsideCanvas(next) || occupiedRects.some((occupied) => rectsOverlap(next, occupied))) continue;
+      return next;
+    }
+    return null;
+  }
+
+  function protectedPixelRects(spec, layout) {
+    const rects = [
+      { x: layout.shell.x, y: layout.shell.y, width: layout.shell.width, height: 1 },
+      { x: layout.shell.x, y: layout.shell.y + layout.shell.height - 1, width: layout.shell.width, height: 1 },
+      { x: layout.shell.x, y: layout.shell.y, width: 1, height: layout.shell.height },
+      { x: layout.shell.x + layout.shell.width - 1, y: layout.shell.y, width: 1, height: layout.shell.height },
+      textRect(layout.title.x, layout.title.y, spec.title, layout.title.scale),
+      textRect(layout.primaryLabel.x, layout.primaryLabel.y, spec.primaryLabel, layout.primaryLabel.scale),
+      textRect(layout.primaryValue.x, layout.primaryValue.y, spec.primaryValue, layout.primaryValue.scale),
+      textRect(layout.footer.x, layout.footer.y, spec.footer, layout.footer.scale),
+      { x: layout.progress.x - 1, y: layout.progress.y - 1, width: layout.progress.width + 2, height: layout.progress.height + 2 },
+    ];
+    for (const [index, metric] of spec.metrics.entries()) {
+      const y = layout.metric.y + index * layout.metric.gapY;
+      rects.push(textRect(layout.metric.x, y, metric.label, 1));
+      rects.push(textRect(layout.metric.valueX, y, metric.value, 2));
+      rects.push({
+        x: layout.metric.markerX - 1,
+        y: y + layout.metric.markerOffsetY - 1,
+        width: layout.metric.markerWidth + 2,
+        height: layout.metric.markerHeight + 2,
+      });
+    }
+    return rects;
+  }
+
+  function textRect(x, y, text, scale = 1) {
+    const size = scale === 2 ? 7 : 4;
+    const width = String(text || "").length * size * 0.66;
+    return { x: x - 1, y: y - size - 1, width: Math.ceil(width) + 2, height: size + 3 };
+  }
+
+  function rectsOverlap(a, b) {
+    return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+  }
+
+  function rectInsideCanvas(rect) {
+    return rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= 120 && rect.y + rect.height <= 80;
   }
 
   function resolvePalette(templatePalette, spec) {
@@ -943,6 +1299,66 @@ export function createScreenWorkspaceApi({
       throw new Error(`${field} must be an integer between ${low} and ${high}`);
     }
     return rounded;
+  }
+
+  async function writeWidgetAppFromPixelSpec({ screenId, prompt, screenSpec, catalog, sourcePath }) {
+    const appDir = path.join(SCREEN_WORKSPACE_ROOT, "apps", screenId);
+    const createdAt = new Date().toISOString();
+    const fallbackCatalog = walnutWidgetCatalogFromPixelSpec({ ...screenSpec, id: screenId });
+    let widgetCatalog = fallbackCatalog;
+    if (catalog) {
+      try {
+        widgetCatalog = {
+          ...catalog,
+          id: screenId,
+          title: catalog.title || screenSpec.title,
+          size: { width: 480, height: 320 },
+        };
+        validateWalnutWidgetApp({
+          schema: WALNUT_WIDGET_APP_SCHEMA,
+          id: screenId,
+          title: screenSpec.title,
+          createdAt,
+          prompt,
+          a2uiSurface: null,
+          catalog: widgetCatalog,
+          actions: [],
+        });
+      } catch {
+        widgetCatalog = fallbackCatalog;
+      }
+    }
+    const app = validateWalnutWidgetApp({
+      schema: WALNUT_WIDGET_APP_SCHEMA,
+      id: screenId,
+      title: screenSpec.title,
+      createdAt,
+      prompt,
+      a2uiSurface: a2uiSurfaceFromWalnutCatalog(widgetCatalog),
+      catalog: widgetCatalog,
+      actions: [],
+    });
+    await mkdir(appDir, { recursive: true });
+    await writeFile(path.join(appDir, "app.json"), `${JSON.stringify(app, null, 2)}\n`, "utf8");
+    await writeFile(path.join(appDir, "catalog.json"), `${JSON.stringify(app.catalog, null, 2)}\n`, "utf8");
+    await writeFile(path.join(appDir, "surface.a2ui.json"), `${JSON.stringify(app.a2uiSurface, null, 2)}\n`, "utf8");
+    await writeFile(path.join(appDir, "snapshot-source.json"), `${JSON.stringify({
+      schema: WALNUT_WIDGET_SNAPSHOT_SOURCE_SCHEMA,
+      screenId,
+      source: path.relative(appDir, sourcePath).replaceAll("\\", "/"),
+      createdAt,
+    }, null, 2)}\n`, "utf8");
+    return {
+      app,
+      provenance: {
+        schema: WALNUT_WIDGET_APP_SOURCE_SCHEMA,
+        mode: "widget_app",
+        app: `../apps/${screenId}/app.json`,
+        catalog: `../apps/${screenId}/catalog.json`,
+        a2uiSurface: `../apps/${screenId}/surface.a2ui.json`,
+        snapshotSource: `../apps/${screenId}/snapshot-source.json`,
+      },
+    };
   }
 
   async function handleScreenWorkspaceSync(req, mode = "remote") {

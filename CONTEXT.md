@@ -132,6 +132,22 @@ _Avoid_: Final approval, source selection, manual-only render
 The recommended visual treatment for many Screen Outputs, usually created by downscaling Source Assets to a smaller pixel grid and scaling back to 480x320 with nearest-neighbor sampling. Pixel Style is a processing choice, not a mandatory rule for every Screen Output.
 _Avoid_: Required output format, component style, LVGL widget theme
 
+**Wallpaper Mode**:
+The Screen Workspace mode for turning user-selected or user-generated images, GIFs, videos, and visual assets into Screen Outputs, Screen Manifests, Screen Playlists, and Runtime Screen Assets for playback. It owns static and animated wallpaper-style results, not live UI state or user actions.
+_Avoid_: Widget App, interactive surface, live UI, LVGL app schema
+
+**Widget App Mode**:
+The Interactive Screen App mode for turning natural-language intent into an A2UI Surface rendered by LVGL as a playable small-screen application. It owns UI semantics, data model updates, input events, and actions; it may snapshot into a Screen Output, but it is not defined by Screen Manifest v2.
+_Avoid_: Wallpaper, pre-rendered screen, playlist item, Screen Manifest schema
+
+**A2UI Surface**:
+A declarative Agent-to-UI surface that describes interactive screen UI semantics, component structure, data binding, and actions before a renderer maps it to a platform such as LVGL. It is the host-facing Widget App Mode semantic shape; the Walnut LVGL Widget Catalog remains the device-facing contract.
+_Avoid_: Screen Output, Screen Manifest, pixel spec, LVGL runtime txt
+
+**Walnut LVGL Widget Catalog**:
+The small device-facing Widget App Mode contract that defines which UI elements, layout primitives, style tokens, bindings, and actions the WalnutPi LVGL runtime supports. It is validated before device delivery and may be derived from an A2UI Surface, but it remains Walnut-owned so the device runtime is stable across A2UI or MCP changes.
+_Avoid_: Full A2UI compliance, web UI schema, arbitrary LVGL calls, Screen Manifest
+
 **Pixel Hash**:
 A SHA-256 hash of normalized decoded 480x320 pixel content. RGBA pixel hashes support preview and processing checks, while RGB565 pixel hashes are authoritative for device framebuffer evidence; file hashes prove delivery integrity for specific encoded artifacts.
 _Avoid_: File hash, manifest hash, source hash

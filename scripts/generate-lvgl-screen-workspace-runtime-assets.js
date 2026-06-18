@@ -10,6 +10,10 @@ import {
   validateScreenManifestV2,
   validateScreenPlaylistV1,
 } from "./screen-workspace-vocabulary.js";
+import {
+  runtimeWidgetsFromWalnutCatalog,
+  validateWalnutLvglWidgetCatalog,
+} from "./walnut-lvgl-widget-catalog.js";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
@@ -44,6 +48,20 @@ export async function generateLvglScreenWorkspaceRuntimeAssets({
     `frameCount ${config.frames.length}`,
     `itemCount ${config.items.length}`,
   ];
+  for (const widget of config.widgets) {
+    lines.push([
+      "widget",
+      field(widget.type),
+      field(widget.id),
+      widget.x,
+      widget.y,
+      widget.w,
+      widget.h,
+      field(widget.text || "-"),
+      widget.value || 0,
+      field(widget.color || "ffffff"),
+    ].join(" "));
+  }
 
   for (const [index, frame] of config.frames.entries()) {
     const fileName = `frame-${String(index).padStart(3, "0")}.rgb565`;
@@ -94,6 +112,7 @@ async function runtimeConfigFromWorkspace({ workspace, playlistId }) {
 
   const frames = [];
   const items = [];
+  const widgets = [];
   for (const [index, item] of normalizedPlaylist.items.entries()) {
     const manifestPath = resolveWorkspaceReference(item.manifest, path.dirname(playlistPath), workspace, `items[${index}].manifest`);
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -108,6 +127,11 @@ async function runtimeConfigFromWorkspace({ workspace, playlistId }) {
       item,
       workspaceRoot: workspace,
     });
+    widgets.push(...await widgetsForManifest({
+      manifest: normalizedManifest,
+      manifestPath,
+      workspaceRoot: workspace,
+    }));
     frames.push(...outputFrames);
     items.push({
       manifestId: normalizedManifest.id,
@@ -127,7 +151,45 @@ async function runtimeConfigFromWorkspace({ workspace, playlistId }) {
     loop: normalizedPlaylist.loop,
     frames,
     items,
+    widgets,
   };
+}
+
+async function widgetsForManifest({ manifest, manifestPath, workspaceRoot }) {
+  const widgetApp = manifest.provenance?.widgetApp;
+  if (widgetApp?.catalog) {
+    const catalogPath = resolveWorkspaceReference(widgetApp.catalog, path.dirname(manifestPath), workspaceRoot, "provenance.widgetApp.catalog");
+    const catalog = validateWalnutLvglWidgetCatalog(JSON.parse(await readFile(catalogPath, "utf8")));
+    return runtimeWidgetsFromWalnutCatalog(catalog).map(cleanRuntimeWidget);
+  }
+  const widgets = manifest.provenance?.runtimeWidgets;
+  if (!Array.isArray(widgets)) return [];
+  return widgets.slice(0, 24).map(cleanRuntimeWidget);
+}
+
+function cleanRuntimeWidget(widget, index = 0) {
+  return {
+    type: cleanWidgetField(widget.type || "label", "label"),
+    id: cleanWidgetField(widget.id || `w${index}`, `w${index}`),
+    x: clampInt(widget.x, 0, WIDTH - 1),
+    y: clampInt(widget.y, 0, HEIGHT - 1),
+    w: clampInt(widget.w || 80, 1, WIDTH),
+    h: clampInt(widget.h || 24, 1, HEIGHT),
+    text: cleanWidgetField(widget.text || "-", "-"),
+    value: clampInt(widget.value || 0, 0, 100),
+    color: cleanWidgetField(String(widget.color || "ffffff").replace(/^#/, ""), "ffffff"),
+  };
+}
+
+function cleanWidgetField(value, fallback) {
+  const text = String(value || fallback).replace(/\s+/g, "_").replace(/[^A-Za-z0-9._:+-]/g, "").slice(0, 64);
+  return text || fallback;
+}
+
+function clampInt(value, low, high) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) return low;
+  return Math.max(low, Math.min(high, number));
 }
 
 async function imageFramesForManifest({ manifest, manifestPath, item, workspaceRoot }) {
