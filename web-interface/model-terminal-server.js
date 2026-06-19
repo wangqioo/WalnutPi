@@ -126,7 +126,16 @@ function json(data, status = 200) {
 }
 
 function sseFrame(event) {
-  return `id: ${event.seq}\nevent: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`;
+  const frame = `id: ${event.seq}\nevent: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`;
+  const legacyKind = {
+    "agent.started": "step.started",
+    "agent.completed": "step.completed",
+    "agent.failed": "step.failed",
+    "agent.pending": "step.completed",
+  }[event.kind];
+  if (!legacyKind) return frame;
+  const legacyEvent = { ...event, kind: legacyKind };
+  return `${frame}id: ${event.seq}\nevent: ${legacyKind}\ndata: ${JSON.stringify(legacyEvent)}\n\n`;
 }
 
 function readCodexAuthApiKey() {
