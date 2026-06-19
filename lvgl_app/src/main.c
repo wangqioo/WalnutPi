@@ -22,6 +22,7 @@ static volatile bool running = true;
 #define WALNUT_SCREEN_STRIDE (WALNUT_SCREEN_WIDTH * 2)
 #define WALNUT_RUNTIME_MAX_FRAMES 80
 #define WALNUT_RUNTIME_MAX_ITEMS 32
+#define WALNUT_RUNTIME_MAX_WIDGETS 24
 #define WALNUT_RUNTIME_PATH_MAX 256
 
 typedef struct {
@@ -55,22 +56,39 @@ typedef struct {
 } runtime_item_t;
 
 typedef struct {
+    char type[16];
+    char id[32];
+    char text[80];
+    char color[16];
+    char animation[16];
+    int x;
+    int y;
+    int w;
+    int h;
+    int value;
+} runtime_widget_t;
+
+typedef struct {
     bool loaded;
     bool loop;
     int frame_count;
     int item_count;
+    int widget_count;
     char playlist_id[80];
     char playlist_hash[65];
     char root_dir[WALNUT_RUNTIME_PATH_MAX];
     runtime_frame_t frames[WALNUT_RUNTIME_MAX_FRAMES];
     runtime_item_t items[WALNUT_RUNTIME_MAX_ITEMS];
+    runtime_widget_t widgets[WALNUT_RUNTIME_MAX_WIDGETS];
 } runtime_workspace_t;
 
 static runtime_workspace_t runtime_workspace;
 static uint8_t runtime_frame_pixels[WALNUT_SCREEN_WIDTH * WALNUT_SCREEN_HEIGHT * 2];
 static bool runtime_frame_valid = false;
 static const char walnut_runtime_assets_schema_marker[] = "walnutpi.lvgl-runtime-assets.v1";
+static const char walnut_widget_runtime_schema_marker[] = "walnutpi.lvgl-widget-runtime.v1";
 static const char walnut_runtime_hot_reload_marker[] = "walnutpi.lvgl-runtime-hot-reload.v1";
+static const char walnut_widget_runtime_marker[] = "walnutpi.lvgl-widget-runtime.v1";
 
 #if defined(__linux__) && !defined(WALNUT_LVGL_NO_FBDEV)
 static char runtime_watch_path[WALNUT_RUNTIME_PATH_MAX];
@@ -125,6 +143,24 @@ static void path_join(char * dst, size_t dst_size, const char * dir, const char 
     snprintf(dst, dst_size, "%s/%s", dir, child ? child : "");
 }
 
+static uint32_t parse_hex_color(const char * text, uint32_t fallback)
+{
+    if(text == NULL || text[0] == '\0') return fallback;
+    if(strcmp(text, "text") == 0) return 0xf4f1df;
+    if(strcmp(text, "muted") == 0) return 0x94a0a4;
+    if(strcmp(text, "muted2") == 0) return 0x7f8d87;
+    if(strcmp(text, "cyan") == 0) return 0x8fd6ff;
+    if(strcmp(text, "green") == 0) return 0x78c58a;
+    if(strcmp(text, "yellow") == 0) return 0xf0c35d;
+    if(strcmp(text, "red") == 0) return 0xe06a5f;
+    if(strcmp(text, "accent") == 0) return 0x78c58a;
+    if(strcmp(text, "trace") == 0) return 0x2d455a;
+    if(strcmp(text, "chip") == 0) return 0x203242;
+    if(strcmp(text, "panelBorder") == 0) return 0x263443;
+    if(strcmp(text, "barTrack") == 0) return 0x263443;
+    return (uint32_t)strtoul(text, NULL, 16);
+}
+
 static bool read_runtime_frame_pixels(runtime_frame_t * frame)
 {
     if(frame == NULL) return false;
@@ -161,16 +197,18 @@ static bool parse_runtime_workspace(const char * index_path)
         if(newline != NULL) *newline = '\0';
         if(line[0] == '\0' || line[0] == '#') continue;
 
-        char * fields[12] = {0};
+        char * fields[13] = {0};
         int count = 0;
         char * token = strtok(line, " \t\r");
-        while(token != NULL && count < 12) {
+        while(token != NULL && count < 13) {
             fields[count++] = token;
             token = strtok(NULL, " \t\r");
         }
         if(count == 0) continue;
 
-        if(strcmp(fields[0], "schema") == 0 && count >= 2 && strcmp(fields[1], walnut_runtime_assets_schema_marker) != 0) {
+        if(strcmp(fields[0], "schema") == 0 && count >= 2
+           && strcmp(fields[1], walnut_runtime_assets_schema_marker) != 0
+           && strcmp(fields[1], walnut_widget_runtime_schema_marker) != 0) {
             fclose(file);
             memset(&runtime_workspace, 0, sizeof(runtime_workspace));
             return false;
@@ -217,13 +255,31 @@ static bool parse_runtime_workspace(const char * index_path)
             copy_token(item->transition, sizeof(item->transition), fields[9]);
             if(index + 1 > runtime_workspace.item_count) runtime_workspace.item_count = index + 1;
         }
+        else if(strcmp(fields[0], "widget") == 0 && count >= 10) {
+            if(runtime_workspace.widget_count >= WALNUT_RUNTIME_MAX_WIDGETS) continue;
+            runtime_widget_t * widget = &runtime_workspace.widgets[runtime_workspace.widget_count++];
+            copy_token(widget->type, sizeof(widget->type), fields[1]);
+            copy_token(widget->id, sizeof(widget->id), fields[2]);
+            widget->x = atoi(fields[3]);
+            widget->y = atoi(fields[4]);
+            widget->w = atoi(fields[5]);
+            widget->h = atoi(fields[6]);
+            copy_token(widget->text, sizeof(widget->text), fields[7]);
+            for(char * p = widget->text; *p != '\0'; p++) {
+                if(*p == '_') *p = ' ';
+            }
+            widget->value = atoi(fields[8]);
+            copy_token(widget->color, sizeof(widget->color), fields[9]);
+            if(count >= 11) copy_token(widget->animation, sizeof(widget->animation), fields[10]);
+        }
     }
     fclose(file);
 
     runtime_workspace.loaded =
-        runtime_workspace.playlist_hash[0] != '\0'
-        && runtime_workspace.frame_count > 0
-        && runtime_workspace.item_count > 0;
+        (runtime_workspace.playlist_hash[0] != '\0'
+         && runtime_workspace.frame_count > 0
+         && runtime_workspace.item_count > 0)
+        || runtime_workspace.widget_count > 0;
     return runtime_workspace.loaded;
 }
 
@@ -452,9 +508,94 @@ static void build_empty_workspace_screen(void)
     lv_obj_align(reason, LV_ALIGN_TOP_LEFT, 18, 124);
 }
 
+static void anim_bar_value_cb(void * obj, int32_t value)
+{
+    lv_bar_set_value((lv_obj_t *)obj, value, LV_ANIM_OFF);
+}
+
+static void anim_opa_cb(void * obj, int32_t value)
+{
+    lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)value, 0);
+}
+
+static void apply_widget_animation(lv_obj_t * obj, runtime_widget_t * widget)
+{
+    if(obj == NULL || widget == NULL || strcmp(widget->animation, "pulse") != 0) return;
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, obj);
+    lv_anim_set_values(&anim, LV_OPA_60, LV_OPA_COVER);
+    lv_anim_set_duration(&anim, 900);
+    lv_anim_set_playback_duration(&anim, 900);
+    lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_exec_cb(&anim, anim_opa_cb);
+    lv_anim_start(&anim);
+}
+
+static void build_runtime_widgets(lv_obj_t * scr)
+{
+    for(int index = 0; index < runtime_workspace.widget_count; index++) {
+        runtime_widget_t * widget = &runtime_workspace.widgets[index];
+        if(strcmp(widget->type, "label") == 0) {
+            lv_obj_t * label = lv_label_create(scr);
+            lv_label_set_text(label, widget->text);
+            lv_obj_set_style_text_color(label, lv_color_hex(parse_hex_color(widget->color, 0xf4f1df)), 0);
+            lv_obj_set_style_text_font(label, widget->h >= 48 ? &lv_font_montserrat_24 : &lv_font_montserrat_14, 0);
+            lv_obj_set_width(label, clamp_int(widget->w, 20, WALNUT_SCREEN_WIDTH));
+            lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+            lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
+            lv_obj_align(label, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
+            apply_widget_animation(label, widget);
+        }
+        else if(strcmp(widget->type, "rect") == 0) {
+            lv_obj_t * rect_obj = lv_obj_create(scr);
+            lv_obj_remove_style_all(rect_obj);
+            lv_obj_set_style_bg_opa(rect_obj, LV_OPA_COVER, 0);
+            lv_obj_set_style_bg_color(rect_obj, lv_color_hex(parse_hex_color(widget->color, 0x78c58a)), 0);
+            lv_obj_set_size(rect_obj, clamp_int(widget->w, 1, WALNUT_SCREEN_WIDTH), clamp_int(widget->h, 1, WALNUT_SCREEN_HEIGHT));
+            lv_obj_align(rect_obj, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
+            apply_widget_animation(rect_obj, widget);
+        }
+        else if(strcmp(widget->type, "bar") == 0) {
+            lv_obj_t * bar = lv_bar_create(scr);
+            lv_obj_remove_style_all(bar);
+            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+            lv_obj_set_style_bg_color(bar, lv_color_hex(0x263443), 0);
+            lv_obj_set_style_bg_color(bar, lv_color_hex(parse_hex_color(widget->color, 0x78c58a)), LV_PART_INDICATOR);
+            lv_obj_set_size(bar, clamp_int(widget->w, 20, WALNUT_SCREEN_WIDTH), clamp_int(widget->h, 6, 40));
+            lv_obj_align(bar, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
+            lv_bar_set_range(bar, 0, 100);
+            lv_bar_set_value(bar, clamp_int(widget->value, 0, 100), LV_ANIM_OFF);
+            lv_anim_t anim;
+            lv_anim_init(&anim);
+            lv_anim_set_var(&anim, bar);
+            lv_anim_set_values(&anim, clamp_int(widget->value - 8, 0, 100), clamp_int(widget->value + 8, 0, 100));
+            lv_anim_set_duration(&anim, 900);
+            lv_anim_set_playback_duration(&anim, 900);
+            lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
+            lv_anim_set_exec_cb(&anim, anim_bar_value_cb);
+            lv_anim_start(&anim);
+            apply_widget_animation(bar, widget);
+        }
+        else if(strcmp(widget->type, "arc") == 0) {
+            lv_obj_t * arc = lv_arc_create(scr);
+            lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+            lv_obj_set_style_arc_color(arc, lv_color_hex(0x263443), LV_PART_MAIN);
+            lv_obj_set_style_arc_color(arc, lv_color_hex(parse_hex_color(widget->color, 0x8fd6ff)), LV_PART_INDICATOR);
+            lv_obj_set_style_arc_width(arc, 10, LV_PART_MAIN);
+            lv_obj_set_style_arc_width(arc, 10, LV_PART_INDICATOR);
+            lv_obj_set_size(arc, clamp_int(widget->w, 30, WALNUT_SCREEN_WIDTH), clamp_int(widget->h, 30, WALNUT_SCREEN_HEIGHT));
+            lv_obj_align(arc, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
+            lv_arc_set_range(arc, 0, 100);
+            lv_arc_set_value(arc, clamp_int(widget->value, 0, 100));
+            apply_widget_animation(arc, widget);
+        }
+    }
+}
+
 void walnut_build_screen_ui(void)
 {
-    if(!workspace_playlist_enabled()) {
+    if(!workspace_playlist_enabled() && runtime_workspace.widget_count <= 0) {
         build_empty_workspace_screen();
         return;
     }
@@ -462,12 +603,17 @@ void walnut_build_screen_ui(void)
     memset(&workspace_ui, 0, sizeof(workspace_ui));
     lv_obj_t * scr = lv_screen_active();
     lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
+    if(!workspace_playlist_enabled()) {
+        build_runtime_widgets(scr);
+        return;
+    }
     workspace_ui.item = 0;
     workspace_ui.repeat = 0;
     workspace_ui.frame = clamp_int(runtime_workspace.items[0].first_frame, 0, runtime_workspace.frame_count - 1);
     workspace_ui.image = lv_image_create(scr);
     lv_obj_align(workspace_ui.image, LV_ALIGN_TOP_LEFT, 0, 0);
     workspace_apply_frame(&workspace_ui);
+    build_runtime_widgets(scr);
     lv_timer_create(workspace_timer_cb, workspace_frame_duration_ms(workspace_ui.item, workspace_ui.frame), &workspace_ui);
 }
 
@@ -516,6 +662,7 @@ int main(int argc, char ** argv)
 
     walnut_build_screen_ui();
     (void)walnut_runtime_hot_reload_marker;
+    (void)walnut_widget_runtime_marker;
     if(runtime_watch_path[0] != '\0') {
         runtime_watch_timer = lv_timer_create(runtime_watch_timer_cb, 1000, NULL);
         (void)runtime_watch_timer;

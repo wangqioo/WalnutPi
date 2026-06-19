@@ -6,7 +6,7 @@ export const WALNUT_SCREEN_WIDTH = 480;
 export const WALNUT_SCREEN_HEIGHT = 320;
 
 const SAFE_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
-const STYLE_TOKENS = new Set(["screen", "panel", "text", "muted", "muted2", "primary", "accent", "danger", "trace", "chip", "panelBorder", "barTrack"]);
+const STYLE_TOKENS = new Set(["screen", "panel", "text", "muted", "muted2", "primary", "accent", "orange", "danger", "trace", "chip", "panelBorder", "barTrack"]);
 const NODE_KINDS = new Set(["container", "rect", "text", "image", "button", "toggle", "progress", "gauge", "list", "status_tile"]);
 
 export function validateWalnutLvglWidgetCatalog(surface) {
@@ -90,7 +90,10 @@ export function runtimeWidgetsFromWalnutCatalog(catalog) {
     .slice(0, 24)
     .map((node, index) => {
       const layout = node.layout;
-      const text = node.text || node.label || valueFromBinding(normalized.data, node.binding) || "";
+      const boundValue = valueFromBinding(normalized.data, node.binding);
+      const text = node.kind === "status_tile" && node.label
+        ? `${node.label}:${boundValue || "--"}`
+        : node.text || node.label || boundValue || "";
       return {
         type: runtimeTypeFromKind(node.kind),
         id: node.id || `w${index}`,
@@ -366,6 +369,7 @@ function colorFromStyle(style) {
     muted2: "7f8b7b",
     primary: "78c58a",
     accent: "8fd6ff",
+    orange: "ff9f0a",
     danger: "ff6b6b",
     trace: "455a64",
     chip: "314052",

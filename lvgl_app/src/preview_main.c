@@ -1,4 +1,5 @@
 #include "lvgl.h"
+#include "demos/lv_demos.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -109,6 +110,7 @@ int main(int argc, char ** argv)
 {
     const char * output_path = "walnut-lvgl-preview.bmp";
     const char * runtime_path = NULL;
+    const char * demo_name = NULL;
     int advance_ms = 128;
     for(int i = 1; i < argc; i++) {
         if(strcmp(argv[i], "--advance-ms") == 0 && i + 1 < argc) {
@@ -119,6 +121,9 @@ int main(int argc, char ** argv)
         else if(strcmp(argv[i], "--runtime") == 0 && i + 1 < argc) {
             runtime_path = argv[++i];
         }
+        else if(strcmp(argv[i], "--demo") == 0 && i + 1 < argc) {
+            demo_name = argv[++i];
+        }
         else {
             output_path = argv[i];
         }
@@ -126,7 +131,7 @@ int main(int argc, char ** argv)
     if(runtime_path != NULL) {
         walnut_screen_workspace_load_runtime(runtime_path);
     }
-    if(runtime_path == NULL) {
+    if(runtime_path == NULL && demo_name == NULL) {
         fprintf(stderr, "runtime playlist path is required for preview\n");
         return 1;
     }
@@ -143,8 +148,26 @@ int main(int argc, char ** argv)
     lv_display_set_flush_cb(disp, preview_flush_cb);
     lv_display_set_buffers(disp, draw_buffer, NULL, sizeof(draw_buffer), LV_DISPLAY_RENDER_MODE_FULL);
 
-    walnut_build_screen_ui();
-    walnut_preview_apply_dynamic_time(advance_ms);
+    if(demo_name != NULL) {
+        if(strcmp(demo_name, "music") == 0) {
+            lv_demo_music();
+        }
+        else if(strcmp(demo_name, "widgets") == 0) {
+            lv_demo_widgets();
+        }
+        else {
+            fprintf(stderr, "unknown LVGL demo: %s\n", demo_name);
+            return 1;
+        }
+    }
+    else {
+        walnut_build_screen_ui();
+        walnut_preview_apply_dynamic_time(advance_ms);
+    }
+    for(int elapsed = 0; elapsed < advance_ms; elapsed += 16) {
+        lv_tick_inc(16);
+        lv_timer_handler();
+    }
     lv_refr_now(disp);
 
     return write_bmp(output_path);

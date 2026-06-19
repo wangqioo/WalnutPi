@@ -12,7 +12,7 @@ endif()
 
 set(LV_CONF_PATH "${CMAKE_CURRENT_SOURCE_DIR}/lv_conf.h" CACHE STRING "LVGL config path" FORCE)
 set(LV_CONF_BUILD_DISABLE_EXAMPLES ON CACHE BOOL "Disable LVGL examples" FORCE)
-set(LV_CONF_BUILD_DISABLE_DEMOS ON CACHE BOOL "Disable LVGL demos" FORCE)
+set(LV_CONF_BUILD_DISABLE_DEMOS OFF CACHE BOOL "Disable LVGL demos" FORCE)
 set(LV_CONF_BUILD_DISABLE_THORVG_INTERNAL ON CACHE BOOL "Disable LVGL ThorVG" FORCE)
 
 include_directories(
@@ -43,7 +43,7 @@ add_executable(walnut-lvgl-preview
 )
 
 target_compile_definitions(walnut-lvgl-preview PRIVATE WALNUT_LVGL_NO_FBDEV=1)
-target_link_libraries(walnut-lvgl-preview PRIVATE lvgl)
+target_link_libraries(walnut-lvgl-preview PRIVATE lvgl lvgl::demos)
 if(NOT WIN32)
   target_link_libraries(walnut-lvgl-preview PRIVATE m)
 endif()

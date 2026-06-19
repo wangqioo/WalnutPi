@@ -9,7 +9,7 @@ WorkingDirectory=/home/pi/projects/WalnutPi
 ExecStartPre=-/bin/systemctl stop walnut-framebuffer-status.service
 ExecStartPre=-/bin/sh -c 'echo 0 > /sys/class/vtconsole/vtcon1/bind'
 ExecStartPre=-/bin/sh -c 'TERM=linux /usr/bin/setterm --cursor off > /dev/tty1'
-ExecStart=/home/pi/projects/WalnutPi/build/lvgl_app/walnut-lvgl-screen --runtime /home/pi/projects/WalnutPi/screen/runtime/default.txt --demo /dev/fb0
+ExecStart=/home/pi/projects/WalnutPi/build/lvgl_app/walnut-lvgl-screen --runtime /home/pi/projects/WalnutPi/screen/widget-runtime/current.txt --demo /dev/fb0
 ExecStopPost=-/bin/sh -c 'echo 1 > /sys/class/vtconsole/vtcon1/bind'
 ExecStopPost=-/bin/sh -c 'TERM=linux /usr/bin/setterm --cursor on > /dev/tty1'
 ExecStopPost=-/bin/systemctl restart getty@tty1.service
