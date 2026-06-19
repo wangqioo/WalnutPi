@@ -1151,6 +1151,7 @@ const screenWorkspaceSyncWorkflow = createScreenWorkspaceSyncWorkflow({
 });
 
 const agentActionsApi = createAgentActionsApi({
+  policyManifest: ACTION_POLICY_MANIFEST,
   policyActions: WEB_ACTIONS,
   walnutRemote,
   runRemote,
@@ -1313,6 +1314,11 @@ function openSshSession(ws, target) {
   };
 
   send(`\r\n[local] ssh ${target}\r\n\r\n`);
+  if (ws.data.command) {
+    setTimeout(() => {
+      if (!child.killed && child.stdin.writable) child.stdin.write(`${ws.data.command}\n`);
+    }, 1200);
+  }
   child.stdout.on("data", send);
   child.stderr.on("data", send);
 
@@ -1351,7 +1357,7 @@ const server = Bun.serve({
       if (previewOnly(url)) {
         return new Response("SSH disabled for preview", { status: 403 });
       }
-      const upgraded = server.upgrade(req, { data: { child: null } });
+      const upgraded = server.upgrade(req, { data: { child: null, command: url.searchParams.get("command") || "" } });
       return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
     }
 
@@ -1451,6 +1457,56 @@ const server = Bun.serve({
       return screenWorkspaceApi.handleLvglAppDownload(appId);
     }
 
+    const iocccAppMatch = url.pathname.match(/^\/api\/screen\/ioccc-apps\/([^/]+)$/);
+    if (iocccAppMatch) {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      let appId;
+      try {
+        appId = decodeURIComponent(iocccAppMatch[1]);
+      } catch {
+        return json({ ok: false, error: "invalid IOCCC app id" }, 400);
+      }
+      return screenWorkspaceApi.handleIocccAppGet(appId);
+    }
+
+    const iocccAppPageMatch = url.pathname.match(/^\/api\/screen\/ioccc-apps\/([^/]+)\/page$/);
+    if (iocccAppPageMatch) {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      let appId;
+      try {
+        appId = decodeURIComponent(iocccAppPageMatch[1]);
+      } catch {
+        return json({ ok: false, error: "invalid IOCCC app id" }, 400);
+      }
+      return screenWorkspaceApi.handleIocccAppPage(appId);
+    }
+
+    const iocccAppAssetMatch = url.pathname.match(/^\/api\/screen\/ioccc-apps\/([^/]+)\/assets\/(.+)$/);
+    if (iocccAppAssetMatch) {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      let appId;
+      let assetPath;
+      try {
+        appId = decodeURIComponent(iocccAppAssetMatch[1]);
+        assetPath = decodeURIComponent(iocccAppAssetMatch[2]);
+      } catch {
+        return json({ ok: false, error: "invalid IOCCC asset path" }, 400);
+      }
+      return screenWorkspaceApi.handleIocccAppAsset(appId, assetPath);
+    }
+
+    const iocccAppDownloadMatch = url.pathname.match(/^\/api\/screen\/ioccc-apps\/([^/]+)\/download$/);
+    if (iocccAppDownloadMatch) {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      let appId;
+      try {
+        appId = decodeURIComponent(iocccAppDownloadMatch[1]);
+      } catch {
+        return json({ ok: false, error: "invalid IOCCC app id" }, 400);
+      }
+      return screenWorkspaceApi.handleIocccAppDownload(appId);
+    }
+
     if (url.pathname === "/api/screen/workspace/sync") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       return screenWorkspaceApi.handleScreenWorkspaceSync(req, previewOnly(url) ? "preview" : "remote");
@@ -1458,32 +1514,27 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/screen/widget-apps") {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
-      return screenWorkspaceApi.handleWidgetAppList();
+      return screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppList();
     }
 
-    if (url.pathname === "/api/screen/widget-app/runtime") {
+    if (url.pathname === "/api/screen/widget-apps/current/runtime") {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
-      return screenWorkspaceApi.handleWidgetAppRuntime();
+      return screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppRuntime();
     }
 
-    if (url.pathname === "/api/screen/widget-app/activate") {
+    if (url.pathname === "/api/screen/widget-apps/current/refresh") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      return screenWorkspaceApi.handleWidgetAppActivate(req);
+      return screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppRefresh();
     }
 
-    if (url.pathname === "/api/screen/widget-app/refresh") {
+    if (url.pathname === "/api/screen/widget-apps/current/events") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      return screenWorkspaceApi.handleWidgetAppRefresh();
+      return screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppEvent(req);
     }
 
-    if (url.pathname === "/api/screen/widget-app/event") {
+    if (url.pathname === "/api/screen/widget-apps/current/sync") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      return screenWorkspaceApi.handleWidgetAppEvent(req);
-    }
-
-    if (url.pathname === "/api/screen/widget-app/sync") {
-      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      return screenWorkspaceApi.handleWidgetAppSync();
+      return screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppSync();
     }
 
     const widgetAppDownloadMatch = url.pathname.match(/^\/api\/screen\/widget-apps\/([^/]+)\/download$/);
@@ -1495,7 +1546,19 @@ const server = Bun.serve({
       } catch {
         return json({ ok: false, error: "Invalid widget app id" }, 400);
       }
-      return screenWorkspaceApi.handleWidgetAppDownload(appId);
+      return screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppDownload(appId);
+    }
+
+    const widgetAppActivateMatch = url.pathname.match(/^\/api\/screen\/widget-apps\/([^/]+)\/activate$/);
+    if (widgetAppActivateMatch) {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      let appId;
+      try {
+        appId = decodeURIComponent(widgetAppActivateMatch[1]);
+      } catch {
+        return json({ ok: false, error: "Invalid widget app id" }, 400);
+      }
+      return screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppActivate({ appId });
     }
 
     const widgetAppMatch = url.pathname.match(/^\/api\/screen\/widget-apps\/([^/]+)$/);
@@ -1507,7 +1570,7 @@ const server = Bun.serve({
       } catch {
         return json({ ok: false, error: "Invalid widget app id" }, 400);
       }
-      return screenWorkspaceApi.handleWidgetAppGet(appId);
+      return screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppGet(appId);
     }
 
     const screenWorkspaceManifestMatch = url.pathname.match(/^\/api\/screen\/workspace\/manifest\/([^/]+)$/);

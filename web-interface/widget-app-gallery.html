@@ -233,7 +233,7 @@
         </div>
         <div class="actions">
           <button id="activate" class="primary" type="button">设为当前屏幕</button>
-          <a id="download" class="download" href="#">下载</a>
+          <a id="terminalLink" class="download" href="/ssh-terminal.html">终端运行</a>
         </div>
         <div id="status" class="status">正在加载应用。</div>
       </aside>
@@ -244,18 +244,30 @@
       const previewTitle = document.getElementById("previewTitle");
       const previewImage = document.getElementById("previewImage");
       const activateButton = document.getElementById("activate");
-      const downloadLink = document.getElementById("download");
+      const terminalLink = document.getElementById("terminalLink");
       const statusEl = document.getElementById("status");
       let apps = [];
       let selectedApp = null;
+      let previewRequestId = 0;
+      let previewTimer = null;
+      let previewBusy = false;
 
       function setStatus(text) {
         statusEl.textContent = text || "";
       }
 
       function sortApps(appList) {
-        const weight = { "official-demo": 0, "local-lvgl-app": 1 };
-        return [...appList].sort((a, b) => (weight[a.type] ?? 9) - (weight[b.type] ?? 9));
+        const weight = { "ioccc-lvgl-app": 0, "official-demo": 1, "local-lvgl-app": 2 };
+        return [...appList].sort((a, b) => (weight[a.type] ?? 9) - (weight[b.type] ?? 9) || String(a.ioccc?.year || "").localeCompare(String(b.ioccc?.year || "")));
+      }
+
+      function showImage() {
+        previewImage.style.display = "block";
+      }
+
+      function setPreviewBusy(busy) {
+        previewBusy = busy;
+        for (const card of appGrid.querySelectorAll(".app-card")) card.disabled = busy;
       }
 
       function renderCards() {
@@ -269,37 +281,54 @@
             <span class="thumb"><img alt="" loading="lazy" /></span>
             <span class="app-title"></span>
             <span class="app-meta">
-              <span class="chip">LVGL</span>
-              <span class="chip">480x320</span>
+              <span class="chip"></span>
+              <span class="chip"></span>
               <span class="chip"></span>
             </span>
           `;
           card.querySelector("img").src = thumbnailUrl(app.id);
           card.querySelector(".app-title").textContent = app.title;
-          card.querySelector(".app-meta .chip:last-child").textContent = app.type;
+          const chips = card.querySelectorAll(".chip");
+          chips[0].textContent = app.type === "ioccc-lvgl-app" ? "IOCCC LVGL" : "LVGL";
+          chips[1].textContent = app.ioccc?.year || "480x320";
+          chips[2].textContent = app.ioccc?.name || app.type;
           card.addEventListener("click", () => selectApp(app.id));
           appGrid.append(card);
         }
       }
 
       async function selectApp(appId) {
+        if (previewBusy) return;
         selectedApp = apps.find((app) => app.id === appId) || null;
         if (!selectedApp) return;
+        const requestId = ++previewRequestId;
+        clearTimeout(previewTimer);
         for (const card of appGrid.querySelectorAll(".app-card")) {
           card.classList.toggle("active", card.dataset.appId === appId);
         }
         previewTitle.textContent = selectedApp.title;
-        downloadLink.href = selectedApp.download || "#";
-        downloadLink.download = `${selectedApp.id}.lvgl-app.tar.gz`;
+        terminalLink.href = selectedApp.type === "ioccc-lvgl-app" ? iocccRunUrl(selectedApp) : "/ssh-terminal.html";
+        terminalLink.textContent = selectedApp.type === "ioccc-lvgl-app" ? "终端运行" : "打开终端";
         if (selectedApp.type === "official-demo") {
+          showImage();
           activateButton.textContent = "设为当前屏幕";
           previewImage.src = thumbnailUrl(selectedApp.id);
-          await previewOfficialDemo(selectedApp.demo);
+          await previewOfficialDemo(selectedApp.demo, requestId);
+        } else if (selectedApp.type === "ioccc-lvgl-app") {
+          showImage();
+          activateButton.textContent = "终端运行";
+          previewImage.src = thumbnailUrl(appId);
+          setStatus("IOCCC app 直接在终端运行，不生成 PNG 预览。");
         } else {
+          showImage();
           activateButton.textContent = "设为当前屏幕";
-          downloadLink.href = `/api/screen/widget-apps/${encodeURIComponent(appId)}/download`;
-          downloadLink.download = `${appId}.widget-app.tar.gz`;
-          await activateAndPreview(appId, false);
+          previewImage.src = thumbnailUrl(appId);
+          previewTimer = setTimeout(() => {
+            if (requestId !== previewRequestId) return;
+            activateAndPreview(appId, false, requestId).catch((error) => {
+              if (requestId === previewRequestId) setStatus(error.message);
+            });
+          }, selectedApp.type === "ioccc-lvgl-app" ? 500 : 0);
         }
       }
 
@@ -312,42 +341,68 @@
           const path = "outputs/lvgl-preview/lvgl-demo-widgets.png";
           return `/api/screen/workspace/assets/${encodeURIComponent(path)}?v=${Date.now()}`;
         }
+        if (appId.startsWith("ioccc-")) {
+          return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 480 320'%3E%3Crect width='480' height='320' fill='%23050605'/%3E%3Ctext x='32' y='82' fill='%23d7f7db' font-family='monospace' font-size='38'%3EIOCCC%3C/text%3E%3Ctext x='32' y='146' fill='%23ff9f0a' font-family='monospace' font-size='24'%3Eobfuscated C%3C/text%3E%3Ctext x='32' y='206' fill='%23a9aaa6' font-family='monospace' font-size='18'%3Eprog.c%3C/text%3E%3C/svg%3E";
+        }
         const path = `outputs/lvgl-preview/widget-${appId}-lvgl-00000ms.png`;
         return `/api/screen/workspace/assets/${encodeURIComponent(path)}?v=${Date.now()}`;
       }
 
-      async function previewOfficialDemo(demo) {
-        setStatus("正在渲染 LVGL 官方 demo。");
-        const response = await fetch(`/api/screen/lvgl-demo-preview?demo=${encodeURIComponent(demo)}`);
-        const data = await response.json();
-        if (!response.ok || !data.ok || !data.png) throw new Error(data.output || data.error || "demo preview failed");
-        previewImage.src = `${data.png}?v=${Date.now()}`;
-        previewImage.alt = `${selectedApp?.title || demo} preview`;
-        setStatus("官方 demo 预览已更新。");
+      function iocccRunUrl(app) {
+        const source = app.ioccc?.source;
+        const name = app.ioccc?.name;
+        if (!source || !name) return "/ssh-terminal.html";
+        const runner = app.id === "ioccc-2024-tompng"
+          ? `printf "2024/tompng visual text stir\\n\\nSOURCE SAMPLE:\\n"; sed -n "1,16p" sample.txt; printf "\\nSTIRRED OUTPUT:\\n"; timeout 8s ./prog < sample.txt | sed -n "1,28p"`
+          : `if test -x ./try.sh; then timeout 20s bash ./try.sh < /dev/zero; elif test -x ./${name}.alt; then timeout 12s ./${name}.alt 20000; elif test -x ./prog.alt; then timeout 12s ./prog.alt; else timeout 12s ./prog; fi`;
+        const command = `clear; cd /home/pi/projects/WalnutPi/${source} && make -s all && ${runner}`;
+        return `/ssh-terminal.html?command=${encodeURIComponent(command)}`;
       }
 
-      async function activateAndPreview(appId, announce) {
-        setStatus("正在渲染 LVGL 预览。");
-        const activateResponse = await fetch("/api/screen/widget-app/activate", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ appId }),
-        });
-        const activateData = await activateResponse.json();
-        if (!activateResponse.ok || !activateData.ok) throw new Error(activateData.output || activateData.error || "activate failed");
-
-        const previewResponse = await fetch("/api/screen/workspace/lvgl-preview", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ mode: "widget" }),
-        });
-        const previewData = await previewResponse.json();
-        if (!previewResponse.ok || !previewData.ok || !previewData.frames?.[0]?.png) {
-          throw new Error(previewData.output || previewData.error || "preview failed");
+      async function previewOfficialDemo(demo, requestId = previewRequestId) {
+        setPreviewBusy(true);
+        setStatus("正在渲染 LVGL 官方 demo。");
+        try {
+          const response = await fetch(`/api/screen/lvgl-demo-preview?demo=${encodeURIComponent(demo)}`);
+          const data = await response.json();
+          if (!response.ok || !data.ok || !data.png) throw new Error(data.output || data.error || "demo preview failed");
+          if (requestId !== previewRequestId) return;
+          previewImage.src = `${data.png}?v=${Date.now()}`;
+          previewImage.alt = `${selectedApp?.title || demo} preview`;
+          setStatus("官方 demo 预览已更新。");
+        } finally {
+          if (requestId === previewRequestId) setPreviewBusy(false);
         }
-        previewImage.src = `${previewData.frames[0].png}?v=${Date.now()}`;
-        previewImage.alt = `${selectedApp?.title || appId} LVGL preview`;
-        setStatus(announce ? "已设为当前屏幕。" : "预览已更新。");
+      }
+
+      async function activateAndPreview(appId, announce, requestId = previewRequestId) {
+        setPreviewBusy(true);
+        setStatus("正在渲染 LVGL 预览。");
+        try {
+          const activateResponse = await fetch(`/api/screen/widget-apps/${encodeURIComponent(appId)}/activate`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ appId }),
+          });
+          const activateData = await activateResponse.json();
+          if (!activateResponse.ok || !activateData.ok) throw new Error(activateData.output || activateData.error || "activate failed");
+
+          const previewResponse = await fetch("/api/screen/workspace/lvgl-preview", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ mode: "widget" }),
+          });
+          const previewData = await previewResponse.json();
+          if (!previewResponse.ok || !previewData.ok || !previewData.frames?.[0]?.png) {
+            throw new Error(previewData.output || previewData.error || "preview failed");
+          }
+          if (requestId !== previewRequestId || selectedApp?.id !== appId) return;
+          previewImage.src = `${previewData.frames[0].png}?v=${Date.now()}`;
+          previewImage.alt = `${selectedApp?.title || appId} LVGL preview`;
+          setStatus(announce ? "已设为当前屏幕。" : "预览已更新。");
+        } finally {
+          if (requestId === previewRequestId) setPreviewBusy(false);
+        }
       }
 
       activateButton.addEventListener("click", async () => {
@@ -355,6 +410,8 @@
         try {
           if (selectedApp.type === "official-demo") {
             await activateOfficialDemo(selectedApp.id);
+          } else if (selectedApp.type === "ioccc-lvgl-app") {
+            window.location.href = iocccRunUrl(selectedApp);
           } else {
             await activateAndPreview(selectedApp.id, true);
           }
