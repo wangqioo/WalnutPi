@@ -1,0 +1,27 @@
+{
+  "schema": "walnutpi.lvgl-app-registry.v1",
+  "apps": [
+    {
+      "id": "lvgl-demo-music",
+      "title": "LVGL Music Demo",
+      "type": "official-demo",
+      "upstream": {
+        "kind": "lvgl-demo",
+        "name": "music",
+        "source": "third_party/lvgl/demos/music",
+        "entry": "lv_demo_music"
+      }
+    },
+    {
+      "id": "lvgl-demo-widgets",
+      "title": "LVGL Widgets Demo",
+      "type": "official-demo",
+      "upstream": {
+        "kind": "lvgl-demo",
+        "name": "widgets",
+        "source": "third_party/lvgl/demos/widgets",
+        "entry": "lv_demo_widgets"
+      }
+    }
+  ]
+}

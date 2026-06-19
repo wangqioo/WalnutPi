@@ -238,16 +238,6 @@
         font-weight: 600;
       }
 
-      .quick {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 8px;
-      }
-
-      .quick .button {
-        width: 100%;
-      }
-
       .preview {
         display: grid;
         place-items: center;
@@ -264,23 +254,50 @@
         width: 100%;
         height: 100%;
         object-fit: contain;
-        image-rendering: pixelated;
       }
 
       .preview.has-image {
         padding: 0;
       }
 
+      .screen-picker {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: center;
+        gap: 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .screen-picker select {
+        min-width: 0;
+        min-height: 34px;
+        border: 1px solid var(--line);
+        border-radius: 0;
+        padding: 0 10px;
+        background: #101112;
+        color: #efece2;
+        font: inherit;
+        outline: none;
+      }
+
+      .screen-picker select:focus {
+        border-color: rgba(124, 203, 197, 0.72);
+      }
+
       .preview-toggle {
-        position: absolute;
-        right: 8px;
-        bottom: 8px;
         min-height: 28px;
         padding: 0 9px;
         border: 1px solid rgba(239, 236, 226, 0.24);
         background: rgba(5, 6, 6, 0.72);
         color: #efece2;
         cursor: pointer;
+      }
+
+      .preview-toggle.active {
+        border-color: rgba(255, 159, 10, 0.72);
+        background: rgba(255, 159, 10, 0.18);
+        color: #fff7df;
       }
 
       .status {
@@ -320,6 +337,7 @@
           <div class="actions">
             <button id="submitIntent" class="button primary" type="submit">处理意图</button>
             <button id="askAi" class="button" type="button">问 WalnutAI</button>
+            <a class="button" href="/apps.html">打开 App Gallery</a>
             <a class="button" href="/workspace.html">打开 Screen Workspace</a>
           </div>
         </form>
@@ -338,10 +356,14 @@
         </section>
         <section class="stack">
           <h2>Screen Preview</h2>
-          <a id="screenPreview" class="preview" href="/workspace.html">
-            <span id="screenPreviewText">Screen Workspace</span>
-            <img id="screenPreviewImage" alt="Screen Workspace preview" hidden />
+          <a id="screenPreview" class="preview has-image" href="/workspace.html">
+            <span id="screenPreviewText" hidden>Screen Workspace</span>
+            <img id="screenPreviewImage" alt="Screen Workspace preview" src="/api/screen/workspace/assets/outputs%2Flvgl-preview%2Flvgl-00000ms.png" />
           </a>
+          <label class="screen-picker">
+            <span>当前屏幕</span>
+            <select id="screenAppSelect" aria-label="当前屏幕"></select>
+          </label>
           <button id="screenPreviewToggle" class="preview-toggle" type="button" hidden>暂停</button>
         </section>
       </aside>
@@ -361,6 +383,7 @@
       const screenPreviewTextEl = document.getElementById("screenPreviewText");
       const screenPreviewImageEl = document.getElementById("screenPreviewImage");
       const screenPreviewToggleEl = document.getElementById("screenPreviewToggle");
+      const screenAppSelectEl = document.getElementById("screenAppSelect");
       let previewFrames = [];
       let previewFrameIndex = 0;
       let previewTimer = 0;
@@ -401,10 +424,15 @@
         message.append(label, body);
         resultEl.append(message);
         resultEl.scrollTop = resultEl.scrollHeight;
+        return message;
+      }
+
+      function removeMessage(message) {
+        if (message?.parentNode === resultEl) message.remove();
       }
 
       function updateRoute(classification) {
-        intentEl.textContent = classification?.intent || "-";
+        intentEl.textContent = classification?.route ? `${classification.route}:${classification.action || "-"}` : classification?.intent || "-";
         deliveryEl.textContent = classification?.delivery || "-";
         confidenceEl.textContent = classification?.confidence ?? "-";
       }
@@ -471,6 +499,64 @@
         } catch {
           stopPreviewPlayer();
           updateScreenPreview(fallbackOutput, screenId);
+        }
+      }
+
+      async function updateCurrentLvglPreview(mode = "playlist") {
+        try {
+          const response = await fetch("/api/screen/workspace/lvgl-preview", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(mode === "widget" ? { mode: "widget" } : {}),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok || !data.frames?.[0]?.png) throw new Error(data.output || data.error || "lvgl preview failed");
+          screenPreviewImageEl.alt = "Current LVGL screen preview";
+          startPreviewPlayer(data.frames, data.playlistHash || `${mode}-${Date.now()}`);
+        } catch {
+          // ponytail: keep the workspace placeholder if LVGL preview is unavailable.
+        }
+      }
+
+      async function activateScreenApp(appId) {
+        const selected = [...screenAppSelectEl.options].find((option) => option.value === appId);
+        const appType = selected?.dataset.type || "official-demo";
+        screenAppSelectEl.disabled = true;
+        try {
+          const response = await fetch("/api/screen/lvgl-app/activate", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ appId }),
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.output || data.error || "app activate failed");
+          await updateCurrentLvglPreview("playlist");
+        } catch (error) {
+          appendMessage("assistant", error.message);
+        } finally {
+          screenAppSelectEl.disabled = false;
+        }
+      }
+
+      async function loadScreenApps() {
+        try {
+          const response = await fetch("/api/screen/lvgl-apps", { cache: "no-store" });
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.error || "app list failed");
+          screenAppSelectEl.textContent = "";
+          for (const app of data.apps || []) {
+            if (app.type !== "official-demo" && app.type !== "local-lvgl-app") continue;
+            const option = document.createElement("option");
+            option.value = app.id;
+            option.dataset.type = app.type;
+            option.textContent = app.title;
+            screenAppSelectEl.append(option);
+          }
+        } catch (error) {
+          const option = document.createElement("option");
+          option.textContent = error.message;
+          screenAppSelectEl.append(option);
+          screenAppSelectEl.disabled = true;
         }
       }
 
@@ -548,43 +634,60 @@
         if (!text) return;
         setBusy(true);
         appendMessage("user", text);
-        appendMessage("system", mode === "ai" ? "正在询问 WalnutAI..." : "处理中...");
+        const pendingMessage = appendMessage("system", mode === "ai" ? "正在询问 WalnutAI..." : "处理中...");
         try {
           if (mode === "ai") {
             if (asksForLocalAssistantInfo(text)) {
+              removeMessage(pendingMessage);
               appendMessage("assistant", localAssistantInfoReply());
             } else {
               const data = await runAction("ai", { text });
+              removeMessage(pendingMessage);
               appendMessage("assistant", data.output);
             }
           } else {
             const classification = await classify(text);
             updateRoute(classification);
-            if (classification.intent === "device.status.read") {
+            const route = classification.route || "";
+            const action = classification.action || "";
+            const intent = classification.intent || "";
+            if (intent === "device.status.read") {
               const data = await runAction("status");
+              removeMessage(pendingMessage);
               appendMessage("assistant", data.output);
-            } else if (classification.intent === "device.network.read") {
+            } else if (intent === "device.network.read") {
               const data = await runAction("network");
+              removeMessage(pendingMessage);
               appendMessage("assistant", data.output);
-            } else if (classification.intent === "device.snapshot.read") {
+            } else if (intent === "device.snapshot.read") {
               const data = await runAction("snapshot");
+              removeMessage(pendingMessage);
               appendMessage("assistant", data.output);
-            } else if (classification.intent === "device.gpio.read") {
+            } else if (intent === "device.gpio.read") {
               const data = await runAction("gpio");
+              removeMessage(pendingMessage);
               appendMessage("assistant", data.output);
-            } else if (classification.intent === "screen.generate") {
+            } else if (route === "screen.wallpaper" && action === "generate") {
+              removeMessage(pendingMessage);
               appendMessage("assistant", await generateScreen(text, classification));
-            } else if (classification.intent === "screen.sync") {
+            } else if (route === "screen.wallpaper" && action === "sync") {
+              removeMessage(pendingMessage);
               appendMessage("assistant", "已识别为同步工作流。请进入 Screen Workspace 确认当前播放列表后同步到核桃派。");
-            } else if (classification.intent === "ai.chat" && asksForLocalAssistantInfo(text)) {
+            } else if (route === "screen.widget_app" && action === "create") {
+              removeMessage(pendingMessage);
+              appendMessage("assistant", "已识别为 Widget App 创建工作流。设备状态快捷面板的运行时合同还在 Widget App Sync 阶段，先进入 Screen Workspace 继续预览和保存。");
+            } else if (route === "ai.chat" && asksForLocalAssistantInfo(text)) {
+              removeMessage(pendingMessage);
               appendMessage("assistant", localAssistantInfoReply());
             } else {
               const data = await runAction("ai", { text });
+              removeMessage(pendingMessage);
               appendMessage("assistant", data.output);
             }
           }
           promptEl.value = "";
         } catch (error) {
+          removeMessage(pendingMessage);
           appendMessage("assistant", error.message);
         } finally {
           setBusy(false);
@@ -608,6 +711,11 @@
         if (previewPaused) window.clearTimeout(previewTimer);
         else schedulePreviewFrame();
       });
+
+      screenAppSelectEl.addEventListener("change", () => activateScreenApp(screenAppSelectEl.value));
+
+      loadScreenApps();
+      updateCurrentLvglPreview();
 
     </script>
   </body>

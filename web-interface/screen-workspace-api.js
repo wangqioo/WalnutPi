@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { z } from "zod";
@@ -15,6 +17,7 @@ import {
   WALNUT_WIDGET_APP_SOURCE_SCHEMA,
   WALNUT_WIDGET_SNAPSHOT_SOURCE_SCHEMA,
   a2uiSurfaceFromWalnutCatalog,
+  runtimeWidgetsFromWalnutCatalog,
   validateWalnutWidgetApp,
   walnutWidgetCatalogFromPixelSpec,
 } from "../scripts/walnut-lvgl-widget-catalog.js";
@@ -130,6 +133,9 @@ export function createScreenWorkspaceApi({
   generateLvglScreenWorkspaceRuntimeAssets,
   persistScreenSyncResult,
   runLocal,
+  runRemote,
+  runRemoteWithInput,
+  shellQuote,
   findWindowsCommand,
   sha256,
   projectRoot,
@@ -143,6 +149,9 @@ export function createScreenWorkspaceApi({
   const SCREEN_SOURCE_IMPORT_MAX_BYTES = screenSourceImportMaxBytes;
   const SCREEN_LVGL_PREVIEW_OUTPUT_DIR = screenLvglPreviewOutputDir;
   const PIXEL_GENERATORS_ROOT = path.join(SCREEN_WORKSPACE_ROOT, "generators");
+  const WIDGET_APPS_ROOT = path.join(SCREEN_WORKSPACE_ROOT, "apps");
+  const WIDGET_RUNTIME_ROOT = path.join(SCREEN_WORKSPACE_ROOT, "widget-runtime");
+  const LVGL_APP_REGISTRY_PATH = path.join(SCREEN_WORKSPACE_ROOT, "lvgl-apps", "registry.json");
 
   async function handleScreenWorkspacePlaylist(url) {
     try {
@@ -173,6 +182,297 @@ export function createScreenWorkspaceApi({
       if (!asset) return json({ ok: false, error: "asset route not found" }, 404);
       return new Response(Bun.file(asset.filePath), {
         headers: asset.headers,
+      });
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleWidgetAppList() {
+    try {
+      const entries = existsSync(WIDGET_APPS_ROOT) ? await readdir(WIDGET_APPS_ROOT, { withFileTypes: true }) : [];
+      const apps = [];
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        try {
+          const app = await readWidgetApp(entry.name);
+          apps.push({ id: app.id, title: app.title, createdAt: app.createdAt, mode: app.mode });
+        } catch {
+          // ponytail: skip malformed draft apps; add diagnostics when the app editor needs repair UX.
+        }
+      }
+      apps.sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+      return json({ ok: true, schema: "walnutpi.widget-app-list.v1", apps });
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleLvglAppList() {
+    try {
+      const officialApps = (await readLvglAppRegistry()).map((entry) => {
+        const app = walnutLvglAppFromRegistryEntry(entry);
+        return {
+          ...app,
+          preview: `/api/screen/lvgl-demo-preview?demo=${encodeURIComponent(entry.upstream.name)}`,
+          download: `/api/screen/lvgl-apps/${encodeURIComponent(entry.id)}/download`,
+        };
+      });
+      return json({ ok: true, schema: "walnutpi.lvgl-app-list.v1", apps: officialApps });
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleWidgetAppGet(appId) {
+    try {
+      const app = await readWidgetApp(appId);
+      return json({ ok: true, app });
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleWidgetAppActivate(req) {
+    try {
+      const body = await req.json();
+      const app = await readWidgetApp(body.appId || body.id);
+      const versionId = body.versionId || app.createdAt || new Date().toISOString();
+      const activatedAt = new Date().toISOString();
+      const current = {
+        schema: "walnutpi.widget-runtime-current.v1",
+        appId: app.id,
+        versionId,
+        activatedAt,
+        app: `../apps/${app.id}/app.json`,
+        catalog: `../apps/${app.id}/catalog.json`,
+        a2uiSurface: `../apps/${app.id}/surface.a2ui.json`,
+      };
+      const state = {
+        schema: "walnutpi.widget-runtime-state.v1",
+        appId: app.id,
+        versionId,
+        updatedAt: activatedAt,
+        bindings: defaultWidgetAppState(app),
+        latestAction: null,
+      };
+      await writeWidgetRuntimeFiles(app, current, state);
+      await appendWidgetEvent({
+        type: "activated",
+        appId: app.id,
+        versionId,
+        at: activatedAt,
+      });
+      return json({ ok: true, current, state });
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleWidgetAppRuntime() {
+    try {
+      const [current, state] = await Promise.all([
+        readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "current.json")),
+        readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json")),
+      ]);
+      return json({ ok: true, current, state });
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleWidgetAppRefresh() {
+    try {
+      const current = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "current.json"));
+      const app = await readWidgetApp(current.appId);
+      const result = await runRemote("walnut action run status --json", 25_000, 40_000);
+      const state = {
+        schema: "walnutpi.widget-runtime-state.v1",
+        appId: app.id,
+        versionId: current.versionId,
+        updatedAt: new Date().toISOString(),
+        bindings: deviceStatusBindings(result.output),
+        latestAction: { name: "refresh_device_status", ok: result.ok, code: result.code, at: new Date().toISOString() },
+      };
+      await writeWidgetRuntimeFiles(app, current, state);
+      await appendWidgetEvent({ type: "action", appId: app.id, action: state.latestAction });
+      return json({ ok: result.ok, current, state, output: result.output }, result.ok ? 200 : 500);
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleWidgetAppEvent(req) {
+    try {
+      const body = await req.json();
+      const actionName = String(body.action || body.name || "").trim();
+      const current = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "current.json"));
+      const app = await readWidgetApp(current.appId);
+      if (!new Set(app.actions.map((action) => action.name)).has(actionName)) {
+        throw new Error("action is not allowed by active widget app");
+      }
+      if (app.id === "pomodoro") {
+        const previousState = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json")).catch(() => ({
+          bindings: defaultWidgetAppState(app),
+        }));
+        const state = {
+          schema: "walnutpi.widget-runtime-state.v1",
+          appId: app.id,
+          versionId: current.versionId,
+          updatedAt: new Date().toISOString(),
+          bindings: pomodoroBindings(actionName, previousState.bindings),
+          latestAction: { name: actionName, ok: true, code: 0, at: new Date().toISOString() },
+        };
+        await writeWidgetRuntimeFiles(app, current, state);
+        await appendWidgetEvent({ type: "action", appId: app.id, action: state.latestAction });
+        return json({ ok: true, state, output: JSON.stringify({ ok: true, bindings: state.bindings }) });
+      }
+      const command = actionName === "refresh_device_status"
+        ? "walnut action run status --json"
+        : `walnut action prepare ${shellQuote(actionName)} --json`;
+      const result = await runRemote(command, 25_000, 40_000);
+      const previousState = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json")).catch(() => ({
+        bindings: defaultWidgetAppState(app),
+      }));
+      const state = {
+        schema: "walnutpi.widget-runtime-state.v1",
+        appId: app.id,
+        versionId: current.versionId,
+        updatedAt: new Date().toISOString(),
+        bindings: actionName === "refresh_device_status" ? deviceStatusBindings(result.output) : previousState.bindings,
+        latestAction: {
+          name: actionName,
+          ok: result.ok,
+          code: result.code,
+          at: new Date().toISOString(),
+          pending: parseJsonObject(result.output),
+        },
+      };
+      await writeWidgetRuntimeFiles(app, current, state);
+      await appendWidgetEvent({ type: "action", appId: app.id, action: state.latestAction });
+      return json({ ok: result.ok, state, output: result.output }, result.ok ? 200 : 500);
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleWidgetAppSync() {
+    try {
+      const current = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "current.json"));
+      const app = await readWidgetApp(current.appId);
+      const state = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json"));
+      await writeWidgetRuntimeFiles(app, current, state);
+      const files = await widgetSyncFiles(app.id);
+      const archive = await createTarArchive(files);
+      const remoteRoot = process.env.WALNUT_REMOTE_PROJECT_ROOT || process.env.WALNUT_PROJECT_ROOT || "/home/pi/projects/WalnutPi";
+      const script = [
+        "set -e",
+        `ROOT=${shellQuote(remoteRoot)}`,
+        'mkdir -p "$ROOT"',
+        'cd "$ROOT"',
+        "tar -xzf -",
+        "test -f screen/widget-runtime/current.txt",
+        "chmod +x scripts/build-lvgl-app.sh",
+        "if ! test -x build/lvgl_app/walnut-lvgl-screen || ! strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-widget-runtime.v1 >/dev/null; then bash scripts/build-lvgl-app.sh; fi",
+        "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-widget-runtime.v1 >/dev/null",
+        "cp lvgl_app/systemd/walnut-screen.service /etc/systemd/system/walnut-screen.service",
+        "systemctl daemon-reload",
+        "systemctl restart walnut-screen.service",
+        "sleep 0.5",
+        "systemctl is-active walnut-screen.service",
+        "walnut screen state",
+      ].join("; ");
+      const result = await runRemoteWithInput(`sudo -n sh -lc ${shellQuote(script)}`, archive, 180_000, 60_000);
+      await appendWidgetEvent({ type: "sync", appId: app.id, ok: result.ok, at: new Date().toISOString() });
+      return json({
+        ok: result.ok,
+        schema: "walnutpi.widget-app-sync-result.v1",
+        appId: app.id,
+        current,
+        fileCount: files.length,
+        output: result.output,
+      }, result.ok ? 200 : 500);
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleWidgetAppDownload(appId) {
+    try {
+      const app = await readWidgetApp(appId);
+      const archive = await createTarArchive(await widgetAppArchiveFiles(app.id));
+      return new Response(archive, {
+        headers: {
+          "content-type": "application/gzip",
+          "content-disposition": `attachment; filename="${app.id}.widget-app.tar.gz"`,
+        },
+      });
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleLvglAppDownload(appId) {
+    try {
+      const app = readLvglDemoApp(appId);
+      const archive = await createTarArchive(await lvglDemoArchiveFiles(app));
+      return new Response(archive, {
+        headers: {
+          "content-type": "application/gzip",
+          "content-disposition": `attachment; filename="${app.id}.lvgl-app.tar.gz"`,
+        },
+      });
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleLvglAppActivate(req) {
+    try {
+      const body = req ? await readJsonRequest(req).catch(() => ({})) : {};
+      const appId = cleanScreenWorkspaceId(body.appId || body.id || "", "appId");
+      const registryEntry = (await readLvglAppRegistry()).find((entry) => entry.id === appId);
+      if (!registryEntry) throw new Error("unsupported LVGL app");
+      const app = walnutLvglAppFromRegistryEntry(registryEntry);
+      const preview = await renderLvglDemoPng(registryEntry.upstream.name);
+      const result = await processSourceAssetToScreenOutput({
+        workspaceRoot: SCREEN_WORKSPACE_ROOT,
+        plan: {
+          id: `${app.id}-plan`,
+          screenId: app.id,
+          title: app.title,
+          description: `LVGL app from ${app.source}`,
+          animation: { fps: 1, maxSeconds: 1, maxFrames: 1 },
+        },
+        sourceAsset: {
+          id: `${app.id}-source`,
+          path: preview.pngPath,
+          selected: true,
+          mediaType: "image/png",
+          license: "lvgl-demo-local",
+          origin: app.source,
+        },
+        outputType: "static",
+        preset: "fit-contain:480x320",
+      });
+      const playlist = await writeDefaultScreenPlaylist({
+        workspaceRoot: SCREEN_WORKSPACE_ROOT,
+        playlistId: "default",
+        manifestId: result.screenId,
+        durationMs: 8000,
+        repeat: 1,
+        loop: true,
+      });
+      return json({
+        ok: true,
+        schema: "walnutpi.lvgl-app-activation.v1",
+        app,
+        screenId: result.screenId,
+        manifest: result.manifest,
+        output: result.output,
+        playlist: playlist.playlist,
+        playlistHash: playlist.playlistHash,
+        preview: preview.png,
       });
     } catch (error) {
       return workspaceErrorResponse(error, json);
@@ -329,19 +629,23 @@ export function createScreenWorkspaceApi({
       const prompt = cleanFreeformPrompt(request.prompt || request.text);
       const screenId = cleanScreenWorkspaceId(request.screenId || `agent-freeform-${Date.now()}`, "screenId");
       const sourceId = cleanScreenWorkspaceId(request.sourceId || `${screenId}-source`, "sourceId");
-      const template = await readPixelGeneratorTemplate(selectPixelGeneratorTemplate(prompt));
+      const plan = buildScreenGenerationPlan(prompt);
+      const facts = await collectScreenFacts(plan);
+      const template = await readPixelGeneratorTemplate(plan.template);
       let screenSpec = buildFreeformPixelScreenSpec({
         prompt,
         title: request.title || freeformTitle(prompt),
         template,
+        plan,
+        facts,
       });
-      screenSpec = PixelScreenSpecSchema.parse(repairLvglWidgetLayout(screenSpec));
-      const generatedCatalog = generateWidgetCatalog
+      screenSpec = PixelScreenSpecSchema.parse(plan.composition === "fact-card" ? screenSpec : repairLvglWidgetLayout(screenSpec));
+      const generatedCatalog = plan.widgetApp ? generateWidgetCatalog
         ? await generateWidgetCatalog({
           prompt,
           fallbackCatalog: walnutWidgetCatalogFromPixelSpec({ ...screenSpec, id: screenId }),
         }).catch(() => null)
-        : null;
+        : null : null;
       if (cleanWorkspaceOutputType(request.outputType || "static") === "animated") {
         const result = await writeGeneratedAnimatedScreenOutput({
           screenId,
@@ -350,6 +654,7 @@ export function createScreenWorkspaceApi({
           screenSpec,
           template,
           generatedCatalog,
+          facts,
         });
         let playlist = null;
         if (request.playlist !== false) {
@@ -367,8 +672,10 @@ export function createScreenWorkspaceApi({
           schema: "walnutpi.screenWorkspaceGenerateResult.v1",
           workspaceRoot: SCREEN_WORKSPACE_ROOT,
           screenId: result.screenId,
+          plan,
           screenSpec,
           widgetApp: result.manifest.provenance.widgetApp || null,
+          facts,
           source: result.source,
           manifest: result.manifest,
           output: result.output,
@@ -380,6 +687,7 @@ export function createScreenWorkspaceApi({
         prompt,
         screenSpec,
         template,
+        facts,
       });
       const result = await processSourceAssetToScreenOutput({
         workspaceRoot: SCREEN_WORKSPACE_ROOT,
@@ -401,15 +709,17 @@ export function createScreenWorkspaceApi({
         outputType: cleanWorkspaceOutputType(request.outputType || "static"),
         preset: cleanWorkspacePreset(request.preset || "fit-cover:480x320"),
       });
-      const widgetApp = await writeWidgetAppFromPixelSpec({
-        screenId,
-        prompt,
-        screenSpec,
-        catalog: generatedCatalog,
-        sourcePath: source.originalPath,
-      });
-      result.manifest.provenance.widgetApp = widgetApp.provenance;
-      await writeFile(result.manifestPath, `${JSON.stringify(result.manifest, null, 2)}\n`, "utf8");
+      if (facts.widgetApp !== false) {
+        const widgetApp = await writeWidgetAppFromPixelSpec({
+          screenId,
+          prompt,
+          screenSpec,
+          catalog: generatedCatalog,
+          sourcePath: source.originalPath,
+        });
+        result.manifest.provenance.widgetApp = widgetApp.provenance;
+        await writeFile(result.manifestPath, `${JSON.stringify(result.manifest, null, 2)}\n`, "utf8");
+      }
 
       let playlist = null;
       if (request.playlist !== false) {
@@ -438,8 +748,10 @@ export function createScreenWorkspaceApi({
         schema: "walnutpi.screenWorkspaceGenerateResult.v1",
         workspaceRoot: SCREEN_WORKSPACE_ROOT,
         screenId: result.screenId,
+        plan,
         screenSpec,
         widgetApp: result.manifest.provenance.widgetApp || null,
+        facts,
         source,
         manifest: result.manifest,
         output: result.output,
@@ -461,14 +773,24 @@ export function createScreenWorkspaceApi({
     }
   }
 
-  async function handleScreenWorkspaceLvglPreview() {
+  async function handleScreenWorkspaceLvglPreview(req) {
     try {
-      const envelope = await screenWorkspaceStore.readPlaylistEnvelope("default");
+      const body = req ? await readJsonRequest(req).catch(() => ({})) : {};
       await mkdir(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, { recursive: true });
-      const runtimeAssets = await generateLvglScreenWorkspaceRuntimeAssets({
-        workspaceRoot: SCREEN_WORKSPACE_ROOT,
-        playlistId: "default",
-      });
+      const widgetMode = body.mode === "widget";
+      const widgetCurrent = widgetMode && existsSync(path.join(WIDGET_RUNTIME_ROOT, "current.json"))
+        ? await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "current.json")).catch(() => null)
+        : null;
+      const widgetPreviewStem = widgetCurrent?.appId
+        ? `widget-${cleanScreenWorkspaceId(widgetCurrent.appId, "appId")}-lvgl`
+        : "widget-lvgl";
+      const envelope = widgetMode ? null : await screenWorkspaceStore.readPlaylistEnvelope("default");
+      const runtimeIndexPath = widgetMode
+        ? path.join(WIDGET_RUNTIME_ROOT, "current.txt")
+        : (await generateLvglScreenWorkspaceRuntimeAssets({
+            workspaceRoot: SCREEN_WORKSPACE_ROOT,
+            playlistId: "default",
+          })).indexPath;
 
       const build = await runLvglPreviewBuild();
       if (!build.ok) {
@@ -488,13 +810,13 @@ export function createScreenWorkspaceApi({
         }, 500);
       }
 
-      const advanceMs = lvglPreviewAdvanceTimes(envelope);
+      const advanceMs = widgetMode ? [0, 450, 900, 1350] : lvglPreviewAdvanceTimes(envelope);
       const frames = [];
       for (const ms of advanceMs) {
-        const stem = `lvgl-${String(ms).padStart(5, "0")}ms`;
+        const stem = `${widgetMode ? widgetPreviewStem : "lvgl"}-${String(ms).padStart(5, "0")}ms`;
         const bmpPath = path.join(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, `${stem}.bmp`);
         const pngPath = path.join(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, `${stem}.png`);
-        const rendered = await runLocal(exePath, [bmpPath, "--advance-ms", String(ms), "--runtime", runtimeAssets.indexPath], {
+        const rendered = await runLocal(exePath, [bmpPath, "--advance-ms", String(ms), "--runtime", runtimeIndexPath], {
           timeoutMs: 30_000,
           outputLimit: 12_000,
         });
@@ -517,9 +839,10 @@ export function createScreenWorkspaceApi({
       return json({
         ok: true,
         schema: "walnutpi.screenWorkspaceLvglPreview.v1",
-        playlistHash: envelope.playlistHash,
-        runtimeIndex: screenWorkspaceAssetUrl(runtimeAssets.indexPath),
-        itemCount: envelope.items.length,
+        mode: widgetMode ? "widget" : "playlist",
+        playlistHash: envelope?.playlistHash || null,
+        runtimeIndex: screenWorkspaceAssetUrl(runtimeIndexPath),
+        itemCount: envelope?.items.length || 1,
         frameCount: frames.length,
         frames,
         buildOutput: build.output,
@@ -531,6 +854,60 @@ export function createScreenWorkspaceApi({
         output: error.message,
       }, 500);
     }
+  }
+
+  async function handleLvglDemoPreview(url) {
+    try {
+      const demo = cleanLvglDemoId(url.searchParams.get("demo") || "music");
+      const preview = await renderLvglDemoPng(demo);
+      return json({
+        ok: true,
+        schema: "walnutpi.lvgl-demo-preview.v1",
+        demo,
+        png: preview.png,
+        bmp: preview.bmp,
+      });
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function renderLvglDemoPng(demo) {
+      demo = cleanLvglDemoId(demo);
+      await mkdir(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, { recursive: true });
+      const build = await runLvglPreviewBuild();
+      if (!build.ok) {
+        throw new Error(`LVGL preview build failed: ${build.output}`);
+      }
+      const exePath = lvglPreviewExePath();
+      const stem = `lvgl-demo-${demo}`;
+      const bmpPath = path.join(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, `${stem}.bmp`);
+      const pngPath = path.join(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, `${stem}.png`);
+      const rendered = await runLocal(exePath, [bmpPath, "--demo", demo, "--advance-ms", "1800"], {
+        timeoutMs: 30_000,
+        outputLimit: 12_000,
+      });
+      if (!rendered.ok) {
+        throw new Error(`LVGL demo preview render failed: ${rendered.output}`);
+      }
+      await ensurePreviewPng(bmpPath, pngPath);
+      return {
+        png: screenWorkspaceAssetUrl(pngPath),
+        bmp: screenWorkspaceAssetUrl(bmpPath),
+        pngPath,
+        bmpPath,
+      };
+  }
+
+  function cleanLvglDemoId(value) {
+    const text = String(value || "").trim();
+    if (text === "music" || text === "widgets") return text;
+    throw new Error("unsupported LVGL demo");
+  }
+
+  function readLvglDemoApp(appId) {
+    const id = cleanScreenWorkspaceId(appId || "", "appId");
+    return id;
   }
 
   async function readWorkspaceSourceAsset(sourceAssetId) {
@@ -657,7 +1034,7 @@ export function createScreenWorkspaceApi({
     };
   }
 
-  async function writeGeneratedAnimatedScreenOutput({ screenId, sourceId, prompt, screenSpec, template, generatedCatalog }) {
+  async function writeGeneratedAnimatedScreenOutput({ screenId, sourceId, prompt, screenSpec, template, generatedCatalog, facts }) {
     const generatedAt = new Date().toISOString();
     const outputDir = path.join(SCREEN_WORKSPACE_ROOT, "outputs", screenId);
     const framesDir = path.join(outputDir, "frames");
@@ -706,6 +1083,13 @@ export function createScreenWorkspaceApi({
       animatedOutputSha256: animatedOutputSha256(frames),
     };
     await writeFile(path.join(outputDir, "output.json"), `${JSON.stringify({ schema: "walnutpi.screen-output.v1", id: screenId, generatedAt, manifest: `../../manifests/${screenId}.json`, output }, null, 2)}\n`, "utf8");
+    const widgetApp = facts?.widgetApp === false ? null : (await writeWidgetAppFromPixelSpec({
+      screenId,
+      prompt,
+      screenSpec,
+      catalog: generatedCatalog,
+      sourcePath: path.join(sourceDir, "scene.json"),
+    })).provenance;
     const manifest = await validateScreenManifestV2({
       schema: "walnutpi.screen-manifest.v2",
       id: screenId,
@@ -724,13 +1108,7 @@ export function createScreenWorkspaceApi({
           license: "local-freeform-generation",
           selected: true,
         }],
-        widgetApp: (await writeWidgetAppFromPixelSpec({
-          screenId,
-          prompt,
-          screenSpec,
-          catalog: generatedCatalog,
-          sourcePath: path.join(sourceDir, "scene.json"),
-        })).provenance,
+        ...(widgetApp ? { widgetApp } : {}),
         processing: { preset: "pixel-grid:120x80@4x", tools: [{ name: "sharp", version: sharp.versions.sharp }] },
       },
     }, { manifestPath, workspaceRoot: SCREEN_WORKSPACE_ROOT });
@@ -757,7 +1135,123 @@ export function createScreenWorkspaceApi({
     return "pixel-ops";
   }
 
-  function buildFreeformPixelScreenSpec({ prompt, title, template }) {
+  function buildScreenGenerationPlan(prompt) {
+    const template = selectPixelGeneratorTemplate(prompt);
+    const needs = [];
+    const weatherLocation = extractWeatherCity(prompt);
+    if (weatherLocation) {
+      needs.push({ kind: "weather.current", location: weatherLocation });
+    }
+    return {
+      schema: "walnutpi.screen-generation-plan.v1",
+      prompt,
+      template,
+      needs,
+      composition: needs.length ? "fact-card" : "prompt-template",
+      widgetApp: needs.length ? false : true,
+    };
+  }
+
+  async function collectScreenFacts(plan) {
+    const cards = [];
+    const facts = [];
+    for (const need of plan.needs) {
+      if (need.kind === "weather.current") {
+        const fact = await collectWeatherFact(need);
+        facts.push(fact);
+        cards.push(weatherFactCard(fact));
+      }
+    }
+    return {
+      schema: "walnutpi.screen-fact-pack.v1",
+      facts,
+      cards,
+      widgetApp: plan.widgetApp,
+    };
+  }
+
+  async function collectWeatherFact(need) {
+    try {
+      const weather = await fetchCurrentWeather(need.location);
+      return {
+        kind: "weather.current",
+        source: "wttr.in",
+        ...weather,
+        location: need.location,
+        station: weather.city,
+      };
+    } catch (error) {
+      return {
+        kind: "weather.current",
+        source: "fallback",
+        location: need.location,
+        condition: "UNKNOWN",
+        temperatureC: null,
+        humidity: null,
+        windKph: null,
+        precipMm: null,
+        observedAt: new Date().toISOString(),
+        advice: "天气查询失败",
+        error: error.message,
+      };
+    }
+  }
+
+  function extractWeatherCity(prompt) {
+    const text = String(prompt || "");
+    const match = text.match(/(?:把|查询|获取|显示|生成|做(?:一个)?|看)?\s*([\p{Script=Han}A-Za-z]{2,24})(?:的)?(?:今天|现在|当前|实时)?(?:天气|气温|温度)/u)
+      || text.match(/(?:天气|气温|温度).{0,8}([\p{Script=Han}A-Za-z]{2,24})/u);
+    return match?.[1]?.replace(/^(当前|实时|今天|现在|一个|小屏|核桃派)+/u, "") || "";
+  }
+
+  async function fetchCurrentWeather(city) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    try {
+      const url = `https://wttr.in/${encodeURIComponent(city)}?format=j1`;
+      const response = await fetch(url, {
+        signal: controller.signal,
+        headers: { "user-agent": "WalnutPi-Agent-Console/1.0" },
+      });
+      if (!response.ok) throw new Error(`weather HTTP ${response.status}`);
+      const data = await response.json();
+      const current = data.current_condition?.[0] || {};
+      const area = data.nearest_area?.[0] || {};
+      const condition = current.lang_zh?.[0]?.value || current.weatherDesc?.[0]?.value || "UNKNOWN";
+      const temperatureC = numberOrNull(current.temp_C);
+      const humidity = numberOrNull(current.humidity);
+      const windKph = numberOrNull(current.windspeedKmph);
+      const precipMm = numberOrNull(current.precipMM);
+      return {
+        city: area.areaName?.[0]?.value || city,
+        country: area.country?.[0]?.value || "",
+        condition,
+        temperatureC,
+        humidity,
+        windKph,
+        precipMm,
+        observedAt: new Date().toISOString(),
+        advice: weatherAdvice({ condition, precipMm, temperatureC }),
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  function numberOrNull(value) {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function weatherAdvice({ condition, precipMm, temperatureC }) {
+    const text = String(condition || "");
+    if ((precipMm || 0) > 0 || /雨|rain|shower/i.test(text)) return "带伞出门";
+    if (temperatureC !== null && temperatureC >= 32) return "注意防晒";
+    if (temperatureC !== null && temperatureC <= 8) return "注意保暖";
+    return "适合出行";
+  }
+
+  function buildFreeformPixelScreenSpec({ prompt, title, template, plan, facts }) {
     const text = prompt.toLowerCase();
     const defaults = template.defaults;
     const temp = text.includes("温") || text.includes("temp") ? "42.6C" : "OK";
@@ -768,10 +1262,17 @@ export function createScreenWorkspaceApi({
     let primaryLabel = ip === "ready" ? "DEVICE" : "WLAN0 / IP";
     let primaryValue = ip;
     let footer = text.includes("walnutpi live") ? "WalnutPi live" : defaults.footer;
-    if (template.id === "pixel-weather") {
-      primaryLabel = "WEATHER";
-      primaryValue = text.includes("晴") || text.includes("sun") ? "SUN 26C" : (text.includes("雨") || text.includes("rain") ? "RAIN 24C" : "SKY 24C");
-      footer = "LOCAL SKY";
+    const card = facts?.cards?.[0];
+    if (plan?.composition === "fact-card" && card) {
+      primaryLabel = card.title;
+      primaryValue = card.value;
+      footer = card.footer;
+      for (const [index, item] of card.items.entries()) {
+        if (!metrics[index]) break;
+        metrics[index].label = item.label;
+        metrics[index].value = item.value;
+        metrics[index].bar = item.bar ?? metrics[index].bar;
+      }
     } else if (template.id === "pixel-message") {
       primaryLabel = "MESSAGE";
       primaryValue = compactDisplayText(screenMessageText(prompt), template.layout.primaryValue.maxChars);
@@ -795,7 +1296,45 @@ export function createScreenWorkspaceApi({
       primaryValue,
       footer,
       metrics,
+      ...(card ? { elements: factCardPixelElements(card) } : {}),
     });
+  }
+
+  function weatherFactCard(fact) {
+    const temp = fact.temperatureC === null || fact.temperatureC === undefined ? "--C" : `${Math.round(fact.temperatureC)}C`;
+    const humidity = fact.humidity === null || fact.humidity === undefined ? "--%" : `${Math.round(fact.humidity)}%`;
+    const wind = fact.windKph === null || fact.windKph === undefined ? "--K" : `${Math.round(fact.windKph)}KPH`;
+    const rain = fact.precipMm === null || fact.precipMm === undefined ? "--MM" : `${fact.precipMm}MM`;
+    return {
+      kind: "fact-card",
+      sourceKind: fact.kind,
+      title: compactDisplayText(fact.location || "WEATHER", 12),
+      value: temp,
+      subtitle: compactDisplayText(fact.condition || "UNKNOWN", 14),
+      footer: compactDisplayText(fact.advice || "WEATHER", 14),
+      items: [
+        { label: "HUM", value: humidity, bar: Math.max(0, Math.min(34, Math.round(Number(fact.humidity || 0) / 3))) },
+        { label: "WIND", value: wind },
+        { label: "RAIN", value: rain, bar: Math.max(0, Math.min(34, Math.round(Number(fact.precipMm || 0) * 6))) },
+      ],
+    };
+  }
+
+  function factCardPixelElements(card) {
+    return [
+      { type: "rect", x: 3, y: 3, width: 114, height: 1, fill: "panelBorder", required: false },
+      { type: "rect", x: 3, y: 76, width: 114, height: 1, fill: "panelBorder", required: false },
+      { type: "rect", x: 3, y: 4, width: 1, height: 72, fill: "panelBorder", required: false },
+      { type: "rect", x: 116, y: 4, width: 1, height: 72, fill: "panelBorder", required: false },
+      { type: "text", x: 7, y: 14, text: card.title, fill: "text", scale: 1, required: true },
+      { type: "text", x: 7, y: 36, text: card.value, fill: "accent", scale: 2, required: true },
+      { type: "text", x: 7, y: 50, text: card.subtitle, fill: "muted2", scale: 1, required: true },
+      { type: "text", x: 7, y: 63, text: card.footer, fill: "green", scale: 1, required: true },
+      { type: "text", x: 72, y: 24, text: `${card.items[0]?.label || "A"} ${card.items[0]?.value || "--"}`, fill: "cyan", scale: 1, required: true },
+      { type: "text", x: 72, y: 42, text: `${card.items[1]?.label || "B"} ${card.items[1]?.value || "--"}`, fill: "text", scale: 1, required: true },
+      { type: "text", x: 72, y: 60, text: `${card.items[2]?.label || "C"} ${card.items[2]?.value || "--"}`, fill: "green", scale: 1, required: true },
+      { type: "bar", x: 72, y: 67, width: 38, height: 3, fill: "accent", value: Math.max(0, Math.min(100, Number(card.items[0]?.bar || 0) * 3)), required: true },
+    ];
   }
 
   function screenMessageText(prompt) {
@@ -1361,6 +1900,281 @@ export function createScreenWorkspaceApi({
     };
   }
 
+  async function readWidgetApp(appId) {
+    const id = cleanScreenWorkspaceId(appId || "", "appId");
+    const appPath = path.join(WIDGET_APPS_ROOT, id, "app.json");
+    const relative = path.relative(WIDGET_APPS_ROOT, appPath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("invalid widget app id");
+    return validateWalnutWidgetApp(await readJsonFile(appPath));
+  }
+
+  async function readJsonFile(filePath) {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  }
+
+  async function writeWidgetRuntimeFiles(app, current, state) {
+    await mkdir(WIDGET_RUNTIME_ROOT, { recursive: true });
+    await writeFile(path.join(WIDGET_RUNTIME_ROOT, "current.json"), `${JSON.stringify(current, null, 2)}\n`, "utf8");
+    await writeFile(path.join(WIDGET_RUNTIME_ROOT, "state.json"), `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    await writeFile(path.join(WIDGET_RUNTIME_ROOT, "current.txt"), widgetRuntimeText(app, state), "utf8");
+  }
+
+  async function appendWidgetEvent(event) {
+    await mkdir(WIDGET_RUNTIME_ROOT, { recursive: true });
+    await appendFile(path.join(WIDGET_RUNTIME_ROOT, "events.log"), `${JSON.stringify({
+      schema: "walnutpi.widget-runtime-event.v1",
+      ...event,
+    })}\n`, "utf8");
+  }
+
+  function defaultWidgetAppState(app) {
+    if (app.id === "pomodoro") {
+      return {
+        remaining: "25:00",
+        status: "READY",
+        progress: 100,
+        mode: "idle",
+      };
+    }
+    if (app.id === "device-status" || /设备|状态|status|quick/i.test(`${app.id} ${app.title}`)) {
+      return {
+        ip: "unknown",
+        memory: "unknown",
+        disk: "unknown",
+        frp: "unknown",
+        service: "unknown",
+      };
+    }
+    return {};
+  }
+
+  function deviceStatusBindings(output) {
+    const parsed = parseJsonObject(output);
+    const text = String(parsed?.output || output || "");
+    return {
+      ip: matchValue(text, /wlan0\s+\S+\s+([0-9]{1,3}(?:\.[0-9]{1,3}){3})\//i) || "unknown",
+      memory: matchValue(text, /Mem:\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+([0-9.]+(?:Mi|Gi|MiB|GiB|MB|GB))/i) || "unknown",
+      disk: matchValue(text, /\/dev\/root\s+\S+\s+\S+\s+\S+\s+([0-9]+%)/i) || "unknown",
+      frp: /frp[^\n]*(active|running|online|ok)/i.test(text) ? "active" : (/frp/i.test(text) ? "check" : "unknown"),
+      service: matchValue(text, /walnut-screen\.service\s+([a-z-]+)/i) || matchValue(text, /frpc\s+active=([a-z-]+)/i) || "unknown",
+    };
+  }
+
+  function parseJsonObject(text) {
+    try {
+      const parsed = JSON.parse(String(text || ""));
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function matchValue(text, regex) {
+    const match = String(text || "").match(regex);
+    return match?.[1]?.trim() || "";
+  }
+
+  async function widgetSyncFiles(appId) {
+    const files = await widgetAppArchiveFiles(appId);
+    for (const name of ["current.json", "state.json", "current.txt", "events.log"]) {
+      const absolutePath = path.join(WIDGET_RUNTIME_ROOT, name);
+      if (existsSync(absolutePath)) files.push({ absolutePath, archivePath: `screen/widget-runtime/${name}` });
+    }
+    files.push(
+      { absolutePath: path.join(PROJECT_ROOT, "lvgl_app", "src", "main.c"), archivePath: "lvgl_app/src/main.c" },
+      { absolutePath: path.join(PROJECT_ROOT, "lvgl_app", "CMakeLists.txt"), archivePath: "lvgl_app/CMakeLists.txt" },
+      { absolutePath: path.join(PROJECT_ROOT, "lvgl_app", "lv_conf.h"), archivePath: "lvgl_app/lv_conf.h" },
+      { absolutePath: path.join(PROJECT_ROOT, "lvgl_app", "systemd", "walnut-screen.service"), archivePath: "lvgl_app/systemd/walnut-screen.service" },
+      { absolutePath: path.join(PROJECT_ROOT, "scripts", "build-lvgl-app.sh"), archivePath: "scripts/build-lvgl-app.sh" },
+    );
+    return files;
+  }
+
+  async function widgetAppArchiveFiles(appId) {
+    const id = cleanScreenWorkspaceId(appId, "appId");
+    const appDir = path.join(WIDGET_APPS_ROOT, id);
+    await readWidgetApp(id);
+    return [
+      "app.json",
+      "catalog.json",
+      "surface.a2ui.json",
+      "snapshot-source.json",
+    ].map((name) => ({
+      absolutePath: path.join(appDir, name),
+      archivePath: `screen/apps/${id}/${name}`,
+    }));
+  }
+
+  async function lvglDemoArchiveFiles(appId) {
+    const registryEntry = (await readLvglAppRegistry()).find((entry) => entry.id === appId);
+    if (!registryEntry) throw new Error("unsupported LVGL app");
+    const app = walnutLvglAppFromRegistryEntry(registryEntry);
+    const tmp = await mkTempDir();
+    const manifestPath = path.join(tmp, `${app.id}.json`);
+    await writeFile(manifestPath, `${JSON.stringify(app, null, 2)}\n`, "utf8");
+    const files = [
+      { absolutePath: manifestPath, archivePath: `screen/lvgl-apps/${app.id}/app.json` },
+      { absolutePath: LVGL_APP_REGISTRY_PATH, archivePath: "screen/lvgl-apps/registry.json" },
+      { absolutePath: path.join(PROJECT_ROOT, "lvgl_app", "src", "preview_main.c"), archivePath: "lvgl_app/src/preview_main.c" },
+      { absolutePath: path.join(PROJECT_ROOT, "lvgl_app", "src", "main.c"), archivePath: "lvgl_app/src/main.c" },
+      { absolutePath: path.join(PROJECT_ROOT, "lvgl_app", "CMakeLists.txt"), archivePath: "lvgl_app/CMakeLists.txt" },
+      { absolutePath: path.join(PROJECT_ROOT, "lvgl_app", "lv_conf.h"), archivePath: "lvgl_app/lv_conf.h" },
+      { absolutePath: path.join(PROJECT_ROOT, "scripts", "build-lvgl-app.sh"), archivePath: "scripts/build-lvgl-app.sh" },
+    ];
+    files.push(...await collectFiles(path.join(PROJECT_ROOT, registryEntry.upstream.source), registryEntry.upstream.source));
+    const pngPath = path.join(SCREEN_LVGL_PREVIEW_OUTPUT_DIR, `${app.id}.png`);
+    if (existsSync(pngPath)) files.push({ absolutePath: pngPath, archivePath: `screen/lvgl-apps/${app.id}/preview.png` });
+    return files;
+  }
+
+  async function readLvglAppRegistry() {
+    const registry = await readJsonFile(LVGL_APP_REGISTRY_PATH);
+    if (registry.schema !== "walnutpi.lvgl-app-registry.v1" || !Array.isArray(registry.apps)) {
+      throw new Error("invalid LVGL app registry");
+    }
+    return registry.apps.map(cleanLvglAppRegistryEntry);
+  }
+
+  function cleanLvglAppRegistryEntry(entry) {
+    const upstream = entry?.upstream || {};
+    const id = cleanScreenWorkspaceId(entry?.id || "", "appId");
+    const name = cleanLvglDemoId(upstream.name || "");
+    const source = String(upstream.source || "").replaceAll("\\", "/");
+    if (source !== `third_party/lvgl/demos/${name}`) throw new Error("LVGL demo source does not match registry entry");
+    return {
+      id,
+      title: String(entry.title || id).slice(0, 80),
+      type: entry.type === "official-demo" ? "official-demo" : "local-lvgl-app",
+      upstream: {
+        kind: upstream.kind === "lvgl-demo" ? "lvgl-demo" : "local-c-entry",
+        name,
+        source,
+        entry: String(upstream.entry || `lv_demo_${name}`).replace(/[^A-Za-z0-9_]/g, ""),
+      },
+    };
+  }
+
+  function walnutLvglAppFromRegistryEntry(entry) {
+    return {
+      schema: "walnutpi.lvgl-app.v1",
+      id: entry.id,
+      title: entry.title,
+      type: entry.type,
+      upstream: entry.upstream,
+      source: entry.upstream.source,
+      render: {
+        executable: "build/lvgl_app/walnut-lvgl-preview",
+        args: ["--demo", entry.upstream.name],
+        entry: entry.upstream.entry,
+        size: { width: 480, height: 320 },
+      },
+      package: {
+        include: [entry.upstream.source],
+      },
+    };
+  }
+
+  async function collectFiles(root, archiveRoot) {
+    const entries = await readdir(root, { withFileTypes: true });
+    const files = [];
+    for (const entry of entries) {
+      const absolutePath = path.join(root, entry.name);
+      const archivePath = `${archiveRoot}/${entry.name}`;
+      if (entry.isDirectory()) files.push(...await collectFiles(absolutePath, archivePath));
+      else if (entry.isFile()) files.push({ absolutePath, archivePath });
+    }
+    return files;
+  }
+
+  async function createTarArchive(files) {
+    const tmp = await mkTempDir();
+    const listPath = path.join(tmp, "files.txt");
+    const archivePath = path.join(tmp, "widget-sync.tar.gz");
+    await writeFile(listPath, files.map((file) => file.archivePath).join("\n"), "utf8");
+    for (const file of files) {
+      const target = path.join(tmp, file.archivePath);
+      await mkdir(path.dirname(target), { recursive: true });
+      await copyFile(file.absolutePath, target);
+    }
+    await runLocalCommand("tar", ["-czf", archivePath, "-C", tmp, "-T", listPath], tmp, 60_000);
+    return await readFile(archivePath);
+  }
+
+  async function mkTempDir() {
+    const dir = path.join(tmpdir(), `walnut-widget-sync-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    await mkdir(dir, { recursive: true });
+    return dir;
+  }
+
+  async function runLocalCommand(command, args, cwd, timeoutMs) {
+    return await new Promise((resolve, reject) => {
+      const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+      let stderr = "";
+      const timer = setTimeout(() => {
+        child.kill("SIGTERM");
+        reject(new Error(`${command} timed out`));
+      }, timeoutMs);
+      child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+      child.on("error", reject);
+      child.on("close", (code) => {
+        clearTimeout(timer);
+        if (code === 0) resolve();
+        else reject(new Error(stderr || `${command} failed with ${code}`));
+      });
+    });
+  }
+
+  function widgetRuntimeText(app, state) {
+    const catalog = {
+      ...app.catalog,
+      data: {
+        ...(app.catalog.data || {}),
+        ...(state.bindings || {}),
+      },
+    };
+    const lines = [
+      "schema walnutpi.lvgl-widget-runtime.v1",
+      `appId ${runtimeField(app.id)}`,
+      `versionId ${runtimeField(state.versionId || app.createdAt || "v1")}`,
+      `widgetCount ${catalog.nodes.length}`,
+    ];
+    for (const widget of runtimeWidgetsFromWalnutCatalog(catalog)) {
+      lines.push([
+        "widget",
+        runtimeField(widget.type),
+        runtimeField(widget.id),
+        widget.x,
+        widget.y,
+        widget.w,
+        widget.h,
+        runtimeField(widget.text || "-"),
+        widget.value || 0,
+        runtimeField(widget.color || "ffffff"),
+        runtimeField(widget.animation || widgetAnimation(widget)),
+      ].join(" "));
+    }
+    return `${lines.join("\n")}\n`;
+  }
+
+  function widgetAnimation(widget) {
+    return "-";
+  }
+
+  function pomodoroBindings(actionName, previous = {}) {
+    if (actionName === "pomodoro_start") {
+      return { ...previous, remaining: previous.remaining || "25:00", status: "FOCUS", progress: 100, mode: "running" };
+    }
+    if (actionName === "pomodoro_pause") {
+      return { ...previous, status: "PAUSED", mode: "paused" };
+    }
+    return { remaining: "25:00", status: "READY", progress: 100, mode: "idle" };
+  }
+
+  function runtimeField(value) {
+    const text = String(value || "-").replace(/\s+/g, "_").replace(/[^A-Za-z0-9._:+%-]/g, "").slice(0, 64);
+    return text || "-";
+  }
+
   async function handleScreenWorkspaceSync(req, mode = "remote") {
     const startedAt = Date.now();
     const outcome = await screenWorkspaceSyncWorkflow.run({
@@ -1404,6 +2218,18 @@ export function createScreenWorkspaceApi({
     handleScreenWorkspaceGenerate,
     handleScreenWorkspaceProcess,
     handleScreenWorkspaceLvglPreview,
+    handleLvglDemoPreview,
+    handleLvglAppList,
+    handleLvglAppDownload,
+    handleLvglAppActivate,
     handleScreenWorkspaceSync,
+    handleWidgetAppList,
+    handleWidgetAppGet,
+    handleWidgetAppActivate,
+    handleWidgetAppRuntime,
+    handleWidgetAppRefresh,
+    handleWidgetAppEvent,
+    handleWidgetAppSync,
+    handleWidgetAppDownload,
   };
 }

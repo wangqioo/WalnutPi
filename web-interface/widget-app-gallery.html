@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WalnutPi App Gallery</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #070808;
+        --panel: #111314;
+        --line: rgba(240, 236, 226, 0.14);
+        --text: #f4f1e8;
+        --muted: #a9aaa6;
+        --orange: #ff9f0a;
+        --green: #78c58a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100dvh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 560px;
+        min-height: 100dvh;
+      }
+
+      .main,
+      .preview-pane {
+        padding: 24px;
+      }
+
+      .main {
+        display: grid;
+        align-content: start;
+        gap: 18px;
+        border-right: 1px solid var(--line);
+      }
+
+      .topbar {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 32px;
+        line-height: 1;
+        font-weight: 680;
+      }
+
+      p {
+        max-width: 58ch;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .nav {
+        display: inline-flex;
+        min-height: 34px;
+        align-items: center;
+        border: 1px solid var(--line);
+        padding: 0 12px;
+        text-decoration: none;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+        gap: 12px;
+      }
+
+      .app-card {
+        display: grid;
+        gap: 12px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        padding: 14px;
+        text-align: left;
+        color: inherit;
+        cursor: pointer;
+      }
+
+      .thumb {
+        display: grid;
+        place-items: center;
+        aspect-ratio: 3 / 2;
+        border: 1px solid rgba(240, 236, 226, 0.1);
+        background: #000;
+      }
+
+      .thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      .app-card.active {
+        border-color: rgba(255, 159, 10, 0.72);
+        background: rgba(255, 159, 10, 0.1);
+      }
+
+      .app-title {
+        font-size: 17px;
+        font-weight: 650;
+      }
+
+      .app-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .chip {
+        border: 1px solid rgba(240, 236, 226, 0.12);
+        padding: 4px 7px;
+        background: rgba(0, 0, 0, 0.18);
+      }
+
+      .preview-pane {
+        position: sticky;
+        top: 0;
+        display: grid;
+        align-content: start;
+        gap: 14px;
+        height: 100dvh;
+        background: #0b0c0c;
+      }
+
+      .screen {
+        display: grid;
+        place-items: center;
+        width: 100%;
+        aspect-ratio: 3 / 2;
+        border: 1px solid var(--line);
+        background: #000;
+      }
+
+      .screen img {
+        display: block;
+        width: min(100%, 480px);
+        aspect-ratio: 3 / 2;
+        height: auto;
+        object-fit: contain;
+      }
+
+      .actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      button,
+      .download {
+        display: inline-flex;
+        min-height: 40px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line);
+        background: #141617;
+        color: var(--text);
+        font: inherit;
+        text-decoration: none;
+        cursor: pointer;
+      }
+
+      .primary {
+        border-color: rgba(255, 159, 10, 0.7);
+        background: rgba(255, 159, 10, 0.16);
+      }
+
+      .status {
+        min-height: 22px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      @media (max-width: 980px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .preview-pane {
+          position: static;
+          height: auto;
+          border-top: 1px solid var(--line);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="main">
+        <div class="topbar">
+          <div>
+            <h1>LVGL App Gallery</h1>
+            <p>选择一个真实 LVGL 应用，网页预览由 walnut-lvgl-preview 渲染 480x320 帧，下载为可运行 app 包。</p>
+          </div>
+          <a class="nav" href="/">返回控制台</a>
+        </div>
+        <div id="apps" class="grid"></div>
+      </section>
+
+      <aside class="preview-pane">
+        <h2 id="previewTitle">预览</h2>
+        <div class="screen">
+          <img id="previewImage" alt="LVGL app preview" />
+        </div>
+        <div class="actions">
+          <button id="activate" class="primary" type="button">设为当前屏幕</button>
+          <a id="download" class="download" href="#">下载</a>
+        </div>
+        <div id="status" class="status">正在加载应用。</div>
+      </aside>
+    </main>
+
+    <script type="module">
+      const appGrid = document.getElementById("apps");
+      const previewTitle = document.getElementById("previewTitle");
+      const previewImage = document.getElementById("previewImage");
+      const activateButton = document.getElementById("activate");
+      const downloadLink = document.getElementById("download");
+      const statusEl = document.getElementById("status");
+      let apps = [];
+      let selectedApp = null;
+
+      function setStatus(text) {
+        statusEl.textContent = text || "";
+      }
+
+      function sortApps(appList) {
+        const weight = { "official-demo": 0, "local-lvgl-app": 1 };
+        return [...appList].sort((a, b) => (weight[a.type] ?? 9) - (weight[b.type] ?? 9));
+      }
+
+      function renderCards() {
+        appGrid.textContent = "";
+        for (const app of apps) {
+          const card = document.createElement("button");
+          card.className = "app-card";
+          card.type = "button";
+          card.dataset.appId = app.id;
+          card.innerHTML = `
+            <span class="thumb"><img alt="" loading="lazy" /></span>
+            <span class="app-title"></span>
+            <span class="app-meta">
+              <span class="chip">LVGL</span>
+              <span class="chip">480x320</span>
+              <span class="chip"></span>
+            </span>
+          `;
+          card.querySelector("img").src = thumbnailUrl(app.id);
+          card.querySelector(".app-title").textContent = app.title;
+          card.querySelector(".app-meta .chip:last-child").textContent = app.type;
+          card.addEventListener("click", () => selectApp(app.id));
+          appGrid.append(card);
+        }
+      }
+
+      async function selectApp(appId) {
+        selectedApp = apps.find((app) => app.id === appId) || null;
+        if (!selectedApp) return;
+        for (const card of appGrid.querySelectorAll(".app-card")) {
+          card.classList.toggle("active", card.dataset.appId === appId);
+        }
+        previewTitle.textContent = selectedApp.title;
+        downloadLink.href = selectedApp.download || "#";
+        downloadLink.download = `${selectedApp.id}.lvgl-app.tar.gz`;
+        if (selectedApp.type === "official-demo") {
+          activateButton.textContent = "设为当前屏幕";
+          previewImage.src = thumbnailUrl(selectedApp.id);
+          await previewOfficialDemo(selectedApp.demo);
+        } else {
+          activateButton.textContent = "设为当前屏幕";
+          downloadLink.href = `/api/screen/widget-apps/${encodeURIComponent(appId)}/download`;
+          downloadLink.download = `${appId}.widget-app.tar.gz`;
+          await activateAndPreview(appId, false);
+        }
+      }
+
+      function thumbnailUrl(appId) {
+        if (appId === "lvgl-demo-music") {
+          const path = "outputs/lvgl-preview/lvgl-demo-music.png";
+          return `/api/screen/workspace/assets/${encodeURIComponent(path)}?v=${Date.now()}`;
+        }
+        if (appId === "lvgl-demo-widgets") {
+          const path = "outputs/lvgl-preview/lvgl-demo-widgets.png";
+          return `/api/screen/workspace/assets/${encodeURIComponent(path)}?v=${Date.now()}`;
+        }
+        const path = `outputs/lvgl-preview/widget-${appId}-lvgl-00000ms.png`;
+        return `/api/screen/workspace/assets/${encodeURIComponent(path)}?v=${Date.now()}`;
+      }
+
+      async function previewOfficialDemo(demo) {
+        setStatus("正在渲染 LVGL 官方 demo。");
+        const response = await fetch(`/api/screen/lvgl-demo-preview?demo=${encodeURIComponent(demo)}`);
+        const data = await response.json();
+        if (!response.ok || !data.ok || !data.png) throw new Error(data.output || data.error || "demo preview failed");
+        previewImage.src = `${data.png}?v=${Date.now()}`;
+        previewImage.alt = `${selectedApp?.title || demo} preview`;
+        setStatus("官方 demo 预览已更新。");
+      }
+
+      async function activateAndPreview(appId, announce) {
+        setStatus("正在渲染 LVGL 预览。");
+        const activateResponse = await fetch("/api/screen/widget-app/activate", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ appId }),
+        });
+        const activateData = await activateResponse.json();
+        if (!activateResponse.ok || !activateData.ok) throw new Error(activateData.output || activateData.error || "activate failed");
+
+        const previewResponse = await fetch("/api/screen/workspace/lvgl-preview", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ mode: "widget" }),
+        });
+        const previewData = await previewResponse.json();
+        if (!previewResponse.ok || !previewData.ok || !previewData.frames?.[0]?.png) {
+          throw new Error(previewData.output || previewData.error || "preview failed");
+        }
+        previewImage.src = `${previewData.frames[0].png}?v=${Date.now()}`;
+        previewImage.alt = `${selectedApp?.title || appId} LVGL preview`;
+        setStatus(announce ? "已设为当前屏幕。" : "预览已更新。");
+      }
+
+      activateButton.addEventListener("click", async () => {
+        if (!selectedApp) return;
+        try {
+          if (selectedApp.type === "official-demo") {
+            await activateOfficialDemo(selectedApp.id);
+          } else {
+            await activateAndPreview(selectedApp.id, true);
+          }
+        } catch (error) {
+          setStatus(error.message);
+        }
+      });
+
+      async function activateOfficialDemo(appId) {
+        setStatus("正在写入 Screen Workspace 播放列表。");
+        const response = await fetch("/api/screen/lvgl-app/activate", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ appId }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.output || data.error || "activate failed");
+        previewImage.src = `${data.preview}?v=${Date.now()}`;
+        previewImage.alt = `${selectedApp?.title || appId} LVGL preview`;
+        setStatus("已设为当前屏幕，可在首页预览或 Screen Workspace 同步到核桃派。");
+      }
+
+      async function init() {
+        try {
+          const response = await fetch("/api/screen/lvgl-apps");
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.error || "load failed");
+          apps = sortApps(data.apps || []);
+          renderCards();
+          await selectApp(apps[0]?.id);
+        } catch (error) {
+          setStatus(error.message);
+        }
+      }
+
+      init();
+    </script>
+  </body>
+</html>

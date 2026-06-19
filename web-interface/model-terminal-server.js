@@ -18,7 +18,7 @@ import { createProjectMemoryApi } from "./project-memory-api.js";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.js";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.js";
 import { createStaticUiHost } from "./static-ui-host.js";
-import { evaluateRuleIntent } from "./intent-rules/evaluator.js";
+import { evaluateRuleIntent, intentTypeToRoute } from "./intent-rules/evaluator.js";
 import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.js";
 import { stableStringify } from "../scripts/screen-workspace-vocabulary.js";
 import { generateLvglScreenWorkspaceRuntimeAssets } from "../scripts/generate-lvgl-screen-workspace-runtime-assets.js";
@@ -89,6 +89,7 @@ const webMetricsLedger = createWebMetricsLedger({
 
 const files = new Map([
   ["/", "walnut-agent-console.html"],
+  ["/apps.html", "widget-app-gallery.html"],
   ["/workspace.html", "screen-workspace-preview.html"],
   ["/ssh-terminal.html", "ssh-terminal.html"],
   ["/vendor/ansi_up.js", "vendor/ansi_up.js"],
@@ -501,36 +502,17 @@ async function callResponsesApi({ operation, body, signal = aiFetchSignal() }) {
   }
 }
 
-const INTENT_TYPES = new Set([
-  "screen.generate",
-  "screen.sync",
-  "device.status.read",
-  "device.snapshot.read",
-  "device.network.read",
-  "device.gpio.read",
-  "device.notes.read",
-  "device.note.write",
-  "terminal.open",
-  "terminal.tool",
-  "ai.chat",
-]);
 const INTENT_DELIVERIES = new Set(["none", "sync_after_preview", "sync_existing"]);
-const IntentClassificationSchema = z.object({
-  intent: z.enum([
-    "screen.generate",
-    "screen.sync",
-    "device.status.read",
-    "device.snapshot.read",
-    "device.network.read",
-    "device.gpio.read",
-    "device.notes.read",
-    "device.note.write",
-    "terminal.open",
-    "terminal.tool",
-    "ai.chat",
-  ]),
+const IntentRouteSchema = z.object({
+  route: z.enum(["ai.chat", "screen.wallpaper", "screen.widget_app", "device.action", "memory.notes", "terminal.surface"]).optional(),
+  action: z.enum(["answer", "clarify", "generate", "create", "update", "sync", "switch", "run", "confirm", "refuse", "read", "write", "open", "run_tool"]).optional(),
+  intent: z.string().optional(),
   subject: z.string().optional(),
   delivery: z.enum(["none", "sync_after_preview", "sync_existing"]).optional(),
+  riskHint: z.enum(["none", "read", "write", "high"]).optional(),
+  exposure: z.array(z.enum(["internal", "agent_action", "human_cli", "diagnostic"])).optional(),
+  actionPolicyId: z.string().nullable().optional(),
+  parameters: z.record(z.string(), z.unknown()).optional(),
   confidence: z.number().min(0).max(1).optional(),
   source: z.enum(["rule", "ai"]).optional(),
 });
@@ -610,6 +592,12 @@ function looksLikeScreenProgramRequest(input) {
     || /(?:给我|帮我)?\s*(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个)\s*\S{2,}/i.test(text);
 }
 
+function looksLikeWidgetAppRequest(input) {
+  const text = String(input || "").trim();
+  if (!text) return false;
+  return /(小屏|屏幕|screen|lvgl).{0,24}(小应用|应用|app|widget|控件|按钮|开关|toggle|仪表盘|dashboard|快捷面板|快捷操作|状态面板|交互|可交互|菜单|列表)|(?:小应用|应用|app|widget|控件|按钮|开关|toggle|仪表盘|dashboard|快捷面板|快捷操作|状态面板|交互|可交互|菜单|列表).{0,24}(小屏|屏幕|screen|lvgl)/i.test(text);
+}
+
 function ruleBasedIntentClassification(text) {
   const trimmed = String(text || "").trim();
   const lower = trimmed.toLowerCase();
@@ -636,9 +624,22 @@ function ruleBasedIntentClassification(text) {
     }, trimmed);
   }
 
+  if (looksLikeWidgetAppRequest(trimmed)) {
+    return normalizeIntentClassification({
+      route: "screen.widget_app",
+      action: "create",
+      subject: screenIntentSubject(trimmed),
+      delivery: "none",
+      parameters: /设备|状态|status|快捷/.test(trimmed) ? { template: "device_status_quick_actions" } : {},
+      confidence: 0.9,
+      source: "rule",
+    }, trimmed);
+  }
+
   if (looksLikeExplicitScreenGeneration(trimmed)) {
     return normalizeIntentClassification({
-      intent: "screen.generate",
+      route: "screen.wallpaper",
+      action: "generate",
       subject: screenIntentSubject(trimmed),
       delivery: wantsScreenDeliveryIntent(trimmed) ? "sync_after_preview" : "none",
       confidence: 0.92,
@@ -662,7 +663,8 @@ function ruleBasedIntentClassification(text) {
 
   if (looksLikeScreenProgramRequest(trimmed)) {
     return normalizeIntentClassification({
-      intent: "screen.generate",
+      route: "screen.wallpaper",
+      action: "generate",
       subject: screenIntentSubject(trimmed),
       delivery: wantsScreenDeliveryIntent(trimmed) ? "sync_after_preview" : "none",
       confidence: 0.9,
@@ -671,7 +673,7 @@ function ruleBasedIntentClassification(text) {
   }
 
   if (wantsScreenDeliveryIntent(trimmed) && /核桃派|设备|板子|小屏|屏幕|lvgl|screen|派/.test(lower)) {
-    return normalizeIntentClassification({ intent: "screen.sync", subject: trimmed, delivery: "sync_existing", confidence: 0.86, source: "rule" }, trimmed);
+    return normalizeIntentClassification({ route: "screen.wallpaper", action: "sync", subject: trimmed, delivery: "sync_existing", confidence: 0.86, source: "rule" }, trimmed);
   }
 
   if (noteMatch && noteMatch[1].trim()) {
@@ -703,20 +705,40 @@ function ruleBasedIntentClassification(text) {
 
 function normalizeIntentClassification(value, fallbackText = "") {
   const fallback = String(fallbackText || "").trim();
-  const parsed = IntentClassificationSchema.safeParse(value || {});
+  const parsed = IntentRouteSchema.safeParse(value || {});
   const clean = parsed.success ? parsed.data : {};
-  const intent = clean.intent || "ai.chat";
   const delivery = clean.delivery || "none";
   const confidence = Math.max(0, Math.min(1, Number(clean.confidence ?? 0.5)));
   const subject = String(clean.subject || fallback).trim().slice(0, 120) || fallback || "";
-  return {
-    schema: "walnutpi.intent.classification.v1",
-    intent,
+  const base = clean.route && clean.action
+    ? clean
+    : intentTypeToRoute(clean.intent || "ai.chat", clean);
+  const route = {
+    ...base,
+    schema: "walnutpi.intent.route.v2",
     subject,
     delivery,
+    riskHint: clean.riskHint || base.riskHint || "none",
+    exposure: clean.exposure || base.exposure || ["internal"],
+    actionPolicyId: clean.actionPolicyId ?? base.actionPolicyId ?? null,
+    parameters: clean.parameters || base.parameters || {},
     confidence: Number(confidence.toFixed(2)),
     source: clean.source === "ai" ? "ai" : "rule",
   };
+  route.intent = route.intent || routeToIntent(route);
+  return route;
+}
+
+function routeToIntent(route) {
+  if (route.route === "screen.wallpaper" && route.action === "sync") return "screen.sync";
+  if (route.route === "screen.wallpaper") return "screen.generate";
+  if (route.route === "screen.widget_app") return "screen.widget_app.create";
+  if (route.route === "memory.notes" && route.action === "write") return "device.note.write";
+  if (route.route === "memory.notes") return "device.notes.read";
+  if (route.route === "terminal.surface" && route.action === "run_tool") return "terminal.tool";
+  if (route.route === "terminal.surface") return "terminal.open";
+  if (route.route === "device.action") return route.intent || "device.status.read";
+  return "ai.chat";
 }
 
 function parseIntentJson(text) {
@@ -725,11 +747,14 @@ function parseIntentJson(text) {
 
 function intentClassificationSystemPrompt() {
   return [
-    "You classify WalnutPi Web user input into a strict JSON object.",
+    "You classify WalnutPi Web user input into Intent Route v2 JSON.",
     "Return JSON only. Do not return shell commands.",
-    "Allowed intent values: screen.generate, screen.sync, device.status.read, device.snapshot.read, device.network.read, device.gpio.read, device.notes.read, device.note.write, terminal.open, terminal.tool, ai.chat.",
+    "Allowed route values: ai.chat, screen.wallpaper, screen.widget_app, device.action, memory.notes, terminal.surface.",
+    "Allowed action values: answer, clarify, generate, create, update, sync, switch, run, confirm, refuse, read, write, open, run_tool.",
     "Allowed delivery values: none, sync_after_preview, sync_existing.",
-    "Workflow priority: explicit AI/chat first; generation/design/create/build any object is screen.generate; sync/flash/deploy to WalnutPi is screen sync or sync_after_preview when generation is also present; only explicit Web shortcuts become device status/network/GPIO intents; open-ended realtime questions stay ai.chat so device-side WalnutAI can choose tools.",
+    "Wallpaper covers pre-rendered images, animations, media, playlists, previews, and playlist sync.",
+    "Widget app covers interactive apps, panels, buttons, toggles, menus, dashboards, dynamic data, input, and actions.",
+    "Workflow priority: explicit AI/chat first; sync/flash/deploy to WalnutPi is screen.wallpaper sync or sync_after_preview when generation is also present; only explicit Web shortcuts become device.action read; open-ended realtime questions stay ai.chat so device-side WalnutAI can choose tools.",
     "CLI tools are executors only. Never choose terminal.tool just because generated UI mentions broadcast, play button, effect, or animation style.",
   ].join("\n");
 }
@@ -748,9 +773,15 @@ async function aiIntentClassification(text, ruleIntent) {
             text,
             ruleFallback: ruleIntent,
             outputSchema: {
-              intent: "one allowed intent string",
+              schema: "walnutpi.intent.route.v2",
+              route: "one allowed route string",
+              action: "one allowed action string",
               subject: "short object/topic text",
               delivery: "none | sync_after_preview | sync_existing",
+              riskHint: "none | read | write | high",
+              exposure: ["internal"],
+              actionPolicyId: null,
+              parameters: {},
               confidence: "0..1 number",
             },
           }, null, 2),
@@ -1168,6 +1199,9 @@ const screenWorkspaceApi = createScreenWorkspaceApi({
   generateLvglScreenWorkspaceRuntimeAssets,
   persistScreenSyncResult,
   runLocal,
+  runRemote,
+  runRemoteWithInput,
+  shellQuote,
   findWindowsCommand,
   sha256,
   projectRoot: PROJECT_ROOT,
@@ -1387,12 +1421,93 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/screen/workspace/lvgl-preview") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-      return screenWorkspaceApi.handleScreenWorkspaceLvglPreview();
+      return screenWorkspaceApi.handleScreenWorkspaceLvglPreview(req);
+    }
+
+    if (url.pathname === "/api/screen/lvgl-demo-preview") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return screenWorkspaceApi.handleLvglDemoPreview(url);
+    }
+
+    if (url.pathname === "/api/screen/lvgl-apps") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return screenWorkspaceApi.handleLvglAppList();
+    }
+
+    if (url.pathname === "/api/screen/lvgl-app/activate") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return screenWorkspaceApi.handleLvglAppActivate(req);
+    }
+
+    const lvglAppDownloadMatch = url.pathname.match(/^\/api\/screen\/lvgl-apps\/([^/]+)\/download$/);
+    if (lvglAppDownloadMatch) {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      let appId;
+      try {
+        appId = decodeURIComponent(lvglAppDownloadMatch[1]);
+      } catch {
+        return json({ ok: false, error: "invalid app id" }, 400);
+      }
+      return screenWorkspaceApi.handleLvglAppDownload(appId);
     }
 
     if (url.pathname === "/api/screen/workspace/sync") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       return screenWorkspaceApi.handleScreenWorkspaceSync(req, previewOnly(url) ? "preview" : "remote");
+    }
+
+    if (url.pathname === "/api/screen/widget-apps") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return screenWorkspaceApi.handleWidgetAppList();
+    }
+
+    if (url.pathname === "/api/screen/widget-app/runtime") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return screenWorkspaceApi.handleWidgetAppRuntime();
+    }
+
+    if (url.pathname === "/api/screen/widget-app/activate") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return screenWorkspaceApi.handleWidgetAppActivate(req);
+    }
+
+    if (url.pathname === "/api/screen/widget-app/refresh") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return screenWorkspaceApi.handleWidgetAppRefresh();
+    }
+
+    if (url.pathname === "/api/screen/widget-app/event") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return screenWorkspaceApi.handleWidgetAppEvent(req);
+    }
+
+    if (url.pathname === "/api/screen/widget-app/sync") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      return screenWorkspaceApi.handleWidgetAppSync();
+    }
+
+    const widgetAppDownloadMatch = url.pathname.match(/^\/api\/screen\/widget-apps\/([^/]+)\/download$/);
+    if (widgetAppDownloadMatch) {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      let appId;
+      try {
+        appId = decodeURIComponent(widgetAppDownloadMatch[1]);
+      } catch {
+        return json({ ok: false, error: "Invalid widget app id" }, 400);
+      }
+      return screenWorkspaceApi.handleWidgetAppDownload(appId);
+    }
+
+    const widgetAppMatch = url.pathname.match(/^\/api\/screen\/widget-apps\/([^/]+)$/);
+    if (widgetAppMatch) {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      let appId;
+      try {
+        appId = decodeURIComponent(widgetAppMatch[1]);
+      } catch {
+        return json({ ok: false, error: "Invalid widget app id" }, 400);
+      }
+      return screenWorkspaceApi.handleWidgetAppGet(appId);
     }
 
     const screenWorkspaceManifestMatch = url.pathname.match(/^\/api\/screen\/workspace\/manifest\/([^/]+)$/);
