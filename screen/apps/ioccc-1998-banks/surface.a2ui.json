@@ -1,0 +1,63 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "ioccc-1998-banks",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "ioccc-1998-banks",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "bg",
+        "component": "Container"
+      },
+      {
+        "id": "brand",
+        "component": "Text",
+        "text": "IOCCC"
+      },
+      {
+        "id": "year",
+        "component": "Text",
+        "text": "1998"
+      },
+      {
+        "id": "title",
+        "component": "Text",
+        "text": "1998 Banks"
+      },
+      {
+        "id": "entry",
+        "component": "Text",
+        "text": "1998/banks"
+      },
+      {
+        "id": "source",
+        "component": "Text",
+        "text": "prog.c + Makefile"
+      },
+      {
+        "id": "terminal",
+        "component": "Text",
+        "text": "Terminal: README"
+      },
+      {
+        "id": "line",
+        "component": "Container"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "ioccc-1998-banks",
+    "path": "/",
+    "value": {
+      "year": "1998",
+      "entry": "banks",
+      "command": "cd screen/ioccc-apps/1998/banks && sed -n '1,80p' README.md"
+    }
+  }
+}

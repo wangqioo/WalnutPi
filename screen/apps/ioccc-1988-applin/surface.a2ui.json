@@ -1,0 +1,63 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "ioccc-1988-applin",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "ioccc-1988-applin",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "bg",
+        "component": "Container"
+      },
+      {
+        "id": "brand",
+        "component": "Text",
+        "text": "IOCCC"
+      },
+      {
+        "id": "year",
+        "component": "Text",
+        "text": "1988"
+      },
+      {
+        "id": "title",
+        "component": "Text",
+        "text": "1988 Applin"
+      },
+      {
+        "id": "entry",
+        "component": "Text",
+        "text": "1988/applin"
+      },
+      {
+        "id": "source",
+        "component": "Text",
+        "text": "prog.c + Makefile"
+      },
+      {
+        "id": "terminal",
+        "component": "Text",
+        "text": "Terminal: README"
+      },
+      {
+        "id": "line",
+        "component": "Container"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "ioccc-1988-applin",
+    "path": "/",
+    "value": {
+      "year": "1988",
+      "entry": "applin",
+      "command": "cd screen/ioccc-apps/1988/applin && sed -n '1,80p' README.md"
+    }
+  }
+}

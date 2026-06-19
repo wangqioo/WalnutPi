@@ -1,0 +1,193 @@
+{
+  "schema": "walnutpi.lvgl-widget-catalog.v1",
+  "id": "ioccc-2025-endoh1",
+  "title": "2025 Nixie clock",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "theme": "ioccc-dark",
+  "data": {
+    "year": "2025",
+    "entry": "endoh1",
+    "command": "cd screen/ioccc-apps/2025/endoh1 && make"
+  },
+  "root": "root",
+  "nodes": [
+    {
+      "id": "root",
+      "kind": "container",
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 480,
+        "h": 320
+      },
+      "style": "screen"
+    },
+    {
+      "id": "bg",
+      "kind": "rect",
+      "parent": "root",
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 480,
+        "h": 320
+      },
+      "style": "screen"
+    },
+    {
+      "id": "title",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 38,
+        "y": 22,
+        "w": 220,
+        "h": 30
+      },
+      "style": "muted",
+      "text": "IOCCC 2025"
+    },
+    {
+      "id": "label",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 268,
+        "y": 22,
+        "w": 160,
+        "h": 30
+      },
+      "style": "accent",
+      "text": "NIXIE CLOCK"
+    },
+    {
+      "id": "tube1",
+      "kind": "rect",
+      "parent": "root",
+      "layout": {
+        "x": 38,
+        "y": 82,
+        "w": 74,
+        "h": 142
+      },
+      "style": "panel"
+    },
+    {
+      "id": "tube2",
+      "kind": "rect",
+      "parent": "root",
+      "layout": {
+        "x": 122,
+        "y": 82,
+        "w": 74,
+        "h": 142
+      },
+      "style": "panel"
+    },
+    {
+      "id": "tube3",
+      "kind": "rect",
+      "parent": "root",
+      "layout": {
+        "x": 284,
+        "y": 82,
+        "w": 74,
+        "h": 142
+      },
+      "style": "panel"
+    },
+    {
+      "id": "tube4",
+      "kind": "rect",
+      "parent": "root",
+      "layout": {
+        "x": 368,
+        "y": 82,
+        "w": 74,
+        "h": 142
+      },
+      "style": "panel"
+    },
+    {
+      "id": "digit1",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 38,
+        "y": 132,
+        "w": 74,
+        "h": 56
+      },
+      "style": "orange",
+      "text": "2"
+    },
+    {
+      "id": "digit2",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 122,
+        "y": 132,
+        "w": 74,
+        "h": 56
+      },
+      "style": "orange",
+      "text": "0"
+    },
+    {
+      "id": "colon",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 208,
+        "y": 128,
+        "w": 64,
+        "h": 60
+      },
+      "style": "accent",
+      "text": ":"
+    },
+    {
+      "id": "digit3",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 284,
+        "y": 132,
+        "w": 74,
+        "h": 56
+      },
+      "style": "orange",
+      "text": "2"
+    },
+    {
+      "id": "digit4",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 368,
+        "y": 132,
+        "w": 74,
+        "h": 56
+      },
+      "style": "orange",
+      "text": "5"
+    },
+    {
+      "id": "footer",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 38,
+        "y": 252,
+        "w": 404,
+        "h": 32
+      },
+      "style": "primary",
+      "text": "2025/endoh1"
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "ioccc-2011-akari",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "ioccc-2011-akari",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "bg",
+        "component": "Container"
+      },
+      {
+        "id": "brand",
+        "component": "Text",
+        "text": "IOCCC"
+      },
+      {
+        "id": "year",
+        "component": "Text",
+        "text": "2011"
+      },
+      {
+        "id": "title",
+        "component": "Text",
+        "text": "2011 Akari"
+      },
+      {
+        "id": "entry",
+        "component": "Text",
+        "text": "2011/akari"
+      },
+      {
+        "id": "source",
+        "component": "Text",
+        "text": "prog.c + Makefile"
+      },
+      {
+        "id": "terminal",
+        "component": "Text",
+        "text": "Terminal: README"
+      },
+      {
+        "id": "line",
+        "component": "Container"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "ioccc-2011-akari",
+    "path": "/",
+    "value": {
+      "year": "2011",
+      "entry": "akari",
+      "command": "cd screen/ioccc-apps/2011/akari && sed -n '1,80p' README.md"
+    }
+  }
+}

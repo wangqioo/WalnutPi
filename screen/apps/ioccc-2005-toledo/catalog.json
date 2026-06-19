@@ -1,0 +1,131 @@
+{
+  "schema": "walnutpi.lvgl-widget-catalog.v1",
+  "id": "ioccc-2005-toledo",
+  "title": "2005 Toledo",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "theme": "ioccc-dark",
+  "data": {
+    "year": "2005",
+    "entry": "toledo",
+    "command": "cd screen/ioccc-apps/2005/toledo && sed -n '1,80p' README.md"
+  },
+  "root": "root",
+  "nodes": [
+    {
+      "id": "root",
+      "kind": "container",
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 480,
+        "h": 320
+      },
+      "style": "screen"
+    },
+    {
+      "id": "bg",
+      "kind": "rect",
+      "parent": "root",
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 480,
+        "h": 320
+      },
+      "style": "screen"
+    },
+    {
+      "id": "brand",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 22,
+        "y": 20,
+        "w": 160,
+        "h": 30
+      },
+      "style": "accent",
+      "text": "IOCCC"
+    },
+    {
+      "id": "year",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 330,
+        "y": 20,
+        "w": 120,
+        "h": 30
+      },
+      "style": "muted",
+      "text": "2005"
+    },
+    {
+      "id": "title",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 22,
+        "y": 66,
+        "w": 420,
+        "h": 44
+      },
+      "style": "text",
+      "text": "2005 Toledo"
+    },
+    {
+      "id": "entry",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 22,
+        "y": 124,
+        "w": 420,
+        "h": 30
+      },
+      "style": "primary",
+      "text": "2005/toledo"
+    },
+    {
+      "id": "source",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 22,
+        "y": 172,
+        "w": 420,
+        "h": 26
+      },
+      "style": "muted2",
+      "text": "prog.c + Makefile"
+    },
+    {
+      "id": "terminal",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 22,
+        "y": 214,
+        "w": 420,
+        "h": 54
+      },
+      "style": "accent",
+      "text": "Terminal: README"
+    },
+    {
+      "id": "line",
+      "kind": "rect",
+      "parent": "root",
+      "layout": {
+        "x": 22,
+        "y": 286,
+        "w": 436,
+        "h": 3
+      },
+      "style": "primary"
+    }
+  ]
+}

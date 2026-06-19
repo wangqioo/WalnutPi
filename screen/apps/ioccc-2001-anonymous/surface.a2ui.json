@@ -1,0 +1,63 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "ioccc-2001-anonymous",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "ioccc-2001-anonymous",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "bg",
+        "component": "Container"
+      },
+      {
+        "id": "brand",
+        "component": "Text",
+        "text": "IOCCC"
+      },
+      {
+        "id": "year",
+        "component": "Text",
+        "text": "2001"
+      },
+      {
+        "id": "title",
+        "component": "Text",
+        "text": "2001 Anonymous"
+      },
+      {
+        "id": "entry",
+        "component": "Text",
+        "text": "2001/anonymous"
+      },
+      {
+        "id": "source",
+        "component": "Text",
+        "text": "prog.c + Makefile"
+      },
+      {
+        "id": "terminal",
+        "component": "Text",
+        "text": "Terminal: README"
+      },
+      {
+        "id": "line",
+        "component": "Container"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "ioccc-2001-anonymous",
+    "path": "/",
+    "value": {
+      "year": "2001",
+      "entry": "anonymous",
+      "command": "cd screen/ioccc-apps/2001/anonymous && sed -n '1,80p' README.md"
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "ioccc-2000-natori",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "ioccc-2000-natori",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "bg",
+        "component": "Container"
+      },
+      {
+        "id": "brand",
+        "component": "Text",
+        "text": "IOCCC"
+      },
+      {
+        "id": "year",
+        "component": "Text",
+        "text": "2000"
+      },
+      {
+        "id": "title",
+        "component": "Text",
+        "text": "2000 Natori"
+      },
+      {
+        "id": "entry",
+        "component": "Text",
+        "text": "2000/natori"
+      },
+      {
+        "id": "source",
+        "component": "Text",
+        "text": "prog.c + Makefile"
+      },
+      {
+        "id": "terminal",
+        "component": "Text",
+        "text": "Terminal: README"
+      },
+      {
+        "id": "line",
+        "component": "Container"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "ioccc-2000-natori",
+    "path": "/",
+    "value": {
+      "year": "2000",
+      "entry": "natori",
+      "command": "cd screen/ioccc-apps/2000/natori && sed -n '1,80p' README.md"
+    }
+  }
+}

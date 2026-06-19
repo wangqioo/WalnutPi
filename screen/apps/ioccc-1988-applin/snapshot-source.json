@@ -1,0 +1,6 @@
+{
+  "schema": "walnutpi.widget-app-snapshot-source.v1",
+  "screenId": "ioccc-1988-applin",
+  "source": "../../ioccc-apps/1988/applin/prog.c",
+  "createdAt": "2026-06-19T00:00:00.000Z"
+}

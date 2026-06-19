@@ -1,0 +1,6 @@
+{
+  "schema": "walnutpi.widget-app-snapshot-source.v1",
+  "screenId": "ioccc-1984-mullender",
+  "source": "../../ioccc-apps/1984/mullender/prog.c",
+  "createdAt": "2026-06-19T00:00:00.000Z"
+}

@@ -1,0 +1,212 @@
+{
+  "schema": "walnutpi.widget-app.v1",
+  "id": "ioccc-1988-applin",
+  "title": "1988 Applin",
+  "createdAt": "2026-06-19T00:00:00.000Z",
+  "prompt": "IOCCC 1988/applin LVGL launcher. Terminal opens README instructions.",
+  "mode": "widget_app",
+  "a2uiSurface": {
+    "version": "v0.9.1",
+    "createSurface": {
+      "surfaceId": "ioccc-1988-applin",
+      "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+    },
+    "updateComponents": {
+      "surfaceId": "ioccc-1988-applin",
+      "components": [
+        {
+          "id": "root",
+          "component": "Container"
+        },
+        {
+          "id": "bg",
+          "component": "Container"
+        },
+        {
+          "id": "brand",
+          "component": "Text",
+          "text": "IOCCC"
+        },
+        {
+          "id": "year",
+          "component": "Text",
+          "text": "1988"
+        },
+        {
+          "id": "title",
+          "component": "Text",
+          "text": "1988 Applin"
+        },
+        {
+          "id": "entry",
+          "component": "Text",
+          "text": "1988/applin"
+        },
+        {
+          "id": "source",
+          "component": "Text",
+          "text": "prog.c + Makefile"
+        },
+        {
+          "id": "terminal",
+          "component": "Text",
+          "text": "Terminal: README"
+        },
+        {
+          "id": "line",
+          "component": "Container"
+        }
+      ]
+    },
+    "updateDataModel": {
+      "surfaceId": "ioccc-1988-applin",
+      "path": "/",
+      "value": {
+        "year": "1988",
+        "entry": "applin",
+        "command": "cd screen/ioccc-apps/1988/applin && sed -n '1,80p' README.md"
+      }
+    }
+  },
+  "catalog": {
+    "schema": "walnutpi.lvgl-widget-catalog.v1",
+    "id": "ioccc-1988-applin",
+    "title": "1988 Applin",
+    "size": {
+      "width": 480,
+      "height": 320
+    },
+    "theme": "ioccc-dark",
+    "data": {
+      "year": "1988",
+      "entry": "applin",
+      "command": "cd screen/ioccc-apps/1988/applin && sed -n '1,80p' README.md"
+    },
+    "root": "root",
+    "nodes": [
+      {
+        "id": "root",
+        "kind": "container",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 480,
+          "h": 320
+        },
+        "style": "screen"
+      },
+      {
+        "id": "bg",
+        "kind": "rect",
+        "parent": "root",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 480,
+          "h": 320
+        },
+        "style": "screen"
+      },
+      {
+        "id": "brand",
+        "kind": "text",
+        "parent": "root",
+        "layout": {
+          "x": 22,
+          "y": 20,
+          "w": 160,
+          "h": 30
+        },
+        "style": "accent",
+        "text": "IOCCC"
+      },
+      {
+        "id": "year",
+        "kind": "text",
+        "parent": "root",
+        "layout": {
+          "x": 330,
+          "y": 20,
+          "w": 120,
+          "h": 30
+        },
+        "style": "muted",
+        "text": "1988"
+      },
+      {
+        "id": "title",
+        "kind": "text",
+        "parent": "root",
+        "layout": {
+          "x": 22,
+          "y": 66,
+          "w": 420,
+          "h": 44
+        },
+        "style": "text",
+        "text": "1988 Applin"
+      },
+      {
+        "id": "entry",
+        "kind": "text",
+        "parent": "root",
+        "layout": {
+          "x": 22,
+          "y": 124,
+          "w": 420,
+          "h": 30
+        },
+        "style": "primary",
+        "text": "1988/applin"
+      },
+      {
+        "id": "source",
+        "kind": "text",
+        "parent": "root",
+        "layout": {
+          "x": 22,
+          "y": 172,
+          "w": 420,
+          "h": 26
+        },
+        "style": "muted2",
+        "text": "prog.c + Makefile"
+      },
+      {
+        "id": "terminal",
+        "kind": "text",
+        "parent": "root",
+        "layout": {
+          "x": 22,
+          "y": 214,
+          "w": 420,
+          "h": 54
+        },
+        "style": "accent",
+        "text": "Terminal: README"
+      },
+      {
+        "id": "line",
+        "kind": "rect",
+        "parent": "root",
+        "layout": {
+          "x": 22,
+          "y": 286,
+          "w": 436,
+          "h": 3
+        },
+        "style": "primary"
+      }
+    ]
+  },
+  "actions": [],
+  "ioccc": {
+    "year": "1988",
+    "name": "applin",
+    "source": "screen/ioccc-apps/1988/applin",
+    "terminal": {
+      "cwd": "screen/ioccc-apps/1988/applin",
+      "readme": "cd screen/ioccc-apps/1988/applin && sed -n '1,80p' README.md"
+    }
+  }
+}

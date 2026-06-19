@@ -1,0 +1,63 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "ioccc-2025-endoh1",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "ioccc-2025-endoh1",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "bg",
+        "component": "Container"
+      },
+      {
+        "id": "brand",
+        "component": "Text",
+        "text": "IOCCC"
+      },
+      {
+        "id": "year",
+        "component": "Text",
+        "text": "2025"
+      },
+      {
+        "id": "title",
+        "component": "Text",
+        "text": "2025 Nixie clock"
+      },
+      {
+        "id": "entry",
+        "component": "Text",
+        "text": "2025/endoh1"
+      },
+      {
+        "id": "source",
+        "component": "Text",
+        "text": "NIXIE CLOCK"
+      },
+      {
+        "id": "terminal",
+        "component": "Text",
+        "text": "20:25"
+      },
+      {
+        "id": "line",
+        "component": "Container"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "ioccc-2025-endoh1",
+    "path": "/",
+    "value": {
+      "year": "2025",
+      "entry": "endoh1",
+      "command": "cd screen/ioccc-apps/2025/endoh1 && make"
+    }
+  }
+}

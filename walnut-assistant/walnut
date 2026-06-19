@@ -784,8 +784,47 @@ def start_walnut_screen() -> int:
     return subprocess.call(root_cmd(["systemctl", "start", "walnut-screen.service"]))
 
 
+def start_lightfield_demo() -> int:
+    current_root = project_root()
+    binary = current_root / "build" / "lvgl_app" / "walnut-lvgl-screen"
+    if not binary.exists():
+        print(f"LVGL binary is missing: {binary}")
+        print(f"Run: cd {current_root} && scripts/build-lvgl-app.sh")
+        return 1
+    subprocess.call(root_cmd(["systemctl", "stop", "walnut-screen.service"]))
+    subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
+    subprocess.call(root_cmd(["pkill", "-f", "walnut-lightfield-camera-loop"]))
+    subprocess.call(root_cmd(["pkill", "-f", str(binary)]))
+    if not shutil.which("ffmpeg"):
+        subprocess.call(root_cmd(["apt-get", "update"]))
+        subprocess.call(root_cmd(["env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "install", "-y", "ffmpeg"]))
+    subprocess.call(["/bin/sh", "-c", "echo 0 > /sys/class/vtconsole/vtcon1/bind"])
+    subprocess.call(root_cmd(["/bin/sh", "-c", "TERM=linux setterm --cursor off > /dev/tty1"]))
+    # ponytail: one tiny PGM is the camera/game boundary; replace ffmpeg later if needed.
+    subprocess.Popen(
+        [
+            "sh",
+            "-c",
+            "while :; do ffmpeg -hide_banner -loglevel error -f v4l2 -input_format mjpeg -video_size 480x320 -i /dev/video1 -frames:v 1 -vf scale=16:12,hflip,format=gray -y /tmp/walnut-lightfield.tmp.pgm && mv /tmp/walnut-lightfield.tmp.pgm /tmp/walnut-lightfield.pgm; sleep 0.2; done",
+            "walnut-lightfield-camera-loop",
+        ],
+        stdout=open("/tmp/walnut-lightfield-camera.log", "ab"),
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    subprocess.Popen(
+        [str(binary), "--demo", "lightfield", "/dev/fb0"],
+        cwd=str(current_root),
+        stdout=open("/tmp/walnut-lightfield.log", "ab"),
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    return 0
+
+
 def restore_screen_login() -> int:
     subprocess.call(root_cmd(["systemctl", "stop", "walnut-screen.service"]))
+    subprocess.call(root_cmd(["pkill", "-f", "walnut-lightfield-camera-loop"]))
     code = subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
     subprocess.call(["/bin/sh", "-c", "echo 1 > /sys/class/vtconsole/vtcon1/bind"])
     subprocess.call(root_cmd(["systemctl", "start", "getty@tty1.service"]))
@@ -838,6 +877,8 @@ def screen(args: argparse.Namespace) -> int:
     if command in {"start", "lvgl-demo"}:
         if not require_root(f"screen {command}"):
             return 1
+        if command == "lvgl-demo" and getattr(args, "demo_name", None) == "lightfield":
+            return start_lightfield_demo()
         return start_walnut_screen()
     if command in {"stop", "restore"}:
         if not require_root(f"screen {command}"):
@@ -1083,8 +1124,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_screen = sub.add_parser("screen")
     screen_sub = p_screen.add_subparsers(dest="screen_cmd")
-    for name in ["start", "stop", "toggle", "state", "frame", "status", "test", "demo", "off", "restore", "app", "lvgl", "lvgl-demo"]:
+    for name in ["start", "stop", "toggle", "state", "frame", "status", "test", "demo", "off", "restore", "app", "lvgl"]:
         screen_sub.add_parser(name)
+    p_lvgl_demo = screen_sub.add_parser("lvgl-demo")
+    p_lvgl_demo.add_argument("demo_name", nargs="?")
     p_capture = screen_sub.add_parser("capture")
     p_capture.add_argument("--png-base64", action="store_true")
     p_image = screen_sub.add_parser("image")

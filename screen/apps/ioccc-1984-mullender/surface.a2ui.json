@@ -1,0 +1,63 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "ioccc-1984-mullender",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "ioccc-1984-mullender",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "bg",
+        "component": "Container"
+      },
+      {
+        "id": "brand",
+        "component": "Text",
+        "text": "IOCCC"
+      },
+      {
+        "id": "year",
+        "component": "Text",
+        "text": "1984"
+      },
+      {
+        "id": "title",
+        "component": "Text",
+        "text": "1984 Mullender"
+      },
+      {
+        "id": "entry",
+        "component": "Text",
+        "text": "1984/mullender"
+      },
+      {
+        "id": "source",
+        "component": "Text",
+        "text": "prog.c + Makefile"
+      },
+      {
+        "id": "terminal",
+        "component": "Text",
+        "text": "Terminal: README"
+      },
+      {
+        "id": "line",
+        "component": "Container"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "ioccc-1984-mullender",
+    "path": "/",
+    "value": {
+      "year": "1984",
+      "entry": "mullender",
+      "command": "cd screen/ioccc-apps/1984/mullender && sed -n '1,80p' README.md"
+    }
+  }
+}

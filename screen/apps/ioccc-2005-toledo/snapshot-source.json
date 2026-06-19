@@ -1,0 +1,6 @@
+{
+  "schema": "walnutpi.widget-app-snapshot-source.v1",
+  "screenId": "ioccc-2005-toledo",
+  "source": "../../ioccc-apps/2005/toledo/prog.c",
+  "createdAt": "2026-06-19T00:00:00.000Z"
+}

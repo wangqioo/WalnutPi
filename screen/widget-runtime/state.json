@@ -1,8 +1,8 @@
 {
   "schema": "walnutpi.widget-runtime-state.v1",
-  "appId": "music-now",
+  "appId": "compass-watch",
   "versionId": "2026-06-19T00:00:00.000Z",
-  "updatedAt": "2026-06-18T16:37:06.467Z",
+  "updatedAt": "2026-06-19T13:06:16.522Z",
   "bindings": {},
   "latestAction": null
 }

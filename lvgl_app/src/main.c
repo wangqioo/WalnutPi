@@ -36,6 +36,26 @@ typedef struct {
 static workspace_ui_t workspace_ui;
 
 typedef struct {
+    lv_obj_t * cell_objs[16 * 12];
+    lv_obj_t * ball;
+    lv_obj_t * status;
+    int tick;
+    int ball_x;
+    int ball_y;
+    int vel_x;
+    int vel_y;
+    int score;
+    int heat;
+    int still;
+    bool won;
+    bool has_cells;
+    uint8_t light_cells[16 * 12];
+    uint8_t raw_cells[16 * 12];
+} lightfield_demo_t;
+
+static lightfield_demo_t lightfield_demo;
+
+typedef struct {
     lv_image_dsc_t image;
     char path[WALNUT_RUNTIME_PATH_MAX];
     char file_sha256[65];
@@ -107,6 +127,34 @@ static int clamp_int(int value, int low, int high)
     if(value < low) return low;
     if(value > high) return high;
     return value;
+}
+
+static int abs_int(int value)
+{
+    return value < 0 ? -value : value;
+}
+
+static bool read_lightfield_pgm(uint8_t * cells, int cell_count)
+{
+    /* ponytail: camera stays out of LVGL; any capture tool can overwrite this tiny PGM. */
+    FILE * file = fopen("/tmp/walnut-lightfield.pgm", "rb");
+    if(file == NULL) return false;
+
+    char magic[3] = {0};
+    int width = 0;
+    int height = 0;
+    int max_value = 0;
+    if(fscanf(file, "%2s %d %d %d", magic, &width, &height, &max_value) != 4
+       || strcmp(magic, "P5") != 0
+       || width * height != cell_count
+       || max_value <= 0) {
+        fclose(file);
+        return false;
+    }
+    fgetc(file);
+    size_t read_bytes = fread(cells, 1, (size_t)cell_count, file);
+    fclose(file);
+    return read_bytes == (size_t)cell_count;
 }
 
 static void copy_token(char * dst, size_t dst_size, const char * src)
@@ -508,6 +556,142 @@ static void build_empty_workspace_screen(void)
     lv_obj_align(reason, LV_ALIGN_TOP_LEFT, 18, 124);
 }
 
+static void lightfield_demo_timer_cb(lv_timer_t * timer)
+{
+    lightfield_demo_t * demo = (lightfield_demo_t *)lv_timer_get_user_data(timer);
+    if(read_lightfield_pgm(demo->raw_cells, 16 * 12)) {
+        int low = 255;
+        int high = 0;
+        for(int index = 0; index < 16 * 12; index++) {
+            if(demo->raw_cells[index] < low) low = demo->raw_cells[index];
+            if(demo->raw_cells[index] > high) high = demo->raw_cells[index];
+        }
+        if(!demo->has_cells) {
+            for(int index = 0; index < 16 * 12; index++) {
+                demo->light_cells[index] = (uint8_t)(high - low < 32 ? 120 : ((int)(demo->raw_cells[index] - low) * 255 / (high - low)));
+            }
+            demo->has_cells = true;
+        }
+        else {
+            for(int index = 0; index < 16 * 12; index++) {
+                int normalized = high - low < 32 ? 120 : ((int)(demo->raw_cells[index] - low) * 255 / (high - low));
+                demo->light_cells[index] = (uint8_t)(((int)demo->light_cells[index] * 7 + normalized) / 8);
+            }
+        }
+    }
+
+    for(int y = 0; y < 12; y++) {
+        for(int x = 0; x < 16; x++) {
+            int index = y * 16 + x;
+            int value = demo->has_cells ? demo->light_cells[index] : 120;
+            uint32_t color = value > 210 ? 0xf0c35d : value > 45 ? 0x355262 : 0x101820;
+            lv_obj_set_style_bg_color(demo->cell_objs[index], lv_color_hex(color), 0);
+        }
+    }
+
+    int force_x = 0;
+    int force_y = 0;
+    int best_light = 0;
+    int near_light = 0;
+    if(demo->has_cells) {
+        for(int y = 0; y < 12; y++) {
+            for(int x = 0; x < 16; x++) {
+                int value = demo->light_cells[y * 16 + x] - 180;
+                if(value <= 0) continue;
+                int center_x = x * 30 + 15;
+                int center_y = 42 + y * 20 + 10;
+                int dx = center_x - demo->ball_x;
+                int dy = center_y - demo->ball_y;
+                int distance = abs_int(dx) + abs_int(dy) + 24;
+                int weight = value * 44 / distance;
+                force_x += dx * weight / 64;
+                force_y += dy * weight / 64;
+                if(value > best_light) best_light = value;
+                if(distance < 86 && value > near_light) near_light = value;
+            }
+        }
+    }
+
+    demo->vel_x = demo->vel_x * 86 / 100 + clamp_int(force_x, -44, 44);
+    demo->vel_y = demo->vel_y * 86 / 100 + clamp_int(force_y, -44, 44);
+    demo->vel_x = clamp_int(demo->vel_x, -176, 176);
+    demo->vel_y = clamp_int(demo->vel_y, -176, 176);
+    demo->ball_x += demo->vel_x / 16;
+    demo->ball_y += demo->vel_y / 16;
+    demo->ball_x = clamp_int(demo->ball_x, 8, 452);
+    demo->ball_y = clamp_int(demo->ball_y, 46, 286);
+
+    int speed = abs_int(demo->vel_x) + abs_int(demo->vel_y);
+    demo->score += near_light > 0 ? 2 : 1;
+    demo->still = speed < 18 ? demo->still + 1 : 0;
+    demo->heat += near_light / 28 + (best_light > 60 ? 1 : 0) + (demo->still > 18 ? 2 : 0);
+    demo->heat -= speed > 80 ? 2 : 1;
+    if(demo->heat >= 100) {
+        demo->heat = 0;
+        demo->still = 0;
+        demo->score = 0;
+        demo->ball_x = 34;
+        demo->ball_y = 74;
+        demo->vel_x = 0;
+        demo->vel_y = 0;
+#if defined(__linux__) && !defined(WALNUT_LVGL_NO_FBDEV)
+        system("printf '\\a' >/dev/tty0 2>/dev/null || true");
+#endif
+    }
+    demo->heat = clamp_int(demo->heat, 0, 100);
+    char status[80];
+    snprintf(status, sizeof(status), "KEEP IT DANCING  SCORE %04d  HEAT %03d", demo->score, demo->heat);
+    lv_label_set_text(demo->status, status);
+    lv_obj_set_pos(demo->ball, demo->ball_x - 10, demo->ball_y - 10);
+    demo->tick++;
+}
+
+void walnut_build_lightfield_demo(void)
+{
+    memset(&lightfield_demo, 0, sizeof(lightfield_demo));
+    lightfield_demo.ball_x = 34;
+    lightfield_demo.ball_y = 74;
+
+    lv_obj_t * scr = lv_screen_active();
+    lv_obj_set_style_bg_color(scr, lv_color_hex(0x05080b), 0);
+
+    lv_obj_t * title = lv_label_create(scr);
+    lv_label_set_text(title, "LIGHTFIELD");
+    lv_obj_set_style_text_color(title, lv_color_hex(0xf4f1df), 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_24, 0);
+    lv_obj_align(title, LV_ALIGN_TOP_LEFT, 12, 10);
+
+    lightfield_demo.status = lv_label_create(scr);
+    lv_label_set_text(lightfield_demo.status, "KEEP IT DANCING  SCORE 0000  HEAT 000");
+    lv_obj_set_style_text_color(lightfield_demo.status, lv_color_hex(0x94a0a4), 0);
+    lv_obj_set_style_text_font(lightfield_demo.status, &lv_font_montserrat_14, 0);
+    lv_obj_align(lightfield_demo.status, LV_ALIGN_TOP_LEFT, 178, 17);
+
+    for(int y = 0; y < 12; y++) {
+        for(int x = 0; x < 16; x++) {
+            lv_obj_t * cell = lv_obj_create(scr);
+            lv_obj_remove_style_all(cell);
+            lv_obj_set_style_bg_opa(cell, LV_OPA_COVER, 0);
+            lv_obj_set_style_bg_color(cell, lv_color_hex(0x101820), 0);
+            lv_obj_set_style_border_width(cell, 1, 0);
+            lv_obj_set_style_border_color(cell, lv_color_hex(0x263443), 0);
+            lv_obj_set_size(cell, 29, 19);
+            lv_obj_set_pos(cell, x * 30, 42 + y * 20);
+            lightfield_demo.cell_objs[y * 16 + x] = cell;
+        }
+    }
+
+    lightfield_demo.ball = lv_obj_create(scr);
+    lv_obj_remove_style_all(lightfield_demo.ball);
+    lv_obj_set_style_radius(lightfield_demo.ball, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(lightfield_demo.ball, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(lightfield_demo.ball, lv_color_hex(0x8fd6ff), 0);
+    lv_obj_set_size(lightfield_demo.ball, 20, 20);
+    lv_obj_set_pos(lightfield_demo.ball, lightfield_demo.ball_x - 10, lightfield_demo.ball_y - 10);
+
+    lv_timer_create(lightfield_demo_timer_cb, 80, &lightfield_demo);
+}
+
 static void anim_bar_value_cb(void * obj, int32_t value)
 {
     lv_bar_set_value((lv_obj_t *)obj, value, LV_ANIM_OFF);
@@ -627,6 +811,7 @@ int main(int argc, char ** argv)
 {
     const char * fbdev = "/dev/fb0";
     const char * runtime_path = "screen/runtime/default.txt";
+    const char * demo_name = NULL;
     for(int i = 1; i < argc; i++) {
         if(strcmp(argv[i], "--runtime") == 0 && i + 1 < argc) {
             runtime_path = argv[++i];
@@ -634,7 +819,14 @@ int main(int argc, char ** argv)
         else if(strcmp(argv[i], "--no-runtime") == 0) {
             runtime_path = NULL;
         }
-        else if(strcmp(argv[i], "--demo") != 0) {
+        else if(strcmp(argv[i], "--demo") == 0 && i + 1 < argc && strcmp(argv[i + 1], "lightfield") == 0) {
+            demo_name = argv[++i];
+            runtime_path = NULL;
+        }
+        else if(strcmp(argv[i], "--demo") == 0) {
+            continue;
+        }
+        else {
             fbdev = argv[i];
         }
     }
@@ -660,7 +852,16 @@ int main(int argc, char ** argv)
     lv_linux_fbdev_set_file(disp, fbdev);
     lv_linux_fbdev_set_force_refresh(disp, true);
 
-    walnut_build_screen_ui();
+    if(demo_name != NULL && strcmp(demo_name, "lightfield") == 0) {
+        walnut_build_lightfield_demo();
+    }
+    else if(demo_name != NULL) {
+        fprintf(stderr, "unknown LVGL demo: %s\n", demo_name);
+        return 1;
+    }
+    else {
+        walnut_build_screen_ui();
+    }
     (void)walnut_runtime_hot_reload_marker;
     (void)walnut_widget_runtime_marker;
     if(runtime_watch_path[0] != '\0') {

@@ -48,6 +48,7 @@ export function validateWalnutWidgetApp(app) {
     a2uiSurface: app.a2uiSurface && typeof app.a2uiSurface === "object" ? app.a2uiSurface : null,
     catalog: validateWalnutLvglWidgetCatalog(app.catalog),
     actions: normalizeActions(app.actions || []),
+    ...(app.ioccc && typeof app.ioccc === "object" ? { ioccc: normalizeData(app.ioccc) } : {}),
   };
 }
 

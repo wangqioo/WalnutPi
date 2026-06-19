@@ -1,0 +1,63 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "ioccc-2004-omoikane",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "ioccc-2004-omoikane",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "bg",
+        "component": "Container"
+      },
+      {
+        "id": "brand",
+        "component": "Text",
+        "text": "IOCCC"
+      },
+      {
+        "id": "year",
+        "component": "Text",
+        "text": "2004"
+      },
+      {
+        "id": "title",
+        "component": "Text",
+        "text": "2004 Omoikane"
+      },
+      {
+        "id": "entry",
+        "component": "Text",
+        "text": "2004/omoikane"
+      },
+      {
+        "id": "source",
+        "component": "Text",
+        "text": "prog.c + Makefile"
+      },
+      {
+        "id": "terminal",
+        "component": "Text",
+        "text": "Terminal: README"
+      },
+      {
+        "id": "line",
+        "component": "Container"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "ioccc-2004-omoikane",
+    "path": "/",
+    "value": {
+      "year": "2004",
+      "entry": "omoikane",
+      "command": "cd screen/ioccc-apps/2004/omoikane && sed -n '1,80p' README.md"
+    }
+  }
+}

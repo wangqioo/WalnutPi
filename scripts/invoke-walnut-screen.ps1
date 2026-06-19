@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("state", "frame", "capture", "capture-base64", "start", "stop", "toggle", "lvgl")]
+    [ValidateSet("state", "frame", "capture", "capture-base64", "start", "stop", "toggle", "lvgl", "lightfield")]
     [string]$Action = "state",
     [Alias("Host")]
     [string]$HostName = "192.168.1.24",
@@ -29,6 +29,7 @@ $commands = @{
     "stop" = "sudo -n walnut screen stop"
     "toggle" = "sudo -n walnut screen toggle"
     "lvgl" = "walnut screen lvgl"
+    "lightfield" = "sudo -n walnut screen lvgl-demo lightfield"
 }
 
 $remoteCommand = $commands[$Action]

@@ -209,6 +209,7 @@
       });
 
       const fitAddon = new FitAddon.FitAddon();
+      const autoCommand = new URLSearchParams(window.location.search).get("command");
       let socket;
 
       term.loadAddon(fitAddon);
@@ -230,7 +231,8 @@
         term.reset();
 
         const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-        socket = new WebSocket(`${protocol}://${window.location.host}/terminal`);
+        const commandQuery = autoCommand ? `?command=${encodeURIComponent(autoCommand)}` : "";
+        socket = new WebSocket(`${protocol}://${window.location.host}/terminal${commandQuery}`);
         socket.binaryType = "arraybuffer";
 
         socket.addEventListener("open", () => {

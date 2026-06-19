@@ -12,6 +12,7 @@
 #define PREVIEW_BYTES_PER_PIXEL 2
 
 void walnut_build_screen_ui(void);
+void walnut_build_lightfield_demo(void);
 void walnut_preview_apply_dynamic_time(int advance_ms);
 bool walnut_screen_workspace_load_runtime(const char * index_path);
 const char * walnut_screen_workspace_active_playlist_hash(void);
@@ -154,6 +155,9 @@ int main(int argc, char ** argv)
         }
         else if(strcmp(demo_name, "widgets") == 0) {
             lv_demo_widgets();
+        }
+        else if(strcmp(demo_name, "lightfield") == 0) {
+            walnut_build_lightfield_demo();
         }
         else {
             fprintf(stderr, "unknown LVGL demo: %s\n", demo_name);

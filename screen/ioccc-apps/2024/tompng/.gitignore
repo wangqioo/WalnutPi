@@ -1,0 +1,11 @@
+#
+# sort with: ../../bin/sgi.sh
+*~
+*.dSYM
+*.o
+.DS_Store
+.*.swp
+prog1.enc.c
+prog2.enc.c
+rand
+rand.c
