@@ -1188,14 +1188,6 @@ async function readJsonRequest(req) {
   }
 }
 
-const agentTurnLoop = createAgentTurnLoop({
-  classifyIntent: classifyAgentIntent,
-  runAction: agentActionsApi.runAction,
-  turnLedger: agentTurnLedger,
-  readJsonRequest,
-  json,
-});
-
 const projectMemoryApi = createProjectMemoryApi({
   webSessionLedger,
   readWalnutMemory,
@@ -1235,6 +1227,15 @@ const screenWorkspaceApi = createScreenWorkspaceApi({
   screenSourceImportMaxBytes: SCREEN_SOURCE_IMPORT_MAX_BYTES,
   screenLvglPreviewOutputDir: SCREEN_LVGL_PREVIEW_OUTPUT_DIR,
   generateWidgetCatalog,
+});
+
+const agentTurnLoop = createAgentTurnLoop({
+  classifyIntent: classifyAgentIntent,
+  runAction: agentActionsApi.runAction,
+  generateScreen: screenWorkspaceApi.generateScreenWorkspace,
+  turnLedger: agentTurnLedger,
+  readJsonRequest,
+  json,
 });
 
 async function generateWidgetCatalog({ prompt, fallbackCatalog }) {

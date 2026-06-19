@@ -17,7 +17,7 @@ export function selectTurnStep(classification, mode = "intent") {
   return { id: "execute", kind: "action.run", action: "ai" };
 }
 
-export function createAgentTurnLoop({ classifyIntent, runAction, turnLedger, readJsonRequest, json }) {
+export function createAgentTurnLoop({ classifyIntent, runAction, generateScreen, turnLedger, readJsonRequest, json }) {
   return {
     async handleTurn(req) {
       let body;
@@ -26,7 +26,7 @@ export function createAgentTurnLoop({ classifyIntent, runAction, turnLedger, rea
       } catch (error) {
         return json({ ok: false, error: error.message }, 400);
       }
-      const result = await runAgentTurn({ body, classifyIntent, runAction });
+      const result = await runAgentTurn({ body, classifyIntent, runAction, generateScreen });
       await turnLedger?.appendTurn(result.turn);
       return json(result.turn, result.status);
     },
@@ -43,7 +43,7 @@ export function createAgentTurnLoop({ classifyIntent, runAction, turnLedger, rea
   };
 }
 
-export async function runAgentTurn({ body, classifyIntent, runAction }) {
+export async function runAgentTurn({ body, classifyIntent, runAction, generateScreen }) {
   const startedAt = new Date().toISOString();
   const turnId = `turn-${randomUUID()}`;
   const sessionId = String(body.sessionId || "").trim() || null;
@@ -91,6 +91,22 @@ export async function runAgentTurn({ body, classifyIntent, runAction }) {
     turn.result = actionResult.body;
     turn.steps.push(step);
     return { turn, status: actionResult.status || 500 };
+  }
+
+  if (selected.kind === "screen.workspace.generate.intent" && generateScreen) {
+    const generateResult = await generateScreen({
+      prompt: text,
+      screenId: `agent-freeform-${Date.now()}`,
+      playlist: "default",
+      outputType: "animated",
+      preset: "fit-cover:480x320",
+    });
+    step.status = generateResult.body?.ok ? "completed" : "failed";
+    step.result = generateResult.body;
+    turn.status = generateResult.body?.ok ? "completed" : "failed";
+    turn.result = generateResult.body;
+    turn.steps.push(step);
+    return { turn, status: generateResult.status || 500 };
   }
 
   step.status = "pending";

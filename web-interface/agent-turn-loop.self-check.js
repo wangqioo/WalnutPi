@@ -39,4 +39,30 @@ assert.equal(turn.steps[1].kind, "action.run");
 assert.equal(turn.steps[1].action, "status");
 assert.equal(turn.result.output, "ran status");
 
+const generated = await runAgentTurn({
+  body: { text: "做一个小屏", sessionId: "web-demo" },
+  classifyIntent: async () => ({
+    ok: true,
+    status: 200,
+    classification: {
+      schema: "walnutpi.intent.route.v2",
+      intent: "screen.generate",
+      route: "screen.wallpaper",
+      action: "generate",
+      delivery: "none",
+    },
+  }),
+  runAction: async () => {
+    throw new Error("unexpected action");
+  },
+  generateScreen: async (body) => ({
+    status: 200,
+    body: { ok: true, screenId: body.screenId, output: { path: "outputs/demo.png" } },
+  }),
+});
+assert.equal(generated.status, 200);
+assert.equal(generated.turn.status, "completed");
+assert.equal(generated.turn.steps[1].kind, "screen.workspace.generate.intent");
+assert.equal(generated.turn.result.output.path, "outputs/demo.png");
+
 console.log("agent turn loop self-check passed");

@@ -587,20 +587,7 @@
         return data;
       }
 
-      async function generateScreen(text, classification) {
-        const response = await fetch("/api/screen/workspace/generate", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            prompt: text,
-            screenId: `agent-freeform-${Date.now()}`,
-            playlist: "default",
-            outputType: "animated",
-            preset: "fit-cover:480x320",
-          }),
-        });
-        const data = await response.json();
-        if (!response.ok || !data.ok) throw new Error(data.output || data.error || "screen generation failed");
+      async function showGeneratedScreen(data, classification) {
         await updateLvglScreenPreview(data.output, data.screenId);
         const syncHint = classification.delivery === "sync_after_preview"
           ? "你要求生成后同步：我已先生成并更新预览，请在 Screen Workspace 确认画面后点击“同步到核桃派”。"
@@ -633,8 +620,8 @@
             const classification = turn.steps?.[0]?.result?.classification;
             if (mode !== "ai") updateRoute(classification);
             removeMessage(pendingMessage);
-            if (turn.pendingNext === "screen.workspace.generate.intent") {
-              appendMessage("assistant", await generateScreen(text, classification));
+            if (turn.steps?.some((step) => step.kind === "screen.workspace.generate.intent")) {
+              appendMessage("assistant", await showGeneratedScreen(turn.result, classification));
             } else if (turn.pendingNext === "screen.workspace.sync.intent") {
               appendMessage("assistant", "已识别为同步工作流。请进入 Screen Workspace 确认当前播放列表后同步到核桃派。");
             } else if (turn.pendingNext === "screen.widget_app.create.intent") {

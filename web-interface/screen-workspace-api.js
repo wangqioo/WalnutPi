@@ -477,7 +477,6 @@ export function createScreenWorkspaceApi({
   }
 
   async function handleScreenWorkspaceGenerate(req) {
-    const startedAt = Date.now();
     let body;
     try {
       body = await readJsonRequest(req);
@@ -485,6 +484,12 @@ export function createScreenWorkspaceApi({
       return json({ ok: false, error: error.message }, 400);
     }
 
+    const result = await generateScreenWorkspace(body);
+    return json(result.body, result.status);
+  }
+
+  async function generateScreenWorkspace(body) {
+    const startedAt = Date.now();
     try {
       const request = FreeformGenerateRequestSchema.parse(body);
       const prompt = cleanFreeformPrompt(request.prompt || request.text);
@@ -528,7 +533,9 @@ export function createScreenWorkspaceApi({
             loop: request.loop === undefined ? true : Boolean(request.loop),
           });
         }
-        return json({
+        return {
+          status: 200,
+          body: {
           ok: true,
           schema: "walnutpi.screenWorkspaceGenerateResult.v1",
           workspaceRoot: SCREEN_WORKSPACE_ROOT,
@@ -541,7 +548,8 @@ export function createScreenWorkspaceApi({
           manifest: result.manifest,
           output: result.output,
           playlist: playlist?.playlist || null,
-        });
+          },
+        };
       }
       const source = await writeGeneratedPromptSource({
         sourceId,
@@ -604,7 +612,9 @@ export function createScreenWorkspaceApi({
         template: screenSpec.template,
       });
 
-      return json({
+      return {
+        status: 200,
+        body: {
         ok: true,
         schema: "walnutpi.screenWorkspaceGenerateResult.v1",
         workspaceRoot: SCREEN_WORKSPACE_ROOT,
@@ -617,7 +627,8 @@ export function createScreenWorkspaceApi({
         manifest: result.manifest,
         output: result.output,
         playlist: playlist?.playlist || null,
-      });
+        },
+      };
     } catch (error) {
       await webMetricsLedger.append({
         kind: "screen.workspace.generate",
@@ -626,11 +637,14 @@ export function createScreenWorkspaceApi({
         latencyMs: Date.now() - startedAt,
         error: error.message,
       });
-      return json({
-        ok: false,
-        error: "screen workspace freeform generation failed",
-        output: error.message,
-      }, 400);
+      return {
+        status: 400,
+        body: {
+          ok: false,
+          error: "screen workspace freeform generation failed",
+          output: error.message,
+        },
+      };
     }
   }
 
@@ -1908,6 +1922,7 @@ export function createScreenWorkspaceApi({
     handleScreenWorkspaceAsset,
     handleScreenWorkspaceImport,
     handleScreenWorkspaceGenerate,
+    generateScreenWorkspace,
     handleScreenWorkspaceProcess,
     handleScreenWorkspaceLvglPreview,
     handleLvglDemoPreview,
