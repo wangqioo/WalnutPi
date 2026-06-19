@@ -576,25 +576,14 @@
         ].join("\n");
       }
 
-      async function classify(text) {
-        const response = await fetch("/api/intent/classify", {
+      async function runTurn(mode, text) {
+        const response = await fetch("/api/agent/turn", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text }),
+          body: JSON.stringify({ mode, text, sessionId }),
         });
         const data = await response.json();
-        if (!response.ok || !data.ok) throw new Error(data.error || "intent classify failed");
-        return data.classification;
-      }
-
-      async function runAction(action, body = {}) {
-        const response = await fetch("/api/action", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action, sessionId, ...body }),
-        });
-        const data = await response.json();
-        if (!response.ok || !data.ok) throw new Error(data.output || data.error || "action failed");
+        if (!response.ok || data.status === "failed") throw new Error(data.result?.output || data.error || "turn failed");
         return data;
       }
 
@@ -636,53 +625,22 @@
         appendMessage("user", text);
         const pendingMessage = appendMessage("system", mode === "ai" ? "正在询问 WalnutAI..." : "处理中...");
         try {
-          if (mode === "ai") {
-            if (asksForLocalAssistantInfo(text)) {
-              removeMessage(pendingMessage);
-              appendMessage("assistant", localAssistantInfoReply());
-            } else {
-              const data = await runAction("ai", { text });
-              removeMessage(pendingMessage);
-              appendMessage("assistant", data.output);
-            }
+          if (asksForLocalAssistantInfo(text)) {
+            removeMessage(pendingMessage);
+            appendMessage("assistant", localAssistantInfoReply());
           } else {
-            const classification = await classify(text);
-            updateRoute(classification);
-            const route = classification.route || "";
-            const action = classification.action || "";
-            const intent = classification.intent || "";
-            if (intent === "device.status.read") {
-              const data = await runAction("status");
-              removeMessage(pendingMessage);
-              appendMessage("assistant", data.output);
-            } else if (intent === "device.network.read") {
-              const data = await runAction("network");
-              removeMessage(pendingMessage);
-              appendMessage("assistant", data.output);
-            } else if (intent === "device.snapshot.read") {
-              const data = await runAction("snapshot");
-              removeMessage(pendingMessage);
-              appendMessage("assistant", data.output);
-            } else if (intent === "device.gpio.read") {
-              const data = await runAction("gpio");
-              removeMessage(pendingMessage);
-              appendMessage("assistant", data.output);
-            } else if (route === "screen.wallpaper" && action === "generate") {
-              removeMessage(pendingMessage);
+            const turn = await runTurn(mode, text);
+            const classification = turn.steps?.[0]?.result?.classification;
+            if (mode !== "ai") updateRoute(classification);
+            removeMessage(pendingMessage);
+            if (turn.pendingNext === "screen.workspace.generate.intent") {
               appendMessage("assistant", await generateScreen(text, classification));
-            } else if (route === "screen.wallpaper" && action === "sync") {
-              removeMessage(pendingMessage);
+            } else if (turn.pendingNext === "screen.workspace.sync.intent") {
               appendMessage("assistant", "已识别为同步工作流。请进入 Screen Workspace 确认当前播放列表后同步到核桃派。");
-            } else if (route === "screen.widget_app" && action === "create") {
-              removeMessage(pendingMessage);
+            } else if (turn.pendingNext === "screen.widget_app.create.intent") {
               appendMessage("assistant", "已识别为 Widget App 创建工作流。设备状态快捷面板的运行时合同还在 Widget App Sync 阶段，先进入 Screen Workspace 继续预览和保存。");
-            } else if (route === "ai.chat" && asksForLocalAssistantInfo(text)) {
-              removeMessage(pendingMessage);
-              appendMessage("assistant", localAssistantInfoReply());
             } else {
-              const data = await runAction("ai", { text });
-              removeMessage(pendingMessage);
-              appendMessage("assistant", data.output);
+              appendMessage("assistant", turn.result?.output || "无输出。");
             }
           }
           promptEl.value = "";

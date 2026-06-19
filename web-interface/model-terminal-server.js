@@ -14,6 +14,8 @@ import { createWalnutRemoteAdapter } from "./walnut-remote-adapter.js";
 import { createScreenWorkspaceStore, workspaceErrorResponse } from "./screen-workspace-store.js";
 import { actionsForExecutor, loadActionPolicyManifest } from "./action-policy.js";
 import { createAgentActionsApi } from "./agent-actions-api.js";
+import { createAgentHarnessSessionStore } from "./agent-harness-session-store.js";
+import { createAgentTurnLedger } from "./agent-turn-ledger.js";
 import { createAgentTurnLoop } from "./agent-turn-loop.js";
 import { createProjectMemoryApi } from "./project-memory-api.js";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.js";
@@ -78,6 +80,8 @@ const RETRIEVAL_FILE_LIMIT = 5000;
 const RETRIEVAL_RESULT_LIMIT = 8;
 const WEB_SESSIONS_DIR = process.env.WALNUT_WEB_SESSIONS_DIR || path.join(BASE_DIR, "data", "sessions");
 const WEB_METRICS_PATH = process.env.WALNUT_WEB_METRICS_PATH || path.join(BASE_DIR, "data", "metrics.jsonl");
+const AGENT_TURNS_PATH = process.env.WALNUT_AGENT_TURNS_PATH || path.join(BASE_DIR, "data", "agent-turns.jsonl");
+const AGENT_HARNESS_SESSIONS_PATH = process.env.WALNUT_AGENT_HARNESS_SESSIONS_PATH || path.join(BASE_DIR, "data", "agent-harness-sessions.json");
 const WEB_SESSION_EVENT_LIMIT = Number(process.env.WALNUT_WEB_SESSION_EVENT_LIMIT || 300);
 const webSessionLedger = createWebSessionLedger({
   sessionsDir: WEB_SESSIONS_DIR,
@@ -86,6 +90,13 @@ const webSessionLedger = createWebSessionLedger({
 const webMetricsLedger = createWebMetricsLedger({
   metricsPath: WEB_METRICS_PATH,
   limit: Number(process.env.WALNUT_WEB_METRICS_LIMIT || 200),
+});
+const agentTurnLedger = createAgentTurnLedger({
+  turnsPath: AGENT_TURNS_PATH,
+  limit: Number(process.env.WALNUT_AGENT_TURN_LIMIT || 100),
+});
+const agentHarnessSessionStore = createAgentHarnessSessionStore({
+  filePath: AGENT_HARNESS_SESSIONS_PATH,
 });
 
 const files = new Map([
@@ -1180,6 +1191,7 @@ async function readJsonRequest(req) {
 const agentTurnLoop = createAgentTurnLoop({
   classifyIntent: classifyAgentIntent,
   runAction: agentActionsApi.runAction,
+  turnLedger: agentTurnLedger,
   readJsonRequest,
   json,
 });
@@ -1422,6 +1434,32 @@ const server = Bun.serve({
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       if (previewOnly(url)) return previewOnlyJson();
       return agentTurnLoop.handleTurn(req);
+    }
+
+    if (url.pathname === "/api/agent/turns") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return agentTurnLoop.handleTurns(url);
+    }
+
+    if (url.pathname === "/api/agent/harness-session") {
+      if (req.method === "GET") {
+        const sessionId = url.searchParams.get("sessionId");
+        return json({ ok: true, session: await agentHarnessSessionStore.readSession(sessionId) });
+      }
+      if (req.method === "POST") {
+        let body;
+        try {
+          body = await readJsonRequest(req);
+        } catch (error) {
+          return json({ ok: false, error: error.message }, 400);
+        }
+        try {
+          return json({ ok: true, session: await agentHarnessSessionStore.upsertSession(body) });
+        } catch (error) {
+          return json({ ok: false, error: error.message }, 400);
+        }
+      }
+      return json({ ok: false, error: "Method not allowed" }, 405);
     }
 
     if (url.pathname === "/api/screen/workspace/playlist") {

@@ -17,7 +17,7 @@ export function selectTurnStep(classification, mode = "intent") {
   return { id: "execute", kind: "action.run", action: "ai" };
 }
 
-export function createAgentTurnLoop({ classifyIntent, runAction, readJsonRequest, json }) {
+export function createAgentTurnLoop({ classifyIntent, runAction, turnLedger, readJsonRequest, json }) {
   return {
     async handleTurn(req) {
       let body;
@@ -27,7 +27,18 @@ export function createAgentTurnLoop({ classifyIntent, runAction, readJsonRequest
         return json({ ok: false, error: error.message }, 400);
       }
       const result = await runAgentTurn({ body, classifyIntent, runAction });
+      await turnLedger?.appendTurn(result.turn);
       return json(result.turn, result.status);
+    },
+
+    async handleTurns(url) {
+      const sessionId = url.searchParams.get("sessionId") || null;
+      const limit = Number(url.searchParams.get("limit") || 100);
+      return json({
+        ok: true,
+        schema: "walnutpi.agentTurns.v1",
+        turns: await turnLedger.readTurns({ sessionId, count: Number.isFinite(limit) ? limit : 100 }),
+      });
     },
   };
 }
