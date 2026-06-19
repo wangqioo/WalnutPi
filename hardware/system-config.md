@@ -225,8 +225,14 @@ walnut-ai-video-demo-play still-color
 
 ```bash
 cd /home/pi/projects/WalnutPi
-sh scripts/install-voice-keyboard-walnutpi.sh
+VK_SOURCE_DIR=/path/to/voice-keyboard-with-walnutpi-runtime \
+  sh scripts/install-voice-keyboard-walnutpi.sh
 ```
+
+`VK_SOURCE_DIR` 必须指向包含 `agent/walnut_voice_cli.py`、
+`agent/walnut_service.py` 和
+`packaging/linux/voice-keyboard-walnutpi.service` 的 Voice Keyboard 源码树。
+当前 WalnutPi 仓库不再内嵌这份 runtime；如果未指定可用来源，脚本会提前失败并提示缺失文件。
 
 当前板子额外需要这些系统包：
 
