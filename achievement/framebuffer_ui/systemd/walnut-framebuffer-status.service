@@ -5,7 +5,7 @@ After=local-fs.target
 [Service]
 Type=simple
 WorkingDirectory=/home/pi/projects/WalnutPi
-Environment=PYTHONPATH=/home/pi/projects/WalnutPi
+Environment=PYTHONPATH=/home/pi/projects/WalnutPi/achievement
 ExecStartPre=-/usr/bin/pkill fbterm
 ExecStartPre=-/bin/sh -c 'TERM=linux /usr/bin/setterm --cursor off > /dev/tty1'
 ExecStart=/usr/bin/python3 -m framebuffer_ui.draw_status --watch 5

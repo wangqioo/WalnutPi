@@ -1,6 +1,6 @@
 # Framebuffer UI
 
-`framebuffer_ui/` is a minimal no-desktop drawing experiment for the WalnutPi
+`achievement/framebuffer_ui/` is a minimal no-desktop drawing experiment for the WalnutPi
 built-in screen.
 
 It bypasses the terminal and writes RGB565 pixels directly to `/dev/fb0`.
@@ -22,7 +22,7 @@ On the WalnutPi:
 
 ```bash
 cd /home/pi/projects/WalnutPi
-PYTHONPATH=$PWD python3 -m framebuffer_ui.fb_info
+PYTHONPATH=$PWD/achievement python3 -m framebuffer_ui.fb_info
 ```
 
 ## Draw Demos
@@ -31,21 +31,21 @@ Draw a color test pattern:
 
 ```bash
 cd /home/pi/projects/WalnutPi
-PYTHONPATH=$PWD python3 -m framebuffer_ui.draw_demo test
+PYTHONPATH=$PWD/achievement python3 -m framebuffer_ui.draw_demo test
 ```
 
 Draw a simple device status card:
 
 ```bash
 cd /home/pi/projects/WalnutPi
-PYTHONPATH=$PWD python3 -m framebuffer_ui.draw_demo card
+PYTHONPATH=$PWD/achievement python3 -m framebuffer_ui.draw_demo card
 ```
 
 Blank the screen:
 
 ```bash
 cd /home/pi/projects/WalnutPi
-PYTHONPATH=$PWD python3 -m framebuffer_ui.draw_demo off
+PYTHONPATH=$PWD/achievement python3 -m framebuffer_ui.draw_demo off
 ```
 
 These commands overwrite the current screen contents until fbterm or another
@@ -57,7 +57,7 @@ Display a JPG or PNG file:
 
 ```bash
 cd /home/pi/projects/WalnutPi
-PYTHONPATH=$PWD python3 -m framebuffer_ui.draw_image /path/to/image.jpg
+PYTHONPATH=$PWD/achievement python3 -m framebuffer_ui.draw_image /path/to/image.jpg
 ```
 
 Through Walnut Home:
@@ -101,14 +101,14 @@ Draw one live status frame:
 
 ```bash
 cd /home/pi/projects/WalnutPi
-PYTHONPATH=$PWD python3 -m framebuffer_ui.draw_status --print
+PYTHONPATH=$PWD/achievement python3 -m framebuffer_ui.draw_status --print
 ```
 
 Refresh the status card every 5 seconds:
 
 ```bash
 cd /home/pi/projects/WalnutPi
-PYTHONPATH=$PWD python3 -m framebuffer_ui.draw_status --watch 5
+PYTHONPATH=$PWD/achievement python3 -m framebuffer_ui.draw_status --watch 5
 ```
 
 This direct command does not stop `fbterm` or `getty@tty1`, so the text cursor

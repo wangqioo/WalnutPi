@@ -158,6 +158,56 @@ action succeeds
 
 No CRDT, no multiplayer, no React Query migration yet.
 
+### 5. Performance Architecture, Not Just Object Shape
+
+The first WalnutPi patches copied the useful object shape:
+
+```text
+HTTP request
+-> inline classify
+-> inline selected step
+-> final turn artifact
+```
+
+That is enough to prove the contract, but it is not the high-performance
+architecture Agent Native is actually using. The next migration target should
+borrow the run-manager pattern:
+
+```text
+POST /api/agent/turn
+-> enqueue run
+-> return turnId quickly
+-> worker executes steps
+-> append seq events
+-> publish events
+-> UI consumes SSE
+-> final artifact persists
+```
+
+The important borrowed pieces are:
+
+- Event sequence: every turn event has `turnId`, `seq`, `kind`, `status`, and
+  timestamp.
+- Pub/sub: step progress is published as it happens, instead of waiting for the
+  final HTTP response.
+- Queue: expensive or device-writing steps run through a bounded queue.
+- Resume boundary: completed steps and pending approvals are durable enough to
+  avoid duplicate side effects after restart or timeout.
+
+WalnutPi should still avoid Agent Native's full SaaS framework. The small
+version is:
+
+1. `agent-turn-events.jsonl` for append-only event history.
+2. An in-process event bus for live subscribers.
+3. `GET /api/agent/events?sessionId=...` as an SSE stream.
+4. A one-lane queue for screen generation, screen sync, and device writes.
+5. Keep read-only actions inline until they become slow enough to queue.
+
+This is the key architecture lesson: do not only copy the `turn` and
+`harnessSession` records. Copy the asynchronous run boundary that keeps UI,
+long-running work, cancellation, approvals, and device writes from blocking one
+HTTP request.
+
 ## WalnutPi Current Shape
 
 Important current files:
