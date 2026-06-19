@@ -9,12 +9,16 @@ let failures = 0;
 for (const fixture of fixtures) {
   const result = await evaluateRuleIntent(fixture.text);
   const classification = result.classification;
-  const ok = classification?.intent === fixture.intent && classification?.delivery === fixture.delivery;
+  const ok = classification?.schema === "walnutpi.intent.route.v2"
+    && classification?.intent === fixture.intent
+    && classification?.route === fixture.route
+    && classification?.action === fixture.action
+    && classification?.delivery === fixture.delivery;
   if (!ok) {
     failures += 1;
     console.error(JSON.stringify({
       text: fixture.text,
-      expected: { intent: fixture.intent, delivery: fixture.delivery },
+      expected: { intent: fixture.intent, route: fixture.route, action: fixture.action, delivery: fixture.delivery },
       actual: classification,
     }, null, 2));
   }

@@ -231,6 +231,78 @@
         "reply": "我会直接运行彩色 ASCII 视频命令，不打开菜单。"
       }
     },
+    "refresh_device_status": {
+      "title": "刷新设备状态",
+      "description": "Refresh Widget App device status bindings.",
+      "risk": "read",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web", "walnut-ai", "walnut-cli"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "evidence": {
+        "schema": "walnut.local-action-result.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "code", "output"]
+      },
+      "web": {
+        "command": "walnut action run status --json",
+        "parseJsonOutput": true,
+        "reply": "我会刷新设备状态绑定。",
+        "timeoutMs": 20000
+      },
+      "walnutCli": {
+        "handler": "status"
+      },
+      "walnutAi": {
+        "route": "status",
+        "timeoutSeconds": 25
+      }
+    },
+    "restart_walnut_screen_service": {
+      "title": "重启小屏服务",
+      "description": "Restart walnut-screen.service.",
+      "risk": "high",
+      "mode": "confirmable",
+      "confirmationRequired": true,
+      "allowedExecutors": ["walnut-cli"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "evidence": {
+        "schema": "walnut.pending-local-action.v1",
+        "fields": ["id", "title", "risk", "mode", "command", "explanation", "token", "expires_at"]
+      },
+      "walnutCli": {
+        "command": "sudo -n systemctl restart walnut-screen.service",
+        "explanation": "这会重启当前 LVGL 小屏服务，可能短暂黑屏。"
+      }
+    },
+    "reboot_device": {
+      "title": "重启 WalnutPi",
+      "description": "Reboot the WalnutPi device from a Widget App action.",
+      "risk": "high",
+      "mode": "confirmable",
+      "confirmationRequired": true,
+      "allowedExecutors": ["walnut-cli"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "evidence": {
+        "schema": "walnut.pending-local-action.v1",
+        "fields": ["id", "title", "risk", "mode", "command", "explanation", "token", "expires_at"]
+      },
+      "walnutCli": {
+        "command": "reboot",
+        "explanation": "这会断开当前终端和 Web Agent Console，会中断正在运行的任务。"
+      }
+    },
     "reboot": {
       "title": "重启 WalnutPi",
       "description": "Reboot the WalnutPi device.",

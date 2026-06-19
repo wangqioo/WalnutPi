@@ -6,6 +6,30 @@
     "event": { "type": "ai.chat", "params": { "delivery": "none", "confidence": 0.92 } }
   },
   {
+    "name": "widget-app-create",
+    "priority": 98,
+    "conditions": {
+      "all": [
+        { "fact": "hasScreenNoun", "operator": "equal", "value": true },
+        { "fact": "hasWidgetAppNoun", "operator": "equal", "value": true },
+        { "fact": "hasGenerateVerb", "operator": "equal", "value": true }
+      ]
+    },
+    "event": { "type": "screen.widget_app.create", "params": { "delivery": "none", "confidence": 0.92 } }
+  },
+  {
+    "name": "wallpaper-generate",
+    "priority": 97,
+    "conditions": {
+      "all": [
+        { "fact": "hasScreenNoun", "operator": "equal", "value": true },
+        { "fact": "hasWallpaperNoun", "operator": "equal", "value": true },
+        { "fact": "hasGenerateVerb", "operator": "equal", "value": true }
+      ]
+    },
+    "event": { "type": "screen.wallpaper.generate", "params": { "delivery": "none", "confidence": 0.93 } }
+  },
+  {
     "name": "screen-generate-preview",
     "priority": 95,
     "conditions": {

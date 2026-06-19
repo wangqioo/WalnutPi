@@ -2,41 +2,64 @@
   {
     "text": "自由生成一个像素风 480x320 小屏，先只预览，不要同步。",
     "intent": "screen.generate",
+    "route": "screen.wallpaper",
+    "action": "generate",
     "delivery": "none"
   },
   {
     "text": "生成一个天气小屏，然后同步到核桃派。",
     "intent": "screen.generate",
+    "route": "screen.wallpaper",
+    "action": "generate",
     "delivery": "sync_after_preview"
   },
   {
     "text": "把当前小屏同步到核桃派。",
     "intent": "screen.sync",
+    "route": "screen.wallpaper",
+    "action": "sync",
     "delivery": "sync_existing"
+  },
+  {
+    "text": "做一个小屏设备状态快捷面板，带刷新按钮和重启按钮。",
+    "intent": "screen.widget_app.create",
+    "route": "screen.widget_app",
+    "action": "create",
+    "delivery": "none"
   },
   {
     "text": "只看一下核桃派 wlan0 和 IP，不要改配置。",
     "intent": "device.network.read",
+    "route": "device.action",
+    "action": "read",
     "delivery": "none"
   },
   {
     "text": "GPIO 和 wlan0 都帮我看一下，只读，不要重启服务。",
     "intent": "device.gpio.read",
+    "route": "device.action",
+    "action": "read",
     "delivery": "none"
   },
   {
     "text": "核桃派 health 看起来怪怪的，don't restart, just read status。",
     "intent": "device.status.read",
+    "route": "device.action",
+    "action": "read",
     "delivery": "none"
   },
   {
     "text": "你现在能帮我做哪些事？不要连接设备，只说明职责。",
     "intent": "ai.chat",
+    "route": "ai.chat",
+    "action": "answer",
     "delivery": "none"
   },
   {
     "text": "记一下今天调好了 Wi-Fi",
     "intent": "device.note.write",
+    "route": "memory.notes",
+    "action": "write",
     "delivery": "none"
   }
 ]

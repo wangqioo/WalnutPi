@@ -2,6 +2,8 @@ export function extractIntentFacts(input) {
   const text = String(input || "").trim();
   const lower = text.toLowerCase();
   const hasScreenNoun = /(小屏|屏幕|界面|lvgl|screen|480x320|480\s*[x×]\s*320|卡片|面板|workspace)/i.test(text);
+  const hasWidgetAppNoun = /(小应用|应用|app|widget|控件|按钮|开关|toggle|仪表盘|dashboard|快捷面板|快捷操作|状态面板|交互|可交互|菜单|列表)/i.test(text);
+  const hasWallpaperNoun = /(壁纸|墙纸|wallpaper|图片|图像|image|像素风|动画|播放列表|playlist|media|媒体)/i.test(text);
   const hasGenerateVerb = /(生成|创建|设计|做|做成|整理成|来一个|写个|做个|generate|create|design)/i.test(text);
   const hasSyncVerb = /(同步|部署|推送|运行到|显示到|烧录|sync|deploy|flash)/i.test(text);
   const hasNegatedSync = /不(?:要|用|必)?\s*(?:同步|部署|推送|运行到|显示到|烧录)|别\s*(?:同步|部署|推送|运行到|显示到|烧录)|只\s*(?:预览|生成|看看)|preview\s*only|no\s*(?:sync|deploy)/i.test(text);
@@ -22,6 +24,8 @@ export function extractIntentFacts(input) {
   return {
     text,
     hasScreenNoun,
+    hasWidgetAppNoun,
+    hasWallpaperNoun,
     hasGenerateVerb,
     hasSyncVerb,
     hasNegatedSync,
