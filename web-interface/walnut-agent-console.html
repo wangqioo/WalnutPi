@@ -388,6 +388,7 @@
       let previewFrameIndex = 0;
       let previewTimer = 0;
       let previewPaused = false;
+      let agentEvents = null;
       const ansiUp = new AnsiUp();
       const sessionId = getSessionId();
 
@@ -587,6 +588,27 @@
         return data;
       }
 
+      function watchTurn(turn, onDone) {
+        if (agentEvents) agentEvents.close();
+        let lastSeq = 0;
+        agentEvents = new EventSource(`/api/agent/events?sessionId=${encodeURIComponent(sessionId)}&afterSeq=${lastSeq}`);
+        const onEvent = async (event) => {
+          const data = JSON.parse(event.data);
+          if (data.turnId !== turn.turnId) return;
+          lastSeq = data.seq || lastSeq;
+          if (data.kind === "step.started") appendMessage("system", `${data.stepId || "step"}: ${data.status}`);
+          if (data.kind === "step.completed" || data.kind === "step.failed") appendMessage("system", `${data.stepId || "step"}: ${data.status}`);
+          if (data.kind === "turn.completed" || data.kind === "turn.failed") {
+            agentEvents.close();
+            agentEvents = null;
+            await onDone(data);
+          }
+        };
+        for (const name of ["turn.completed", "turn.failed", "turn.pending", "step.started", "step.completed", "step.failed"]) {
+          agentEvents.addEventListener(name, onEvent);
+        }
+      }
+
       async function showGeneratedScreen(data, classification) {
         await updateLvglScreenPreview(data.output, data.screenId);
         const syncHint = classification.delivery === "sync_after_preview"
@@ -620,7 +642,29 @@
             const classification = turn.steps?.[0]?.result?.classification;
             if (mode !== "ai") updateRoute(classification);
             removeMessage(pendingMessage);
-            if (turn.steps?.some((step) => step.kind === "screen.workspace.generate.intent")) {
+            if (turn.status === "queued") {
+              appendMessage("system", `已进入队列：${turn.pendingNext || turn.steps?.at(-1)?.kind || "step"}`);
+              await new Promise((resolve, reject) => {
+                watchTurn(turn, async (event) => {
+                  try {
+                    if (event.kind === "turn.failed") throw new Error(event.error || "turn failed");
+                    const finalTurn = {
+                      ...turn,
+                      status: event.status,
+                      result: event.data?.result,
+                    };
+                    if (turn.steps?.some((step) => step.kind === "screen.workspace.generate.intent")) {
+                      appendMessage("assistant", await showGeneratedScreen(finalTurn.result, classification));
+                    } else {
+                      appendMessage("assistant", finalTurn.result?.output || "已完成。");
+                    }
+                    resolve();
+                  } catch (error) {
+                    reject(error);
+                  }
+                });
+              });
+            } else if (turn.steps?.some((step) => step.kind === "screen.workspace.generate.intent")) {
               appendMessage("assistant", await showGeneratedScreen(turn.result, classification));
             } else if (turn.pendingNext === "screen.workspace.sync.intent") {
               appendMessage("assistant", "已识别为同步工作流。请进入 Screen Workspace 确认当前播放列表后同步到核桃派。");

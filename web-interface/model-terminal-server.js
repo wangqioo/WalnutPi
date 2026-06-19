@@ -14,7 +14,10 @@ import { createWalnutRemoteAdapter } from "./walnut-remote-adapter.js";
 import { createScreenWorkspaceStore, workspaceErrorResponse } from "./screen-workspace-store.js";
 import { actionsForExecutor, loadActionPolicyManifest } from "./action-policy.js";
 import { createAgentActionsApi } from "./agent-actions-api.js";
+import { createAgentEventBus } from "./agent-event-bus.js";
 import { createAgentHarnessSessionStore } from "./agent-harness-session-store.js";
+import { createOneLaneQueue } from "./agent-one-lane-queue.js";
+import { createAgentTurnEventLedger } from "./agent-turn-event-ledger.js";
 import { createAgentTurnLedger } from "./agent-turn-ledger.js";
 import { createAgentTurnLoop } from "./agent-turn-loop.js";
 import { createProjectMemoryApi } from "./project-memory-api.js";
@@ -81,6 +84,7 @@ const RETRIEVAL_RESULT_LIMIT = 8;
 const WEB_SESSIONS_DIR = process.env.WALNUT_WEB_SESSIONS_DIR || path.join(BASE_DIR, "data", "sessions");
 const WEB_METRICS_PATH = process.env.WALNUT_WEB_METRICS_PATH || path.join(BASE_DIR, "data", "metrics.jsonl");
 const AGENT_TURNS_PATH = process.env.WALNUT_AGENT_TURNS_PATH || path.join(BASE_DIR, "data", "agent-turns.jsonl");
+const AGENT_TURN_EVENTS_PATH = process.env.WALNUT_AGENT_TURN_EVENTS_PATH || path.join(BASE_DIR, "data", "agent-turn-events.jsonl");
 const AGENT_HARNESS_SESSIONS_PATH = process.env.WALNUT_AGENT_HARNESS_SESSIONS_PATH || path.join(BASE_DIR, "data", "agent-harness-sessions.json");
 const WEB_SESSION_EVENT_LIMIT = Number(process.env.WALNUT_WEB_SESSION_EVENT_LIMIT || 300);
 const webSessionLedger = createWebSessionLedger({
@@ -95,6 +99,13 @@ const agentTurnLedger = createAgentTurnLedger({
   turnsPath: AGENT_TURNS_PATH,
   limit: Number(process.env.WALNUT_AGENT_TURN_LIMIT || 100),
 });
+const agentEventBus = createAgentEventBus();
+const agentTurnEventLedger = createAgentTurnEventLedger({
+  eventsPath: AGENT_TURN_EVENTS_PATH,
+  eventBus: agentEventBus,
+  limit: Number(process.env.WALNUT_AGENT_TURN_EVENT_LIMIT || 500),
+});
+const agentQueue = createOneLaneQueue();
 const agentHarnessSessionStore = createAgentHarnessSessionStore({
   filePath: AGENT_HARNESS_SESSIONS_PATH,
 });
@@ -112,6 +123,10 @@ const staticUiHost = createStaticUiHost({ baseDir: BASE_DIR, files });
 
 function json(data, status = 200) {
   return Response.json(data, { status });
+}
+
+function sseFrame(event) {
+  return `id: ${event.seq}\nevent: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`;
 }
 
 function readCodexAuthApiKey() {
@@ -940,6 +955,72 @@ async function persistScreenSyncResult(result, commandResults = {}, status = 200
   return json(result, status);
 }
 
+async function syncScreenFromTurn(body) {
+  const startedAt = Date.now();
+  const outcome = await screenWorkspaceSyncWorkflow.run({
+    requestJson: async () => body || {},
+    mode: "remote",
+  });
+  const latencyMs = Date.now() - startedAt;
+  const remoteExecution = outcome.result?.remoteExecution || {};
+  await webMetricsLedger.append({
+    kind: "screen.workspace.sync",
+    operation: "screen.workspace.sync",
+    ok: Boolean(outcome.result?.ok),
+    status: outcome.status,
+    latencyMs,
+    mode: outcome.result?.mode,
+    stage: outcome.result?.failedStage || "complete",
+    buildId: outcome.result?.buildId,
+    playlistHash: outcome.result?.playlistHash,
+    remoteTransport: remoteExecution.remoteTransport,
+    connectionReused: remoteExecution.connectionReused,
+    fallbackRemoteTransport: remoteExecution.fallbackRemoteTransport,
+    fallbackConnectionReused: remoteExecution.fallbackConnectionReused,
+    segments: {
+      workspaceSyncMs: latencyMs,
+      deliveryMs: outcome.result?.segments?.deliveryMs,
+      preflightMs: remoteExecution.segments?.preflightMs,
+      remoteMs: remoteExecution.segments?.remoteMs,
+    },
+    error: outcome.result?.ok ? null : outcome.result?.summary || outcome.result?.output,
+  });
+  try {
+    const record = await screenEvidenceLedger.persistSyncResult(outcome.result, outcome.commandResults);
+    await rememberSuccessfulScreenSync(record);
+  } catch (error) {
+    outcome.result.recordWarning = `screen sync record was not saved: ${error.message}`;
+  }
+  return { status: outcome.status, body: outcome.result };
+}
+
+async function handleAgentEvents(req, url) {
+  const sessionId = url.searchParams.get("sessionId") || null;
+  const afterSeq = Number(url.searchParams.get("afterSeq") || url.searchParams.get("lastSeq") || req.headers.get("last-event-id") || 0);
+  const encoder = new TextEncoder();
+  return new Response(new ReadableStream({
+    async start(controller) {
+      const send = (event) => controller.enqueue(encoder.encode(sseFrame(event)));
+      for (const event of await agentTurnEventLedger.readEvents({ sessionId, afterSeq })) send(event);
+      const unsubscribe = agentEventBus.subscribe(sessionId, send);
+      req.signal?.addEventListener("abort", () => {
+        unsubscribe();
+        try {
+          controller.close();
+        } catch {
+          // connection already closed
+        }
+      }, { once: true });
+    },
+  }), {
+    headers: {
+      "content-type": "text/event-stream; charset=utf-8",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+    },
+  });
+}
+
 function successfulScreenSyncEntry(record) {
   const visualChecks = record.screenEvidence?.visualChecks || {};
   const semantic = record.screenEvidence?.semantic || {};
@@ -1233,7 +1314,10 @@ const agentTurnLoop = createAgentTurnLoop({
   classifyIntent: classifyAgentIntent,
   runAction: agentActionsApi.runAction,
   generateScreen: screenWorkspaceApi.generateScreenWorkspace,
+  syncScreen: syncScreenFromTurn,
   turnLedger: agentTurnLedger,
+  eventLedger: agentTurnEventLedger,
+  queue: agentQueue,
   readJsonRequest,
   json,
 });
@@ -1440,6 +1524,16 @@ const server = Bun.serve({
     if (url.pathname === "/api/agent/turns") {
       if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
       return agentTurnLoop.handleTurns(url);
+    }
+
+    if (url.pathname === "/api/agent/turn-events") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return agentTurnLoop.handleTurnEvents(url);
+    }
+
+    if (url.pathname === "/api/agent/events") {
+      if (req.method !== "GET") return json({ ok: false, error: "Method not allowed" }, 405);
+      return handleAgentEvents(req, url);
     }
 
     if (url.pathname === "/api/agent/harness-session") {

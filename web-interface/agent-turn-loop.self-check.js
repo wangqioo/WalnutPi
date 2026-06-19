@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import assert from "node:assert/strict";
 import { runAgentTurn, selectTurnStep } from "./agent-turn-loop.js";
+import { createOneLaneQueue } from "./agent-one-lane-queue.js";
 
 assert.deepEqual(
   selectTurnStep({ intent: "device.status.read" }),
@@ -59,10 +60,14 @@ const generated = await runAgentTurn({
     status: 200,
     body: { ok: true, screenId: body.screenId, output: { path: "outputs/demo.png" } },
   }),
+  queue: createOneLaneQueue(),
 });
-assert.equal(generated.status, 200);
-assert.equal(generated.turn.status, "completed");
+assert.equal(generated.status, 202);
+assert.equal(generated.turn.status, "queued");
 assert.equal(generated.turn.steps[1].kind, "screen.workspace.generate.intent");
+assert.equal(generated.turn.result.queued, true);
+await new Promise((resolve) => setTimeout(resolve, 10));
+assert.equal(generated.turn.status, "completed");
 assert.equal(generated.turn.result.output.path, "outputs/demo.png");
 
 console.log("agent turn loop self-check passed");
