@@ -31,30 +31,10 @@ export function createAgentActionsApi({
       };
     },
 
-    async handleAction(req) {
+    async runAction(body, requestSegments = {}) {
       const startedAt = Date.now();
       const traceId = randomUUID();
-      const segments = {};
-      let body;
-      try {
-        const requestJsonStartedAt = Date.now();
-        body = await req.json();
-        segments.requestJsonMs = elapsedSince(requestJsonStartedAt);
-      } catch (error) {
-        await webMetricsLedger.append({
-          kind: "agent.action",
-          operation: "agent.action",
-          ok: false,
-          status: 400,
-          latencyMs: elapsedSince(startedAt),
-          action: "unknown",
-          traceId,
-          span: "total",
-          segments,
-          error: error.message || "invalid json",
-        });
-        return json({ ok: false, error: "请求不是有效 JSON。" }, 400);
-      }
+      const segments = { ...requestSegments };
 
       const id = String(body.action || "");
       let resolved;
@@ -75,7 +55,7 @@ export function createAgentActionsApi({
           segments,
           error: error.message,
         });
-        return json({ ok: false, error: error.message }, 400);
+        return { body: { ok: false, error: error.message }, status: 400 };
       }
       const action = actions[id];
       if (!action || resolved?.status === "refused") {
@@ -91,7 +71,7 @@ export function createAgentActionsApi({
           segments,
           error: resolved?.reason || "unknown action",
         });
-        return json({ ok: false, error: "未知或未允许的动作。" }, 400);
+        return { body: { ok: false, error: "未知或未允许的动作。" }, status: 400 };
       }
       if (resolved?.status === "pending") {
         await webMetricsLedger.append({
@@ -107,12 +87,15 @@ export function createAgentActionsApi({
           segments,
           error: "confirmation required",
         });
-        return json({
+        return {
+          body: {
           ok: false,
           status: "pending",
           ...actionSummary(action, id),
           error: "动作需要显式确认，Web 动作 surface 不直接执行。",
-        }, 409);
+          },
+          status: 409,
+        };
       }
 
       const sessionId = webSessionLedger.safeSessionId(body.sessionId);
@@ -146,11 +129,11 @@ export function createAgentActionsApi({
           segments,
           error: error.message,
         });
-        return json({ ok: false, error: error.message }, 400);
+        return { body: { ok: false, error: error.message }, status: 400 };
       }
 
       if (action.mode === "terminal") {
-        return handleTerminalAction({
+        return runTerminalAction({
           action,
           id,
           command,
@@ -162,7 +145,6 @@ export function createAgentActionsApi({
           webSessionLedger,
           webMetricsLedger,
           limitedOutput,
-          json,
         });
       }
 
@@ -237,7 +219,35 @@ export function createAgentActionsApi({
         error: responseBody.ok ? null : output || result.output,
       });
       segments.metricsMs = elapsedSince(metricsStartedAt);
-      return json(responseBody);
+      return { body: responseBody, status: 200 };
+    },
+
+    async handleAction(req) {
+      const startedAt = Date.now();
+      const traceId = randomUUID();
+      const segments = {};
+      let body;
+      try {
+        const requestJsonStartedAt = Date.now();
+        body = await req.json();
+        segments.requestJsonMs = elapsedSince(requestJsonStartedAt);
+      } catch (error) {
+        await webMetricsLedger.append({
+          kind: "agent.action",
+          operation: "agent.action",
+          ok: false,
+          status: 400,
+          latencyMs: elapsedSince(startedAt),
+          action: "unknown",
+          traceId,
+          span: "total",
+          segments,
+          error: error.message || "invalid json",
+        });
+        return json({ ok: false, error: "请求不是有效 JSON。" }, 400);
+      }
+      const result = await this.runAction(body, segments);
+      return json(result.body, result.status);
     },
   };
 }
@@ -292,7 +302,7 @@ function fillCommandTemplate(template, body, shellQuote) {
   });
 }
 
-async function handleTerminalAction({
+async function runTerminalAction({
   action,
   id,
   command,
@@ -304,7 +314,6 @@ async function handleTerminalAction({
   webSessionLedger,
   webMetricsLedger,
   limitedOutput,
-  json,
 }) {
   const preflightStartedAt = Date.now();
   const ensure = await walnutRemote.ensureWalnutCli();
@@ -332,7 +341,8 @@ async function handleTerminalAction({
       segments,
       error: "walnut cli preflight failed",
     });
-    return json({
+    return {
+      body: {
       ok: false,
       ...actionSummary(action, id),
       command,
@@ -354,7 +364,9 @@ async function handleTerminalAction({
         preflightEnsured: typeof ensure.ensured === "boolean" ? ensure.ensured : null,
         segments,
       },
-    }, 500);
+      },
+      status: 500,
+    };
   }
 
   const responseBody = {
@@ -389,7 +401,7 @@ async function handleTerminalAction({
     segments,
   });
   segments.metricsMs = elapsedSince(metricsStartedAt);
-  return json(responseBody);
+  return { body: responseBody, status: 200 };
 }
 
 function aiActionOutputFailed(output) {

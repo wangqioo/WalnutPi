@@ -14,6 +14,7 @@ import { createWalnutRemoteAdapter } from "./walnut-remote-adapter.js";
 import { createScreenWorkspaceStore, workspaceErrorResponse } from "./screen-workspace-store.js";
 import { actionsForExecutor, loadActionPolicyManifest } from "./action-policy.js";
 import { createAgentActionsApi } from "./agent-actions-api.js";
+import { createAgentTurnLoop } from "./agent-turn-loop.js";
 import { createProjectMemoryApi } from "./project-memory-api.js";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.js";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.js";
@@ -861,6 +862,40 @@ async function classifyIntent(text) {
   };
 }
 
+async function classifyAgentIntent(text, { traceId = randomUUID(), startedAt = Date.now() } = {}) {
+  const input = String(text || "").trim();
+  if (!input) {
+    await webMetricsLedger.append({
+      kind: "web.intent.classify",
+      operation: "intent.classify",
+      ok: false,
+      status: 400,
+      latencyMs: Date.now() - startedAt,
+      traceId,
+      span: "request",
+      inputChars: 0,
+      error: "missing text",
+    });
+    return { ok: false, status: 400, error: "missing text" };
+  }
+  const result = await classifyIntent(input);
+  const classification = result.classification;
+  await webMetricsLedger.append({
+    kind: "web.intent.classify",
+    operation: "intent.classify",
+    ok: true,
+    status: 200,
+    latencyMs: Date.now() - startedAt,
+    traceId,
+    span: "total",
+    inputChars: input.length,
+    classificationSource: classification.source || "unknown",
+    ruleShortCircuited: result.ruleShortCircuited,
+    aiClassifierUsed: result.aiClassifierUsed,
+  });
+  return { ok: true, status: 200, classification };
+}
+
 async function handleIntentClassify(req) {
   const startedAt = Date.now();
   const traceId = randomUUID();
@@ -880,37 +915,8 @@ async function handleIntentClassify(req) {
     });
     return json({ ok: false, error: error.message }, 400);
   }
-  const text = String(body.text || "").trim();
-  if (!text) {
-    await webMetricsLedger.append({
-      kind: "web.intent.classify",
-      operation: "intent.classify",
-      ok: false,
-      status: 400,
-      latencyMs: Date.now() - startedAt,
-      traceId,
-      span: "request",
-      inputChars: 0,
-      error: "missing text",
-    });
-    return json({ ok: false, error: "missing text" }, 400);
-  }
-  const result = await classifyIntent(text);
-  const classification = result.classification;
-  await webMetricsLedger.append({
-    kind: "web.intent.classify",
-    operation: "intent.classify",
-    ok: true,
-    status: 200,
-    latencyMs: Date.now() - startedAt,
-    traceId,
-    span: "total",
-    inputChars: text.length,
-    classificationSource: classification.source || "unknown",
-    ruleShortCircuited: result.ruleShortCircuited,
-    aiClassifierUsed: result.aiClassifierUsed,
-  });
-  return json({ ok: true, classification });
+  const result = await classifyAgentIntent(body.text, { traceId, startedAt });
+  return json(result.ok ? { ok: true, classification: result.classification } : { ok: false, error: result.error }, result.status);
 }
 
 async function persistScreenSyncResult(result, commandResults = {}, status = 200) {
@@ -1171,6 +1177,13 @@ async function readJsonRequest(req) {
   }
 }
 
+const agentTurnLoop = createAgentTurnLoop({
+  classifyIntent: classifyAgentIntent,
+  runAction: agentActionsApi.runAction,
+  readJsonRequest,
+  json,
+});
+
 const projectMemoryApi = createProjectMemoryApi({
   webSessionLedger,
   readWalnutMemory,
@@ -1403,6 +1416,12 @@ const server = Bun.serve({
     if (url.pathname === "/api/intent/classify") {
       if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
       return handleIntentClassify(req);
+    }
+
+    if (url.pathname === "/api/agent/turn") {
+      if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+      if (previewOnly(url)) return previewOnlyJson();
+      return agentTurnLoop.handleTurn(req);
     }
 
     if (url.pathname === "/api/screen/workspace/playlist") {
