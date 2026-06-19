@@ -1,4 +1,4 @@
-import { actionSummary } from "./action-policy.js";
+import { actionSummary, resolveAction } from "./action-policy.js";
 import { randomUUID } from "node:crypto";
 
 function elapsedSince(startedAt) {
@@ -6,6 +6,7 @@ function elapsedSince(startedAt) {
 }
 
 export function createAgentActionsApi({
+  policyManifest,
   policyActions,
   walnutRemote,
   runRemote,
@@ -56,8 +57,12 @@ export function createAgentActionsApi({
       }
 
       const id = String(body.action || "");
-      const action = actions[id];
-      if (!action) {
+      let resolved;
+      try {
+        resolved = policyManifest
+          ? resolveAction(policyManifest, { executor: "web", actionId: id, params: body })
+          : null;
+      } catch (error) {
         await webMetricsLedger.append({
           kind: "agent.action",
           operation: "agent.action",
@@ -68,18 +73,56 @@ export function createAgentActionsApi({
           traceId,
           span: "total",
           segments,
-          error: "unknown action",
+          error: error.message,
+        });
+        return json({ ok: false, error: error.message }, 400);
+      }
+      const action = actions[id];
+      if (!action || resolved?.status === "refused") {
+        await webMetricsLedger.append({
+          kind: "agent.action",
+          operation: "agent.action",
+          ok: false,
+          status: 400,
+          latencyMs: elapsedSince(startedAt),
+          action: id || "unknown",
+          traceId,
+          span: "total",
+          segments,
+          error: resolved?.reason || "unknown action",
         });
         return json({ ok: false, error: "未知或未允许的动作。" }, 400);
+      }
+      if (resolved?.status === "pending") {
+        await webMetricsLedger.append({
+          kind: "agent.action",
+          operation: "agent.action",
+          ok: false,
+          status: 409,
+          latencyMs: elapsedSince(startedAt),
+          action: id,
+          mode: action.mode,
+          traceId,
+          span: "total",
+          segments,
+          error: "confirmation required",
+        });
+        return json({
+          ok: false,
+          status: "pending",
+          ...actionSummary(action, id),
+          error: "动作需要显式确认，Web 动作 surface 不直接执行。",
+        }, 409);
       }
 
       const sessionId = webSessionLedger.safeSessionId(body.sessionId);
       let command = action.command;
       let contextUsed = null;
+      const actionParams = resolved?.parameterValues || body;
       try {
         if (action.buildCommand) {
           const buildCommandStartedAt = Date.now();
-          const built = await action.buildCommand(body);
+          const built = await action.buildCommand(actionParams);
           segments.buildCommandMs = elapsedSince(buildCommandStartedAt);
           if (typeof built === "string") {
             command = built;

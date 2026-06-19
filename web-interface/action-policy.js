@@ -39,6 +39,26 @@ export function actionsForExecutor(manifest, executor) {
   );
 }
 
+export function resolveAction(manifest, { executor, actionId, params = {} }) {
+  const executorName = cleanExecutor(executor);
+  const id = cleanActionId(actionId);
+  const action = manifest.actions[id];
+  if (!action) {
+    return { ok: false, status: "refused", actionId: id, reason: "unknown-action" };
+  }
+  if (!action.allowedExecutors.includes(executorName)) {
+    return { ok: false, status: "refused", actionId: id, reason: "executor-not-allowed" };
+  }
+  const parameterValues = resolveActionParameters(action, params, id);
+  if (action.mode === "refused") {
+    return { ok: false, status: "refused", actionId: id, action, parameterValues, reason: "policy-refused" };
+  }
+  if (action.confirmationRequired || action.mode === "confirmable") {
+    return { ok: true, status: "pending", actionId: id, action, parameterValues };
+  }
+  return { ok: true, status: "runnable", actionId: id, action, parameterValues };
+}
+
 export function actionSummary(action, id) {
   return {
     id,
@@ -51,6 +71,28 @@ export function actionSummary(action, id) {
     evidence: action.evidence,
     reply: action.web?.reply || "",
   };
+}
+
+function resolveActionParameters(action, params, actionId) {
+  const schema = action.parameters || {};
+  const hasPropertySchema = schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties);
+  const properties = hasPropertySchema ? schema.properties : {};
+  const allowAdditional = schema.additionalProperties !== false;
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  const values = {};
+  for (const key of required) {
+    if (params[key] === undefined || params[key] === null || String(params[key]).trim() === "") {
+      throw new Error(`actions.${actionId}.parameters.${key} is required`);
+    }
+  }
+  for (const [key, value] of Object.entries(params || {})) {
+    if (properties[key]) {
+      values[key] = value;
+    } else if (!hasPropertySchema || allowAdditional) {
+      values[key] = value;
+    }
+  }
+  return values;
 }
 
 function normalizeAction(id, action) {
