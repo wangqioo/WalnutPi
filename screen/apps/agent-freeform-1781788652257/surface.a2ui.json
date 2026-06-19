@@ -1,0 +1,98 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "agent-freeform-1781788652257",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "agent-freeform-1781788652257",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "bg-panel",
+        "component": "Container"
+      },
+      {
+        "id": "top-bar",
+        "component": "Container"
+      },
+      {
+        "id": "city",
+        "component": "Text",
+        "text": "上海"
+      },
+      {
+        "id": "cond",
+        "component": "Text",
+        "text": "多云"
+      },
+      {
+        "id": "temp",
+        "component": "Text",
+        "text": "28C"
+      },
+      {
+        "id": "icon-sun",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-1",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-2",
+        "component": "Container"
+      },
+      {
+        "id": "info-card",
+        "component": "Text",
+        "text": "天气提醒"
+      },
+      {
+        "id": "remind",
+        "component": "Text",
+        "text": "提醒：带伞"
+      },
+      {
+        "id": "note",
+        "component": "Text",
+        "text": "体感舒适，外出注意阵雨"
+      },
+      {
+        "id": "humid-label",
+        "component": "Text",
+        "text": "湿度"
+      },
+      {
+        "id": "humid-bar",
+        "component": "Progress"
+      },
+      {
+        "id": "humid-value",
+        "component": "Text",
+        "text": "68%"
+      },
+      {
+        "id": "refresh-btn",
+        "component": "Button",
+        "text": "刷新",
+        "action": {
+          "event": {
+            "name": "weather.refresh",
+            "context": {
+              "city": "上海"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "agent-freeform-1781788652257",
+    "path": "/",
+    "value": {}
+  }
+}

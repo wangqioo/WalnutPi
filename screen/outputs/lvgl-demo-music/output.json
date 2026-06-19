@@ -1,0 +1,15 @@
+{
+  "schema": "walnutpi.screen-output.v1",
+  "id": "lvgl-demo-music",
+  "generatedAt": "2026-06-19T05:34:10.096Z",
+  "manifest": "../../manifests/lvgl-demo-music.json",
+  "output": {
+    "type": "static",
+    "path": "../outputs/lvgl-demo-music/output.png",
+    "width": 480,
+    "height": 320,
+    "fileSha256": "62d6737ca990aad71c9b1d7eaed58a0639c1976b769ae772cff2c6ae9fe63c6f",
+    "rgbaPixelSha256": "7a728595208f01f10734550efc92e2758b993addaa08f5eb3cec3fb63ba77379",
+    "rgb565PixelSha256": "e095d375bba83a9ad238b8b2d70b7e583529aa34ad2ef411b2565257fbbf689c"
+  }
+}

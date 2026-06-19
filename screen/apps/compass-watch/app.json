@@ -1,0 +1,227 @@
+{
+  "schema": "walnutpi.widget-app.v1",
+  "id": "compass-watch",
+  "title": "Compass",
+  "createdAt": "2026-06-19T00:00:00.000Z",
+  "prompt": "Apple Watch style compass app",
+  "mode": "widget_app",
+  "a2uiSurface": {
+    "version": "v0.9.1",
+    "createSurface": {
+      "surfaceId": "compass-watch",
+      "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+    },
+    "updateComponents": {
+      "surfaceId": "compass-watch",
+      "components": [
+        {
+          "id": "root",
+          "component": "Container"
+        },
+        {
+          "id": "bg",
+          "component": "Container"
+        },
+        {
+          "id": "outer",
+          "component": "Gauge"
+        },
+        {
+          "id": "inner",
+          "component": "Gauge"
+        },
+        {
+          "id": "degree",
+          "component": "Text",
+          "value": {
+            "path": "/degree"
+          }
+        },
+        {
+          "id": "dir",
+          "component": "Text",
+          "value": {
+            "path": "/dir"
+          }
+        },
+        {
+          "id": "north",
+          "component": "Text",
+          "text": "N"
+        },
+        {
+          "id": "east",
+          "component": "Text",
+          "text": "E"
+        },
+        {
+          "id": "south",
+          "component": "Text",
+          "text": "S"
+        },
+        {
+          "id": "alt",
+          "component": "Text",
+          "value": {
+            "path": "/alt"
+          }
+        }
+      ]
+    },
+    "updateDataModel": {
+      "surfaceId": "compass-watch",
+      "path": "/",
+      "value": {
+        "degree": "284",
+        "dir": "WNW",
+        "alt": "32M"
+      }
+    }
+  },
+  "catalog": {
+    "schema": "walnutpi.lvgl-widget-catalog.v1",
+    "id": "compass-watch",
+    "title": "Compass",
+    "size": {
+      "width": 480,
+      "height": 320
+    },
+    "theme": "watch-dark",
+    "data": {
+      "degree": "284",
+      "dir": "WNW",
+      "alt": "32M"
+    },
+    "root": "root",
+    "nodes": [
+      {
+        "id": "root",
+        "kind": "container",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 480,
+          "h": 320
+        },
+        "style": "screen"
+      },
+      {
+        "id": "bg",
+        "kind": "rect",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 480,
+          "h": 320
+        },
+        "style": "screen",
+        "parent": "root"
+      },
+      {
+        "id": "outer",
+        "kind": "gauge",
+        "layout": {
+          "x": 82,
+          "y": 28,
+          "w": 260,
+          "h": 260
+        },
+        "style": "orange",
+        "parent": "root",
+        "value": 79
+      },
+      {
+        "id": "inner",
+        "kind": "gauge",
+        "layout": {
+          "x": 126,
+          "y": 72,
+          "w": 172,
+          "h": 172
+        },
+        "style": "chip",
+        "parent": "root",
+        "value": 100
+      },
+      {
+        "id": "degree",
+        "kind": "text",
+        "layout": {
+          "x": 150,
+          "y": 126,
+          "w": 124,
+          "h": 56
+        },
+        "style": "text",
+        "parent": "root",
+        "binding": "/degree"
+      },
+      {
+        "id": "dir",
+        "kind": "text",
+        "layout": {
+          "x": 166,
+          "y": 188,
+          "w": 90,
+          "h": 34
+        },
+        "style": "orange",
+        "parent": "root",
+        "binding": "/dir"
+      },
+      {
+        "id": "north",
+        "kind": "text",
+        "layout": {
+          "x": 196,
+          "y": 42,
+          "w": 34,
+          "h": 28
+        },
+        "style": "danger",
+        "parent": "root",
+        "text": "N"
+      },
+      {
+        "id": "east",
+        "kind": "text",
+        "layout": {
+          "x": 306,
+          "y": 144,
+          "w": 34,
+          "h": 28
+        },
+        "style": "muted2",
+        "parent": "root",
+        "text": "E"
+      },
+      {
+        "id": "south",
+        "kind": "text",
+        "layout": {
+          "x": 196,
+          "y": 254,
+          "w": 34,
+          "h": 28
+        },
+        "style": "muted2",
+        "parent": "root",
+        "text": "S"
+      },
+      {
+        "id": "alt",
+        "kind": "text",
+        "layout": {
+          "x": 358,
+          "y": 140,
+          "w": 70,
+          "h": 34
+        },
+        "style": "muted",
+        "parent": "root",
+        "binding": "/alt"
+      }
+    ]
+  },
+  "actions": []
+}

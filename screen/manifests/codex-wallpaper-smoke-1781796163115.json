@@ -1,0 +1,84 @@
+{
+  "schema": "walnutpi.screen-manifest.v2",
+  "id": "codex-wallpaper-smoke-1781796163115",
+  "title": "WALNUTPI SCR",
+  "description": "红色日落像素壁纸，480x320，动态云层",
+  "output": {
+    "type": "animated",
+    "path": "../outputs/codex-wallpaper-smoke-1781796163115/output.json",
+    "width": 480,
+    "height": 320,
+    "frameCount": 4,
+    "frames": [
+      {
+        "path": "../outputs/codex-wallpaper-smoke-1781796163115/frames/frame-000.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "9fee66b798d4b0eda44c957425cf04ac1769c1f3e86e490caaf1c69a8cbd1614",
+        "rgbaPixelSha256": "a08cd8261df7baf78f96367367b13469d83e9deb43d52feb029e877c0ab94e6d",
+        "rgb565PixelSha256": "27ee0ecd83c45e462a8df6fc9b1c6f1abaeca37cf394ccb285f3db405ca1eacb"
+      },
+      {
+        "path": "../outputs/codex-wallpaper-smoke-1781796163115/frames/frame-001.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "9fee66b798d4b0eda44c957425cf04ac1769c1f3e86e490caaf1c69a8cbd1614",
+        "rgbaPixelSha256": "a08cd8261df7baf78f96367367b13469d83e9deb43d52feb029e877c0ab94e6d",
+        "rgb565PixelSha256": "27ee0ecd83c45e462a8df6fc9b1c6f1abaeca37cf394ccb285f3db405ca1eacb"
+      },
+      {
+        "path": "../outputs/codex-wallpaper-smoke-1781796163115/frames/frame-002.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "9fee66b798d4b0eda44c957425cf04ac1769c1f3e86e490caaf1c69a8cbd1614",
+        "rgbaPixelSha256": "a08cd8261df7baf78f96367367b13469d83e9deb43d52feb029e877c0ab94e6d",
+        "rgb565PixelSha256": "27ee0ecd83c45e462a8df6fc9b1c6f1abaeca37cf394ccb285f3db405ca1eacb"
+      },
+      {
+        "path": "../outputs/codex-wallpaper-smoke-1781796163115/frames/frame-003.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "9fee66b798d4b0eda44c957425cf04ac1769c1f3e86e490caaf1c69a8cbd1614",
+        "rgbaPixelSha256": "a08cd8261df7baf78f96367367b13469d83e9deb43d52feb029e877c0ab94e6d",
+        "rgb565PixelSha256": "27ee0ecd83c45e462a8df6fc9b1c6f1abaeca37cf394ccb285f3db405ca1eacb"
+      }
+    ],
+    "animatedOutputSha256": "218586fc3cf102fc08d7707c676301dd047308703d3f55b128c1f054d22daf61"
+  },
+  "provenance": {
+    "plan": "../plans/codex-wallpaper-smoke-1781796163115-plan.json",
+    "sourceAssets": [
+      {
+        "id": "codex-wallpaper-smoke-1781796163115-source",
+        "source": "../sources/codex-wallpaper-smoke-1781796163115-source/source.json",
+        "original": "../sources/codex-wallpaper-smoke-1781796163115-source/scene.json",
+        "width": 480,
+        "height": 320,
+        "mediaType": "application/json",
+        "license": "local-freeform-generation",
+        "selected": true
+      }
+    ],
+    "widgetApp": {
+      "schema": "walnutpi.widget-app-source.v1",
+      "mode": "widget_app",
+      "app": "../apps/codex-wallpaper-smoke-1781796163115/app.json",
+      "catalog": "../apps/codex-wallpaper-smoke-1781796163115/catalog.json",
+      "a2uiSurface": "../apps/codex-wallpaper-smoke-1781796163115/surface.a2ui.json",
+      "snapshotSource": "../apps/codex-wallpaper-smoke-1781796163115/snapshot-source.json"
+    },
+    "processing": {
+      "preset": "pixel-grid:120x80@4x",
+      "tools": [
+        {
+          "name": "sharp",
+          "version": "0.35.1"
+        }
+      ]
+    }
+  }
+}

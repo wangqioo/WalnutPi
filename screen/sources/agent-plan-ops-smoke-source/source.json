@@ -1,0 +1,51 @@
+{
+  "schema": "walnutpi.screen-source-asset.v1",
+  "id": "agent-plan-ops-smoke-source",
+  "title": "WALNUTPI SCR",
+  "selected": true,
+  "importedAt": "2026-06-18T13:51:38.093Z",
+  "original": "original.png",
+  "fileSha256": "ae19e75832eb76c798d75e948a4aac639e583b08a7ffad187caade0297918933",
+  "width": 480,
+  "height": 320,
+  "mediaType": "image/png",
+  "license": "local-freeform-generation",
+  "origin": {
+    "kind": "agent-freeform",
+    "prompt": "做一个核桃派状态小屏，显示 CPU 和 Wi-Fi",
+    "screenSpec": {
+      "schema": "walnutpi.pixelScreenSpec.v1",
+      "template": "pixel-ops",
+      "logicalWidth": 120,
+      "logicalHeight": 80,
+      "scale": 4,
+      "title": "WALNUTPI SCR",
+      "background": "#101412",
+      "accent": "#78c58a",
+      "progress": 64,
+      "primaryLabel": "WLAN0 / IP",
+      "primaryValue": "192.168.1.24",
+      "footer": "AGENT PIXEL",
+      "metrics": [
+        {
+          "label": "CPU",
+          "value": "31%",
+          "color": "#f2efe3",
+          "bar": 11
+        },
+        {
+          "label": "TEMP",
+          "value": "OK",
+          "color": "#e0b45e",
+          "bar": 20
+        },
+        {
+          "label": "PWR",
+          "value": "8.0S",
+          "color": "#78c58a",
+          "bar": 29
+        }
+      ]
+    }
+  }
+}

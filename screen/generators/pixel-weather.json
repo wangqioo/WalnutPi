@@ -23,10 +23,10 @@
     "dither": "#151d24"
   },
   "layout": {
-    "title": { "x": 8, "y": 9, "scale": 2, "maxChars": 12 },
-    "primaryLabel": { "x": 10, "y": 30, "scale": 1, "maxChars": 12 },
-    "primaryValue": { "x": 10, "y": 39, "scale": 2, "maxChars": 16 },
-    "footer": { "x": 10, "y": 59, "scale": 1, "maxChars": 16 },
+    "title": { "x": 8, "y": 12, "scale": 2, "maxChars": 10 },
+    "primaryLabel": { "x": 8, "y": 31, "scale": 1, "maxChars": 10 },
+    "primaryValue": { "x": 8, "y": 47, "scale": 2, "maxChars": 8 },
+    "footer": { "x": 8, "y": 60, "scale": 1, "maxChars": 12 },
     "metric": { "x": 78, "valueX": 92, "y": 32, "gapY": 13, "markerX": 74, "markerOffsetY": -5, "markerWidth": 2, "markerHeight": 8 },
     "wifi": { "x": 101, "y": 12 },
     "progress": { "x": 8, "y": 70, "width": 96, "height": 2 },
@@ -48,17 +48,13 @@
   },
   "sprites": {
     "board": [
-      { "rect": [9, 24, 58, 34], "fill": "board" },
-      { "rect": [9, 24, 58, 1], "fill": "boardBorder" },
-      { "rect": [9, 57, 58, 1], "fill": "boardBorder" },
-      { "rect": [9, 24, 1, 34], "fill": "boardBorder" },
-      { "rect": [66, 24, 1, 34], "fill": "boardBorder" },
-      { "rect": [20, 30, 13, 6], "fill": "wifi" },
-      { "rect": [16, 34, 27, 8], "fill": "wifi" },
-      { "rect": [48, 30, 7, 7], "fill": "yellow" },
-      { "rect": [19, 48, 3, 5], "fill": "cyan" },
-      { "rect": [29, 48, 3, 5], "fill": "cyan" },
-      { "rect": [39, 48, 3, 5], "fill": "cyan" }
+      { "rect": [56, 25, 8, 8], "fill": "yellow" },
+      { "rect": [12, 39, 3, 3], "fill": "cyan" },
+      { "rect": [28, 55, 3, 5], "fill": "cyan" },
+      { "rect": [39, 56, 2, 4], "fill": "cyan" },
+      { "rect": [50, 55, 3, 5], "fill": "cyan" },
+      { "rect": [11, 66, 54, 1], "fill": "trace" },
+      { "rect": [71, 24, 1, 35], "fill": "trace" }
     ],
     "wifi": [
       { "rect": [5, 0, 5, 5], "fill": "yellow" },

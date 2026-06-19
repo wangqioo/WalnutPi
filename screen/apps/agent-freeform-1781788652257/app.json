@@ -1,0 +1,331 @@
+{
+  "schema": "walnutpi.widget-app.v1",
+  "id": "agent-freeform-1781788652257",
+  "title": "WEATHER",
+  "createdAt": "2026-06-18T13:17:41.954Z",
+  "prompt": "做一个核桃派小屏天气卡片：上海，多云，28C，提醒带伞",
+  "mode": "widget_app",
+  "a2uiSurface": {
+    "version": "v0.9.1",
+    "createSurface": {
+      "surfaceId": "agent-freeform-1781788652257",
+      "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+    },
+    "updateComponents": {
+      "surfaceId": "agent-freeform-1781788652257",
+      "components": [
+        {
+          "id": "root",
+          "component": "Container"
+        },
+        {
+          "id": "bg-panel",
+          "component": "Container"
+        },
+        {
+          "id": "top-bar",
+          "component": "Container"
+        },
+        {
+          "id": "city",
+          "component": "Text",
+          "text": "上海"
+        },
+        {
+          "id": "cond",
+          "component": "Text",
+          "text": "多云"
+        },
+        {
+          "id": "temp",
+          "component": "Text",
+          "text": "28C"
+        },
+        {
+          "id": "icon-sun",
+          "component": "Container"
+        },
+        {
+          "id": "cloud-1",
+          "component": "Container"
+        },
+        {
+          "id": "cloud-2",
+          "component": "Container"
+        },
+        {
+          "id": "info-card",
+          "component": "Text",
+          "text": "天气提醒"
+        },
+        {
+          "id": "remind",
+          "component": "Text",
+          "text": "提醒：带伞"
+        },
+        {
+          "id": "note",
+          "component": "Text",
+          "text": "体感舒适，外出注意阵雨"
+        },
+        {
+          "id": "humid-label",
+          "component": "Text",
+          "text": "湿度"
+        },
+        {
+          "id": "humid-bar",
+          "component": "Progress"
+        },
+        {
+          "id": "humid-value",
+          "component": "Text",
+          "text": "68%"
+        },
+        {
+          "id": "refresh-btn",
+          "component": "Button",
+          "text": "刷新",
+          "action": {
+            "event": {
+              "name": "weather.refresh",
+              "context": {
+                "city": "上海"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "updateDataModel": {
+      "surfaceId": "agent-freeform-1781788652257",
+      "path": "/",
+      "value": {}
+    }
+  },
+  "catalog": {
+    "schema": "walnutpi.lvgl-widget-catalog.v1",
+    "id": "agent-freeform-1781788652257",
+    "title": "上海天气卡片",
+    "size": {
+      "width": 480,
+      "height": 320
+    },
+    "theme": "pixel-default",
+    "data": {},
+    "root": "root",
+    "nodes": [
+      {
+        "id": "root",
+        "kind": "container",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 480,
+          "h": 320
+        },
+        "style": "screen"
+      },
+      {
+        "id": "bg-panel",
+        "kind": "rect",
+        "layout": {
+          "x": 16,
+          "y": 16,
+          "w": 448,
+          "h": 288
+        },
+        "style": "panel",
+        "parent": "root"
+      },
+      {
+        "id": "top-bar",
+        "kind": "rect",
+        "layout": {
+          "x": 24,
+          "y": 24,
+          "w": 432,
+          "h": 28
+        },
+        "style": "panelBorder",
+        "parent": "root"
+      },
+      {
+        "id": "city",
+        "kind": "text",
+        "layout": {
+          "x": 32,
+          "y": 28,
+          "w": 120,
+          "h": 18
+        },
+        "style": "text",
+        "parent": "root",
+        "text": "上海"
+      },
+      {
+        "id": "cond",
+        "kind": "text",
+        "layout": {
+          "x": 160,
+          "y": 28,
+          "w": 96,
+          "h": 18
+        },
+        "style": "muted",
+        "parent": "root",
+        "text": "多云"
+      },
+      {
+        "id": "temp",
+        "kind": "text",
+        "layout": {
+          "x": 32,
+          "y": 78,
+          "w": 180,
+          "h": 72
+        },
+        "style": "primary",
+        "parent": "root",
+        "text": "28C"
+      },
+      {
+        "id": "icon-sun",
+        "kind": "rect",
+        "layout": {
+          "x": 308,
+          "y": 78,
+          "w": 64,
+          "h": 64
+        },
+        "style": "accent",
+        "parent": "root"
+      },
+      {
+        "id": "cloud-1",
+        "kind": "rect",
+        "layout": {
+          "x": 296,
+          "y": 98,
+          "w": 78,
+          "h": 30
+        },
+        "style": "panelBorder",
+        "parent": "root"
+      },
+      {
+        "id": "cloud-2",
+        "kind": "rect",
+        "layout": {
+          "x": 332,
+          "y": 88,
+          "w": 48,
+          "h": 26
+        },
+        "style": "panelBorder",
+        "parent": "root"
+      },
+      {
+        "id": "info-card",
+        "kind": "status_tile",
+        "layout": {
+          "x": 32,
+          "y": 168,
+          "w": 416,
+          "h": 60
+        },
+        "style": "chip",
+        "parent": "root",
+        "text": "天气提醒",
+        "value": 1
+      },
+      {
+        "id": "remind",
+        "kind": "text",
+        "layout": {
+          "x": 48,
+          "y": 184,
+          "w": 220,
+          "h": 18
+        },
+        "style": "text",
+        "parent": "root",
+        "text": "提醒：带伞"
+      },
+      {
+        "id": "note",
+        "kind": "text",
+        "layout": {
+          "x": 48,
+          "y": 206,
+          "w": 280,
+          "h": 16
+        },
+        "style": "muted2",
+        "parent": "root",
+        "text": "体感舒适，外出注意阵雨"
+      },
+      {
+        "id": "humid-label",
+        "kind": "text",
+        "layout": {
+          "x": 32,
+          "y": 244,
+          "w": 80,
+          "h": 16
+        },
+        "style": "muted",
+        "parent": "root",
+        "text": "湿度"
+      },
+      {
+        "id": "humid-bar",
+        "kind": "progress",
+        "layout": {
+          "x": 96,
+          "y": 242,
+          "w": 260,
+          "h": 20
+        },
+        "style": "barTrack",
+        "parent": "root",
+        "value": 68,
+        "min": 0,
+        "max": 100
+      },
+      {
+        "id": "humid-value",
+        "kind": "text",
+        "layout": {
+          "x": 368,
+          "y": 242,
+          "w": 40,
+          "h": 16
+        },
+        "style": "text",
+        "parent": "root",
+        "text": "68%"
+      },
+      {
+        "id": "refresh-btn",
+        "kind": "button",
+        "layout": {
+          "x": 392,
+          "y": 240,
+          "w": 56,
+          "h": 24
+        },
+        "style": "accent",
+        "parent": "root",
+        "text": "刷新",
+        "action": {
+          "name": "weather.refresh",
+          "params": {
+            "city": "上海"
+          }
+        }
+      }
+    ]
+  },
+  "actions": []
+}

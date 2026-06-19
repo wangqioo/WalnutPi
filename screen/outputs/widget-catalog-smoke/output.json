@@ -1,0 +1,15 @@
+{
+  "schema": "walnutpi.screen-output.v1",
+  "id": "widget-catalog-smoke",
+  "generatedAt": "2026-06-18T06:52:21.025Z",
+  "manifest": "../../manifests/widget-catalog-smoke.json",
+  "output": {
+    "type": "static",
+    "path": "../outputs/widget-catalog-smoke/output.png",
+    "width": 480,
+    "height": 320,
+    "fileSha256": "14f492c5130e52b0d8192c9b9ac846741f5054d25f1f32e08fd60551293e79b8",
+    "rgbaPixelSha256": "e824e77a6385020b777e04973d003827f4924bc63f004d220566e0e5d600a9bd",
+    "rgb565PixelSha256": "6a120cb116565033399fd622c6850b21c432d78daafcdfabfd2791db26e6a939"
+  }
+}

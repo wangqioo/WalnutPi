@@ -1,0 +1,138 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "codex-wallpaper-smoke-1781796163115",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "codex-wallpaper-smoke-1781796163115",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "sky",
+        "component": "Container"
+      },
+      {
+        "id": "sun",
+        "component": "Container"
+      },
+      {
+        "id": "sun-core",
+        "component": "Container"
+      },
+      {
+        "id": "horizon",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-1",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-2",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-3",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-4",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-5",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-6",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-7",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-8",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-band-1",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-band-2",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-band-3",
+        "component": "Container"
+      },
+      {
+        "id": "cloud-band-4",
+        "component": "Container"
+      },
+      {
+        "id": "sea",
+        "component": "Container"
+      },
+      {
+        "id": "reflection-1",
+        "component": "Container"
+      },
+      {
+        "id": "reflection-2",
+        "component": "Container"
+      },
+      {
+        "id": "reflection-3",
+        "component": "Container"
+      },
+      {
+        "id": "reflection-4",
+        "component": "Container"
+      },
+      {
+        "id": "reflection-5",
+        "component": "Container"
+      },
+      {
+        "id": "reflection-6",
+        "component": "Container"
+      },
+      {
+        "id": "reflection-7",
+        "component": "Container"
+      },
+      {
+        "id": "reflection-8",
+        "component": "Container"
+      },
+      {
+        "id": "reflection-9",
+        "component": "Container"
+      },
+      {
+        "id": "ground",
+        "component": "Container"
+      },
+      {
+        "id": "sand-glow",
+        "component": "Container"
+      },
+      {
+        "id": "caption",
+        "component": "Text",
+        "text": "RED SUNSET / PIXEL CLOUDS"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "codex-wallpaper-smoke-1781796163115",
+    "path": "/",
+    "value": {}
+  }
+}

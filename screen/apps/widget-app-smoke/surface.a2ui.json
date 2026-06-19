@@ -1,0 +1,74 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "widget-app-smoke",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "widget-app-smoke",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "w0",
+        "component": "Container"
+      },
+      {
+        "id": "w1",
+        "component": "Container"
+      },
+      {
+        "id": "w2",
+        "component": "Container"
+      },
+      {
+        "id": "w3",
+        "component": "Container"
+      },
+      {
+        "id": "w4",
+        "component": "Text",
+        "text": "WEATHER"
+      },
+      {
+        "id": "w5",
+        "component": "Text",
+        "text": "24C"
+      },
+      {
+        "id": "w6",
+        "component": "Text",
+        "text": "LOCAL SKY"
+      },
+      {
+        "id": "w7",
+        "component": "Text",
+        "text": "REFRESH"
+      },
+      {
+        "id": "w8",
+        "component": "Text",
+        "text": "HUM 62%"
+      },
+      {
+        "id": "w9",
+        "component": "Progress"
+      },
+      {
+        "id": "w10",
+        "component": "Progress"
+      },
+      {
+        "id": "w11",
+        "component": "Gauge"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "widget-app-smoke",
+    "path": "/",
+    "value": {}
+  }
+}

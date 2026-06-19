@@ -1,0 +1,121 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "widget-catalog-smoke",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "widget-catalog-smoke",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "frame",
+        "component": "Container"
+      },
+      {
+        "id": "title",
+        "component": "Text",
+        "text": "番茄钟 / POMODORO"
+      },
+      {
+        "id": "subtitle",
+        "component": "Text",
+        "text": "专注 25:00 · 像素风小组件"
+      },
+      {
+        "id": "timerBox",
+        "component": "Text",
+        "text": "25:00"
+      },
+      {
+        "id": "statusLabel",
+        "component": "Text",
+        "text": "状态"
+      },
+      {
+        "id": "statusValue",
+        "component": "Text",
+        "text": "待开始"
+      },
+      {
+        "id": "sessionLabel",
+        "component": "Text",
+        "text": "本轮"
+      },
+      {
+        "id": "sessionValue",
+        "component": "Text",
+        "text": "工作 1 / 4"
+      },
+      {
+        "id": "progressLabel",
+        "component": "Text",
+        "text": "进度"
+      },
+      {
+        "id": "progressTrack",
+        "component": "Container"
+      },
+      {
+        "id": "progress",
+        "component": "Progress"
+      },
+      {
+        "id": "progressHint",
+        "component": "Text",
+        "text": "已完成 38%"
+      },
+      {
+        "id": "startButton",
+        "component": "Button",
+        "text": "开始",
+        "action": {
+          "event": {
+            "name": "pomodoro.start",
+            "context": {}
+          }
+        }
+      },
+      {
+        "id": "pauseButton",
+        "component": "Button",
+        "text": "暂停",
+        "action": {
+          "event": {
+            "name": "pomodoro.pause",
+            "context": {}
+          }
+        }
+      },
+      {
+        "id": "resetButton",
+        "component": "Button",
+        "text": "重置",
+        "action": {
+          "event": {
+            "name": "pomodoro.reset",
+            "context": {}
+          }
+        }
+      },
+      {
+        "id": "statsTile",
+        "component": "Text",
+        "text": "番茄数 03"
+      },
+      {
+        "id": "focusTile",
+        "component": "Text",
+        "text": "专注时长 01:16:40"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "widget-catalog-smoke",
+    "path": "/",
+    "value": {}
+  }
+}

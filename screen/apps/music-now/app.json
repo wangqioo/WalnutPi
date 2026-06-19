@@ -1,0 +1,218 @@
+{
+  "schema": "walnutpi.widget-app.v1",
+  "id": "music-now",
+  "title": "Music",
+  "createdAt": "2026-06-19T00:00:00.000Z",
+  "prompt": "Apple Watch style now playing app",
+  "mode": "widget_app",
+  "a2uiSurface": {
+    "version": "v0.9.1",
+    "createSurface": {
+      "surfaceId": "music-now",
+      "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+    },
+    "updateComponents": {
+      "surfaceId": "music-now",
+      "components": [
+        {
+          "id": "root",
+          "component": "Container"
+        },
+        {
+          "id": "bg",
+          "component": "Container"
+        },
+        {
+          "id": "discOuter",
+          "component": "Gauge"
+        },
+        {
+          "id": "discInner",
+          "component": "Gauge"
+        },
+        {
+          "id": "title",
+          "component": "Text",
+          "value": {
+            "path": "/title"
+          }
+        },
+        {
+          "id": "artist",
+          "component": "Text",
+          "value": {
+            "path": "/artist"
+          }
+        },
+        {
+          "id": "prev",
+          "component": "Container"
+        },
+        {
+          "id": "play",
+          "component": "Container"
+        },
+        {
+          "id": "next",
+          "component": "Container"
+        },
+        {
+          "id": "progress",
+          "component": "Progress"
+        }
+      ]
+    },
+    "updateDataModel": {
+      "surfaceId": "music-now",
+      "path": "/",
+      "value": {
+        "title": "NEON",
+        "artist": "LIVE MIX",
+        "play": "PLAY"
+      }
+    }
+  },
+  "catalog": {
+    "schema": "walnutpi.lvgl-widget-catalog.v1",
+    "id": "music-now",
+    "title": "Music",
+    "size": {
+      "width": 480,
+      "height": 320
+    },
+    "theme": "watch-dark",
+    "data": {
+      "title": "NEON",
+      "artist": "LIVE MIX",
+      "play": "PLAY"
+    },
+    "root": "root",
+    "nodes": [
+      {
+        "id": "root",
+        "kind": "container",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 480,
+          "h": 320
+        },
+        "style": "screen"
+      },
+      {
+        "id": "bg",
+        "kind": "rect",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 480,
+          "h": 320
+        },
+        "style": "screen",
+        "parent": "root"
+      },
+      {
+        "id": "discOuter",
+        "kind": "gauge",
+        "layout": {
+          "x": 48,
+          "y": 44,
+          "w": 210,
+          "h": 210
+        },
+        "style": "accent",
+        "parent": "root",
+        "value": 88
+      },
+      {
+        "id": "discInner",
+        "kind": "gauge",
+        "layout": {
+          "x": 94,
+          "y": 90,
+          "w": 118,
+          "h": 118
+        },
+        "style": "orange",
+        "parent": "root",
+        "value": 72
+      },
+      {
+        "id": "title",
+        "kind": "text",
+        "layout": {
+          "x": 290,
+          "y": 66,
+          "w": 120,
+          "h": 46
+        },
+        "style": "text",
+        "parent": "root",
+        "binding": "/title"
+      },
+      {
+        "id": "artist",
+        "kind": "text",
+        "layout": {
+          "x": 286,
+          "y": 122,
+          "w": 130,
+          "h": 28
+        },
+        "style": "muted",
+        "parent": "root",
+        "binding": "/artist"
+      },
+      {
+        "id": "prev",
+        "kind": "rect",
+        "layout": {
+          "x": 282,
+          "y": 202,
+          "w": 28,
+          "h": 34
+        },
+        "style": "chip",
+        "parent": "root"
+      },
+      {
+        "id": "play",
+        "kind": "rect",
+        "layout": {
+          "x": 326,
+          "y": 190,
+          "w": 52,
+          "h": 52
+        },
+        "style": "orange",
+        "parent": "root"
+      },
+      {
+        "id": "next",
+        "kind": "rect",
+        "layout": {
+          "x": 394,
+          "y": 202,
+          "w": 28,
+          "h": 34
+        },
+        "style": "chip",
+        "parent": "root"
+      },
+      {
+        "id": "progress",
+        "kind": "progress",
+        "layout": {
+          "x": 84,
+          "y": 282,
+          "w": 312,
+          "h": 10
+        },
+        "style": "accent",
+        "parent": "root",
+        "value": 42
+      }
+    ]
+  },
+  "actions": []
+}

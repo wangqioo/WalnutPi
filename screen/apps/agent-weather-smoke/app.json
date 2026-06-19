@@ -1,0 +1,370 @@
+{
+  "schema": "walnutpi.widget-app.v1",
+  "id": "agent-weather-smoke",
+  "title": "WEATHER",
+  "createdAt": "2026-06-18T13:42:15.574Z",
+  "prompt": "把上海天气做成核桃派小屏",
+  "mode": "widget_app",
+  "a2uiSurface": {
+    "version": "v0.9.1",
+    "createSurface": {
+      "surfaceId": "agent-weather-smoke",
+      "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+    },
+    "updateComponents": {
+      "surfaceId": "agent-weather-smoke",
+      "components": [
+        {
+          "id": "root",
+          "component": "Container"
+        },
+        {
+          "id": "bg_frame",
+          "component": "Container"
+        },
+        {
+          "id": "header_bar",
+          "component": "Container"
+        },
+        {
+          "id": "title",
+          "component": "Text",
+          "text": "上海天气"
+        },
+        {
+          "id": "city_tag",
+          "component": "Text",
+          "text": "SHANGHAI"
+        },
+        {
+          "id": "main_temp",
+          "component": "Text",
+          "text": "26°C"
+        },
+        {
+          "id": "condition",
+          "component": "Text",
+          "text": "多云转晴"
+        },
+        {
+          "id": "feels_like",
+          "component": "Text",
+          "text": "体感 28°C"
+        },
+        {
+          "id": "humidity",
+          "component": "Text",
+          "text": "湿度 67%"
+        },
+        {
+          "id": "wind",
+          "component": "Text",
+          "text": "东风 3级"
+        },
+        {
+          "id": "forecast_card",
+          "component": "Container"
+        },
+        {
+          "id": "forecast_title",
+          "component": "Text",
+          "text": "未来 3 小时"
+        },
+        {
+          "id": "hour_1",
+          "component": "Text",
+          "text": "16:00 27°C 轻云"
+        },
+        {
+          "id": "hour_2",
+          "component": "Text",
+          "text": "17:00 26°C 微风"
+        },
+        {
+          "id": "hour_3",
+          "component": "Text",
+          "text": "18:00 25°C 晴"
+        },
+        {
+          "id": "aqi_label",
+          "component": "Text",
+          "text": "AQI 42 良好"
+        },
+        {
+          "id": "aqi_bar",
+          "component": "Progress"
+        },
+        {
+          "id": "refresh_btn",
+          "component": "Button",
+          "text": "刷新",
+          "action": {
+            "event": {
+              "name": "weather.refresh",
+              "context": {
+                "city": "上海"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "updateDataModel": {
+      "surfaceId": "agent-weather-smoke",
+      "path": "/",
+      "value": {}
+    }
+  },
+  "catalog": {
+    "schema": "walnutpi.lvgl-widget-catalog.v1",
+    "id": "agent-weather-smoke",
+    "title": "上海天气",
+    "size": {
+      "width": 480,
+      "height": 320
+    },
+    "theme": "pixel-default",
+    "data": {},
+    "root": "root",
+    "nodes": [
+      {
+        "id": "root",
+        "kind": "container",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 480,
+          "h": 320
+        },
+        "style": "screen"
+      },
+      {
+        "id": "bg_frame",
+        "kind": "rect",
+        "layout": {
+          "x": 8,
+          "y": 8,
+          "w": 464,
+          "h": 304
+        },
+        "style": "panel",
+        "parent": "root"
+      },
+      {
+        "id": "header_bar",
+        "kind": "rect",
+        "layout": {
+          "x": 16,
+          "y": 16,
+          "w": 448,
+          "h": 40
+        },
+        "style": "panelBorder",
+        "parent": "root"
+      },
+      {
+        "id": "title",
+        "kind": "text",
+        "layout": {
+          "x": 28,
+          "y": 24,
+          "w": 120,
+          "h": 20
+        },
+        "style": "text",
+        "parent": "root",
+        "text": "上海天气"
+      },
+      {
+        "id": "city_tag",
+        "kind": "status_tile",
+        "layout": {
+          "x": 360,
+          "y": 20,
+          "w": 92,
+          "h": 24
+        },
+        "style": "chip",
+        "parent": "root",
+        "text": "SHANGHAI"
+      },
+      {
+        "id": "main_temp",
+        "kind": "text",
+        "layout": {
+          "x": 26,
+          "y": 72,
+          "w": 120,
+          "h": 48
+        },
+        "style": "primary",
+        "parent": "root",
+        "text": "26°C"
+      },
+      {
+        "id": "condition",
+        "kind": "text",
+        "layout": {
+          "x": 26,
+          "y": 120,
+          "w": 160,
+          "h": 24
+        },
+        "style": "text",
+        "parent": "root",
+        "text": "多云转晴"
+      },
+      {
+        "id": "feels_like",
+        "kind": "status_tile",
+        "layout": {
+          "x": 26,
+          "y": 152,
+          "w": 130,
+          "h": 30
+        },
+        "style": "chip",
+        "parent": "root",
+        "text": "体感 28°C"
+      },
+      {
+        "id": "humidity",
+        "kind": "status_tile",
+        "layout": {
+          "x": 166,
+          "y": 152,
+          "w": 130,
+          "h": 30
+        },
+        "style": "chip",
+        "parent": "root",
+        "text": "湿度 67%"
+      },
+      {
+        "id": "wind",
+        "kind": "status_tile",
+        "layout": {
+          "x": 306,
+          "y": 152,
+          "w": 130,
+          "h": 30
+        },
+        "style": "chip",
+        "parent": "root",
+        "text": "东风 3级"
+      },
+      {
+        "id": "forecast_card",
+        "kind": "rect",
+        "layout": {
+          "x": 16,
+          "y": 196,
+          "w": 448,
+          "h": 100
+        },
+        "style": "panel",
+        "parent": "root"
+      },
+      {
+        "id": "forecast_title",
+        "kind": "text",
+        "layout": {
+          "x": 28,
+          "y": 206,
+          "w": 120,
+          "h": 18
+        },
+        "style": "muted",
+        "parent": "root",
+        "text": "未来 3 小时"
+      },
+      {
+        "id": "hour_1",
+        "kind": "status_tile",
+        "layout": {
+          "x": 28,
+          "y": 230,
+          "w": 132,
+          "h": 52
+        },
+        "style": "chip",
+        "parent": "root",
+        "text": "16:00 27°C 轻云"
+      },
+      {
+        "id": "hour_2",
+        "kind": "status_tile",
+        "layout": {
+          "x": 174,
+          "y": 230,
+          "w": 132,
+          "h": 52
+        },
+        "style": "chip",
+        "parent": "root",
+        "text": "17:00 26°C 微风"
+      },
+      {
+        "id": "hour_3",
+        "kind": "status_tile",
+        "layout": {
+          "x": 320,
+          "y": 230,
+          "w": 132,
+          "h": 52
+        },
+        "style": "chip",
+        "parent": "root",
+        "text": "18:00 25°C 晴"
+      },
+      {
+        "id": "aqi_label",
+        "kind": "text",
+        "layout": {
+          "x": 28,
+          "y": 288,
+          "w": 90,
+          "h": 16
+        },
+        "style": "muted2",
+        "parent": "root",
+        "text": "AQI 42 良好"
+      },
+      {
+        "id": "aqi_bar",
+        "kind": "progress",
+        "layout": {
+          "x": 116,
+          "y": 286,
+          "w": 316,
+          "h": 14
+        },
+        "style": "barTrack",
+        "parent": "root",
+        "value": 42,
+        "min": 0,
+        "max": 300
+      },
+      {
+        "id": "refresh_btn",
+        "kind": "button",
+        "layout": {
+          "x": 396,
+          "y": 18,
+          "w": 52,
+          "h": 28
+        },
+        "style": "accent",
+        "parent": "root",
+        "text": "刷新",
+        "action": {
+          "name": "weather.refresh",
+          "params": {
+            "city": "上海"
+          }
+        }
+      }
+    ]
+  },
+  "actions": []
+}

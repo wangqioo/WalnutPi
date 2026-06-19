@@ -1,0 +1,76 @@
+{
+  "schema": "walnutpi.screen-manifest.v2",
+  "id": "agent-weather-final-smoke",
+  "title": "WEATHER",
+  "description": "把上海天气做成核桃派小屏",
+  "output": {
+    "type": "animated",
+    "path": "../outputs/agent-weather-final-smoke/output.json",
+    "width": 480,
+    "height": 320,
+    "frameCount": 4,
+    "frames": [
+      {
+        "path": "../outputs/agent-weather-final-smoke/frames/frame-000.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "f13c9ebac593b54f1395a128ad45ca327c8b34c576157a96a62db89d2b231a2f",
+        "rgbaPixelSha256": "dfe50ba1d68b5e0c7217d5f71679abdde1bff18a60def05893e471b45542e2b8",
+        "rgb565PixelSha256": "b6fe3c4ae7c95d4edfc0b91a40a18e4d357920a088b038c514d9247d61f2e531"
+      },
+      {
+        "path": "../outputs/agent-weather-final-smoke/frames/frame-001.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "b3739a025dfa548f0676c99e5b15ccc5ec5386ab517883fb27cc46a171018720",
+        "rgbaPixelSha256": "1d9501ac98c6b9b7734f2a04b8e8dedb25a4b6e839e0bd5a5626f90afacb4ae6",
+        "rgb565PixelSha256": "806b290b944b35928a5f6d950e01214e13726474e9c1c476396be05aeb4b9198"
+      },
+      {
+        "path": "../outputs/agent-weather-final-smoke/frames/frame-002.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "7ab2e62d5ed675b3c545f3d7b3e31403a326eae350116f04d5113a5c8ff6222d",
+        "rgbaPixelSha256": "b33269c90a88c2373c5a3f3d0b871cd1a95aa7884d86710601a1eff78ec1e12c",
+        "rgb565PixelSha256": "ded55cc59c50f58f23a21911518afc504af94abecc0c342984843f7c8073c014"
+      },
+      {
+        "path": "../outputs/agent-weather-final-smoke/frames/frame-003.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "424273071f17be0758d154b27cb17f6469bac778cbba6ce993061a3082a7b3b1",
+        "rgbaPixelSha256": "f35c37e784d4ba333188a7b003077f53095f0a7742a966323df9f78c57c39dfc",
+        "rgb565PixelSha256": "1596ad405fd8741ef7686cb79e75ae3738187ec1e80873a702c353cf495f673c"
+      }
+    ],
+    "animatedOutputSha256": "577becc9213d3a71b169ec0b51b5a47fb42400233dae0ecdf00f507e9a2fa615"
+  },
+  "provenance": {
+    "plan": "../plans/agent-weather-final-smoke-plan.json",
+    "sourceAssets": [
+      {
+        "id": "agent-weather-final-smoke-source",
+        "source": "../sources/agent-weather-final-smoke-source/source.json",
+        "original": "../sources/agent-weather-final-smoke-source/scene.json",
+        "width": 480,
+        "height": 320,
+        "mediaType": "application/json",
+        "license": "local-freeform-generation",
+        "selected": true
+      }
+    ],
+    "processing": {
+      "preset": "pixel-grid:120x80@4x",
+      "tools": [
+        {
+          "name": "sharp",
+          "version": "0.35.1"
+        }
+      ]
+    }
+  }
+}

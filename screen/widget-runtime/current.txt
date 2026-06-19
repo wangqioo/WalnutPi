@@ -1,0 +1,13 @@
+schema walnutpi.lvgl-widget-runtime.v1
+appId music-now
+versionId 2026-06-19T00:00:00.000Z
+widgetCount 10
+widget rect bg 0 0 480 320 - 0 101412 -
+widget arc discOuter 48 44 210 210 - 88 8fd6ff -
+widget arc discInner 94 90 118 118 - 72 ff9f0a -
+widget label title 290 66 120 46 NEON 0 f4f1df -
+widget label artist 286 122 130 28 LIVE_MIX 0 a8b5a2 -
+widget rect prev 282 202 28 34 - 0 314052 -
+widget rect play 326 190 52 52 - 0 ff9f0a -
+widget rect next 394 202 28 34 - 0 314052 -
+widget bar progress 84 282 312 10 - 42 8fd6ff -

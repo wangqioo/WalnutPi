@@ -1,0 +1,12 @@
+{
+  "schema": "walnutpi.screen-plan.v1",
+  "id": "lvgl-demo-music-plan",
+  "screenId": "lvgl-demo-music",
+  "outputType": "static",
+  "selectedSourceAsset": "../sources/lvgl-demo-music-source/source.json",
+  "processing": {
+    "preset": "fit-contain:480x320"
+  },
+  "requestedAt": null,
+  "executedAt": "2026-06-19T05:34:10.096Z"
+}

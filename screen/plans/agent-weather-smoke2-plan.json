@@ -1,0 +1,17 @@
+{
+  "schema": "walnutpi.screen-plan.v1",
+  "id": "agent-weather-smoke2-plan",
+  "screenId": "agent-weather-smoke2",
+  "outputType": "animated",
+  "selectedSourceAsset": "../sources/agent-weather-smoke2-source/source.json",
+  "processing": {
+    "preset": "pixel-grid:120x80@4x",
+    "animation": {
+      "fps": 6,
+      "maxSeconds": 1,
+      "maxFrames": 4
+    }
+  },
+  "requestedAt": "2026-06-18T13:43:08.400Z",
+  "executedAt": "2026-06-18T13:43:08.400Z"
+}

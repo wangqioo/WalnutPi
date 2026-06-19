@@ -1,0 +1,30 @@
+{
+  "schema": "walnutpi.lvgl-widget-catalog.v1",
+  "id": "device-status",
+  "title": "Device Status",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "theme": "pixel-default",
+  "data": {
+    "ip": "unknown",
+    "memory": "unknown",
+    "disk": "unknown",
+    "frp": "unknown",
+    "service": "unknown"
+  },
+  "root": "root",
+  "nodes": [
+    { "id": "root", "kind": "container", "layout": { "x": 0, "y": 0, "w": 480, "h": 320 }, "style": "screen" },
+    { "id": "title", "kind": "text", "parent": "root", "layout": { "x": 24, "y": 22, "w": 180, "h": 32 }, "style": "accent", "text": "DEVICE STATUS" },
+    { "id": "ip", "kind": "status_tile", "parent": "root", "layout": { "x": 24, "y": 74, "w": 196, "h": 42 }, "style": "panel", "label": "IP", "binding": "/ip" },
+    { "id": "memory", "kind": "status_tile", "parent": "root", "layout": { "x": 24, "y": 126, "w": 196, "h": 42 }, "style": "panel", "label": "MEM", "binding": "/memory" },
+    { "id": "disk", "kind": "status_tile", "parent": "root", "layout": { "x": 24, "y": 178, "w": 196, "h": 42 }, "style": "panel", "label": "DISK", "binding": "/disk" },
+    { "id": "frp", "kind": "status_tile", "parent": "root", "layout": { "x": 260, "y": 74, "w": 172, "h": 42 }, "style": "panel", "label": "FRP", "binding": "/frp" },
+    { "id": "service", "kind": "status_tile", "parent": "root", "layout": { "x": 260, "y": 126, "w": 172, "h": 42 }, "style": "panel", "label": "SCREEN", "binding": "/service" },
+    { "id": "refresh", "kind": "button", "parent": "root", "layout": { "x": 260, "y": 190, "w": 172, "h": 34 }, "style": "accent", "label": "REFRESH", "action": { "name": "refresh_device_status" } },
+    { "id": "restart", "kind": "button", "parent": "root", "layout": { "x": 260, "y": 234, "w": 172, "h": 34 }, "style": "danger", "label": "RESTART", "action": { "name": "restart_walnut_screen_service" } },
+    { "id": "reboot", "kind": "button", "parent": "root", "layout": { "x": 24, "y": 244, "w": 196, "h": 34 }, "style": "danger", "label": "REBOOT DEVICE", "action": { "name": "reboot_device" } }
+  ]
+}

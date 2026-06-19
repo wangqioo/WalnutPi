@@ -1,0 +1,51 @@
+{
+  "schema": "walnutpi.screen-source-asset.v1",
+  "id": "widget-catalog-smoke-source",
+  "title": "WALNUTPI SCR",
+  "selected": true,
+  "importedAt": "2026-06-18T06:52:21.025Z",
+  "original": "original.png",
+  "fileSha256": "14f492c5130e52b0d8192c9b9ac846741f5054d25f1f32e08fd60551293e79b8",
+  "width": 480,
+  "height": 320,
+  "mediaType": "image/png",
+  "license": "local-freeform-generation",
+  "origin": {
+    "kind": "agent-freeform",
+    "prompt": "做一个像素风番茄钟小组件，有开始按钮和进度条",
+    "screenSpec": {
+      "schema": "walnutpi.pixelScreenSpec.v1",
+      "template": "pixel-ops",
+      "logicalWidth": 120,
+      "logicalHeight": 80,
+      "scale": 4,
+      "title": "WALNUTPI SCR",
+      "background": "#101412",
+      "accent": "#78c58a",
+      "progress": 64,
+      "primaryLabel": "DEVICE",
+      "primaryValue": "ready",
+      "footer": "AGENT PIXEL",
+      "metrics": [
+        {
+          "label": "CPU",
+          "value": "LIVE",
+          "color": "#f2efe3",
+          "bar": 11
+        },
+        {
+          "label": "TEMP",
+          "value": "OK",
+          "color": "#e0b45e",
+          "bar": 20
+        },
+        {
+          "label": "PWR",
+          "value": "8.0S",
+          "color": "#78c58a",
+          "bar": 29
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,199 @@
+{
+  "schema": "walnutpi.widget-app.v1",
+  "id": "pomodoro",
+  "title": "Pomodoro",
+  "createdAt": "2026-06-18T00:00:00.000Z",
+  "prompt": "Apple Watch style Pomodoro focus app",
+  "mode": "widget_app",
+  "a2uiSurface": {
+    "version": "v0.9.1",
+    "createSurface": {
+      "surfaceId": "pomodoro",
+      "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+    },
+    "updateComponents": {
+      "surfaceId": "pomodoro",
+      "components": [
+        {
+          "id": "root",
+          "component": "Container"
+        },
+        {
+          "id": "bg",
+          "component": "Container"
+        },
+        {
+          "id": "progressRing",
+          "component": "Gauge"
+        },
+        {
+          "id": "time",
+          "component": "Text",
+          "value": {
+            "path": "/remaining"
+          }
+        },
+        {
+          "id": "status",
+          "component": "Text",
+          "value": {
+            "path": "/status"
+          }
+        },
+        {
+          "id": "dotA",
+          "component": "Container"
+        },
+        {
+          "id": "dotB",
+          "component": "Container"
+        },
+        {
+          "id": "dotC",
+          "component": "Container"
+        }
+      ]
+    },
+    "updateDataModel": {
+      "surfaceId": "pomodoro",
+      "path": "/",
+      "value": {
+        "remaining": "25:00",
+        "status": "Focus",
+        "progress": 82,
+        "mode": "running"
+      }
+    }
+  },
+  "catalog": {
+    "schema": "walnutpi.lvgl-widget-catalog.v1",
+    "id": "pomodoro",
+    "title": "Pomodoro",
+    "size": {
+      "width": 480,
+      "height": 320
+    },
+    "theme": "watch-dark",
+    "data": {
+      "remaining": "25:00",
+      "status": "Focus",
+      "progress": 82,
+      "mode": "running"
+    },
+    "root": "root",
+    "nodes": [
+      {
+        "id": "root",
+        "kind": "container",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 480,
+          "h": 320
+        },
+        "style": "screen"
+      },
+      {
+        "id": "bg",
+        "kind": "rect",
+        "parent": "root",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 480,
+          "h": 320
+        },
+        "style": "screen"
+      },
+      {
+        "id": "progressRing",
+        "kind": "gauge",
+        "parent": "root",
+        "layout": {
+          "x": 100,
+          "y": 38,
+          "w": 280,
+          "h": 280
+        },
+        "style": "orange",
+        "value": 82
+      },
+      {
+        "id": "time",
+        "kind": "text",
+        "parent": "root",
+        "layout": {
+          "x": 150,
+          "y": 132,
+          "w": 180,
+          "h": 58
+        },
+        "style": "text",
+        "binding": "/remaining"
+      },
+      {
+        "id": "status",
+        "kind": "text",
+        "parent": "root",
+        "layout": {
+          "x": 170,
+          "y": 194,
+          "w": 140,
+          "h": 30
+        },
+        "style": "muted",
+        "binding": "/status"
+      },
+      {
+        "id": "dotA",
+        "kind": "rect",
+        "parent": "root",
+        "layout": {
+          "x": 222,
+          "y": 284,
+          "w": 10,
+          "h": 10
+        },
+        "style": "orange"
+      },
+      {
+        "id": "dotB",
+        "kind": "rect",
+        "parent": "root",
+        "layout": {
+          "x": 236,
+          "y": 284,
+          "w": 10,
+          "h": 10
+        },
+        "style": "chip"
+      },
+      {
+        "id": "dotC",
+        "kind": "rect",
+        "parent": "root",
+        "layout": {
+          "x": 250,
+          "y": 284,
+          "w": 10,
+          "h": 10
+        },
+        "style": "chip"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "name": "pomodoro_start",
+      "params": {}
+    },
+    {
+      "name": "pomodoro_pause",
+      "params": {}
+    },
+    {
+      "name": "pomodoro_reset",
+      "params": {}
+    }
+  ]
+}

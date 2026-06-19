@@ -1,0 +1,119 @@
+{
+  "schema": "walnutpi.lvgl-widget-catalog.v1",
+  "id": "activity-rings",
+  "title": "Activity",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "theme": "watch-dark",
+  "data": {
+    "move": "MOVE",
+    "kcal": "420",
+    "stand": "STAND"
+  },
+  "root": "root",
+  "nodes": [
+    {
+      "id": "root",
+      "kind": "container",
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 480,
+        "h": 320
+      },
+      "style": "screen"
+    },
+    {
+      "id": "bg",
+      "kind": "rect",
+      "parent": "root",
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 480,
+        "h": 320
+      },
+      "style": "screen"
+    },
+    {
+      "id": "moveRing",
+      "kind": "gauge",
+      "parent": "root",
+      "layout": {
+        "x": 52,
+        "y": 36,
+        "w": 248,
+        "h": 248
+      },
+      "style": "danger",
+      "value": 84
+    },
+    {
+      "id": "exerciseRing",
+      "kind": "gauge",
+      "parent": "root",
+      "layout": {
+        "x": 86,
+        "y": 70,
+        "w": 180,
+        "h": 180
+      },
+      "style": "primary",
+      "value": 62
+    },
+    {
+      "id": "standRing",
+      "kind": "gauge",
+      "parent": "root",
+      "layout": {
+        "x": 116,
+        "y": 100,
+        "w": 120,
+        "h": 120
+      },
+      "style": "accent",
+      "value": 45
+    },
+    {
+      "id": "move",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 312,
+        "y": 74,
+        "w": 110,
+        "h": 28
+      },
+      "style": "danger",
+      "binding": "/move"
+    },
+    {
+      "id": "kcal",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 312,
+        "y": 122,
+        "w": 110,
+        "h": 52
+      },
+      "style": "text",
+      "binding": "/kcal"
+    },
+    {
+      "id": "stand",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 312,
+        "y": 190,
+        "w": 110,
+        "h": 28
+      },
+      "style": "accent",
+      "binding": "/stand"
+    }
+  ]
+}

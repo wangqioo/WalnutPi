@@ -1,0 +1,117 @@
+{
+  "schema": "walnutpi.lvgl-widget-catalog.v1",
+  "id": "breath",
+  "title": "Breath",
+  "size": {
+    "width": 480,
+    "height": 320
+  },
+  "theme": "watch-dark",
+  "data": {
+    "phase": "INHALE",
+    "count": "04",
+    "progress": 58
+  },
+  "root": "root",
+  "nodes": [
+    {
+      "id": "root",
+      "kind": "container",
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 480,
+        "h": 320
+      },
+      "style": "screen"
+    },
+    {
+      "id": "bg",
+      "kind": "rect",
+      "parent": "root",
+      "layout": {
+        "x": 0,
+        "y": 0,
+        "w": 480,
+        "h": 320
+      },
+      "style": "screen"
+    },
+    {
+      "id": "outer",
+      "kind": "gauge",
+      "parent": "root",
+      "layout": {
+        "x": 100,
+        "y": 36,
+        "w": 280,
+        "h": 280
+      },
+      "style": "primary",
+      "value": 58
+    },
+    {
+      "id": "inner",
+      "kind": "gauge",
+      "parent": "root",
+      "layout": {
+        "x": 140,
+        "y": 76,
+        "w": 200,
+        "h": 200
+      },
+      "style": "accent",
+      "value": 76
+    },
+    {
+      "id": "phase",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 150,
+        "y": 128,
+        "w": 180,
+        "h": 44
+      },
+      "style": "text",
+      "binding": "/phase"
+    },
+    {
+      "id": "count",
+      "kind": "text",
+      "parent": "root",
+      "layout": {
+        "x": 190,
+        "y": 176,
+        "w": 100,
+        "h": 52
+      },
+      "style": "muted",
+      "binding": "/count"
+    },
+    {
+      "id": "dotA",
+      "kind": "rect",
+      "parent": "root",
+      "layout": {
+        "x": 224,
+        "y": 286,
+        "w": 10,
+        "h": 10
+      },
+      "style": "primary"
+    },
+    {
+      "id": "dotB",
+      "kind": "rect",
+      "parent": "root",
+      "layout": {
+        "x": 240,
+        "y": 286,
+        "w": 10,
+        "h": 10
+      },
+      "style": "chip"
+    }
+  ]
+}

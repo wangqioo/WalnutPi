@@ -1,0 +1,51 @@
+{
+  "schema": "walnutpi.screen-source-asset.v1",
+  "id": "codex-wallpaper-smoke-1781796163115-source",
+  "title": "WALNUTPI SCR",
+  "selected": true,
+  "importedAt": "2026-06-18T15:22:57.064Z",
+  "original": "scene.json",
+  "fileSha256": "eff4d001742a599d352fe39afff8145a4235905cc790fa3e74f36e1d060711b0",
+  "width": 480,
+  "height": 320,
+  "mediaType": "application/json",
+  "license": "local-freeform-generation",
+  "origin": {
+    "kind": "agent-freeform",
+    "prompt": "红色日落像素壁纸，480x320，动态云层",
+    "screenSpec": {
+      "schema": "walnutpi.pixelScreenSpec.v1",
+      "template": "pixel-ops",
+      "logicalWidth": 120,
+      "logicalHeight": 80,
+      "scale": 4,
+      "title": "WALNUTPI SCR",
+      "background": "#101412",
+      "accent": "#e06a5f",
+      "progress": 64,
+      "primaryLabel": "DEVICE",
+      "primaryValue": "ready",
+      "footer": "AGENT PIXEL",
+      "metrics": [
+        {
+          "label": "CPU",
+          "value": "LIVE",
+          "color": "#f2efe3",
+          "bar": 11
+        },
+        {
+          "label": "TEMP",
+          "value": "OK",
+          "color": "#e0b45e",
+          "bar": 20
+        },
+        {
+          "label": "PWR",
+          "value": "8.0S",
+          "color": "#78c58a",
+          "bar": 29
+        }
+      ]
+    }
+  }
+}

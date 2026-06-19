@@ -1,0 +1,9 @@
+{
+  "schema": "walnutpi.widget-runtime-current.v1",
+  "appId": "music-now",
+  "versionId": "2026-06-19T00:00:00.000Z",
+  "activatedAt": "2026-06-18T16:37:06.467Z",
+  "app": "../apps/music-now/app.json",
+  "catalog": "../apps/music-now/catalog.json",
+  "a2uiSurface": "../apps/music-now/surface.a2ui.json"
+}

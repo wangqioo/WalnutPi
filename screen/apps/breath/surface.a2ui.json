@@ -1,0 +1,59 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "breath",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "breath",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "bg",
+        "component": "Container"
+      },
+      {
+        "id": "outer",
+        "component": "Gauge"
+      },
+      {
+        "id": "inner",
+        "component": "Gauge"
+      },
+      {
+        "id": "phase",
+        "component": "Text",
+        "value": {
+          "path": "/phase"
+        }
+      },
+      {
+        "id": "count",
+        "component": "Text",
+        "value": {
+          "path": "/count"
+        }
+      },
+      {
+        "id": "dotA",
+        "component": "Container"
+      },
+      {
+        "id": "dotB",
+        "component": "Container"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "breath",
+    "path": "/",
+    "value": {
+      "phase": "INHALE",
+      "count": "04",
+      "progress": 58
+    }
+  }
+}

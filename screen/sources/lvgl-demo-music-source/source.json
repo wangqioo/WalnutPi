@@ -1,0 +1,13 @@
+{
+  "schema": "walnutpi.screen-source-asset.v1",
+  "id": "lvgl-demo-music-source",
+  "selected": true,
+  "importedAt": "2026-06-19T05:34:10.096Z",
+  "original": "original.png",
+  "fileSha256": "0c8daa78efc381531df782e4fa58461164e1400a4508b75e95b258a3651a5563",
+  "width": 480,
+  "height": 320,
+  "mediaType": "image/png",
+  "license": "lvgl-demo-local",
+  "origin": "third_party/lvgl/demos/music"
+}

@@ -1,0 +1,47 @@
+{
+  "schema": "walnutpi.screen-manifest.v2",
+  "id": "widget-catalog-smoke",
+  "title": "WALNUTPI SCR",
+  "description": "做一个像素风番茄钟小组件，有开始按钮和进度条",
+  "output": {
+    "type": "static",
+    "path": "../outputs/widget-catalog-smoke/output.png",
+    "width": 480,
+    "height": 320,
+    "fileSha256": "14f492c5130e52b0d8192c9b9ac846741f5054d25f1f32e08fd60551293e79b8",
+    "rgbaPixelSha256": "e824e77a6385020b777e04973d003827f4924bc63f004d220566e0e5d600a9bd",
+    "rgb565PixelSha256": "6a120cb116565033399fd622c6850b21c432d78daafcdfabfd2791db26e6a939"
+  },
+  "provenance": {
+    "plan": "../plans/widget-catalog-smoke-plan.json",
+    "sourceAssets": [
+      {
+        "id": "widget-catalog-smoke-source",
+        "source": "../sources/widget-catalog-smoke-source/source.json",
+        "original": "../sources/widget-catalog-smoke-source/original.png",
+        "width": 480,
+        "height": 320,
+        "mediaType": "image/png",
+        "license": "local-freeform-generation",
+        "selected": true
+      }
+    ],
+    "processing": {
+      "preset": "fit-cover:480x320",
+      "tools": [
+        {
+          "name": "sharp",
+          "version": "0.35.1"
+        }
+      ]
+    },
+    "widgetApp": {
+      "schema": "walnutpi.widget-app-source.v1",
+      "mode": "widget_app",
+      "app": "../apps/widget-catalog-smoke/app.json",
+      "catalog": "../apps/widget-catalog-smoke/catalog.json",
+      "a2uiSurface": "../apps/widget-catalog-smoke/surface.a2ui.json",
+      "snapshotSource": "../apps/widget-catalog-smoke/snapshot-source.json"
+    }
+  }
+}

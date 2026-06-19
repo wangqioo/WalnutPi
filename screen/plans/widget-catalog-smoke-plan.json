@@ -1,0 +1,12 @@
+{
+  "schema": "walnutpi.screen-plan.v1",
+  "id": "widget-catalog-smoke-plan",
+  "screenId": "widget-catalog-smoke",
+  "outputType": "static",
+  "selectedSourceAsset": "../sources/widget-catalog-smoke-source/source.json",
+  "processing": {
+    "preset": "fit-cover:480x320"
+  },
+  "requestedAt": null,
+  "executedAt": "2026-06-18T06:52:21.025Z"
+}

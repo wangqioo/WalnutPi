@@ -1,0 +1,58 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "weather-watch",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "weather-watch",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "bg",
+        "component": "Container"
+      },
+      {
+        "id": "sun",
+        "component": "Gauge"
+      },
+      {
+        "id": "temp",
+        "component": "Text",
+        "value": {
+          "path": "/temp"
+        }
+      },
+      {
+        "id": "condition",
+        "component": "Text",
+        "value": {
+          "path": "/condition"
+        }
+      },
+      {
+        "id": "highlow",
+        "component": "Text",
+        "value": {
+          "path": "/highlow"
+        }
+      },
+      {
+        "id": "bar",
+        "component": "Progress"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "weather-watch",
+    "path": "/",
+    "value": {
+      "temp": "24°",
+      "condition": "CLEAR",
+      "highlow": "31 / 22"
+    }
+  }
+}

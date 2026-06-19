@@ -1,0 +1,145 @@
+{
+  "schema": "walnutpi.pixelScreenSpec.v1",
+  "template": "pixel-weather",
+  "logicalWidth": 120,
+  "logicalHeight": 80,
+  "scale": 4,
+  "title": "WEATHER",
+  "background": "#11151a",
+  "accent": "#8fd6ff",
+  "progress": 58,
+  "primaryLabel": "上海",
+  "primaryValue": "26C",
+  "footer": "适合出行",
+  "metrics": [
+    {
+      "label": "COND",
+      "value": "Overcast",
+      "color": "#8fd6ff",
+      "bar": 20
+    },
+    {
+      "label": "HUM",
+      "value": "79%",
+      "color": "#f4f1df",
+      "bar": 16
+    },
+    {
+      "label": "RAIN",
+      "value": "0MM",
+      "color": "#7fd28a",
+      "bar": 0
+    }
+  ],
+  "elements": [
+    {
+      "type": "rect",
+      "x": 3,
+      "y": 3,
+      "width": 114,
+      "height": 1,
+      "fill": "panelBorder",
+      "required": false
+    },
+    {
+      "type": "rect",
+      "x": 3,
+      "y": 76,
+      "width": 114,
+      "height": 1,
+      "fill": "panelBorder",
+      "required": false
+    },
+    {
+      "type": "rect",
+      "x": 3,
+      "y": 4,
+      "width": 1,
+      "height": 72,
+      "fill": "panelBorder",
+      "required": false
+    },
+    {
+      "type": "rect",
+      "x": 116,
+      "y": 4,
+      "width": 1,
+      "height": 72,
+      "fill": "panelBorder",
+      "required": false
+    },
+    {
+      "type": "text",
+      "x": 7,
+      "y": 14,
+      "text": "上海",
+      "fill": "text",
+      "scale": 1,
+      "required": true
+    },
+    {
+      "type": "text",
+      "x": 7,
+      "y": 36,
+      "text": "26C",
+      "fill": "accent",
+      "scale": 2,
+      "required": true
+    },
+    {
+      "type": "text",
+      "x": 7,
+      "y": 50,
+      "text": "Overcast",
+      "fill": "muted2",
+      "scale": 1,
+      "required": true
+    },
+    {
+      "type": "text",
+      "x": 7,
+      "y": 63,
+      "text": "适合出行",
+      "fill": "green",
+      "scale": 1,
+      "required": true
+    },
+    {
+      "type": "text",
+      "x": 72,
+      "y": 24,
+      "text": "H 79%",
+      "fill": "cyan",
+      "scale": 1,
+      "required": true
+    },
+    {
+      "type": "text",
+      "x": 72,
+      "y": 42,
+      "text": "W 13KPH",
+      "fill": "text",
+      "scale": 1,
+      "required": true
+    },
+    {
+      "type": "text",
+      "x": 72,
+      "y": 60,
+      "text": "R 0MM",
+      "fill": "green",
+      "scale": 1,
+      "required": true
+    },
+    {
+      "type": "bar",
+      "x": 72,
+      "y": 67,
+      "width": 38,
+      "height": 3,
+      "fill": "accent",
+      "value": 79,
+      "required": true
+    }
+  ]
+}

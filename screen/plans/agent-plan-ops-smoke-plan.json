@@ -1,0 +1,12 @@
+{
+  "schema": "walnutpi.screen-plan.v1",
+  "id": "agent-plan-ops-smoke-plan",
+  "screenId": "agent-plan-ops-smoke",
+  "outputType": "static",
+  "selectedSourceAsset": "../sources/agent-plan-ops-smoke-source/source.json",
+  "processing": {
+    "preset": "fit-cover:480x320"
+  },
+  "requestedAt": null,
+  "executedAt": "2026-06-18T13:51:38.093Z"
+}

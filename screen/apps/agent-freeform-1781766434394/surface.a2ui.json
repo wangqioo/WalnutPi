@@ -1,0 +1,97 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "agent-freeform-1781766434394",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "agent-freeform-1781766434394",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "header",
+        "component": "Container"
+      },
+      {
+        "id": "title",
+        "component": "Text",
+        "text": "上海 · 今日天气"
+      },
+      {
+        "id": "sub",
+        "component": "Text",
+        "text": "小屏天气提醒"
+      },
+      {
+        "id": "cityChip",
+        "component": "Text",
+        "text": "上海"
+      },
+      {
+        "id": "mainPanel",
+        "component": "Container"
+      },
+      {
+        "id": "weatherTile",
+        "component": "Text",
+        "text": "多云"
+      },
+      {
+        "id": "tempTile",
+        "component": "Text",
+        "text": "24°C"
+      },
+      {
+        "id": "hintTile",
+        "component": "Text",
+        "text": "体感舒适"
+      },
+      {
+        "id": "forecastLabel",
+        "component": "Text",
+        "text": "今天提醒"
+      },
+      {
+        "id": "reminder",
+        "component": "Container"
+      },
+      {
+        "id": "reminderText",
+        "component": "Text",
+        "text": "出门带伞，早晚微凉"
+      },
+      {
+        "id": "reminderSub",
+        "component": "Text",
+        "text": "建议轻薄外套，注意通风"
+      },
+      {
+        "id": "refreshBtn",
+        "component": "Button",
+        "text": "刷新",
+        "action": {
+          "event": {
+            "name": "weather.refresh",
+            "context": {
+              "city": "上海"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "agent-freeform-1781766434394",
+    "path": "/",
+    "value": {
+      "city": "上海",
+      "today": "今天",
+      "weather": "多云",
+      "temp": "24°C",
+      "reminder": "出门带伞，早晚微凉"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "schema": "walnutpi.screen-manifest.v2",
+  "id": "agent-plan-ops-smoke",
+  "title": "WALNUTPI SCR",
+  "description": "做一个核桃派状态小屏，显示 CPU 和 Wi-Fi",
+  "output": {
+    "type": "static",
+    "path": "../outputs/agent-plan-ops-smoke/output.png",
+    "width": 480,
+    "height": 320,
+    "fileSha256": "ae19e75832eb76c798d75e948a4aac639e583b08a7ffad187caade0297918933",
+    "rgbaPixelSha256": "95ab5871ee840326dd02ad7dfcd52a68a5e88cff946defda84e6096b45164c19",
+    "rgb565PixelSha256": "ed489e3aa86424d1342ac9c861defeb0032384ec424d69af93b53d2f6619ec00"
+  },
+  "provenance": {
+    "plan": "../plans/agent-plan-ops-smoke-plan.json",
+    "sourceAssets": [
+      {
+        "id": "agent-plan-ops-smoke-source",
+        "source": "../sources/agent-plan-ops-smoke-source/source.json",
+        "original": "../sources/agent-plan-ops-smoke-source/original.png",
+        "width": 480,
+        "height": 320,
+        "mediaType": "image/png",
+        "license": "local-freeform-generation",
+        "selected": true
+      }
+    ],
+    "processing": {
+      "preset": "fit-cover:480x320",
+      "tools": [
+        {
+          "name": "sharp",
+          "version": "0.35.1"
+        }
+      ]
+    },
+    "widgetApp": {
+      "schema": "walnutpi.widget-app-source.v1",
+      "mode": "widget_app",
+      "app": "../apps/agent-plan-ops-smoke/app.json",
+      "catalog": "../apps/agent-plan-ops-smoke/catalog.json",
+      "a2uiSurface": "../apps/agent-plan-ops-smoke/surface.a2ui.json",
+      "snapshotSource": "../apps/agent-plan-ops-smoke/snapshot-source.json"
+    }
+  }
+}

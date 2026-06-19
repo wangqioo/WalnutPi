@@ -1,0 +1,52 @@
+{
+  "schema": "walnutpi.screen-output.v1",
+  "id": "agent-plan-final-smoke",
+  "generatedAt": "2026-06-18T13:52:28.615Z",
+  "manifest": "../../manifests/agent-plan-final-smoke.json",
+  "output": {
+    "type": "animated",
+    "path": "../outputs/agent-plan-final-smoke/output.json",
+    "width": 480,
+    "height": 320,
+    "frameCount": 4,
+    "frames": [
+      {
+        "path": "../outputs/agent-plan-final-smoke/frames/frame-000.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "81687678a2c7c99532228616004df12c7c679237928e5c2af19777b8b6224eeb",
+        "rgbaPixelSha256": "d0d0ee372a8abce8c83baf0f92d63ef8d024e9cdb46b2f25fbb420dc5a34d2e4",
+        "rgb565PixelSha256": "c4eebca6cab8359c87aa91e6570328a12d1584e175feff4461191fdd3795bdd7"
+      },
+      {
+        "path": "../outputs/agent-plan-final-smoke/frames/frame-001.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "7d39879979faa40900a751a93bcdd9d2acf000569a9baf66fa4b7dbf28426f96",
+        "rgbaPixelSha256": "850b51737c7a0094cb94ca4969874a6c478b1ec50774630e6351ed5211948af9",
+        "rgb565PixelSha256": "3b0904b673ca9711a1bbd08a0366763fab9b48675cdf185e25347e18c32e5434"
+      },
+      {
+        "path": "../outputs/agent-plan-final-smoke/frames/frame-002.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "71aa24366956fd65303dcaca1c0ba723e15b5d46575fc7a6901560ba52dc8092",
+        "rgbaPixelSha256": "65d04e11cf4587e222c72f2d6a9495c94960ee2a72f701198d637c0737e3d438",
+        "rgb565PixelSha256": "bfcefec79d75fef7932273d6e6e6cd780cea513c54d48e157126ad6ded367d44"
+      },
+      {
+        "path": "../outputs/agent-plan-final-smoke/frames/frame-003.png",
+        "width": 480,
+        "height": 320,
+        "durationMs": 160,
+        "fileSha256": "a1b051c80a47d11f08838280fa2f2e5b9aab0edcba8b811febcfa4181fd19e7b",
+        "rgbaPixelSha256": "3af3687821787def8ddd88b1ee22d8ae0c2e4e4418126c428f243e5620b20b85",
+        "rgb565PixelSha256": "41fdd6357c7a3200b9ebc10e920fe32999f106c0a5319a3f114595c040178ce2"
+      }
+    ],
+    "animatedOutputSha256": "ca74e46fb7ad706400a75f413b66c71005b0f91db584053a7bb7f6082e05e72d"
+  }
+}

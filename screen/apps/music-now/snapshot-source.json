@@ -1,0 +1,6 @@
+{
+  "schema": "walnutpi.widget-app-snapshot-source.v1",
+  "screenId": "music-now",
+  "source": "../../sources/watch-app-seeds/source.json",
+  "createdAt": "2026-06-19T00:00:00.000Z"
+}

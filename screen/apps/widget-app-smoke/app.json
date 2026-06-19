@@ -1,0 +1,266 @@
+{
+  "schema": "walnutpi.widget-app.v1",
+  "id": "widget-app-smoke",
+  "title": "WEATHER",
+  "createdAt": "2026-06-18T06:45:02.059Z",
+  "prompt": "做一个像素风天气小组件，有温度、湿度和刷新按钮",
+  "mode": "widget_app",
+  "a2uiSurface": {
+    "version": "v0.9.1",
+    "createSurface": {
+      "surfaceId": "widget-app-smoke",
+      "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+    },
+    "updateComponents": {
+      "surfaceId": "widget-app-smoke",
+      "components": [
+        {
+          "id": "root",
+          "component": "Container"
+        },
+        {
+          "id": "w0",
+          "component": "Container"
+        },
+        {
+          "id": "w1",
+          "component": "Container"
+        },
+        {
+          "id": "w2",
+          "component": "Container"
+        },
+        {
+          "id": "w3",
+          "component": "Container"
+        },
+        {
+          "id": "w4",
+          "component": "Text",
+          "text": "WEATHER"
+        },
+        {
+          "id": "w5",
+          "component": "Text",
+          "text": "24C"
+        },
+        {
+          "id": "w6",
+          "component": "Text",
+          "text": "LOCAL SKY"
+        },
+        {
+          "id": "w7",
+          "component": "Text",
+          "text": "REFRESH"
+        },
+        {
+          "id": "w8",
+          "component": "Text",
+          "text": "HUM 62%"
+        },
+        {
+          "id": "w9",
+          "component": "Progress"
+        },
+        {
+          "id": "w10",
+          "component": "Progress"
+        },
+        {
+          "id": "w11",
+          "component": "Gauge"
+        }
+      ]
+    },
+    "updateDataModel": {
+      "surfaceId": "widget-app-smoke",
+      "path": "/",
+      "value": {}
+    }
+  },
+  "catalog": {
+    "schema": "walnutpi.lvgl-widget-catalog.v1",
+    "id": "widget-app-smoke",
+    "title": "WEATHER",
+    "size": {
+      "width": 480,
+      "height": 320
+    },
+    "theme": "pixel-default",
+    "data": {},
+    "root": "root",
+    "nodes": [
+      {
+        "id": "root",
+        "kind": "container",
+        "layout": {
+          "x": 0,
+          "y": 0,
+          "w": 480,
+          "h": 320
+        },
+        "style": "screen"
+      },
+      {
+        "id": "w0",
+        "kind": "rect",
+        "layout": {
+          "x": 12,
+          "y": 12,
+          "w": 456,
+          "h": 4
+        },
+        "style": "panelBorder",
+        "parent": "root"
+      },
+      {
+        "id": "w1",
+        "kind": "rect",
+        "layout": {
+          "x": 12,
+          "y": 304,
+          "w": 456,
+          "h": 4
+        },
+        "style": "panelBorder",
+        "parent": "root"
+      },
+      {
+        "id": "w2",
+        "kind": "rect",
+        "layout": {
+          "x": 12,
+          "y": 16,
+          "w": 4,
+          "h": 288
+        },
+        "style": "panelBorder",
+        "parent": "root"
+      },
+      {
+        "id": "w3",
+        "kind": "rect",
+        "layout": {
+          "x": 464,
+          "y": 16,
+          "w": 4,
+          "h": 288
+        },
+        "style": "panelBorder",
+        "parent": "root"
+      },
+      {
+        "id": "w4",
+        "kind": "text",
+        "layout": {
+          "x": 24,
+          "y": 24,
+          "w": 140,
+          "h": 32
+        },
+        "style": "accent",
+        "parent": "root",
+        "text": "WEATHER"
+      },
+      {
+        "id": "w5",
+        "kind": "text",
+        "layout": {
+          "x": 24,
+          "y": 104,
+          "w": 60,
+          "h": 32
+        },
+        "style": "text",
+        "parent": "root",
+        "text": "24C"
+      },
+      {
+        "id": "w6",
+        "kind": "text",
+        "layout": {
+          "x": 24,
+          "y": 190,
+          "w": 108,
+          "h": 20
+        },
+        "style": "muted2",
+        "parent": "root",
+        "text": "LOCAL SKY"
+      },
+      {
+        "id": "w7",
+        "kind": "text",
+        "layout": {
+          "x": 264,
+          "y": 34,
+          "w": 84,
+          "h": 20
+        },
+        "style": "text",
+        "parent": "root",
+        "text": "REFRESH"
+      },
+      {
+        "id": "w8",
+        "kind": "text",
+        "layout": {
+          "x": 264,
+          "y": 126,
+          "w": 84,
+          "h": 20
+        },
+        "style": "accent",
+        "parent": "root",
+        "text": "HUM 62%"
+      },
+      {
+        "id": "w9",
+        "kind": "progress",
+        "layout": {
+          "x": 264,
+          "y": 76,
+          "w": 184,
+          "h": 24
+        },
+        "style": "accent",
+        "parent": "root",
+        "value": 62,
+        "min": 0,
+        "max": 100
+      },
+      {
+        "id": "w10",
+        "kind": "progress",
+        "layout": {
+          "x": 264,
+          "y": 168,
+          "w": 184,
+          "h": 24
+        },
+        "style": "accent",
+        "parent": "root",
+        "value": 62,
+        "min": 0,
+        "max": 100
+      },
+      {
+        "id": "w11",
+        "kind": "gauge",
+        "layout": {
+          "x": 344,
+          "y": 208,
+          "w": 88,
+          "h": 88
+        },
+        "style": "accent",
+        "parent": "root",
+        "value": 22,
+        "min": 0,
+        "max": 100
+      }
+    ]
+  },
+  "actions": []
+}

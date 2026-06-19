@@ -4,7 +4,7 @@
   "loop": true,
   "items": [
     {
-      "manifest": "../manifests/giphy-lens-flare.json",
+      "manifest": "../manifests/lvgl-demo-music.json",
       "durationMs": 8000,
       "repeat": 1,
       "transition": "cut"
