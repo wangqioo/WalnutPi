@@ -318,8 +318,15 @@ function firstWorkspaceFailure({ sliceResult, buildResult, validateResult, artif
   if (!validSha256(artifactHash)) return { stage: "artifact", summary: "LVGL 产物哈希校验失败。请在诊断里确认构建产物是否存在。" };
   if (!activateResult.ok) return { stage: "activate", summary: "核桃派屏幕激活失败。请确认 walnut-screen.service 已安装并允许 sudo 执行。" };
   if (!stateResult.ok) return { stage: "evidence", summary: "屏幕状态回证失败。请检查 SSH 连接和 walnut screen state 输出。" };
+  const serviceState = screenServiceState(stateResult.output);
+  if (serviceState && serviceState !== "active") return { stage: "activate", summary: `核桃派屏幕服务仍是 ${serviceState}，未确认真机显示已激活。请运行 sudo -n walnut screen start，并查看 journalctl -u walnut-screen.service。` };
   if (!fullEvidence) return null;
   if (!frameResult.ok || !validFrameEvidence(frameEvidence, validSha256)) return { stage: "frame", summary: "屏幕画面回证失败。请在诊断里查看 framebuffer 读取结果。" };
   if (visual.visualMatch !== "captured") return { stage: "visual", summary: "屏幕画面回证和 Screen Workspace playlist 约束不一致。请在诊断里查看 frame checks。" };
   return null;
+}
+
+export function screenServiceState(output) {
+  const match = String(output || "").match(/\bwalnut-screen\.service\s+(active|inactive|failed|activating|deactivating|unknown)\b/);
+  return match?.[1] || null;
 }

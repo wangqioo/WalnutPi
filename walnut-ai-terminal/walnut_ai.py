@@ -72,12 +72,14 @@ DEFAULT_LOCAL_ACTION_TIMEOUTS = {
     "status": 25,
     "network": 15,
     "gpio": 25,
+    "i2c_scan": 30,
     "snapshot": 25,
 }
 DEFAULT_LOCAL_ACTION_TITLES = {
     "status": "设备状态",
     "network": "网络检查",
     "gpio": "GPIO 只读检查",
+    "i2c_scan": "I2C 只读扫描",
     "snapshot": "设备快照",
 }
 LocalActionResult = tuple[str, str, bool]
@@ -129,6 +131,7 @@ ROUTER_PROMPT = """你是 WalnutPi 端侧意图路由器。只输出 JSON，不�
 - music_library: 查询本地音乐库、有什么歌、歌曲列表。
 - notes_today: 查询今天记了什么、今天笔记。
 - note_add: 记录一条笔记。args.text 写要保存的正文，不要包含“记一下”等触发词。
+- i2c_scan: 只读列出 /dev/i2c-*，并在 i2cdetect 可用时扫描 I2C 地址。
 - gpio_read: 只读检查 GPIO、引脚、排针、I2C/SPI/UART/PWM 接线或 overlay 状态。
 - snapshot: 查询或确认自己是什么板子、板子型号、系统、内核、屏幕、boot/config 等设备快照。
 - risky: 任何会产生副作用或高风险的请求，包括 GPIO 输出、修改 overlay、安装/卸载包、启停服务、重启、关机、删除、刷写、固件、EMMC。
@@ -148,6 +151,7 @@ ROUTER_ACTIONS = {
     "music_library",
     "notes_today",
     "note_add",
+    "i2c_scan",
     "gpio_read",
     "snapshot",
     "risky",
@@ -844,7 +848,9 @@ def quick_local_route(text: str) -> dict[str, object] | None:
         return {"action": "weather", "risk": "read", "args": {"location": location}, "reason": "查询实时天气"}
     if any(hint in lowered for hint in ("几点", "时间", "日期", "今天几号", "time", "date")):
         return {"action": "time", "risk": "read", "args": {}, "reason": "查询本地时间"}
-    if any(hint in lowered for hint in ("gpio", "引脚", "排针", "i2c", "spi", "uart", "pwm", "overlay", "总线")):
+    if any(hint in lowered for hint in ("i2c", "i²c", "传感器", "sensor", "i2cdetect")):
+        return {"action": "i2c_scan", "risk": "read", "args": {}, "reason": "只读扫描 I2C 总线地址"}
+    if any(hint in lowered for hint in ("gpio", "引脚", "排针", "spi", "uart", "pwm", "overlay", "总线")):
         return {"action": "gpio_read", "risk": "read", "args": {}, "reason": "只读检查 GPIO 和总线状态"}
     if any(hint in lowered for hint in ("板子", "型号", "什么设备", "什么系统", "内核", "屏幕", "你是什么")):
         return {"action": "snapshot", "risk": "read", "args": {}, "reason": "查询真实设备快照"}
@@ -935,6 +941,8 @@ def execute_local_action(route: dict[str, object]) -> LocalActionResult | None:
         return "今天笔记", today_notes(), True
     if action == "network":
         return walnut_action("network")
+    if action == "i2c_scan":
+        return walnut_action("i2c_scan")
     if action == "gpio_read":
         return walnut_action("gpio")
     if action == "snapshot":

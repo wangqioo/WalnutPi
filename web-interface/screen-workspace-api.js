@@ -1082,7 +1082,13 @@ export function createScreenWorkspaceApi({
     const text = String(prompt || "");
     const match = text.match(/(?:把|查询|获取|显示|生成|做(?:一个)?|看)?\s*([\p{Script=Han}A-Za-z]{2,24})(?:的)?(?:今天|现在|当前|实时)?(?:天气|气温|温度)/u)
       || text.match(/(?:天气|气温|温度).{0,8}([\p{Script=Han}A-Za-z]{2,24})/u);
-    return match?.[1]?.replace(/^(当前|实时|今天|现在|一个|小屏|核桃派)+/u, "") || "";
+    return cleanWeatherCity(match?.[1] || "");
+  }
+
+  function cleanWeatherCity(value) {
+    return String(value || "")
+      .replace(/^(?:请|帮我|帮忙|麻烦|联网|在线|实时|查一下|查|查询|获取|显示|生成|做成|做|看|一下|当前|今天|现在|一个|小屏|核桃派)+/u, "")
+      .trim();
   }
 
   async function fetchCurrentWeather(city) {
@@ -1346,11 +1352,13 @@ export function createScreenWorkspaceApi({
   }
 
   function compactText(text, maxChars) {
-    return String(text || "WALNUT").toUpperCase().replace(/[^A-Z0-9 ]/g, "").slice(0, maxChars);
+    const compacted = String(text || "WALNUT").toUpperCase().replace(/[^\p{L}\p{N} ]/gu, "").trim();
+    return Array.from(compacted || "WALNUT").slice(0, maxChars).join("");
   }
 
   function compactDisplayText(text, maxChars) {
-    return Array.from(String(text || "HELLO").replace(/\s+/g, " ").trim()).slice(0, maxChars).join("");
+    const compacted = String(text || "HELLO").replace(/\s+/g, " ").trim();
+    return Array.from(compacted || "HELLO").slice(0, maxChars).join("");
   }
 
   function pixelDither(palette) {
@@ -1935,5 +1943,12 @@ export function createScreenWorkspaceApi({
     handleIocccAppDownload,
     handleScreenWorkspaceSync,
     widgetAppWorkspace,
+    __test: {
+      compactText,
+      compactDisplayText,
+      extractWeatherCity,
+      buildScreenGenerationPlan,
+      buildFreeformPixelScreenSpec,
+    },
   };
 }

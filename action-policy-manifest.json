@@ -122,6 +122,36 @@
         "timeoutSeconds": 25
       }
     },
+    "i2c_scan": {
+      "title": "I2C 扫描",
+      "description": "Read /dev/i2c-* nodes and i2cdetect-style address evidence without changing overlays or pins.",
+      "risk": "read",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web", "walnut-ai", "walnut-cli"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {}
+      },
+      "evidence": {
+        "schema": "walnut.local-action-result.v1",
+        "fields": ["ok", "id", "title", "risk", "mode", "code", "output"]
+      },
+      "web": {
+        "command": "walnut action run i2c_scan --json",
+        "parseJsonOutput": true,
+        "reply": "我会只读列出 I2C 设备节点，并在 i2cdetect 可用时扫描地址。",
+        "timeoutMs": 25000
+      },
+      "walnutCli": {
+        "handler": "i2c_scan"
+      },
+      "walnutAi": {
+        "route": "i2c_scan",
+        "timeoutSeconds": 30
+      }
+    },
     "notes": {
       "title": "今天笔记",
       "description": "Read today's local Walnut notes.",

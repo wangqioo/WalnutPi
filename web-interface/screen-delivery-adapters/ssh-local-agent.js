@@ -82,15 +82,7 @@ export function createSshLocalAgentAdapter({
         `set -e; ROOT=${shellQuote(remoteProjectRoot)}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk '{print $1}'`,
       );
       const activateCommand = "sudo -n systemctl restart walnut-screen.service";
-      const hotReloadCommand = fullEvidence
-        ? "sleep 0.25; printf 'hot-reload wait complete\\n'"
-        : [
-            "sleep 0.25",
-            "screen_state=$(systemctl is-active walnut-screen.service)",
-            "if [ \"$screen_state\" != active ]; then printf 'hot-reload skipped: walnut-screen.service %s\\n' \"$screen_state\"; sudo -n systemctl restart walnut-screen.service; sleep 0.75; screen_state=$(systemctl is-active walnut-screen.service); printf 'restart fallback complete\\nwalnut-screen.service %s\\n' \"$screen_state\"; else printf 'hot-reload wait complete\\nwalnut-screen.service %s\\n' \"$screen_state\"; fi",
-            "test \"$screen_state\" = active",
-            "if [ -r /sys/class/vtconsole/vtcon1/bind ]; then printf 'vtcon1 bind %s\\n' \"$(cat /sys/class/vtconsole/vtcon1/bind)\"; fi",
-          ].join("; ");
+      const hotReloadCommand = buildActivationCheckCommand();
       const stateCommand = fullEvidence ? "walnut screen state" : null;
       const frameCommand = fullEvidence ? "sudo -n walnut screen frame" : null;
 
@@ -496,6 +488,17 @@ function buildRemoteHotSyncInputCommand({ remoteSliceCommand }) {
   ];
   lines.push("exit 0");
   return lines.join("\n");
+}
+
+function buildActivationCheckCommand() {
+  return [
+    "sleep 0.25",
+    "screen_state=$(systemctl is-active walnut-screen.service)",
+    "if [ \"$screen_state\" != active ]; then printf 'hot-reload skipped: walnut-screen.service %s\\n' \"$screen_state\"; sudo -n systemctl restart walnut-screen.service; sleep 0.75; screen_state=$(systemctl is-active walnut-screen.service); printf 'restart fallback complete\\nwalnut-screen.service %s\\n' \"$screen_state\"; else printf 'hot-reload wait complete\\nwalnut-screen.service %s\\n' \"$screen_state\"; fi",
+    "if [ \"$screen_state\" != active ]; then printf 'repair hint: run sudo -n walnut screen start, then inspect journalctl -u walnut-screen.service\\n'; fi",
+    "test \"$screen_state\" = active",
+    "if [ -r /sys/class/vtconsole/vtcon1/bind ]; then printf 'vtcon1 bind %s\\n' \"$(cat /sys/class/vtconsole/vtcon1/bind)\"; fi",
+  ].join("; ");
 }
 
 function stageScriptLines(name, command, statusVar, { stopOnFailure }) {

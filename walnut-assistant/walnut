@@ -536,6 +536,40 @@ def action_gpio(_: argparse.Namespace | None = None) -> int:
     return 0
 
 
+def action_i2c_scan(_: argparse.Namespace | None = None) -> int:
+    section("I2C device nodes")
+    buses = sorted(Path("/dev").glob("i2c-*"))
+    if buses:
+        for bus in buses:
+            print(str(bus))
+    else:
+        print("no /dev/i2c-* nodes found")
+
+    section("i2cdetect")
+    if not exists("i2cdetect"):
+        print("i2cdetect unavailable; address scan was not run")
+        return 1
+    if not buses:
+        print("no I2C buses to scan")
+        return 1
+
+    scanned_any = False
+    for bus in buses:
+        number = bus.name.removeprefix("i2c-")
+        if not number.isdigit():
+            continue
+        cmd = ["i2cdetect", "-y", "-r", number]
+        print(f"$ {' '.join(cmd)}")
+        try:
+            result = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=4)
+        except subprocess.TimeoutExpired:
+            print("timed out after 4s; continuing with remaining buses")
+            continue
+        print(result.stdout.strip() or "empty")
+        scanned_any = scanned_any or result.returncode == 0
+    return 0 if scanned_any else 1
+
+
 def action_snapshot(_: argparse.Namespace | None = None) -> int:
     section("Device")
     print(one_line(["hostname"]))
@@ -573,6 +607,9 @@ READ_ACTION_HANDLERS = {
     },
     "gpio": {
         "handler": action_gpio,
+    },
+    "i2c_scan": {
+        "handler": action_i2c_scan,
     },
     "snapshot": {
         "handler": action_snapshot,
