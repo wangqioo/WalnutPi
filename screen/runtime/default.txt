@@ -1,11 +1,37 @@
 schema walnutpi.lvgl-runtime-assets.v1
 playlistId default
-playlistHash 74257d17da0ddee246339485f088f63eeaa446f4c735dcc36169a7627ef2f190
+playlistHash 3ddcb91bd2e78cd444733d7a1c9e4b7a0ff1bb175f3d2fca18a64fc8880419bb
 loop 1
 width 480
 height 320
 stride 960
-frameCount 1
+frameCount 4
 itemCount 1
-frame 0 8000 62d6737ca990aad71c9b1d7eaed58a0639c1976b769ae772cff2c6ae9fe63c6f 7a728595208f01f10734550efc92e2758b993addaa08f5eb3cec3fb63ba77379 e095d375bba83a9ad238b8b2d70b7e583529aa34ad2ef411b2565257fbbf689c frames/frame-000.rgb565
-item 0 lvgl-demo-music 9e05516d5491d3f68fd5243647176b9e784604b152167c301b39548889b24ac8 static 0 1 8000 1 cut
+widget rect sky_bg 0 0 480 320 - 0 263443
+widget rect sky_glow_1 28 24 140 88 - 0 8fd6ff
+widget rect sky_glow_2 312 22 132 96 - 0 78c58a
+widget label title 20 14 180 24 STARRY_SKY 0 f4f1df
+widget label subtitle 20 36 220 18 soft_glow_animation_preview 0 a8b5a2
+widget arc moon 334 22 116 116 - 72 314052
+widget label moon_label 350 136 84 18 moon_phase 0 7f8b7b
+widget label tile_twinkle 20 78 132 58 TWINKLE 84 263443
+widget label tile_breeze 160 78 132 58 BREEZE 38 263443
+widget label tile_dream 300 78 132 58 DREAM 91 263443
+widget bar star_field 20 152 440 18 - 68 455a64
+widget label star_caption 20 172 120 18 starlight_drift 0 a8b5a2
+widget rect orbit_left 14 14 76 68 - 0 78c58a
+widget arc orbit_center 104 10 112 76 - 58 8fd6ff
+widget rect orbit_right 236 14 88 68 - 0 314052
+widget label orbit_text_1 338 18 84 16 night_flow 0 f4f1df
+widget label orbit_text_2 338 38 84 16 gentle_motion 0 7f8b7b
+widget label preview_btn 352 284 108 24 PREVIEW 0 8fd6ff
+widget label sync_btn 20 284 96 24 NO_SYNC 0 78c58a
+widget rect spark_1 60 214 6 6 - 0 314052
+widget rect spark_2 90 248 4 4 - 0 314052
+widget rect spark_3 410 214 5 5 - 0 314052
+widget rect spark_4 384 254 4 4 - 0 314052
+frame 0 160 14f492c5130e52b0d8192c9b9ac846741f5054d25f1f32e08fd60551293e79b8 e824e77a6385020b777e04973d003827f4924bc63f004d220566e0e5d600a9bd 6a120cb116565033399fd622c6850b21c432d78daafcdfabfd2791db26e6a939 frames/frame-000.rgb565
+frame 1 160 14f492c5130e52b0d8192c9b9ac846741f5054d25f1f32e08fd60551293e79b8 e824e77a6385020b777e04973d003827f4924bc63f004d220566e0e5d600a9bd 6a120cb116565033399fd622c6850b21c432d78daafcdfabfd2791db26e6a939 frames/frame-001.rgb565
+frame 2 160 14f492c5130e52b0d8192c9b9ac846741f5054d25f1f32e08fd60551293e79b8 e824e77a6385020b777e04973d003827f4924bc63f004d220566e0e5d600a9bd 6a120cb116565033399fd622c6850b21c432d78daafcdfabfd2791db26e6a939 frames/frame-002.rgb565
+frame 3 160 14f492c5130e52b0d8192c9b9ac846741f5054d25f1f32e08fd60551293e79b8 e824e77a6385020b777e04973d003827f4924bc63f004d220566e0e5d600a9bd 6a120cb116565033399fd622c6850b21c432d78daafcdfabfd2791db26e6a939 frames/frame-003.rgb565
+item 0 agent-freeform-1781882713697 c5f316d6d34c0b4507b0a1d81a614cd274733fc1cead5d5cf6ed3a0dd2af401f animated 0 4 8000 1 cut

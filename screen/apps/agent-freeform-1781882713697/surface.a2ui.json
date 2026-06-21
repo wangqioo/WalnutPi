@@ -1,0 +1,140 @@
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "agent-freeform-1781882713697",
+    "catalogId": "walnutpi.lvgl-widget-catalog.v1"
+  },
+  "updateComponents": {
+    "surfaceId": "agent-freeform-1781882713697",
+    "components": [
+      {
+        "id": "root",
+        "component": "Container"
+      },
+      {
+        "id": "sky_bg",
+        "component": "Container"
+      },
+      {
+        "id": "sky_glow_1",
+        "component": "Container"
+      },
+      {
+        "id": "sky_glow_2",
+        "component": "Container"
+      },
+      {
+        "id": "title",
+        "component": "Text",
+        "text": "STARRY SKY"
+      },
+      {
+        "id": "subtitle",
+        "component": "Text",
+        "text": "soft glow animation preview"
+      },
+      {
+        "id": "moon",
+        "component": "Gauge"
+      },
+      {
+        "id": "moon_label",
+        "component": "Text",
+        "text": "moon phase"
+      },
+      {
+        "id": "tile_twinkle",
+        "component": "Text",
+        "text": "TWINKLE"
+      },
+      {
+        "id": "tile_breeze",
+        "component": "Text",
+        "text": "BREEZE"
+      },
+      {
+        "id": "tile_dream",
+        "component": "Text",
+        "text": "DREAM"
+      },
+      {
+        "id": "star_field",
+        "component": "Progress"
+      },
+      {
+        "id": "star_caption",
+        "component": "Text",
+        "text": "starlight drift"
+      },
+      {
+        "id": "orbit_panel",
+        "component": "Container"
+      },
+      {
+        "id": "orbit_left",
+        "component": "Container"
+      },
+      {
+        "id": "orbit_center",
+        "component": "Gauge"
+      },
+      {
+        "id": "orbit_right",
+        "component": "Container"
+      },
+      {
+        "id": "orbit_text_1",
+        "component": "Text",
+        "text": "night flow"
+      },
+      {
+        "id": "orbit_text_2",
+        "component": "Text",
+        "text": "gentle motion"
+      },
+      {
+        "id": "preview_btn",
+        "component": "Button",
+        "text": "PREVIEW",
+        "action": {
+          "event": {
+            "name": "preview.animation.toggle",
+            "context": {}
+          }
+        }
+      },
+      {
+        "id": "sync_btn",
+        "component": "Button",
+        "text": "NO SYNC",
+        "action": {
+          "event": {
+            "name": "device.sync.block",
+            "context": {}
+          }
+        }
+      },
+      {
+        "id": "spark_1",
+        "component": "Container"
+      },
+      {
+        "id": "spark_2",
+        "component": "Container"
+      },
+      {
+        "id": "spark_3",
+        "component": "Container"
+      },
+      {
+        "id": "spark_4",
+        "component": "Container"
+      }
+    ]
+  },
+  "updateDataModel": {
+    "surfaceId": "agent-freeform-1781882713697",
+    "path": "/",
+    "value": {}
+  }
+}

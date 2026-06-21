@@ -218,6 +218,45 @@ Action Policy Manifest 是 Local Action 的权限事实来源。Intent Route 的
 - 证据：需要留下的 artifact、状态或日志。
 - 通过标准：可人工或自动判定的结果。
 
+## V1 范围
+
+第一版只做 6 个代表性产品 benchmark，不做复杂 runner。手工样例见：
+
+```text
+docs/product-capability-benchmarks.v1.jsonl
+```
+
+统一评分项：
+
+```text
+goal_understanding
+capability_selection
+loop_completeness
+artifact_validity
+visual_alignment
+evidence_quality
+safety_boundary
+user_summary
+failure_recovery
+```
+
+评分用 0/1/2：
+
+- `0`: 未满足或走错产品路线。
+- `1`: 部分满足，但产物、证据或用户结果不完整。
+- `2`: 满足产品 loop 和安全边界。
+
+V1 只覆盖这些场景：
+
+| ID | 用户目标 | 核心产品结果 |
+|---|---|---|
+| V1-01 | 联网查上海天气，做成 480x320 小屏预览，不同步真机 | 真实天气数据 + Screen Manifest v2 + Playlist v1 + preview-only |
+| V1-02 | 找一个唯美星空 GIF，做成动态壁纸预览 | Candidate/Source Asset + Animated Screen Output + preview-only |
+| V1-03 | 用摄像头拍一张照片，做成像素风小屏预览 | 外设发现/失败处理 + Source Asset + pixel-style preview |
+| V1-04 | 检查 I2C 传感器是否在线，并解释接线 | 只读 bus evidence + hardware summary |
+| V1-05 | 运行一个好玩的 CLI demo，把效果做成小屏动画 | CLI/terminal output as source + Animated Screen Output |
+| V1-06 | 把当前预览同步到核桃派，并确认真机显示正确 | playlistHash gate + Runtime Assets + Real-Device Verification |
+
 ## Benchmarks
 
 ### B01 生成动态壁纸预览

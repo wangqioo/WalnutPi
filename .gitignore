@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 node_modules/
+.vs/
 .env
 .env.*
 !.env.example
