@@ -250,7 +250,7 @@ bun run bench:product
 -> screen/benchmark-runs/<runId>/summary.json
 ```
 
-`bench:product` 默认跑每个 case 的所有 variants。快速本地检查可以加 `--first-variant`；可重复门禁使用 `--profile offline`。`network` profile 允许网络、模型和搜索波动但排除 device cases；`device` profile 会包含真机相关 case，只适合连接到某台具体 WalnutPi 的本地验证。
+`bench:product` 默认跑每个 case 的所有 variants。快速本地检查可以加 `--first-variant`；可重复门禁使用 `--profile offline`。Profile 只按 JSONL case 的显式 `requirements` 过滤：`offline` 会把 device/network/model/search 要求记录为 profile skip，`network` 只跳过 device，`device` 包含真机相关 case。Harness 不从自然语言或 flow 名字推断 requirements。
 
 常用 benchmark 命令：
 

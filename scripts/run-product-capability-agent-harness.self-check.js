@@ -135,19 +135,29 @@ const coverageFailures = currentRunCoverageFailures({
     { caseId: "V1-25", variantId: "zh-main", runnerStatus: "runnable", verdict: "pass", settled: { ok: true } },
     { caseId: "V1-25", variantId: "zh-alt", runnerStatus: "runnable", verdict: "needs_review", settled: { ok: true }, evaluation: replanFail },
     { caseId: "V1-09", variantId: "zh-main", runnerStatus: "contract-only", verdict: "needs_review", settled: { ok: true }, evaluation: replanFail },
+    {
+      caseId: "V1-01",
+      variantId: "zh-main",
+      runnerStatus: "runnable",
+      verdict: "skipped",
+      skip: { kind: "profile-requirements" },
+      settled: { ok: true },
+      evaluation: replanFail,
+    },
   ],
 });
 assert.deepEqual(coverageFailures.map((entry) => `${entry.caseId}/${entry.variantId}`), ["V1-25/zh-alt"]);
 
 const cases = [
-  { id: "local", deviceRequired: false, variants: [{ id: "a" }, { id: "b" }] },
-  { id: "device", deviceRequired: true, variants: [{ id: "a" }] },
-  { id: "network", networkRequired: true, variants: [{ id: "a" }] },
-  { id: "implicit-network", flow: "screen.source_asset_to_wallpaper", variants: [{ id: "a" }] },
+  { id: "local", requirements: { device: false, network: false, model: false, search: false }, variants: [{ id: "a" }, { id: "b" }] },
+  { id: "device", requirements: { device: true, network: false, model: false, search: false }, variants: [{ id: "a" }] },
+  { id: "network", requirements: { device: false, network: true, model: false, search: false }, variants: [{ id: "a" }] },
+  { id: "search", requirements: { device: false, network: true, model: false, search: true }, variants: [{ id: "a" }] },
 ];
-assert.deepEqual(selectCases(cases, {}).map((entry) => entry.id), ["local", "network", "implicit-network"]);
-assert.deepEqual(selectCases(cases, { profile: "offline" }).map((entry) => entry.id), ["local", "implicit-network"]);
-assert.deepEqual(selectCases(cases, { profile: "device" }).map((entry) => entry.id), ["local", "device", "network", "implicit-network"]);
+assert.deepEqual(selectCases(cases, {}).map((entry) => entry.id), ["local", "device", "network", "search"]);
+assert.deepEqual(selectCases(cases, { profile: "offline" }).map((entry) => entry.id), ["local", "device", "network", "search"]);
+assert.deepEqual(selectCases(cases, { profile: "device" }).map((entry) => entry.id), ["local", "device", "network", "search"]);
+assert.deepEqual(selectCases(cases, { caseId: "network" }).map((entry) => entry.id), ["network"]);
 assert.equal(variantsForCase(cases[0], {}).length, 2);
 assert.equal(variantsForCase(cases[0], { firstVariant: true }).length, 1);
 assert.equal(variantsForCase(cases[0], { allVariants: true }).length, 2);

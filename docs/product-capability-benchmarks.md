@@ -8,9 +8,19 @@
 
 V2 harness 支持三个 profile：
 
-- `offline`：排除显式 device case 和显式 network case，适合作为最保守的 CI gate。
-- `network`：默认 profile，排除 device case，但允许网络/模型/搜索相关 case；适合作为常规产品能力 CI gate。
+- `offline`：只运行 `requirements.device/network/model/search` 全部为 `false` 的 case；不满足要求的 case 会记录为 profile skip，适合作为最保守的 CI gate。
+- `network`：默认 profile，排除 `requirements.device: true` 的 case，但允许 `network`、`model`、`search` 要求；适合作为常规产品能力 CI gate。
 - `device`：包含 device case，只用于连接到某个具体 WalnutPi 设备的本地验证；它不是通用可重复 CI gate。
+
+每条 V2 JSONL case 必须显式声明：
+
+```json
+"requirements": { "device": false, "network": false, "model": false, "search": false }
+```
+
+Harness 只读取这个结构化字段，不从 `flow`、自然语言输入、标题或历史字段里推断 case 是否需要网络、模型、搜索或设备。缺失 `requirements`、字段不是 boolean、或出现未知字段都会让 case spec 校验失败。Profile 不匹配时，harness 会为每个 variant 写入 `skip.kind: "profile-requirements"`、`requirements` 和跳过原因；这些 skip 不计为当前 profile 的 coverage failure。
+
+`runnerStatus: "contract-only"` 只表示当前 benchmark 描述了产品合同但还没有可执行 harness 覆盖。Harness 会记录为 `skip.kind: "contract-only"`；它不是 pass，也不能当成真实产品覆盖。
 
 Device profile 会在每次 run 的 `summary.json` 里记录 `environment.devicePreflight`，并额外写出 `device-preflight.json`。这些 metadata 包括 `baseUrl`、profile、`includeDevice`、目标 `SSH_USER@SSH_HOST`、remote project root 解析来源、Web Console 是否由 harness 启动、`/api/actions` URL 级检查，以及不可重复因素说明。
 
@@ -1268,7 +1278,7 @@ V1 只覆盖这些场景：
 
 ## 自动化建议
 
-默认自动化入口是 `bun run bench:product`。它读取 V2 JSONL 的 `goal`、`evidence`、`safety`，通过 `/api/agent/turn` 保存 `agentTurn.v2` trace，再做通用评估。默认会跑每个 case 的所有 variants；快速本地检查可以加 `--first-variant`。
+默认自动化入口是 `bun run bench:product`。它读取 V2 JSONL 的 `requirements`、`goal`、`evidence`、`safety`，通过 `/api/agent/turn` 保存 `agentTurn.v2` trace，再做通用评估。默认会跑每个 case 的所有 variants；快速本地检查可以加 `--first-variant`。
 
 CI/offline 门禁入口是 `bun run bench:product:gate`。它固定以 offline profile 跑所有 variants，再用 `bun run bench:product:compare` 和已审核 baseline 比较。默认 baseline 路径是：
 
@@ -1300,4 +1310,4 @@ Copy-Item screen/benchmark-runs/baseline-offline/summary.json screen/benchmark-b
 - diagnostics 请求只读 evidence，不自动重试 side-effect 动作。
 - Web 和 CLI/WalnutAI trace 至少都能断言 `route`、`steps[]`、`evidence`、`contextUsed`，避免 benchmark runner 为两边写双轨字段。
 
-后续改进应优先补产品 loop 的 route、steps、artifacts/evidence、sideEffects 和 user summary trace，而不是给单个 V1 case 写 adapter。
+后续改进应优先补产品 loop 的 route、steps、artifacts/evidence、sideEffects 和 user summary trace，而不是给单个 V1 case 写 adapter。Case 是否需要网络、模型、搜索或设备必须由 case spec 作者显式写入 `requirements`；harness 不应为了跑通 benchmark 自动补语义。

@@ -4,8 +4,8 @@
 
 Use these profiles as gates:
 
-- `offline`: deterministic local product-loop checks where device and explicit network cases are excluded.
-- `network`: default product-loop checks that may use network/model/search behavior but still exclude device cases.
+- `offline`: deterministic local product-loop checks where any case with `requirements.device`, `requirements.network`, `requirements.model`, or `requirements.search` is recorded as a profile skip.
+- `network`: default product-loop checks that may use `requirements.network`, `requirements.model`, or `requirements.search` behavior but still record `requirements.device` cases as profile skips.
 
 Use `device` only when the operator intentionally wants live-device coverage. Device results depend on the selected target, credentials, remote checkout path, current network route, physical peripherals, service state, display frame, and prior sync state.
 
@@ -29,6 +29,8 @@ The metadata records:
 - known non-repeatable factors
 
 Secret values are not recorded. `SSH_PASSWORD` is stored only as configured/default metadata.
+
+Profile selection is driven only by the structured `requirements` object in each benchmark case. The harness does not infer network, model, search, or device needs from prompt text, flow names, titles, or old compatibility fields.
 
 ## Strict preflight
 

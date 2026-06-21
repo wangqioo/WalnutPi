@@ -87,14 +87,16 @@ See `docs/real-device-command-scripts.md` before adding or changing real-device 
 - `bench:product` uses Walnut Agent Console `/api/agent/turn`, records `agentTurn.v2` traces, and writes runs under `screen/benchmark-runs/<runId>/`.
 - Default benchmark behavior runs all variants for selected cases. Use `--first-variant` only for quick local checks.
 - Profiles:
-  - `offline`: repeatable local gate profile; excludes device cases and explicit network cases.
-  - `network`: product-loop checks that may use network/model/search behavior but still exclude device cases.
+  - `offline`: repeatable local gate profile; records cases with `requirements.device/network/model/search` as profile skips.
+  - `network`: product-loop checks that may use network/model/search behavior but still record device cases as profile skips.
   - `device`: live WalnutPi verification profile; not a universal CI gate.
+- Every V2 JSONL case must declare `requirements: { device, network, model, search }` with boolean values. Harness profile filtering must use only this structured field, never prompt text, flow names, titles, or legacy compatibility fields.
 - CI/offline gate: `bun run bench:product:gate`. It runs offline all-variant benchmarks and compares against `screen/benchmark-baselines/offline/summary.json`.
 - Baseline convention: `screen/benchmark-baselines/<profile>/summary.json`. Gate must fail when the baseline is missing; do not silently bless new results.
 - Compare two runs with `bun run bench:product:compare -- <base-summary.json> <new-summary.json>`.
 - Device profile writes `device-preflight.json` plus `summary.environment.devicePreflight`. Use `--strict-device-preflight` only when missing live-device target metadata should fail fast.
 - Loop evaluation should include trace signals, but multi-step behavior must also be tested through bounded `nextTasks` continuation evidence: `multi-step-loop` and `replan-evidence`.
+- `contract-only` cases are recorded as skips and are not real product coverage.
 
 ## Tool Defaults
 

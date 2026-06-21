@@ -34,7 +34,7 @@ async function main() {
 }
 
 async function runHarness({ args, baseUrl, preflightContext = {} }) {
-  const cases = selectCases(await readJsonl(args.file || defaultCases), args);
+  const cases = selectCases(validateCases(await readJsonl(args.file || defaultCases)), args);
   if (!cases.length) throw new Error(`no benchmark cases matched${args.caseId ? ` ${args.caseId}` : ""}`);
 
   const runId = args.runId || `agent-harness-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`;
@@ -60,22 +60,40 @@ async function runHarness({ args, baseUrl, preflightContext = {} }) {
     schema: "walnutpi.productCapabilityAgentHarnessRun.v1",
     runId,
     baseUrl,
-    profile: args.profile || (args.includeDevice ? "device" : "network"),
+    profile: effectiveProfile(args),
     environment: {
       devicePreflight,
       devicePreflightPath: path.relative(root, preflightPath).replaceAll("\\", "/"),
     },
     startedAt: new Date().toISOString(),
     telemetry: emptyTelemetrySummary(),
+    skipped: { profileRequirements: 0, contractOnly: 0 },
     cases: [],
   };
 
   for (const benchmark of cases) {
     for (const variant of variantsForCase(benchmark, args)) {
+      const profileSkip = profileSkipReason(benchmark, args);
+      if (profileSkip) {
+        const turn = skippedProfileTurn({ benchmark, variant, runId, profile: effectiveProfile(args), reason: profileSkip });
+        const turnPath = path.join(turnDir, `${safeId(benchmark.id)}-${safeId(variant.id)}.json`);
+        await writeJson(turnPath, turn);
+        summary.skipped.profileRequirements += 1;
+        summary.cases.push(summaryCase({
+          benchmark,
+          variant,
+          turn,
+          evaluation: { verdict: "skipped", evidence: { missing: [], missingResults: [] }, safety: { forbiddenTriggered: [] } },
+          settled: { ok: true, initialStatus: "skipped", finalStatus: "skipped" },
+          turnPath,
+        }));
+        continue;
+      }
       if (shouldSkipHarnessExecution(benchmark)) {
         const turn = skippedContractTurn({ benchmark, variant, runId });
         const turnPath = path.join(turnDir, `${safeId(benchmark.id)}-${safeId(variant.id)}.json`);
         await writeJson(turnPath, turn);
+        summary.skipped.contractOnly += 1;
         summary.cases.push(summaryCase({
           benchmark,
           variant,
@@ -225,7 +243,7 @@ export function buildDevicePreflightMetadata({
   checkedAt = new Date().toISOString(),
   env = process.env,
 } = {}) {
-  const profile = args.profile || (args.includeDevice ? "device" : "network");
+  const profile = effectiveProfile(args);
   const includeDevice = Boolean(args.includeDevice || profile === "device");
   const sshHost = envValue(env, "SSH_HOST", "192.168.1.24");
   const sshUser = envValue(env, "SSH_USER", "root");
@@ -447,25 +465,43 @@ function parseProfile(value) {
 }
 
 export function selectCases(cases, args = {}) {
-  return cases
-    .filter((entry) => !args.caseId || entry.id === args.caseId)
-    .filter((entry) => profileAllowsCase(entry, args));
+  return cases.filter((entry) => !args.caseId || entry.id === args.caseId);
 }
 
-function profileAllowsCase(benchmark, args = {}) {
-  if (args.includeDevice || args.profile === "device") return true;
-  if (benchmark.deviceRequired) return false;
-  if ((args.profile || "network") !== "offline") return true;
-  return !caseRequiresNetwork(benchmark);
+function validateCases(cases) {
+  return cases.map((benchmark) => {
+    validateRequirements(benchmark);
+    return benchmark;
+  });
 }
 
-function caseRequiresNetwork(benchmark) {
-  return benchmark.networkRequired === true
-    || benchmark.requiresNetwork === true
-    || benchmark.profile === "network"
-    || benchmark.runnerProfile === "network"
-    || benchmark.capabilityProfile === "network"
-    || (Array.isArray(benchmark.profiles) && benchmark.profiles.includes("network"));
+function validateRequirements(benchmark) {
+  const caseId = benchmark?.id || "unknown";
+  const requirements = benchmark?.requirements;
+  if (!requirements || typeof requirements !== "object" || Array.isArray(requirements)) {
+    throw new Error(`benchmark ${caseId} missing requirements`);
+  }
+  for (const key of ["device", "network", "model", "search"]) {
+    if (typeof requirements[key] !== "boolean") {
+      throw new Error(`benchmark ${caseId} requirements.${key} must be boolean`);
+    }
+  }
+  const unknown = Object.keys(requirements).filter((key) => !["device", "network", "model", "search"].includes(key));
+  if (unknown.length) throw new Error(`benchmark ${caseId} requirements has unknown field(s): ${unknown.join(", ")}`);
+}
+
+function effectiveProfile(args = {}) {
+  return args.profile || (args.includeDevice ? "device" : "network");
+}
+
+function profileSkipReason(benchmark, args = {}) {
+  const profile = effectiveProfile(args);
+  const requirements = benchmark.requirements;
+  if (profile === "device") return null;
+  if (requirements.device) return `profile ${profile} excludes device requirements`;
+  if (profile === "network") return null;
+  const blocked = ["network", "model", "search"].filter((key) => requirements[key]);
+  return blocked.length ? `profile offline excludes ${blocked.join(", ")} requirements` : null;
 }
 
 export function variantsForCase(benchmark, args = {}) {
@@ -484,6 +520,7 @@ function skippedContractTurn({ benchmark, variant, runId }) {
     variantId: variant.id,
     input: variant.input,
     status: "skipped",
+    skip: { kind: "contract-only", reason: "Benchmark defines an observable contract but is not executable by the product agent harness yet." },
     route: null,
     steps: [
       {
@@ -502,6 +539,39 @@ function skippedContractTurn({ benchmark, variant, runId }) {
   };
 }
 
+function skippedProfileTurn({ benchmark, variant, runId, profile, reason }) {
+  return {
+    schema: "walnutpi.agentTurn.v2",
+    runId,
+    caseId: benchmark.id,
+    variantId: variant.id,
+    input: variant.input,
+    status: "skipped",
+    skip: {
+      kind: "profile-requirements",
+      profile,
+      requirements: benchmark.requirements,
+      reason,
+    },
+    route: null,
+    steps: [
+      {
+        kind: "profile.skip",
+        status: "completed",
+        result: {
+          profile,
+          requirements: benchmark.requirements,
+          reason,
+        },
+      },
+    ],
+    artifacts: [],
+    evidence: [{ kind: "profile-requirements-skip", value: { profile, requirements: benchmark.requirements, reason } }],
+    sideEffects: [],
+    telemetry: { elapsedMs: 0, metrics: emptyTelemetrySummary() },
+  };
+}
+
 function summaryCase({ benchmark, variant, turn, evaluation, settled, turnPath, initialTurnPath = null }) {
   return {
     caseId: benchmark.id,
@@ -511,8 +581,10 @@ function summaryCase({ benchmark, variant, turn, evaluation, settled, turnPath, 
     mutates: benchmark.mutates || null,
     mutationKind: benchmark.mutationKind || null,
     runnerStatus: benchmark.runnerStatus || null,
+    requirements: benchmark.requirements,
     status: turn.status || "unknown",
     verdict: evaluation.verdict,
+    skip: turn.skip || null,
     evaluation,
     settled,
     initialTurnPath: initialTurnPath ? path.relative(root, initialTurnPath).replaceAll("\\", "/") : null,
@@ -558,6 +630,7 @@ export function evaluateTurn(benchmark, turn, variant = benchmark.variants?.[0])
 export function currentRunCoverageFailures(summary) {
   return (summary.cases || [])
     .filter((entry) => ["runnable", "device-gated"].includes(entry.runnerStatus))
+    .filter((entry) => entry.skip?.kind !== "profile-requirements")
     .filter((entry) => entry.verdict !== "pass" || entry.settled?.ok === false)
     .map((entry) => ({
       caseId: entry.caseId || "unknown",
@@ -689,24 +762,50 @@ function compactTelemetry(telemetry = {}) {
   };
 }
 
+function assertThrows(fn, pattern) {
+  try {
+    fn();
+  } catch (error) {
+    if (!pattern.test(error.message)) throw error;
+    return;
+  }
+  throw new Error(`expected function to throw ${pattern}`);
+}
+
 async function selfCheck() {
   const sampleCases = [
-    { id: "local", deviceRequired: false, variants: [{ id: "a" }, { id: "b" }] },
-    { id: "device", deviceRequired: true, variants: [{ id: "a" }] },
-    { id: "network", networkRequired: true, variants: [{ id: "a" }] },
-    { id: "implicit-network", flow: "screen.source_asset_to_wallpaper", variants: [{ id: "a" }] },
+    { id: "local", requirements: { device: false, network: false, model: false, search: false }, variants: [{ id: "a" }, { id: "b" }] },
+    { id: "device", requirements: { device: true, network: false, model: false, search: false }, variants: [{ id: "a" }] },
+    { id: "network", requirements: { device: false, network: true, model: false, search: false }, variants: [{ id: "a" }] },
+    { id: "search", requirements: { device: false, network: true, model: false, search: true }, variants: [{ id: "a" }] },
   ];
-  if (selectCases(sampleCases, {}).map((entry) => entry.id).join(",") !== "local,network,implicit-network") {
-    throw new Error("default profile should skip only device cases");
+  if (selectCases(sampleCases, {}).map((entry) => entry.id).join(",") !== "local,device,network,search") {
+    throw new Error("selectCases should only apply explicit case-id filtering");
   }
   if (parseArgs(["--case-id", "V1-25"]).caseId !== "V1-25") {
     throw new Error("case selector should map to caseId");
   }
-  if (selectCases(sampleCases, { profile: "offline" }).map((entry) => entry.id).join(",") !== "local,implicit-network") {
-    throw new Error("offline profile should skip device and explicit network cases only");
+  if (!profileSkipReason(sampleCases[1], { profile: "network" }) || profileSkipReason(sampleCases[2], { profile: "network" })) {
+    throw new Error("network profile should skip device requirements only");
   }
-  if (selectCases(sampleCases, { profile: "device" }).length !== sampleCases.length) {
-    throw new Error("device profile should include device cases");
+  if (profileSkipReason(sampleCases[0], { profile: "offline" }) || !profileSkipReason(sampleCases[2], { profile: "offline" }) || !profileSkipReason(sampleCases[3], { profile: "offline" })) {
+    throw new Error("offline profile should skip network/model/search requirements");
+  }
+  if (profileSkipReason(sampleCases[1], { profile: "device" })) {
+    throw new Error("device profile should include device requirements");
+  }
+  assertThrows(() => validateCases([{ id: "bad", variants: [] }]), /missing requirements/);
+  assertThrows(() => validateCases([{ id: "bad", requirements: { device: false, network: false, model: false }, variants: [] }]), /requirements.search/);
+  assertThrows(() => validateCases([{ id: "bad", requirements: { device: false, network: false, model: false, search: false, extra: false }, variants: [] }]), /unknown field/);
+  const skippedProfile = skippedProfileTurn({
+    benchmark: sampleCases[2],
+    variant: { id: "a", input: "network case" },
+    runId: "self-check",
+    profile: "offline",
+    reason: profileSkipReason(sampleCases[2], { profile: "offline" }),
+  });
+  if (skippedProfile.skip.kind !== "profile-requirements" || !skippedProfile.evidence.some((item) => item.kind === "profile-requirements-skip")) {
+    throw new Error("profile requirement skip should be explicit in turn evidence");
   }
   if (variantsForCase(sampleCases[0], {}).length !== 2 || variantsForCase(sampleCases[0], { firstVariant: true }).length !== 1) {
     throw new Error("variant selection failed");
