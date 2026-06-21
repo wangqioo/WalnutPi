@@ -1,7 +1,13 @@
 {
   "type": "module",
   "scripts": {
-    "bench:product": "bun scripts/run-product-capability-benchmarks.js",
+    "bench:product": "bun scripts/run-product-capability-agent-harness.js",
+    "bench:product:compare": "bun scripts/compare-product-capability-runs.js",
+    "bench:product:gate": "bun scripts/run-product-capability-gate.js",
+    "bench:product:holdout": "bun scripts/run-product-capability-agent-harness.js --file docs/product-capability-benchmarks.v2.holdout.jsonl",
+    "bench:product:mutation": "bun scripts/run-product-capability-agent-harness.js --file docs/product-capability-benchmarks.v2.mutations.jsonl --first-variant",
+    "eval:iterate": "bun eval/iterate.js",
+    "eval:iterate:first": "bun eval/iterate.js --first-variant",
     "screen:workspace:process": "bun scripts/process-screen-workspace-source.js",
     "screen:workspace:lvgl-build": "bun scripts/build-lvgl-app.js",
     "web": "bun web-interface/model-terminal-server.js"

@@ -132,6 +132,8 @@ Web 里的对话入口和 CLI 工具调用不冲突。对话负责理解用户�
 - `walnut-ai "上海天气怎么样"` 运行一次性本地 agent 回合
 - `walnut play` 体验音乐、数字雨、时钟和 ASCII 视频
 - `walnut maintenance` 进入浏览器、监控和修复菜单
+- `bun run bench:product -- --profile offline --first-variant` 快速跑一次产品能力 harness
+- `bun run bench:product:gate` 跑 offline all-variant 门禁并和已审核 baseline 比较
 
 ## 适合做什么
 
@@ -238,6 +240,37 @@ http://127.0.0.1:4173/
 普通用户只看到 `未同步`、`同步中`、`已同步到核桃派`、`同步失败`。`buildId`、playlist hash、manifest hash、artifact hash、delivery hash、命令输出、screen state、framebuffer frame hash、`visualMatch` / `visualChecks`、metadata-only pixel evidence、诊断级 Web/device pixel diff、历史记录、repairHint 和按需设备截图放在 Developer Diagnostics。fast evidence 下 `visualMatch` 为 `playlist-committed`；完整 framebuffer 回证通过时为 `captured`。
 
 Screen Workspace 同步已经规范化到 480x320 的输出。静态输出是 480x320 PNG；动画输出是 480x320 帧序列加时长；Sync 使用本地 Screen Output 和 Runtime Screen Assets。LVGL Screen App 消费由 Screen Playlist 派生的 Runtime Screen Assets。
+
+Walnut Agent Console 也是当前产品能力 harness 的入口：
+
+```text
+bun run bench:product
+-> POST /api/agent/turn
+-> agentTurn.v2 steps/artifacts/evidence/sideEffects/recovery/telemetry
+-> screen/benchmark-runs/<runId>/summary.json
+```
+
+`bench:product` 默认跑每个 case 的所有 variants。快速本地检查可以加 `--first-variant`；可重复门禁使用 `--profile offline`。`network` profile 允许网络、模型和搜索波动但排除 device cases；`device` profile 会包含真机相关 case，只适合连接到某台具体 WalnutPi 的本地验证。
+
+常用 benchmark 命令：
+
+```bash
+bun run bench:product -- --profile offline --first-variant
+bun run bench:product -- --case-id V1-01
+bun run bench:product -- --profile device --strict-device-preflight
+bun run bench:product:compare -- screen/benchmark-baselines/offline/summary.json screen/benchmark-runs/<runId>/summary.json
+bun run bench:product:gate
+```
+
+`bench:product:gate` 固定跑 offline all-variant benchmark，然后比较 `screen/benchmark-baselines/offline/summary.json`。baseline 不存在时 gate 会失败；先人工审核一次 run，再复制 summary：
+
+```powershell
+bun scripts/run-product-capability-agent-harness.js --profile offline --run-id baseline-offline
+New-Item -ItemType Directory -Force screen/benchmark-baselines/offline
+Copy-Item screen/benchmark-runs/baseline-offline/summary.json screen/benchmark-baselines/offline/summary.json
+```
+
+device profile 每次 run 会记录 `device-preflight.json` 和 `summary.environment.devicePreflight`，包括 target、remote root 来源、Web/API 可达性和不可重复因素。严格预检只检查本地环境与 HTTP 层，不 SSH、不运行 `walnut`、不改设备。
 
 同步记录默认保存在 `web-interface/screen-sync-records/`，该目录不进入 Git。每条记录保存 `record.json`、`summary.json`，开发者展开诊断截图后还会缓存 `frame.png`。默认保留最近 50 条，可用 `WALNUT_SCREEN_RECORD_LIMIT` 调整，也可用 `WALNUT_SCREEN_RECORDS_DIR` 改变保存目录。
 
@@ -484,6 +517,14 @@ walnut-ai "上海天气怎么样"
 ```
 
 不带参数时进入交互式聊天；带参数时运行一次性 agent 回合。一次性回合会优先判断是否可以由 WalnutPi 本地执行，例如天气、状态、网络、笔记和硬件只读检查；其他问题交给云端 AI。
+
+一次性本地 agent 回合可能在普通回答末尾追加一行机器可读 trace：
+
+```text
+WALNUT_AGENT_TURN_TRACE:{...}
+```
+
+该 JSON 与 Web `/api/agent/turn` trace 保持同一组核心字段：`route`、`steps[]`、`evidence`、`contextUsed`。benchmark 和 diagnostics 应优先读取这些共享字段，而不是为 Web 和 CLI 维护两套语义。
 
 ### AirPods Linux 音频说明（已归档）
 

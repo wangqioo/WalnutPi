@@ -10,7 +10,7 @@
  * Synchronous tasks (state_frame.read) complete inline.
  * Async tasks (generate, sync) are queued via ctx.queueTask().
  */
-export function createScreenAgent() {
+export function createScreenAgent({ readPlaylistEnvelope } = {}) {
   return {
     matchPlan(classification) {
       const intent = classification?.intent || "";
@@ -76,9 +76,14 @@ export function createScreenAgent() {
         );
       }
 
-      if (task.kind === "screen.workspace.sync.intent" && ctx.syncScreen && body.playlistHash) {
+      if (task.kind === "screen.workspace.sync.intent" && ctx.syncScreen) {
+        const playlistHash = body.playlistHash || await readCurrentPlaylistHash(readPlaylistEnvelope);
+        if (!playlistHash) {
+          ctx.setPending("missing current playlist hash");
+          return { ok: true, status: 200, stepId: ctx.step.id, stepResult: ctx.step.result };
+        }
         return ctx.queueTask(() =>
-          ctx.syncScreen({ playlistHash: body.playlistHash, evidenceMode: body.evidenceMode, sessionId, turnId: turn.turnId }),
+          ctx.syncScreen({ playlistHash, evidenceMode: body.evidenceMode, sessionId, turnId: turn.turnId }),
         );
       }
 
@@ -87,6 +92,12 @@ export function createScreenAgent() {
       return { ok: true, status: 200, stepId: ctx.step.id, stepResult: ctx.step.result };
     },
   };
+}
+
+async function readCurrentPlaylistHash(readPlaylistEnvelope) {
+  if (typeof readPlaylistEnvelope !== "function") return null;
+  const envelope = await readPlaylistEnvelope();
+  return envelope?.playlistHash || null;
 }
 
 function screenStateFrameReadResult() {

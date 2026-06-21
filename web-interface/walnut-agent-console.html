@@ -207,6 +207,76 @@
         background: rgba(124, 203, 197, 0.1);
       }
 
+      .recovery-card {
+        border: 1px solid rgba(216, 109, 103, 0.34);
+        background: rgba(216, 109, 103, 0.08);
+        padding: 12px;
+        margin-top: 8px;
+      }
+
+      .recovery-card.pending {
+        border-color: rgba(255, 159, 10, 0.42);
+        background: rgba(255, 159, 10, 0.08);
+      }
+
+      .recovery-label {
+        color: var(--muted);
+        font-size: 11px;
+        margin-bottom: 8px;
+      }
+
+      .recovery-error {
+        color: var(--red);
+        font-size: 12px;
+        margin-bottom: 8px;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+
+      .recovery-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+      }
+
+      .recovery-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 0;
+        padding: 0 12px;
+        background: #1b1e1f;
+        cursor: pointer;
+        font-size: 12px;
+        line-height: 1;
+        white-space: nowrap;
+        color: #efece2;
+      }
+
+      .recovery-btn:hover,
+      .recovery-btn:focus-visible {
+        border-color: rgba(239, 236, 226, 0.34);
+        outline: none;
+      }
+
+      .recovery-btn.confirm {
+        border-color: rgba(124, 203, 197, 0.42);
+        background: rgba(124, 203, 197, 0.1);
+      }
+
+      .recovery-btn.retry {
+        border-color: rgba(124, 203, 197, 0.42);
+        background: rgba(124, 203, 197, 0.1);
+      }
+
+      .recovery-btn.warn {
+        border-color: rgba(255, 159, 10, 0.42);
+        background: rgba(255, 159, 10, 0.1);
+      }
+
       .label {
         color: var(--muted);
         font-size: 12px;
@@ -432,6 +502,86 @@
         if (message?.parentNode === resultEl) message.remove();
       }
 
+      function showRecoveryCard(turn) {
+        const recovery = turn.recovery;
+        if (!recovery || recovery.status === "not-needed") return;
+
+        const card = document.createElement("div");
+        card.className = `recovery-card${recovery.status === "pending" ? " pending" : ""}`;
+
+        const label = document.createElement("div");
+        label.className = "recovery-label";
+        label.textContent = recovery.status === "pending" ? "⏳ 等待确认 — 需要你批准才能继续" : "⚠️ 需要恢复操作";
+        card.append(label);
+
+        if (recovery.error) {
+          const errEl = document.createElement("div");
+          errEl.className = "recovery-error";
+          errEl.textContent = recovery.error;
+          card.append(errEl);
+        }
+
+        if (recovery.failedStepId) {
+          const stepEl = document.createElement("div");
+          stepEl.className = "recovery-error";
+          stepEl.textContent = `失败步骤：${recovery.failedStepId}`;
+          card.append(stepEl);
+        }
+
+        const actions = document.createElement("div");
+        actions.className = "recovery-actions";
+
+        if (recovery.status === "pending" && recovery.pendingNext) {
+          const pendingText = typeof recovery.pendingNext === "object"
+            ? (recovery.pendingNext.tasks || [recovery.pendingNext]).map((t) => `${t.kind}${t.action ? `:${t.action}` : ""}`).join(", ")
+            : recovery.pendingNext;
+
+          const info = document.createElement("div");
+          info.className = "recovery-error";
+          info.textContent = `待确认：${pendingText}`;
+          card.append(info);
+
+          const confirmBtn = document.createElement("button");
+          confirmBtn.className = "recovery-btn confirm";
+          confirmBtn.textContent = "✓ 确认执行";
+          confirmBtn.addEventListener("click", () => reSend("我确认继续：请执行刚才等待确认的动作。"));
+          actions.append(confirmBtn);
+
+          const skipBtn = document.createElement("button");
+          skipBtn.className = "recovery-btn warn";
+          skipBtn.textContent = "跳过，不做";
+          skipBtn.addEventListener("click", () => reSend("跳过刚才等待确认的动作，做其他事情。"));
+          actions.append(skipBtn);
+        }
+
+        if (recovery.options && recovery.options.length) {
+          for (const option of recovery.options) {
+            const btn = document.createElement("button");
+            btn.className = "recovery-btn";
+            btn.textContent = option;
+            btn.addEventListener("click", () => reSend(option));
+            actions.append(btn);
+          }
+        }
+
+        if (recovery.status === "available") {
+          const retryBtn = document.createElement("button");
+          retryBtn.className = "recovery-btn retry";
+          retryBtn.textContent = "↻ 重试";
+          retryBtn.addEventListener("click", () => reSend(promptEl.value || "重试刚才的操作"));
+          actions.append(retryBtn);
+        }
+
+        card.append(actions);
+        resultEl.append(card);
+        resultEl.scrollTop = resultEl.scrollHeight;
+      }
+
+      function reSend(text) {
+        promptEl.value = text;
+        sendPrompt("intent");
+      }
+
       function updateRoute(classification) {
         intentEl.textContent = classification?.route ? `${classification.route}:${classification.action || "-"}` : classification?.intent || "-";
         deliveryEl.textContent = classification?.delivery || "-";
@@ -644,6 +794,7 @@
             removeMessage(pendingMessage);
             if (turn.status === "queued") {
               appendMessage("system", `已进入队列：${turn.pendingNext || turn.steps?.at(-1)?.kind || "step"}`);
+              if (turn.recovery && turn.recovery.status !== "not-needed") showRecoveryCard(turn);
               await new Promise((resolve, reject) => {
                 watchTurn(turn, async (event) => {
                   try {
@@ -658,6 +809,7 @@
                     } else {
                       appendMessage("assistant", finalTurn.result?.output || "已完成。");
                     }
+                    if (finalTurn.recovery && finalTurn.recovery.status !== "not-needed") showRecoveryCard(finalTurn);
                     resolve();
                   } catch (error) {
                     reject(error);
@@ -673,6 +825,7 @@
             } else {
               appendMessage("assistant", turn.result?.output || "无输出。");
             }
+            if (turn.recovery && turn.recovery.status !== "not-needed") showRecoveryCard(turn);
           }
           promptEl.value = "";
         } catch (error) {

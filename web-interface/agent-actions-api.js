@@ -1,4 +1,5 @@
 import { actionSummary, resolveAction } from "./action-policy.js";
+import { wantsReadOnlyContinuation } from "./action-registry.js";
 import { randomUUID } from "node:crypto";
 
 function elapsedSince(startedAt) {
@@ -8,6 +9,7 @@ function elapsedSince(startedAt) {
 export function createAgentActionsApi({
   policyManifest,
   policyActions,
+  actionRegistry,
   walnutRemote,
   runRemote,
   webSessionLedger,
@@ -17,16 +19,33 @@ export function createAgentActionsApi({
   json,
   aiTimeoutSeconds,
 }) {
-  const actions = buildWebActions(policyActions, { shellQuote, aiTimeoutSeconds });
+  // Use the action registry if provided; fall back to legacy buildWebActions.
+  // Registry is lazy-loaded on first action run so construction stays sync.
+  let resolvedActions = null;
+  let actionsLoadPromise = null;
+  async function getActions() {
+    if (resolvedActions) return resolvedActions;
+    if (!actionsLoadPromise) {
+      actionsLoadPromise = (async () => {
+        const result = actionRegistry
+          ? await actionRegistry.buildAllWebActions()
+          : buildWebActions(policyActions, { shellQuote, aiTimeoutSeconds });
+        resolvedActions = result;
+        return result;
+      })();
+    }
+    return actionsLoadPromise;
+  }
 
   return {
     actionPolicyView({ target, manifest }) {
+      const src = manifest?.actions || policyActions || {};
       return {
         schema: "walnutpi.webActionPolicyView.v1",
         target,
         actionPolicyManifest: manifest,
         actions: Object.fromEntries(
-          Object.entries(actions).map(([id, action]) => [id, actionSummary(action, id)]),
+          Object.entries(src).map(([id, action]) => [id, actionSummary(action, id)]),
         ),
       };
     },
@@ -37,6 +56,8 @@ export function createAgentActionsApi({
       const segments = { ...requestSegments };
 
       const id = String(body.action || "");
+      const turnId = body.turnId || null;
+      const sessionId = webSessionLedger.safeSessionId(body.sessionId);
       let resolved;
       try {
         resolved = policyManifest
@@ -51,13 +72,16 @@ export function createAgentActionsApi({
           latencyMs: elapsedSince(startedAt),
           action: id || "unknown",
           traceId,
+          sessionId,
+          turnId,
           span: "total",
           segments,
           error: error.message,
         });
         return { body: { ok: false, error: error.message }, status: 400 };
       }
-      const action = actions[id];
+      const allActions = await getActions();
+      const action = allActions[id];
       if (!action || resolved?.status === "refused") {
         await webMetricsLedger.append({
           kind: "agent.action",
@@ -67,6 +91,8 @@ export function createAgentActionsApi({
           latencyMs: elapsedSince(startedAt),
           action: id || "unknown",
           traceId,
+          sessionId,
+          turnId,
           span: "total",
           segments,
           error: resolved?.reason || "unknown action",
@@ -83,6 +109,8 @@ export function createAgentActionsApi({
           action: id,
           mode: action.mode,
           traceId,
+          sessionId,
+          turnId,
           span: "total",
           segments,
           error: "confirmation required",
@@ -98,7 +126,6 @@ export function createAgentActionsApi({
         };
       }
 
-      const sessionId = webSessionLedger.safeSessionId(body.sessionId);
       let command = action.command;
       let contextUsed = null;
       const actionParams = resolved?.parameterValues || body;
@@ -124,6 +151,8 @@ export function createAgentActionsApi({
           action: id,
           mode: action.mode,
           traceId,
+          sessionId,
+          turnId,
           span: "total",
           inputChars: typeof body.text === "string" ? body.text.length : null,
           segments,
@@ -141,6 +170,7 @@ export function createAgentActionsApi({
           traceId,
           segments,
           sessionId,
+          turnId,
           walnutRemote,
           webSessionLedger,
           webMetricsLedger,
@@ -186,6 +216,9 @@ export function createAgentActionsApi({
           segments,
         },
       };
+      if (id === "snapshot" && wantsReadOnlyContinuation(body.text)) {
+        responseBody.nextTasks = [{ agent: "device", kind: "action.run", action: "status" }];
+      }
       if (sessionId) {
         const sessionLogStartedAt = Date.now();
         await webSessionLedger.appendEvent(sessionId, {
@@ -208,6 +241,8 @@ export function createAgentActionsApi({
         mode: action.mode,
         source: contextUsed?.delegatedTo || "remote",
         traceId,
+        sessionId,
+        turnId,
         span: "total",
         inputChars: typeof body.text === "string" ? body.text.length : null,
         remoteTransport: result.remoteTransport,
@@ -310,6 +345,7 @@ async function runTerminalAction({
   traceId,
   segments,
   sessionId,
+  turnId,
   walnutRemote,
   webSessionLedger,
   webMetricsLedger,
@@ -332,6 +368,8 @@ async function runTerminalAction({
       action: id,
       mode: action.mode,
       traceId,
+      sessionId,
+      turnId,
       span: "total",
       preflightEnsured: ensure.ensured,
       remoteTransport,
@@ -396,6 +434,8 @@ async function runTerminalAction({
     mode: action.mode,
     source: "terminal",
     traceId,
+    sessionId,
+    turnId,
     span: "total",
     preflightEnsured: ensure.ensured,
     segments,

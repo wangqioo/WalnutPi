@@ -14,17 +14,22 @@ const DEFAULT_RECOVERY_OPTIONS = [
   "retry only after explicit user confirmation",
   "choose a safer manual fallback",
 ];
+const MAX_AGENT_LOOP_TURNS = 4;
 
 // ── Default registry (priority order) ─────────────────────────────────
 // Agents are checked in registration order; first matchPlan() wins.
-const defaultRegistry = createAgentRegistry()
+function createDefaultRegistry(options = {}) {
+  return createAgentRegistry()
   .register("session", createSessionAgent())
   .register("memory", createMemoryAgent())
   .register("policy", createPolicyAgent())
   .register("diagnostics", createDiagnosticsAgent())
-  .register("screen", createScreenAgent())
+  .register("screen", createScreenAgent(options))
   .register("device", createDeviceAgent())
   .register("chat", createChatAgent());
+}
+
+const defaultRegistry = createDefaultRegistry();
 
 // ── Plan selection (delegates to registry) ────────────────────────────
 
@@ -48,6 +53,7 @@ export function createAgentTurnLoop({
   runAction,
   generateScreen,
   syncScreen,
+  readPlaylistEnvelope,
   turnLedger,
   eventLedger,
   metricsLedger,
@@ -55,8 +61,10 @@ export function createAgentTurnLoop({
   readJsonRequest,
   json,
   registry,
+  hooks: rawHooks,
 }) {
-  const activeRegistry = registry || defaultRegistry;
+  const activeRegistry = registry || createDefaultRegistry({ readPlaylistEnvelope });
+  const hooks = normalizeHooks(rawHooks);
 
   return {
     async handleTurn(req) {
@@ -77,8 +85,10 @@ export function createAgentTurnLoop({
         queue,
         turnLedger,
         registry: activeRegistry,
+        hooks,
       });
       await turnLedger?.appendTurn(result.turn);
+      await hooks.onRunEnd(result.turn);
       return json(result.turn, result.status);
     },
 
@@ -118,9 +128,11 @@ export async function runAgentTurn({
   turnLedger,
   metricsLedger,
   registry,
+  hooks: extHooks,
 }) {
   const workQueue = queue || { enqueue: (job) => job(), size: () => 0 };
-  const activeRegistry = registry || defaultRegistry;
+  const activeRegistry = registry || createDefaultRegistry();
+  const hooks = normalizeHooks(extHooks);
   const startedAt = new Date().toISOString();
   const turnId = `turn-${randomUUID()}`;
   const sessionId = String(body.sessionId || "").trim() || null;
@@ -140,83 +152,125 @@ export async function runAgentTurn({
     pendingNext: null,
     result: null,
     recovery: emptyRecovery(),
+    loop: {
+      schema: "walnutpi.agentLoop.v1",
+      status: "running",
+      maxTurns: MAX_AGENT_LOOP_TURNS,
+      turns: [],
+    },
     startedAt,
     metricsSince: startedAt,
     telemetry: emptyTelemetry(startedAt),
   };
   await emit(eventLedger, turn, { kind: "turn.started", status: "running", data: { input: turn.input } });
+  await hooks.onRunStart(turn);
   if (!text) return failTurn({ turn, eventLedger, status: 400, error: "missing text" });
 
-  const classify = await runRouterAgent({ turn, text, classifyIntent, eventLedger });
+  const classify = await runRouterAgent({ turn, text, classifyIntent, eventLedger, hooks });
   if (!classify.ok) return failTurn({ turn, eventLedger, status: classify.status || 500, error: classify.error });
 
+  await hooks.onClassify(classify.classification, turn);
   await updateTurnTrace(turn, metricsLedger);
   const plan = activeRegistry.selectTurnPlan(classify.classification, mode) || [{ agent: "chat", kind: "action.run", action: "ai" }];
   turn.agents.push({ id: "router", status: "completed", plan });
 
-  for (const task of plan) {
-    const result = await runTaskAgent({ task, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry: activeRegistry });
-    if (result.deferred) return { turn, status: result.status };
-    if (!result.ok) return { turn, status: result.status };
-    const continued = await continueSafeNextTasks({ result, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry: activeRegistry });
-    if (continued.deferred) return { turn, status: continued.status };
-    if (!continued.ok) return { turn, status: continued.status };
-  }
+  const looped = await runGoalLoop({ plan, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry: activeRegistry, hooks });
+  if (looped.deferred) return { turn, status: looped.status };
+  if (!looped.ok) return { turn, status: looped.status };
 
   await emitTurnDone(eventLedger, turn);
   return { turn, status: 200 };
 }
 
-// ── Continuation helpers ──────────────────────────────────────────────
+// ── Goal loop ────────────────────────────────────────────────────────
 
-async function continueSafeNextTasks({ result, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry }) {
-  const nextTasks = normalizeNextTasks(result.stepResult?.nextTasks || result.stepResult?.pendingNext?.nextTasks);
-  if (!nextTasks.length) return { ok: true, status: 200 };
+async function runGoalLoop({ plan, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry, hooks }) {
+  const pending = [...plan];
+  let stepTurns = 0;
+  while (pending.length) {
+    const maxTurns = Number(turn.loop?.maxTurns || MAX_AGENT_LOOP_TURNS);
+    if (stepTurns >= maxTurns) {
+      await holdPendingTasks({ turn, tasks: pending.splice(0), reason: "max-turns", hooks });
+      turn.loop.status = "blocked";
+      await updateTurnTrace(turn, metricsLedger);
+      return { ok: true, status: 200 };
+    }
 
-  const autoTasks = nextTasks.filter(isSafeContinuationTask).slice(0, MAX_CONTINUATION_TASKS);
-  const blockedTasks = nextTasks.filter((task) => !autoTasks.includes(task));
-  if (blockedTasks.length) {
-    turn.pendingNext = {
-      kind: "nextTasks",
-      tasks: blockedTasks,
-      reason: "continuation-requires-explicit-confirmation",
-    };
-    turn.recovery = {
-      ...(turn.recovery || emptyRecovery()),
-      status: "pending",
-      pendingNext: turn.pendingNext,
-      options: [
-        ...new Set([
-          ...(turn.recovery?.options || []),
-          "confirm the pending next task explicitly before running it",
-          "choose a read-only continuation instead",
-        ]),
-      ],
-    };
-  } else {
-    turn.pendingNext = null;
-  }
+    const task = pending.shift();
+    const result = await runTaskAgent({ task, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry, hooks });
+    if (result.deferred || !result.ok) return result;
 
-  if (autoTasks.length) {
-    await emit(eventLedger, turn, {
-      kind: "turn.continuation",
-      status: "running",
-      data: { tasks: autoTasks, blockedTasks: blockedTasks.length },
+    stepTurns += 1;
+    const decision = evaluateLoopProgress({ result, remainingTurns: maxTurns - stepTurns });
+    turn.loop.turns.push({
+      stepId: result.stepId || null,
+      observation: decision.observation,
+      judgment: decision.judgment,
+      queuedTasks: decision.autoTasks.map(compactTaskSignal),
+      blockedTasks: decision.blockedTasks.map((task) => compactTaskSignal(task, decision.reasonFor(task))),
     });
-  }
 
-  for (const task of autoTasks) {
-    const nextResult = await runTaskAgent({ task, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry });
-    if (nextResult.deferred || !nextResult.ok) return nextResult;
+    if (decision.blockedTasks.length) await holdPendingTasks({ turn, tasks: decision.blockedTasks, reason: decision.blockReason, hooks, result });
+    if (decision.autoTasks.length) {
+      await emit(eventLedger, turn, {
+        kind: "turn.replan",
+        status: "running",
+        data: { stepId: result.stepId, tasks: decision.autoTasks, blockedTasks: decision.blockedTasks.length },
+      });
+      pending.unshift(...decision.autoTasks);
+    }
+    await updateTurnTrace(turn, metricsLedger);
   }
-
-  await updateTurnTrace(turn, metricsLedger);
+  turn.loop.status = turn.pendingNext ? "blocked" : "completed";
   return { ok: true, status: 200 };
+}
+
+function evaluateLoopProgress({ result, remainingTurns }) {
+  const nextTasks = normalizeNextTasks(result.stepResult?.nextTasks || result.stepResult?.pendingNext?.nextTasks);
+  const safeTasks = nextTasks.filter(isSafeContinuationTask);
+  const unsafeTasks = nextTasks.filter((task) => !isSafeContinuationTask(task));
+  const autoTasks = safeTasks.slice(0, Math.min(MAX_CONTINUATION_TASKS, Math.max(0, remainingTurns)));
+  const fanoutHeld = safeTasks.slice(autoTasks.length);
+  const maxTurnHeld = remainingTurns <= 0 ? safeTasks : [];
+  const blockedTasks = [...new Map([...fanoutHeld, ...maxTurnHeld, ...unsafeTasks].map((task) => [taskKey(task), task])).values()];
+  const blockReason = unsafeTasks.length ? "continuation-requires-explicit-confirmation" : remainingTurns <= 0 ? "max-turns" : "max-continuation-tasks";
+  return {
+    observation: nextTasks.length ? "nextTasks" : "done",
+    judgment: blockedTasks.length ? "blocked" : autoTasks.length ? "continue" : "done",
+    autoTasks,
+    blockedTasks,
+    blockReason,
+    reasonFor(task) {
+      if (!isSafeContinuationTask(task)) return "continuation-requires-explicit-confirmation";
+      if (remainingTurns <= 0) return "max-turns";
+      return "max-continuation-tasks";
+    },
+  };
+}
+
+async function holdPendingTasks({ turn, tasks, reason, hooks, result = null }) {
+  if (!tasks.length) return;
+  const pendingNext = { kind: "nextTasks", tasks, reason };
+  turn.pendingNext = mergePendingNext(turn.pendingNext, pendingNext);
+  if (result?.stepResult && typeof result.stepResult === "object") result.stepResult.pendingNext = pendingNext;
+  turn.recovery = {
+    ...(turn.recovery || emptyRecovery()),
+    status: "pending",
+    pendingNext: turn.pendingNext,
+    options: [
+      ...new Set([
+        ...(turn.recovery?.options || []),
+        "confirm the pending next task explicitly before running it",
+        "choose a read-only continuation instead",
+      ]),
+    ],
+  };
+  await hooks.onPendingNext(turn.pendingNext, turn);
 }
 
 // ── Router ────────────────────────────────────────────────────────────
 
-async function runRouterAgent({ turn, text, classifyIntent, eventLedger }) {
+async function runRouterAgent({ turn, text, classifyIntent, eventLedger, hooks }) {
   const step = { id: "router-classify", agent: "router", kind: "intent.classify", status: "running" };
   turn.steps.push(step);
   await emit(eventLedger, turn, { kind: "agent.started", status: "running", stepId: step.id, data: { agent: "router" } });
@@ -225,22 +279,26 @@ async function runRouterAgent({ turn, text, classifyIntent, eventLedger }) {
     step.status = classify.ok ? "completed" : "failed";
     step.result = classify.ok ? { classification: classify.classification } : { error: classify.error };
     await emitStepDone(eventLedger, turn, step);
+    if (classify.ok) await hooks?.onClassify?.(classify.classification, turn);
     return classify;
   } catch (error) {
     step.status = "failed";
     step.result = { error: error.message };
     await emitStepDone(eventLedger, turn, step);
+    await hooks?.onStepFail?.({ kind: "intent.classify" }, turn);
     return { ok: false, status: 500, error: error.message };
   }
 }
 
 // ── Task runner (dispatches to registry) ─────────────────────────────
 
-async function runTaskAgent({ task, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry }) {
+async function runTaskAgent({ task, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry, hooks: extHooks }) {
   const activeRegistry = registry || defaultRegistry;
+  const hooks = extHooks || emptyHooks();
   const step = { id: `${task.agent}-${turn.steps.length}`, agent: task.agent, kind: task.kind, status: "running" };
   turn.steps.push(step);
   turn.agents.push({ id: task.agent, status: "running", task });
+  await hooks.beforeStep(task, turn);
   await emit(eventLedger, turn, { kind: "agent.started", status: "running", stepId: step.id, data: { agent: task.agent, task } });
 
   // Find the right agent runner
@@ -281,7 +339,8 @@ async function runTaskAgent({ task, body, text, sessionId, turn, runAction, gene
     // queueTask already handles completion; just return its deferred signal
     if (agentResult?.deferred) return agentResult;
 
-    // Normal completion: update trace and emit step done
+    // Normal completion: hook, update trace and emit step done
+    await hooks.afterStep({ stepId: step.id, stepResult: step.result }, turn);
     await updateTurnTrace(turn, metricsLedger);
     await emitStepDone(eventLedger, turn, step);
 
@@ -292,6 +351,7 @@ async function runTaskAgent({ task, body, text, sessionId, turn, runAction, gene
 
     // For failures, emit turn failed
     if (turn.status === "failed") {
+      await hooks.onStepFail(task, turn);
       await emitTurnDone(eventLedger, turn);
     }
 
@@ -304,6 +364,7 @@ async function runTaskAgent({ task, body, text, sessionId, turn, runAction, gene
     turn.error = error.message;
     turn.result = step.result;
     observeStepResult(turn, step);
+    await hooks.onStepFail(task, turn);
     await updateTurnTrace(turn, metricsLedger);
     await emitStepDone(eventLedger, turn, step);
     await emitTurnDone(eventLedger, turn);
@@ -450,7 +511,8 @@ function collectArtifacts(turn) {
     push("candidate-source-asset-or-failure", result.source || result.sourceAsset || null);
     push("widget-app-contract", result.widgetApp);
     push("delivery-manifest", result.deliveryManifest);
-    push("sync-record", result.recordPath || result.syncRecordPath);
+    push("runtime-assets", runtimeAssetsSignal(result));
+    push("sync-record", syncRecordSignal(result));
     push("policy-decision", step.kind === "policy.decision" ? result.decisions : null);
     push("diagnostic-result", step.kind === "diagnostics.recent_failure.read" ? result.evidence : null);
   }
@@ -490,8 +552,8 @@ function collectEvidence(turn) {
     push("traceId", result.diagnostics?.traceId);
     push("traceId-or-buildId", result.evidence?.traceIdOrBuildId);
     push("playlistHash", result.playlistHash);
-    push("service-state", result.serviceState || result.screenEvidence?.serviceState);
-    push("frame-evidence", result.screenEvidence?.frame);
+    push("service-state", serviceStateSignal(result));
+    push("frame-evidence", result.screenEvidence?.frame || result.evidence?.frame);
     push("user-visible-summary", result.summary || result.reply || result.output);
     push("multi-step-loop", multiStepLoopSignal(step));
     push("replan-evidence", replanEvidenceSignal(step));
@@ -500,6 +562,8 @@ function collectEvidence(turn) {
     if (step.status === "failed") push("recovery-options", result.recoveryOptions || DEFAULT_RECOVERY_OPTIONS);
     for (const [key, value] of Object.entries(result.evidence || {})) push(kebabCase(key), value);
   }
+  push("agent-loop", turn.loop?.turns?.length ? turn.loop : null);
+  push("loop-evaluator", turn.loop?.turns?.length ? turn.loop.turns.map((item) => ({ stepId: item.stepId, observation: item.observation, judgment: item.judgment })) : null);
   return evidence;
 }
 
@@ -517,16 +581,48 @@ function multiStepLoopSignal(step) {
 function replanEvidenceSignal(step) {
   const nextTasks = normalizeNextTasks(step.result?.nextTasks || step.result?.pendingNext?.nextTasks);
   if (!nextTasks.length) return null;
+  const heldTasks = normalizeNextTasks(step.result?.pendingNext?.tasks);
+  const heldKeys = new Set(heldTasks.map(taskKey));
+  const safeTasks = nextTasks.filter(isSafeContinuationTask);
+  const unsafeTasks = nextTasks.filter((task) => !isSafeContinuationTask(task));
+  const safeAutoContinue = safeTasks.filter((task) => !heldKeys.has(taskKey(task))).slice(0, MAX_CONTINUATION_TASKS);
+  const overLimitSafe = safeTasks.filter((task) => !safeAutoContinue.includes(task) && !heldKeys.has(taskKey(task)));
   return {
     reason: "task-result-nextTasks",
     proposedTasks: nextTasks.map(compactTaskSignal),
-    safeAutoContinue: nextTasks.filter(isSafeContinuationTask).slice(0, MAX_CONTINUATION_TASKS).map(compactTaskSignal),
-    blockedTasks: nextTasks.filter((task) => !isSafeContinuationTask(task)).map(compactTaskSignal),
+    safeAutoContinue: safeAutoContinue.map(compactTaskSignal),
+    blockedTasks: [
+      ...heldTasks.map((task) => compactTaskSignal(task, step.result?.pendingNext?.reason || "pending-next")),
+      ...overLimitSafe.map((task) => compactTaskSignal(task, "max-continuation-tasks")),
+      ...unsafeTasks.filter((task) => !heldKeys.has(taskKey(task))).map((task) => compactTaskSignal(task, "continuation-requires-explicit-confirmation")),
+    ],
   };
 }
 
-function compactTaskSignal(task) {
-  return { agent: task.agent, kind: task.kind, action: task.action || null };
+function compactTaskSignal(task, reason = null) {
+  return { agent: task.agent, kind: task.kind, action: task.action || null, ...(reason ? { reason } : {}) };
+}
+
+function taskKey(task) {
+  return `${task.agent || ""}\0${task.kind || ""}\0${task.action || ""}`;
+}
+
+function mergePendingNext(current, next) {
+  if (!current || current.kind !== "nextTasks") return next;
+  const tasks = [...(current.tasks || [])];
+  const seen = new Set(tasks.map(taskKey));
+  for (const task of next.tasks || []) {
+    const key = taskKey(task);
+    if (!seen.has(key)) {
+      tasks.push(task);
+      seen.add(key);
+    }
+  }
+  return {
+    kind: "nextTasks",
+    tasks,
+    reason: current.reason === next.reason ? current.reason : "multiple-continuations-pending",
+  };
 }
 
 function collectRecovery(turn) {
@@ -646,7 +742,30 @@ function frameTiming(output) {
 
 function syncResultSignal(result) {
   if (!result.deliveryManifest && !result.screenEvidence && !result.playlistHash && !result.syncRecordPath) return null;
-  return { ok: result.ok !== false, playlistHash: result.playlistHash || null, buildId: result.buildId || result.deliveryManifest?.buildId || null, evidence: result.screenEvidence || result.evidence || null };
+  return { ok: result.ok !== false, playlistHash: result.playlistHash || null, buildId: result.buildId || result.deliveryManifest?.buildId || null, evidence: result.screenEvidence || result.evidence || null, record: syncRecordSignal(result) };
+}
+
+function serviceStateSignal(result) {
+  return result.serviceState
+    || result.screenEvidence?.serviceState
+    || result.screenEvidence?.state
+    || result.evidence?.serviceState
+    || result.evidence?.state
+    || null;
+}
+
+function runtimeAssetsSignal(result) {
+  const resources = result.deliveryManifest?.generatedResources;
+  if (!resources) return null;
+  return {
+    runtimeIndex: resources.runtimeIndex || null,
+    framesDir: resources.framesDir || null,
+    mode: resources.mode || null,
+  };
+}
+
+function syncRecordSignal(result) {
+  return result.syncRecord || result.record || result.recordPath || result.syncRecordPath || null;
 }
 
 function classifySideEffects(turn) {
@@ -683,4 +802,31 @@ async function summarizeTelemetry(turn, metricsLedger) {
 
 function kebabCase(value) {
   return String(value).replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+}
+
+// ── Lifecycle hook system ─────────────────────────────────────────────
+
+function normalizeHooks(raw) {
+  if (!raw || typeof raw !== "object") return emptyHooks();
+  return {
+    onRunStart: typeof raw.onRunStart === "function" ? raw.onRunStart : async () => {},
+    onClassify: typeof raw.onClassify === "function" ? raw.onClassify : async () => {},
+    beforeStep: typeof raw.beforeStep === "function" ? raw.beforeStep : async () => {},
+    afterStep: typeof raw.afterStep === "function" ? raw.afterStep : async () => {},
+    onStepFail: typeof raw.onStepFail === "function" ? raw.onStepFail : async () => {},
+    onPendingNext: typeof raw.onPendingNext === "function" ? raw.onPendingNext : async () => {},
+    onRunEnd: typeof raw.onRunEnd === "function" ? raw.onRunEnd : async () => {},
+  };
+}
+
+function emptyHooks() {
+  return {
+    onRunStart: async () => {},
+    onClassify: async () => {},
+    beforeStep: async () => {},
+    afterStep: async () => {},
+    onStepFail: async () => {},
+    onPendingNext: async () => {},
+    onRunEnd: async () => {},
+  };
 }

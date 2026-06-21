@@ -665,6 +665,14 @@ async function handleIntentClassify(req) {
 async function persistScreenSyncResult(result, commandResults = {}, status = 200) {
   try {
     const record = await screenEvidenceLedger.persistSyncResult(result, commandResults);
+    const recordDir = screenEvidenceLedger.recordDir(record.buildId);
+    result.syncRecord = {
+      buildId: record.buildId,
+      recordPath: recordDir ? path.join(recordDir, "record.json") : null,
+      summaryPath: recordDir ? path.join(recordDir, "summary.json") : null,
+      url: `/api/screen/records/${encodeURIComponent(record.buildId)}`,
+    };
+    result.syncRecordPath = result.syncRecord.recordPath;
     await rememberSuccessfulScreenSync(record);
   } catch (error) {
     result.recordWarning = `screen sync record was not saved: ${error.message}`;
@@ -706,6 +714,14 @@ async function syncScreenFromTurn(body) {
   });
   try {
     const record = await screenEvidenceLedger.persistSyncResult(outcome.result, outcome.commandResults);
+    const recordDir = screenEvidenceLedger.recordDir(record.buildId);
+    outcome.result.syncRecord = {
+      buildId: record.buildId,
+      recordPath: recordDir ? path.join(recordDir, "record.json") : null,
+      summaryPath: recordDir ? path.join(recordDir, "summary.json") : null,
+      url: `/api/screen/records/${encodeURIComponent(record.buildId)}`,
+    };
+    outcome.result.syncRecordPath = outcome.result.syncRecord.recordPath;
     await rememberSuccessfulScreenSync(record);
   } catch (error) {
     outcome.result.recordWarning = `screen sync record was not saved: ${error.message}`;
@@ -1041,6 +1057,7 @@ const agentTurnLoop = createAgentTurnLoop({
   runAction: agentActionsApi.runAction,
   generateScreen: screenWorkspaceApi.generateScreenWorkspace,
   syncScreen: syncScreenFromTurn,
+  readPlaylistEnvelope: () => screenWorkspaceStore.readPlaylistEnvelope("default"),
   turnLedger: agentTurnLedger,
   eventLedger: agentTurnEventLedger,
   metricsLedger: webMetricsLedger,

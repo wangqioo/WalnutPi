@@ -6,6 +6,54 @@
     "event": { "type": "ai.chat", "params": { "delivery": "none", "confidence": 0.92 } }
   },
   {
+    "name": "session-summary",
+    "priority": 96,
+    "conditions": { "all": [{ "fact": "hasSessionSummaryRead", "operator": "equal", "value": true }] },
+    "event": { "type": "session.summary", "params": { "delivery": "none", "confidence": 0.9 } }
+  },
+  {
+    "name": "memory-sensitive-skip",
+    "priority": 99,
+    "conditions": { "all": [{ "fact": "hasSensitiveTemporaryMemory", "operator": "equal", "value": true }] },
+    "event": { "type": "memory.sensitive_skip", "params": { "delivery": "none", "confidence": 0.94 } }
+  },
+  {
+    "name": "memory-preference",
+    "priority": 99,
+    "conditions": { "all": [{ "fact": "hasMemoryPreference", "operator": "equal", "value": true }] },
+    "event": { "type": "memory.preference", "params": { "delivery": "none", "confidence": 0.92 } }
+  },
+  {
+    "name": "policy-service-restart",
+    "priority": 98,
+    "conditions": { "all": [{ "fact": "hasPolicyServiceRestart", "operator": "equal", "value": true }] },
+    "event": { "type": "policy.service_restart", "params": { "delivery": "none", "confidence": 0.93 } }
+  },
+  {
+    "name": "policy-system-write",
+    "priority": 98,
+    "conditions": { "all": [{ "fact": "hasPolicySystemWrite", "operator": "equal", "value": true }] },
+    "event": { "type": "policy.system_write", "params": { "delivery": "none", "confidence": 0.93 } }
+  },
+  {
+    "name": "policy-maintenance-guidance",
+    "priority": 97,
+    "conditions": { "all": [{ "fact": "hasMaintenanceGuidance", "operator": "equal", "value": true }] },
+    "event": { "type": "policy.maintenance_guidance", "params": { "delivery": "none", "confidence": 0.9 } }
+  },
+  {
+    "name": "diagnostics-recent-failure",
+    "priority": 97,
+    "conditions": { "all": [{ "fact": "hasRecentFailureDiagnostics", "operator": "equal", "value": true }] },
+    "event": { "type": "diagnostics.recent_failure", "params": { "delivery": "none", "confidence": 0.91 } }
+  },
+  {
+    "name": "screen-read-state-frame",
+    "priority": 97,
+    "conditions": { "all": [{ "fact": "hasScreenStateFrameRead", "operator": "equal", "value": true }] },
+    "event": { "type": "screen.state_frame.read", "params": { "delivery": "none", "confidence": 0.91 } }
+  },
+  {
     "name": "widget-app-create",
     "priority": 98,
     "conditions": {
@@ -88,6 +136,12 @@
     "event": { "type": "device.network.read", "params": { "delivery": "none", "confidence": 0.86 } }
   },
   {
+    "name": "read-i2c",
+    "priority": 86,
+    "conditions": { "all": [{ "fact": "mentionsI2c", "operator": "equal", "value": true }] },
+    "event": { "type": "device.i2c.read", "params": { "delivery": "none", "confidence": 0.86 } }
+  },
+  {
     "name": "read-gpio",
     "priority": 85,
     "conditions": {
@@ -97,6 +151,12 @@
       ]
     },
     "event": { "type": "device.gpio.read", "params": { "delivery": "none", "confidence": 0.86 } }
+  },
+  {
+    "name": "observation-replan",
+    "priority": 83,
+    "conditions": { "all": [{ "fact": "hasObservationReplan", "operator": "equal", "value": true }] },
+    "event": { "type": "device.snapshot.read", "params": { "delivery": "none", "confidence": 0.9 } }
   },
   {
     "name": "read-status",
@@ -118,7 +178,10 @@
   {
     "name": "notes-read",
     "priority": 70,
-    "conditions": { "all": [{ "fact": "hasNotesRead", "operator": "equal", "value": true }] },
+    "conditions": { "any": [
+      { "fact": "hasNotesRead", "operator": "equal", "value": true },
+      { "fact": "hasSessionSummaryRead", "operator": "equal", "value": true }
+    ] },
     "event": { "type": "device.notes.read", "params": { "delivery": "none", "confidence": 0.84 } }
   },
   {

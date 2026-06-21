@@ -79,6 +79,22 @@ See `docs/real-device-command-scripts.md` before adding or changing real-device 
 - Agent Action Commands should be governed by the Action Policy Manifest.
 - System Writes and high-risk Local Actions use explicit confirmation.
 - Public command additions should fit the existing `walnut` command surface when practical.
+- WalnutAI one-shot local agent replies may append `WALNUT_AGENT_TURN_TRACE:` JSON. Keep this trace aligned with Web `/api/agent/turn` fields: `route`, `steps[]`, `evidence`, and `contextUsed`.
+
+## Agent Harness And Product Benchmarks
+
+- Main product benchmark entry: `bun run bench:product`.
+- `bench:product` uses Walnut Agent Console `/api/agent/turn`, records `agentTurn.v2` traces, and writes runs under `screen/benchmark-runs/<runId>/`.
+- Default benchmark behavior runs all variants for selected cases. Use `--first-variant` only for quick local checks.
+- Profiles:
+  - `offline`: repeatable local gate profile; excludes device cases and explicit network cases.
+  - `network`: product-loop checks that may use network/model/search behavior but still exclude device cases.
+  - `device`: live WalnutPi verification profile; not a universal CI gate.
+- CI/offline gate: `bun run bench:product:gate`. It runs offline all-variant benchmarks and compares against `screen/benchmark-baselines/offline/summary.json`.
+- Baseline convention: `screen/benchmark-baselines/<profile>/summary.json`. Gate must fail when the baseline is missing; do not silently bless new results.
+- Compare two runs with `bun run bench:product:compare -- <base-summary.json> <new-summary.json>`.
+- Device profile writes `device-preflight.json` plus `summary.environment.devicePreflight`. Use `--strict-device-preflight` only when missing live-device target metadata should fail fast.
+- Loop evaluation should include trace signals, but multi-step behavior must also be tested through bounded `nextTasks` continuation evidence: `multi-step-loop` and `replan-evidence`.
 
 ## Tool Defaults
 

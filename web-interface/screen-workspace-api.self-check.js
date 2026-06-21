@@ -29,9 +29,15 @@ const api = createScreenWorkspaceApi({
 
 const prompt = "联网查上海天气，做成 480x320 小屏预览，不同步真机";
 const plan = api.__test.buildScreenGenerationPlan(prompt);
+const mixedPrompt = "查一下 Shanghai weather，生成 480x320 小屏卡片，不要同步到真机";
+const mixedPlan = api.__test.buildScreenGenerationPlan(mixedPrompt);
+const holdoutPrompt = "帮我把上海天气做成核桃派屏幕卡片，今天只看预览，别同步设备";
 
 assert.equal(api.__test.extractWeatherCity(prompt), "上海");
 assert.deepEqual(plan.needs, [{ kind: "weather.current", location: "上海" }]);
+assert.equal(api.__test.extractWeatherCity(mixedPrompt), "Shanghai");
+assert.deepEqual(mixedPlan.needs, [{ kind: "weather.current", location: "Shanghai" }]);
+assert.equal(api.__test.extractWeatherCity(holdoutPrompt), "上海");
 assert.equal(plan.template, "pixel-weather");
 assert.equal(plan.composition, "fact-card");
 assert.equal(plan.widgetApp, false);

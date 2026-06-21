@@ -510,6 +510,8 @@ export function createScreenWorkspaceApi({
         ? await generateWidgetCatalog({
           prompt,
           fallbackCatalog: walnutWidgetCatalogFromPixelSpec({ ...screenSpec, id: screenId }),
+          sessionId: request.sessionId,
+          turnId: request.turnId,
         }).catch(() => null)
         : null : null;
       if (cleanWorkspaceOutputType(request.outputType || "static") === "animated") {
@@ -533,6 +535,17 @@ export function createScreenWorkspaceApi({
             loop: request.loop === undefined ? true : Boolean(request.loop),
           });
         }
+        await webMetricsLedger.append({
+          kind: "screen.workspace.generate",
+          operation: "screen.workspace.generate",
+          ok: true,
+          latencyMs: Date.now() - startedAt,
+          inputChars: prompt.length,
+          screenId: result.screenId,
+          template: screenSpec.template,
+          sessionId: request.sessionId,
+          turnId: request.turnId,
+        });
         return {
           status: 200,
           body: {
@@ -610,6 +623,8 @@ export function createScreenWorkspaceApi({
         inputChars: prompt.length,
         screenId: result.screenId,
         template: screenSpec.template,
+        sessionId: request.sessionId,
+        turnId: request.turnId,
       });
 
       return {
@@ -635,6 +650,8 @@ export function createScreenWorkspaceApi({
         operation: "screen.workspace.generate",
         ok: false,
         latencyMs: Date.now() - startedAt,
+        sessionId: body?.sessionId,
+        turnId: body?.turnId,
         error: error.message,
       });
       return {
@@ -1080,14 +1097,16 @@ export function createScreenWorkspaceApi({
 
   function extractWeatherCity(prompt) {
     const text = String(prompt || "");
-    const match = text.match(/(?:把|查询|获取|显示|生成|做(?:一个)?|看)?\s*([\p{Script=Han}A-Za-z]{2,24})(?:的)?(?:今天|现在|当前|实时)?(?:天气|气温|温度)/u)
-      || text.match(/(?:天气|气温|温度).{0,8}([\p{Script=Han}A-Za-z]{2,24})/u);
+    const match = text.match(/(?:把|查询|获取|显示|生成|做(?:一个)?|看)?\s*([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z\s-]{1,40}?)(?:的)?(?:今天|现在|当前|实时)?(?:天气|气温|温度|weather)/iu)
+      || text.match(/(?:天气|气温|温度|weather)(?:\s+(?:in|for|at))?.{0,8}?([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z\s-]{1,40})/iu);
     return cleanWeatherCity(match?.[1] || "");
   }
 
   function cleanWeatherCity(value) {
     return String(value || "")
-      .replace(/^(?:请|帮我|帮忙|麻烦|联网|在线|实时|查一下|查|查询|获取|显示|生成|做成|做|看|一下|当前|今天|现在|一个|小屏|核桃派)+/u, "")
+      .replace(/^(?:请|给我|帮我|帮忙|麻烦|联网|在线|实时|查一下|查|查询|获取|显示|生成|做成|做|看|把|一下|当前|今天|现在|一个|小屏|核桃派)+/u, "")
+      .replace(/^(?:please|check|fetch|get|show|make|current|today|now|the)\s+/iu, "")
+      .replace(/\s+(?:weather|forecast)$/iu, "")
       .trim();
   }
 

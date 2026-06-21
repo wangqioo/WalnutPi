@@ -93,7 +93,7 @@ Minimum WalnutPi run shape:
 
 ```json
 {
-  "schema": "walnutpi.agentTurn.v1",
+  "schema": "walnutpi.agentTurn.v2",
   "turnId": "turn-...",
   "sessionId": "web-...",
   "input": { "text": "...", "mode": "intent" },
@@ -119,6 +119,21 @@ Minimum WalnutPi run shape:
 
 This is the loop artifact. It should be readable by the UI, agent, diagnostics,
 and later external MCP hosts.
+
+Web and CLI should expose the same core trace fields even if the envelope is
+different. Web returns them inside `/api/agent/turn`; WalnutAI one-shot CLI may
+append one `WALNUT_AGENT_TURN_TRACE:` JSON line after the human-readable answer.
+Both forms must keep:
+
+- `schema`
+- `source`
+- `route.action`, `route.risk`, and `route.reason`
+- `steps[]`, with action execution represented as `kind: "action.run"`
+- `evidence`, reusing existing action JSON as `evidence.rawJson` when present
+- `contextUsed`, including memory, retrieval, and local action output flags
+
+Benchmark and diagnostics code should read these shared fields rather than
+branching into separate Web-only and CLI-only names.
 
 ### 3. Harness Session
 
@@ -289,11 +304,12 @@ It should:
 3. Run intent classification.
 4. Select one step: action, screen generation, sync, or WalnutAI delegation.
 5. Execute through existing handlers or shared internal functions.
-6. Return `schema: "walnutpi.agentTurn.v1"` with `steps[]`,
+6. Return `schema: "walnutpi.agentTurn.v2"` with `steps[]`,
    `pendingNext`, `result`, and evidence pointers.
 
-Keep old endpoints working. Do not remove `/api/action`,
-`/api/intent/classify`, or `/api/screen/workspace/sync`.
+Keep product endpoints stable. `/api/action`, `/api/intent/classify`, and
+`/api/screen/workspace/sync` remain product APIs, but they are not benchmark
+runner entrypoints.
 
 ### Phase 2: Action Registry Tightening
 

@@ -25,8 +25,39 @@ export function createAgentTurnLedger({ turnsPath, limit = 100 }) {
         // Ignore corrupt trailing lines; append-only logs should remain readable.
       }
     }
-    return turns.slice(-Math.max(count, 1));
+    return latestTurnSnapshots(turns).slice(-Math.max(count, 1));
   }
 
   return { appendTurn, readTurns };
+}
+
+function latestTurnSnapshots(turns) {
+  const byTurnId = new Map();
+  const order = [];
+  for (const turn of turns) {
+    const key = turn.turnId || `anonymous-${order.length}`;
+    if (!byTurnId.has(key)) order.push(key);
+    const previous = byTurnId.get(key);
+    byTurnId.set(key, preferTurnSnapshot(previous, turn));
+  }
+  return order.map((key) => byTurnId.get(key));
+}
+
+function preferTurnSnapshot(previous, next) {
+  if (!previous) return next;
+  if (snapshotRank(next) > snapshotRank(previous)) return next;
+  if (snapshotRank(next) < snapshotRank(previous)) return previous;
+  return next;
+}
+
+function snapshotRank(turn) {
+  const statusRank = {
+    completed: 6,
+    failed: 6,
+    pending: 4,
+    queued: 3,
+    running: 2,
+  }[turn?.status] || 1;
+  const stepsRank = Array.isArray(turn?.steps) ? turn.steps.filter((step) => ["completed", "failed"].includes(step.status)).length / 100 : 0;
+  return statusRank + stepsRank;
 }

@@ -73,6 +73,8 @@ function cleanEvent(event) {
     manifestHash: stringOrNull(event.manifestHash, 80),
     requestId: stringOrNull(event.requestId, 120),
     traceId: stringOrNull(event.traceId, 120),
+    sessionId: stringOrNull(event.sessionId, 120),
+    turnId: stringOrNull(event.turnId, 120),
     span: stringOrNull(event.span, 80),
     parentOperation: stringOrNull(event.parentOperation, 120),
     inputChars: numberOrNull(event.inputChars),
@@ -193,9 +195,12 @@ export function createWebMetricsLedger({ metricsPath, limit = DEFAULT_LIMIT }) {
       ? MAX_SUMMARY_EVENTS
       : Math.min(MAX_SUMMARY_EVENTS, requestedLimit);
     const events = await readRecent(readLimit);
-    const filteredEvents = Number.isFinite(sinceMs)
-      ? events.filter((event) => Date.parse(event.timestamp) > sinceMs)
-      : events;
+    const filteredEvents = events.filter((event) => {
+      if (Number.isFinite(sinceMs) && Date.parse(event.timestamp) <= sinceMs) return false;
+      if (options?.sessionId && event.sessionId !== options.sessionId) return false;
+      if (options?.turnId && event.turnId !== options.turnId) return false;
+      return true;
+    });
     return {
       ok: true,
       schema: "walnutpi.webMetrics.v1",
@@ -204,6 +209,8 @@ export function createWebMetricsLedger({ metricsPath, limit = DEFAULT_LIMIT }) {
       events: filteredEvents.slice(-Math.max(1, Math.min(limit, requestedLimit))),
       filters: {
         since: Number.isFinite(sinceMs) ? new Date(sinceMs).toISOString() : null,
+        sessionId: options?.sessionId || null,
+        turnId: options?.turnId || null,
       },
     };
   }

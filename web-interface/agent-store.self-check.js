@@ -9,10 +9,15 @@ import { createAgentTurnLedger } from "./agent-turn-ledger.js";
 const dir = await mkdtemp(path.join(tmpdir(), "walnut-agent-store-"));
 try {
   const turns = createAgentTurnLedger({ turnsPath: path.join(dir, "turns.jsonl"), limit: 2 });
-  await turns.appendTurn({ schema: "walnutpi.agentTurn.v1", turnId: "turn-a", sessionId: "one" });
-  await turns.appendTurn({ schema: "walnutpi.agentTurn.v1", turnId: "turn-b", sessionId: "two" });
-  await turns.appendTurn({ schema: "walnutpi.agentTurn.v1", turnId: "turn-c", sessionId: "one" });
+  await turns.appendTurn({ schema: "walnutpi.agentTurn.v2", turnId: "turn-a", sessionId: "one" });
+  await turns.appendTurn({ schema: "walnutpi.agentTurn.v2", turnId: "turn-b", sessionId: "two" });
+  await turns.appendTurn({ schema: "walnutpi.agentTurn.v2", turnId: "turn-c", sessionId: "one" });
   assert.deepEqual((await turns.readTurns({ sessionId: "one" })).map((turn) => turn.turnId), ["turn-a", "turn-c"]);
+  await turns.appendTurn({ schema: "walnutpi.agentTurn.v2", turnId: "turn-q", sessionId: "one", status: "queued" });
+  await turns.appendTurn({ schema: "walnutpi.agentTurn.v2", turnId: "turn-q", sessionId: "one", status: "completed", result: { ok: true } });
+  const oneTurns = await turns.readTurns({ sessionId: "one", count: 10 });
+  assert.deepEqual(oneTurns.map((turn) => turn.turnId), ["turn-a", "turn-c", "turn-q"]);
+  assert.equal(oneTurns.at(-1).status, "completed");
 
   const harnesses = createAgentHarnessSessionStore({ filePath: path.join(dir, "harness.json") });
   const first = await harnesses.upsertSession({

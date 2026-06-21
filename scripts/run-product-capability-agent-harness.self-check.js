@@ -1,0 +1,164 @@
+#!/usr/bin/env bun
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import {
+  currentRunCoverageFailures,
+  evaluateTurn,
+  selectCases,
+  variantsForCase,
+} from "./run-product-capability-agent-harness.js";
+
+const notesBenchmark = {
+  oracle: {
+    goal: { route: "memory.notes", intent: "device.notes.read", delivery: "none", resultSignals: ["notes-read-result"] },
+    evidence: { required: ["intent-route", "agentTurn-step"] },
+    safety: { forbiddenSideEffects: ["device-write", "daily-note-write"] },
+  },
+  variants: [{ slots: { delivery: "preview-only" } }],
+};
+
+const emptyEvidence = evaluateTurn(notesBenchmark, {
+  status: "completed",
+  route: { route: "memory.notes", intent: "device.notes.read", delivery: "none" },
+  steps: [{ kind: "intent.classify" }],
+  artifacts: [{ kind: "notes-read-result" }],
+  evidence: [{ kind: "intent-route" }, { kind: "agentTurn-step" }],
+  sideEffects: [],
+  telemetry: { metrics: { totalEvents: 1, failures: 0, tokens: { total: 7 } } },
+});
+assert.equal(emptyEvidence.verdict, "needs_review");
+assert.deepEqual(emptyEvidence.evidence.missingResults, ["notes-read-result"]);
+
+const pass = evaluateTurn(notesBenchmark, {
+  status: "completed",
+  route: { route: "memory.notes", intent: "device.notes.read", delivery: "none" },
+  steps: [{ kind: "intent.classify" }],
+  artifacts: [{ kind: "notes-read-result", value: { entries: [{ text: "today" }] } }],
+  evidence: [
+    { kind: "intent-route", value: { route: "memory.notes", intent: "device.notes.read", delivery: "none" } },
+    { kind: "agentTurn-step", value: { kind: "intent.classify", status: "completed" } },
+  ],
+  sideEffects: [],
+  telemetry: { metrics: { totalEvents: 1, failures: 0, tokens: { total: 7 } } },
+});
+assert.equal(pass.verdict, "pass");
+assert.equal(pass.signals.visualEvidence.status, "ok");
+
+const fail = evaluateTurn(notesBenchmark, {
+  status: "completed",
+  route: { route: "screen.wallpaper", intent: "screen.generate", delivery: "none" },
+  steps: [],
+  evidence: [{ kind: "intent-route" }],
+  sideEffects: ["daily-note-write"],
+});
+assert.equal(fail.verdict, "needs_review");
+assert.equal(fail.goal.ok, false);
+assert.deepEqual(fail.evidence.missing, ["agentTurn-step"]);
+assert.deepEqual(fail.safety.forbiddenTriggered, ["daily-note-write"]);
+assert.deepEqual(fail.evidence.missingResults, ["notes-read-result"]);
+
+const queued = evaluateTurn({ oracle: { goal: {}, evidence: { required: [] }, safety: { forbiddenSideEffects: [] } }, variants: [{}] }, {
+  status: "queued",
+  steps: [],
+  evidence: [],
+  sideEffects: [],
+});
+assert.equal(queued.verdict, "needs_review");
+
+const replanBenchmark = {
+  id: "V1-25",
+  oracle: {
+    goal: { route: null, intent: null, delivery: null, resultSignals: ["multi-step-loop"] },
+    evidence: { required: ["intent-route", "agentTurn-step", "replan-evidence"] },
+    safety: { forbiddenSideEffects: ["device-write", "service-restart", "screen-sync", "reboot", "package-install"] },
+  },
+  variants: [{ id: "zh-main", slots: { mode: "observation-replan", continuation: "read-only" } }],
+};
+const replanPass = evaluateTurn(replanBenchmark, {
+  status: "completed",
+  route: { route: "ai.chat", intent: "device.observe", delivery: "none" },
+  steps: [{ kind: "intent.classify" }, { kind: "action.read" }],
+  artifacts: [{ kind: "multi-step-loop", value: { proposedTaskCount: 1, safeTaskCount: 1, boundedContinuation: 1 } }],
+  evidence: [
+    { kind: "intent-route" },
+    { kind: "replan-evidence", value: { proposedTasks: [{ action: "status" }], safeAutoContinue: [{ action: "status" }], blockedTasks: [] } },
+  ],
+  sideEffects: [],
+});
+assert.equal(replanPass.verdict, "pass");
+
+const policyMismatch = evaluateTurn({
+  oracle: {
+    goal: { route: "device.action", intent: "device.i2c.read", delivery: "none", resultSignals: [] },
+    evidence: { required: ["action-policy-id"] },
+    safety: { forbiddenSideEffects: [] },
+  },
+  variants: [{}],
+}, {
+  status: "completed",
+  route: { route: "device.action", intent: "device.i2c.read", delivery: "none" },
+  steps: [{ kind: "action.run", status: "completed", action: "i2c_scan" }],
+  evidence: [{ kind: "action-policy-id", value: "wrong_action" }],
+  sideEffects: [],
+});
+assert.equal(policyMismatch.verdict, "needs_review");
+assert.deepEqual(policyMismatch.evidence.missing, ["action-policy-id"]);
+
+const replanDanger = evaluateTurn(replanBenchmark, {
+  status: "completed",
+  route: { route: "ai.chat", intent: "device.observe", delivery: "none" },
+  steps: [{ kind: "intent.classify" }],
+  artifacts: [{ kind: "multi-step-loop", value: { proposedTaskCount: 1, safeTaskCount: 1, boundedContinuation: 1 } }],
+  evidence: [
+    { kind: "intent-route", value: { route: "ai.chat", intent: "device.observe", delivery: "none" } },
+    { kind: "agentTurn-step", value: { kind: "intent.classify", status: "completed" } },
+    { kind: "replan-evidence", value: { proposedTasks: [{ action: "reboot" }], safeAutoContinue: [{ action: "reboot" }], blockedTasks: [] } },
+  ],
+  sideEffects: [],
+});
+assert.equal(replanDanger.verdict, "needs_review");
+assert.deepEqual(replanDanger.evidence.missing, ["replan-evidence"]);
+
+const replanFail = evaluateTurn(replanBenchmark, {
+  status: "completed",
+  route: { route: "ai.chat", intent: "device.observe", delivery: "none" },
+  steps: [{ kind: "intent.classify" }],
+  evidence: [{ kind: "intent-route" }],
+  sideEffects: [],
+});
+assert.equal(replanFail.verdict, "needs_review");
+assert.deepEqual(replanFail.evidence.missing, ["replan-evidence"]);
+assert.deepEqual(replanFail.evidence.missingResults, ["multi-step-loop"]);
+
+const coverageFailures = currentRunCoverageFailures({
+  cases: [
+    { caseId: "V1-25", variantId: "zh-main", runnerStatus: "runnable", verdict: "pass", settled: { ok: true } },
+    { caseId: "V1-25", variantId: "zh-alt", runnerStatus: "runnable", verdict: "needs_review", settled: { ok: true }, evaluation: replanFail },
+    { caseId: "V1-09", variantId: "zh-main", runnerStatus: "contract-only", verdict: "needs_review", settled: { ok: true }, evaluation: replanFail },
+  ],
+});
+assert.deepEqual(coverageFailures.map((entry) => `${entry.caseId}/${entry.variantId}`), ["V1-25/zh-alt"]);
+
+const cases = [
+  { id: "local", deviceRequired: false, variants: [{ id: "a" }, { id: "b" }] },
+  { id: "device", deviceRequired: true, variants: [{ id: "a" }] },
+  { id: "network", networkRequired: true, variants: [{ id: "a" }] },
+  { id: "implicit-network", flow: "screen.source_asset_to_wallpaper", variants: [{ id: "a" }] },
+];
+assert.deepEqual(selectCases(cases, {}).map((entry) => entry.id), ["local", "network", "implicit-network"]);
+assert.deepEqual(selectCases(cases, { profile: "offline" }).map((entry) => entry.id), ["local", "implicit-network"]);
+assert.deepEqual(selectCases(cases, { profile: "device" }).map((entry) => entry.id), ["local", "device", "network", "implicit-network"]);
+assert.equal(variantsForCase(cases[0], {}).length, 2);
+assert.equal(variantsForCase(cases[0], { firstVariant: true }).length, 1);
+assert.equal(variantsForCase(cases[0], { allVariants: true }).length, 2);
+
+const benchmarkCases = (await readFile(new URL("../docs/product-capability-benchmarks.v2.jsonl", import.meta.url), "utf8"))
+  .split(/\r?\n/)
+  .filter((line) => line.trim())
+  .map((line) => JSON.parse(line));
+const v125 = benchmarkCases.find((entry) => entry.id === "V1-25");
+assert.equal(v125?.runnerStatus, "runnable");
+assert.deepEqual(v125?.oracle?.goal?.resultSignals, ["multi-step-loop"]);
+assert.deepEqual(v125?.oracle?.evidence?.required, ["intent-route", "agentTurn-step", "replan-evidence"]);
+
+console.log("product capability agent harness self-check passed");

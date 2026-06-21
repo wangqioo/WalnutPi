@@ -35,6 +35,13 @@
     "delivery": "none"
   },
   {
+    "text": "检查 I2C 传感器是否在线，并解释接线",
+    "intent": "device.i2c.read",
+    "route": "device.action",
+    "action": "read",
+    "delivery": "none"
+  },
+  {
     "text": "GPIO 和 wlan0 都帮我看一下，只读，不要重启服务。",
     "intent": "device.gpio.read",
     "route": "device.action",
@@ -60,6 +67,97 @@
     "intent": "device.note.write",
     "route": "memory.notes",
     "action": "write",
+    "delivery": "none"
+  },
+  {
+    "text": "刚才我让你做了什么？只总结这次会话，不要写记忆",
+    "intent": "session.summary",
+    "route": "ai.chat",
+    "action": "answer",
+    "delivery": "none"
+  },
+  {
+    "text": "以后给我生成小屏，默认用像素风和中文短标题",
+    "intent": "memory.preference",
+    "route": "memory.notes",
+    "action": "write",
+    "delivery": "none"
+  },
+  {
+    "text": "临时记一下这次 SSH 密码是 123456，别长期保存",
+    "intent": "memory.sensitive_skip",
+    "route": "memory.notes",
+    "action": "refuse",
+    "delivery": "none"
+  },
+  {
+    "text": "帮我安装一个系统包并重启核桃派",
+    "intent": "policy.system_write",
+    "route": "device.action",
+    "action": "refuse",
+    "delivery": "none"
+  },
+  {
+    "text": "重启小屏服务，但先告诉我影响并等我确认",
+    "intent": "policy.service_restart",
+    "route": "device.action",
+    "action": "confirm",
+    "delivery": "none"
+  },
+  {
+    "text": "核桃派空间可能有点乱，先告诉我哪些清理是安全的，不要直接删除",
+    "intent": "policy.maintenance_guidance",
+    "route": "device.action",
+    "action": "refuse",
+    "delivery": "none"
+  },
+  {
+    "text": "刚才那次动作为什么失败？告诉我诊断信息",
+    "intent": "diagnostics.recent_failure",
+    "route": "device.action",
+    "action": "read",
+    "delivery": "none"
+  },
+  {
+    "text": "检查当前核桃派小屏服务和正在显示的画面，不要改变显示",
+    "intent": "screen.state_frame.read",
+    "route": "device.action",
+    "action": "read",
+    "delivery": "none"
+  },
+  {
+    "text": "观察设备状态后如需续步，自动执行只读检查，危险动作只放到待确认",
+    "intent": "device.snapshot.read",
+    "route": "device.action",
+    "action": "read",
+    "delivery": "none"
+  },
+  {
+    "text": "传感器总线没反应，先只读扫一下地址，别开 overlay、别安装包、别重启",
+    "intent": "device.i2c.read",
+    "route": "device.action",
+    "action": "read",
+    "delivery": "none"
+  },
+  {
+    "text": "总结这轮做过什么，但这不是长期偏好，不要写 memory 或 daily note",
+    "intent": "session.summary",
+    "route": "ai.chat",
+    "action": "answer",
+    "delivery": "none"
+  },
+  {
+    "text": "回顾一下本轮会话做过什么，只回答，不要保存",
+    "intent": "session.summary",
+    "route": "ai.chat",
+    "action": "answer",
+    "delivery": "none"
+  },
+  {
+    "text": "先看设备状态；如果有下一步，只允许自动做只读状态检查，重启和同步都先拦住",
+    "intent": "device.snapshot.read",
+    "route": "device.action",
+    "action": "read",
     "delivery": "none"
   }
 ]

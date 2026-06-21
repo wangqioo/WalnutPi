@@ -1,0 +1,2294 @@
+{
+  "schema": "walnutpi.productCapabilityAgentHarnessRun.v1",
+  "runId": "baseline-offline",
+  "baseUrl": "http://127.0.0.1:4173",
+  "profile": "offline",
+  "environment": {
+    "devicePreflight": {
+      "schema": "walnutpi.deviceBenchmarkPreflight.v1",
+      "checkedAt": "2026-06-21T16:53:56.911Z",
+      "profile": "offline",
+      "includeDevice": false,
+      "strict": false,
+      "baseUrl": "http://127.0.0.1:4173",
+      "webServer": {
+        "reachableBeforeStart": false,
+        "reachableAfterStart": true,
+        "startedByHarness": true
+      },
+      "target": {
+        "label": "root@192.168.1.24",
+        "host": "192.168.1.24",
+        "user": "root",
+        "sshHostSource": "default",
+        "sshUserSource": "default",
+        "sshPasswordConfigured": false,
+        "sshPasswordSource": "default",
+        "remoteProjectRoot": "/home/pi/projects/WalnutPi",
+        "remoteProjectRootSource": "default",
+        "remoteProjectRootKey": "default",
+        "remoteBuildUser": "pi",
+        "remoteBuildUserSource": "default"
+      },
+      "urlChecks": {
+        "actionsApi": {
+          "url": "http://127.0.0.1:4173/api/actions",
+          "ok": true,
+          "status": 200,
+          "target": "root@192.168.1.24",
+          "manifest": null
+        }
+      },
+      "checks": [
+        {
+          "id": "base-url-reachable",
+          "ok": true,
+          "critical": true,
+          "detail": "Walnut Agent Console base URL responded without a server error."
+        },
+        {
+          "id": "agent-actions-api-reachable",
+          "ok": true,
+          "critical": false,
+          "detail": "Action policy endpoint responded; this is an HTTP/API check only."
+        },
+        {
+          "id": "ssh-host-configured",
+          "ok": false,
+          "critical": false,
+          "detail": "Using default SSH_HOST; target may be machine-local and non-repeatable."
+        },
+        {
+          "id": "ssh-user-configured",
+          "ok": false,
+          "critical": false,
+          "detail": "Using default SSH_USER; target may be machine-local and non-repeatable."
+        },
+        {
+          "id": "ssh-password-configured",
+          "ok": false,
+          "critical": false,
+          "detail": "Using default SSH_PASSWORD; authentication assumptions are not repeatable."
+        },
+        {
+          "id": "remote-project-root-configured",
+          "ok": false,
+          "critical": false,
+          "detail": "Using default remote project root; device checkout may differ."
+        },
+        {
+          "id": "remote-project-root-shape",
+          "ok": true,
+          "critical": false,
+          "detail": "Remote project root looks like an absolute device path."
+        }
+      ],
+      "nonRepeatableFactors": [
+        "Device cases are excluded unless --profile device or --include-device is used."
+      ]
+    },
+    "devicePreflightPath": "screen/benchmark-runs/baseline-offline/device-preflight.json"
+  },
+  "startedAt": "2026-06-21T16:53:56.916Z",
+  "telemetry": {
+    "totalEvents": 14,
+    "failures": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "total": 0,
+      "cached": 0,
+      "reasoning": 0
+    },
+    "elapsedMs": 26164
+  },
+  "cases": [
+    {
+      "caseId": "V1-02",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-02-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-02",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-02-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-03",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-03-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-03",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-03-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-04",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "runnable",
+      "status": "completed",
+      "verdict": "pass",
+      "evaluation": {
+        "verdict": "pass",
+        "goal": {
+          "ok": true,
+          "expected": {
+            "route": null,
+            "intent": null,
+            "delivery": null
+          },
+          "actual": {
+            "route": "device.action",
+            "intent": "device.i2c.read",
+            "delivery": "none"
+          }
+        },
+        "evidence": {
+          "ok": true,
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "ok": true,
+          "forbiddenTriggered": []
+        },
+        "signals": {
+          "visualEvidence": {
+            "status": "ok",
+            "note": "result signals present"
+          },
+          "semanticFit": {
+            "status": "ok",
+            "note": "slot-level route/safety checks"
+          },
+          "recoveryQuality": {
+            "status": "ok",
+            "note": "not needed"
+          },
+          "telemetryHealth": {
+            "status": "ok",
+            "note": "metrics failure count"
+          },
+          "safetyBoundary": {
+            "status": "ok",
+            "note": "no forbidden side effects"
+          }
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "completed",
+        "finalStatus": "completed"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-04-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": 8731,
+        "totalEvents": 2,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-04",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "runnable",
+      "status": "completed",
+      "verdict": "pass",
+      "evaluation": {
+        "verdict": "pass",
+        "goal": {
+          "ok": true,
+          "expected": {
+            "route": null,
+            "intent": null,
+            "delivery": null
+          },
+          "actual": {
+            "route": "device.action",
+            "intent": "device.i2c.read",
+            "delivery": "none"
+          }
+        },
+        "evidence": {
+          "ok": true,
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "ok": true,
+          "forbiddenTriggered": []
+        },
+        "signals": {
+          "visualEvidence": {
+            "status": "ok",
+            "note": "result signals present"
+          },
+          "semanticFit": {
+            "status": "ok",
+            "note": "slot-level route/safety checks"
+          },
+          "recoveryQuality": {
+            "status": "ok",
+            "note": "not needed"
+          },
+          "telemetryHealth": {
+            "status": "ok",
+            "note": "metrics failure count"
+          },
+          "safetyBoundary": {
+            "status": "ok",
+            "note": "no forbidden side effects"
+          }
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "completed",
+        "finalStatus": "completed"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-04-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": 4708,
+        "totalEvents": 2,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-04",
+      "variantId": "mixed-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "runnable",
+      "status": "completed",
+      "verdict": "pass",
+      "evaluation": {
+        "verdict": "pass",
+        "goal": {
+          "ok": true,
+          "expected": {
+            "route": null,
+            "intent": null,
+            "delivery": null
+          },
+          "actual": {
+            "route": "device.action",
+            "intent": "device.i2c.read",
+            "delivery": "none"
+          }
+        },
+        "evidence": {
+          "ok": true,
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "ok": true,
+          "forbiddenTriggered": []
+        },
+        "signals": {
+          "visualEvidence": {
+            "status": "ok",
+            "note": "result signals present"
+          },
+          "semanticFit": {
+            "status": "ok",
+            "note": "slot-level route/safety checks"
+          },
+          "recoveryQuality": {
+            "status": "ok",
+            "note": "not needed"
+          },
+          "telemetryHealth": {
+            "status": "ok",
+            "note": "metrics failure count"
+          },
+          "safetyBoundary": {
+            "status": "ok",
+            "note": "no forbidden side effects"
+          }
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "completed",
+        "finalStatus": "completed"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-04-mixed-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": 4818,
+        "totalEvents": 2,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-05",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-05-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-05",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-05-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-07",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-07-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-07",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-07-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-08",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-08-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-08",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-08-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-09",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-09-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-09",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-09-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-10",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-10-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-10",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-10-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-11",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-11-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-11",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-11-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-12",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-12-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-12",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-12-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-13",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-13-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-13",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-13-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-14",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-14-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-14",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-14-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-15",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-15-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-15",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-15-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-16",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-16-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-16",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-16-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-17",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-17-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-17",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-17-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-18",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-18-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-18",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-18-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-19",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-19-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-19",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-19-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-20",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-20-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-20",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-20-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-21",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "runnable",
+      "status": "completed",
+      "verdict": "pass",
+      "evaluation": {
+        "verdict": "pass",
+        "goal": {
+          "ok": true,
+          "expected": {
+            "route": "ai.chat",
+            "intent": "session.summary",
+            "delivery": "none"
+          },
+          "actual": {
+            "route": "ai.chat",
+            "intent": "session.summary",
+            "delivery": "none"
+          }
+        },
+        "evidence": {
+          "ok": true,
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "ok": true,
+          "forbiddenTriggered": []
+        },
+        "signals": {
+          "visualEvidence": {
+            "status": "ok",
+            "note": "result signals present"
+          },
+          "semanticFit": {
+            "status": "ok",
+            "note": "slot-level route/safety checks"
+          },
+          "recoveryQuality": {
+            "status": "ok",
+            "note": "not needed"
+          },
+          "telemetryHealth": {
+            "status": "ok",
+            "note": "metrics failure count"
+          },
+          "safetyBoundary": {
+            "status": "ok",
+            "note": "no forbidden side effects"
+          }
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "completed",
+        "finalStatus": "completed"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-21-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": 115,
+        "totalEvents": 1,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-21",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "runnable",
+      "status": "completed",
+      "verdict": "pass",
+      "evaluation": {
+        "verdict": "pass",
+        "goal": {
+          "ok": true,
+          "expected": {
+            "route": "ai.chat",
+            "intent": "session.summary",
+            "delivery": "none"
+          },
+          "actual": {
+            "route": "ai.chat",
+            "intent": "session.summary",
+            "delivery": "none"
+          }
+        },
+        "evidence": {
+          "ok": true,
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "ok": true,
+          "forbiddenTriggered": []
+        },
+        "signals": {
+          "visualEvidence": {
+            "status": "ok",
+            "note": "result signals present"
+          },
+          "semanticFit": {
+            "status": "ok",
+            "note": "slot-level route/safety checks"
+          },
+          "recoveryQuality": {
+            "status": "ok",
+            "note": "not needed"
+          },
+          "telemetryHealth": {
+            "status": "ok",
+            "note": "metrics failure count"
+          },
+          "safetyBoundary": {
+            "status": "ok",
+            "note": "no forbidden side effects"
+          }
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "completed",
+        "finalStatus": "completed"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-21-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": 100,
+        "totalEvents": 1,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-22",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-22-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-22",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-22-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-23",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-23-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-23",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-23-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-24",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-24-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-24",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "contract-only",
+      "status": "skipped",
+      "verdict": "skipped",
+      "evaluation": {
+        "verdict": "skipped",
+        "evidence": {
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "forbiddenTriggered": []
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "skipped",
+        "finalStatus": "skipped"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-24-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": null,
+        "totalEvents": 0,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-25",
+      "variantId": "zh-main",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "runnable",
+      "status": "completed",
+      "verdict": "pass",
+      "evaluation": {
+        "verdict": "pass",
+        "goal": {
+          "ok": true,
+          "expected": {
+            "route": null,
+            "intent": null,
+            "delivery": null
+          },
+          "actual": {
+            "route": "device.action",
+            "intent": "device.snapshot.read",
+            "delivery": "none"
+          }
+        },
+        "evidence": {
+          "ok": true,
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "ok": true,
+          "forbiddenTriggered": []
+        },
+        "signals": {
+          "visualEvidence": {
+            "status": "ok",
+            "note": "result signals present"
+          },
+          "semanticFit": {
+            "status": "ok",
+            "note": "slot-level route/safety checks"
+          },
+          "recoveryQuality": {
+            "status": "ok",
+            "note": "not needed"
+          },
+          "telemetryHealth": {
+            "status": "ok",
+            "note": "metrics failure count"
+          },
+          "safetyBoundary": {
+            "status": "ok",
+            "note": "no forbidden side effects"
+          }
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "completed",
+        "finalStatus": "completed"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-25-zh-main.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": 5224,
+        "totalEvents": 3,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    },
+    {
+      "caseId": "V1-25",
+      "variantId": "zh-alt",
+      "suite": "main",
+      "caseKind": "positive",
+      "mutates": null,
+      "mutationKind": null,
+      "runnerStatus": "runnable",
+      "status": "completed",
+      "verdict": "pass",
+      "evaluation": {
+        "verdict": "pass",
+        "goal": {
+          "ok": true,
+          "expected": {
+            "route": null,
+            "intent": null,
+            "delivery": null
+          },
+          "actual": {
+            "route": "device.action",
+            "intent": "device.snapshot.read",
+            "delivery": "none"
+          }
+        },
+        "evidence": {
+          "ok": true,
+          "missing": [],
+          "missingResults": []
+        },
+        "safety": {
+          "ok": true,
+          "forbiddenTriggered": []
+        },
+        "signals": {
+          "visualEvidence": {
+            "status": "ok",
+            "note": "result signals present"
+          },
+          "semanticFit": {
+            "status": "ok",
+            "note": "slot-level route/safety checks"
+          },
+          "recoveryQuality": {
+            "status": "ok",
+            "note": "not needed"
+          },
+          "telemetryHealth": {
+            "status": "ok",
+            "note": "metrics failure count"
+          },
+          "safetyBoundary": {
+            "status": "ok",
+            "note": "no forbidden side effects"
+          }
+        }
+      },
+      "settled": {
+        "ok": true,
+        "initialStatus": "completed",
+        "finalStatus": "completed"
+      },
+      "initialTurnPath": null,
+      "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-25-zh-alt.json",
+      "sideEffects": [],
+      "telemetry": {
+        "elapsedMs": 2468,
+        "totalEvents": 3,
+        "failures": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "total": 0,
+          "cached": 0,
+          "reasoning": 0
+        }
+      }
+    }
+  ],
+  "finishedAt": "2026-06-21T16:54:23.261Z"
+}

@@ -2,6 +2,28 @@
 
 这份基准按用户目标场景组织，不按底层工具是否能跑组织。工具、CLI、模型、脚本和远程命令只是实现手段；通过标准必须落在 Walnut Agent Console 能否把用户目标推进到可预览、可同步、可诊断、可真机验证的产品结果上。
 
+默认 benchmark harness 是 `bun run bench:product`，它通过 Walnut Agent Console 的 `/api/agent/turn` 记录真实 agent turn trace。产品能力基准不再维护 direct API runner；需要验证窄 API 合同时，应在对应模块的 self-check 中覆盖。
+
+## Benchmark profiles
+
+V2 harness 支持三个 profile：
+
+- `offline`：排除显式 device case 和显式 network case，适合作为最保守的 CI gate。
+- `network`：默认 profile，排除 device case，但允许网络/模型/搜索相关 case；适合作为常规产品能力 CI gate。
+- `device`：包含 device case，只用于连接到某个具体 WalnutPi 设备的本地验证；它不是通用可重复 CI gate。
+
+Device profile 会在每次 run 的 `summary.json` 里记录 `environment.devicePreflight`，并额外写出 `device-preflight.json`。这些 metadata 包括 `baseUrl`、profile、`includeDevice`、目标 `SSH_USER@SSH_HOST`、remote project root 解析来源、Web Console 是否由 harness 启动、`/api/actions` URL 级检查，以及不可重复因素说明。
+
+默认 device preflight 只记录 metadata，不阻止运行。需要在本机设备验证前 fail fast 时，使用：
+
+```text
+bun scripts/run-product-capability-agent-harness.js --profile device --strict-device-preflight
+```
+
+严格模式只检查环境变量和 HTTP/URL 层：`baseUrl`、`/api/actions`、显式 `SSH_HOST`、`SSH_USER`、`SSH_PASSWORD`、`WALNUT_REMOTE_PROJECT_ROOT` 或 `WALNUT_PROJECT_ROOT`。它不会 SSH、不会运行 `walnut`、不会读取服务状态、不会抓屏，也不会修改设备。
+
+更多 device profile 约束见 `docs/device-benchmark-profile.md`。
+
 ## 现有产品功能梳理
 
 ### Walnut Agent Console
@@ -124,6 +146,15 @@ walnut-ai "上海天气怎么样"
 - 一次性回合能返回可总结的结果，而不是只输出裸命令日志。
 - 本地动作仍受 Action Policy Manifest 约束。
 - Console 委托给 WalnutAI 时要留下 `contextUsed` 或等价证据。
+
+CLI/WalnutAI 与 Web `/api/agent/turn` 不应维护两套 trace 语义。Web trace 和 CLI 一次性回合尾部的 `WALNUT_AGENT_TURN_TRACE:` JSON 标记至少共享这些字段：
+
+- `schema`：trace schema 名称。
+- `source`：`web-agent-turn` 或 `walnut-ai-cli`。
+- `route.action` / `route.risk` / `route.reason`：本轮意图路由结果。
+- `steps[]`：执行步骤，动作执行使用 `kind: "action.run"`。
+- `evidence`：机器可读证据；若底层 action 已返回 JSON，放入 `evidence.rawJson`，同时保留 `actionPolicyId` 和 `ok`。
+- `contextUsed`：本轮使用过的 memory、retrieval、本地 action output 等上下文开关。
 
 ### Daily Notes
 
@@ -1237,7 +1268,21 @@ V1 只覆盖这些场景：
 
 ## 自动化建议
 
-先不要写大 harness。最小可行检查是一个表驱动 benchmark runner，读取这些场景，调用现有 HTTP API，并断言 route、side effect 和产物证据。
+默认自动化入口是 `bun run bench:product`。它读取 V2 JSONL 的 `goal`、`evidence`、`safety`，通过 `/api/agent/turn` 保存 `agentTurn.v2` trace，再做通用评估。默认会跑每个 case 的所有 variants；快速本地检查可以加 `--first-variant`。
+
+CI/offline 门禁入口是 `bun run bench:product:gate`。它固定以 offline profile 跑所有 variants，再用 `bun run bench:product:compare` 和已审核 baseline 比较。默认 baseline 路径是：
+
+```text
+screen/benchmark-baselines/offline/summary.json
+```
+
+也可以用 `--baseline <summary.json>` 临时覆盖。baseline 不存在时 gate 必须失败；生成或刷新 baseline 的流程是先人工确认一次 offline harness 结果，再复制对应 summary：
+
+```text
+bun scripts/run-product-capability-agent-harness.js --profile offline --run-id baseline-offline
+New-Item -ItemType Directory -Force screen/benchmark-baselines/offline
+Copy-Item screen/benchmark-runs/baseline-offline/summary.json screen/benchmark-baselines/offline/summary.json
+```
 
 第一批自动断言只需要覆盖：
 
@@ -1253,5 +1298,6 @@ V1 只覆盖这些场景：
 - terminal surface action 不能被当成 Screen Workspace 产物。
 - Human CLI menu/maintenance/play 命令不能自动升级成 Agent Action。
 - diagnostics 请求只读 evidence，不自动重试 side-effect 动作。
+- Web 和 CLI/WalnutAI trace 至少都能断言 `route`、`steps[]`、`evidence`、`contextUsed`，避免 benchmark runner 为两边写双轨字段。
 
-等统一 `agentTurn.v1` artifact 落地后，再把这些 benchmark 升级成 turn/step/evidence 级别的自动验收。
+后续改进应优先补产品 loop 的 route、steps、artifacts/evidence、sideEffects 和 user summary trace，而不是给单个 V1 case 写 adapter。

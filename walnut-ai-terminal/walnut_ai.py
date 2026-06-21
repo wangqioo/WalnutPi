@@ -82,8 +82,9 @@ DEFAULT_LOCAL_ACTION_TITLES = {
     "i2c_scan": "I2C 只读扫描",
     "snapshot": "设备快照",
 }
-LocalActionResult = tuple[str, str, bool]
+LocalActionResult = tuple[str, str, bool, dict[str, object]]
 ORIGINAL_GETADDRINFO = socket.getaddrinfo
+AGENT_TURN_TRACE_PREFIX = "WALNUT_AGENT_TURN_TRACE:"
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -599,11 +600,27 @@ def process_text(value: object) -> str:
     return str(value)
 
 
+def compact_action_evidence(action_id: str, ok: bool, data: dict[str, object] | None = None) -> dict[str, object]:
+    evidence: dict[str, object] = {
+        "kind": "action-output",
+        "actionPolicyId": action_id,
+        "ok": ok,
+    }
+    if data is not None:
+        evidence["rawJson"] = data
+        for key in ("traceId", "buildId", "recordId"):
+            if isinstance(data.get(key), str):
+                evidence[key] = data[key]
+    return evidence
+
+
 def walnut_action(action_id: str) -> LocalActionResult:
     title = local_action_title(action_id)
     command = walnut_cli_command()
     if not command:
-        return title, "WalnutPi Local Action 入口不可用：找不到 `walnut` 命令。", False
+        evidence = compact_action_evidence(action_id, False)
+        evidence["error"] = "walnut-cli-not-found"
+        return title, "WalnutPi Local Action 入口不可用：找不到 `walnut` 命令。", False, evidence
 
     try:
         p = subprocess.run(
@@ -616,27 +633,35 @@ def walnut_action(action_id: str) -> LocalActionResult:
         )
     except subprocess.TimeoutExpired as e:
         output = (process_text(e.stdout) + process_text(e.stderr)).strip()
-        return title, (output + "\n[walnut action] timed out").strip(), False
+        evidence = compact_action_evidence(action_id, False)
+        evidence["error"] = "timeout"
+        return title, (output + "\n[walnut action] timed out").strip(), False, evidence
     except Exception as e:
-        return title, f"[walnut action] {e}", False
+        evidence = compact_action_evidence(action_id, False)
+        evidence["error"] = str(e)
+        return title, f"[walnut action] {e}", False, evidence
 
     raw = p.stdout.strip()
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
         ok = p.returncode == 0
-        return title, raw or f"[walnut action] exit code {p.returncode}", ok
+        evidence = compact_action_evidence(action_id, ok)
+        evidence["exitCode"] = p.returncode
+        return title, raw or f"[walnut action] exit code {p.returncode}", ok, evidence
 
     if isinstance(data, dict):
         title = str(data.get("title") or title)
         output = data.get("output")
+        ok = data.get("ok") is True
         if isinstance(output, str):
-            return title, output, data.get("ok") is True
-    return title, json.dumps(data, ensure_ascii=False, indent=2), p.returncode == 0
+            return title, output, ok, compact_action_evidence(action_id, ok, data)
+    ok = p.returncode == 0
+    return title, json.dumps(data, ensure_ascii=False, indent=2), ok, compact_action_evidence(action_id, ok)
 
 
 def status() -> str:
-    _, output, _ = walnut_action("status")
+    _, output, _, _ = walnut_action("status")
     return output
 
 
@@ -922,23 +947,29 @@ def music_library_status(limit: int = 80) -> str:
     return "\n".join(lines)
 
 
+def builtin_action_result(action_id: str, title: str, output: str, ok: bool) -> LocalActionResult:
+    return title, output, ok, compact_action_evidence(action_id, ok)
+
+
 def execute_local_action(route: dict[str, object]) -> LocalActionResult | None:
     action = str(route.get("action", "")).strip()
     args = route.get("args")
     if not isinstance(args, dict):
         args = {}
     if action == "weather":
-        return "天气查询", weather_status(str(args.get("location", ""))), True
+        return builtin_action_result("weather", "天气查询", weather_status(str(args.get("location", ""))), True)
     if action == "time":
-        return "时间查询", local_time_status(), True
+        return builtin_action_result("time", "时间查询", local_time_status(), True)
     if action == "note_add":
         note = str(args.get("text", "")).strip()
         if not note:
-            return "记录笔记", "缺少要记录的内容。", False
+            return builtin_action_result("note", "记录笔记", "缺少要记录的内容。", False)
         path = save_note(note)
-        return "记录笔记", f"已保存到 {path}\n\n{note}", True
+        title, output, ok, evidence = builtin_action_result("note", "记录笔记", f"已保存到 {path}\n\n{note}", True)
+        evidence["path"] = str(path)
+        return title, output, ok, evidence
     if action == "notes_today":
-        return "今天笔记", today_notes(), True
+        return builtin_action_result("notes", "今天笔记", today_notes(), True)
     if action == "network":
         return walnut_action("network")
     if action == "i2c_scan":
@@ -948,7 +979,7 @@ def execute_local_action(route: dict[str, object]) -> LocalActionResult | None:
     if action == "snapshot":
         return walnut_action("snapshot")
     if action == "music_library":
-        return "音乐库", music_library_status(), True
+        return builtin_action_result("music_library", "音乐库", music_library_status(), True)
     if action == "status":
         return walnut_action("status")
     return None
@@ -981,35 +1012,138 @@ def summarize_local_result(user_text: str, title: str, output: str, ok: bool = T
     return answer
 
 
+def local_agent_trace_marker(
+    route: dict[str, object],
+    title: str,
+    ok: bool,
+    evidence: dict[str, object],
+    context_used: dict[str, object] | None = None,
+) -> str:
+    action = str(route.get("action", "")).strip()
+    risk = str(route.get("risk", "none")).strip() or "none"
+    context = context_used or {
+        "memory": False,
+        "retrieval": False,
+        "localActionOutput": True,
+    }
+    trace = {
+        "schema": "walnutpi.agentTurn.trace.v1",
+        "source": "walnut-ai-cli",
+        "route": {
+            "action": action,
+            "risk": risk,
+            "reason": str(route.get("reason", "")).strip(),
+        },
+        "steps": [
+            {
+                "id": "execute",
+                "kind": "action.run",
+                "status": "completed" if ok else "failed",
+                "title": title,
+                "action": action,
+            }
+        ],
+        "evidence": evidence,
+        "contextUsed": context,
+    }
+    return AGENT_TURN_TRACE_PREFIX + json.dumps(trace, ensure_ascii=False, separators=(",", ":"))
+
+
+def with_local_agent_trace(
+    answer: str,
+    route: dict[str, object],
+    title: str,
+    ok: bool,
+    evidence: dict[str, object],
+    context_used: dict[str, object] | None = None,
+) -> str:
+    return answer.rstrip() + "\n" + local_agent_trace_marker(route, title, ok, evidence, context_used)
+
+
+def local_agent_context_used(
+    route_used_retrieval: bool,
+    summary_used_context: bool,
+    local_action_output: bool,
+) -> dict[str, object]:
+    return {
+        "memory": bool(summary_used_context and not DISABLE_MEMORY),
+        "retrieval": bool(route_used_retrieval or summary_used_context),
+        "localActionOutput": local_action_output,
+    }
+
+
+def walnut_ai_self_check() -> None:
+    route = {"action": "status", "risk": "read", "reason": "self-check"}
+    evidence = compact_action_evidence("status", True, {"ok": True, "output": "ok"})
+    answer = with_local_agent_trace("done", route, "设备状态", True, evidence)
+    marker = answer.splitlines()[-1]
+    assert marker.startswith(AGENT_TURN_TRACE_PREFIX)
+    trace = json.loads(marker[len(AGENT_TURN_TRACE_PREFIX):])
+    assert trace["schema"] == "walnutpi.agentTurn.trace.v1"
+    assert trace["route"]["action"] == "status"
+    assert trace["steps"][0]["kind"] == "action.run"
+    assert trace["evidence"]["actionPolicyId"] == "status"
+    assert "contextUsed" in trace
+    context = local_agent_context_used(False, False, True)
+    assert context == {"memory": False, "retrieval": False, "localActionOutput": True}
+    refused = with_local_agent_trace(
+        "blocked",
+        {"action": "risky", "risk": "high", "reason": "self-check"},
+        "拒绝高风险动作",
+        False,
+        {"kind": "policy-refusal", "actionPolicyId": "risky", "ok": False},
+        {"memory": False, "retrieval": True, "localActionOutput": False},
+    )
+    refused_trace = json.loads(refused.splitlines()[-1][len(AGENT_TURN_TRACE_PREFIX):])
+    assert refused_trace["evidence"]["kind"] == "policy-refusal"
+    assert refused_trace["contextUsed"]["localActionOutput"] is False
+
+
 def local_agent_answer(text: str) -> str | None:
     if not might_need_local_route(text):
         return None
-    route = quick_local_route(text) or classify_intent(text)
+    route = quick_local_route(text)
+    route_used_retrieval = False
+    if not route:
+        route = classify_intent(text)
+        route_used_retrieval = route is not None
     if not route or route.get("action") == "chat":
         return None
     if route.get("action") == "router_error":
         args = route.get("args")
         message = args.get("message") if isinstance(args, dict) else ""
-        return str(message or "意图识别失败。")
+        answer = str(message or "意图识别失败。")
+        evidence = {"kind": "router-error", "ok": False}
+        context_used = {"memory": False, "retrieval": route_used_retrieval, "localActionOutput": False}
+        return with_local_agent_trace(answer, route, "意图识别", False, evidence, context_used)
 
     if route.get("action") == "risky" or route.get("risk") == "high":
         reason = str(route.get("reason", "")).strip()
         detail = f"\n模型判断：{reason}" if reason else ""
-        return (
+        answer = (
             "这个请求可能会改动系统或硬件状态，我不会直接执行。\n"
             "请先说明你要改什么、为什么要改，以及是否已经备份；确认后再由高风险操作流程处理。"
             f"{detail}"
         )
+        action_id = str(route.get("action", "risky"))
+        evidence = {"kind": "policy-refusal", "actionPolicyId": action_id, "ok": False}
+        context_used = {"memory": False, "retrieval": route_used_retrieval, "localActionOutput": False}
+        return with_local_agent_trace(answer, route, "拒绝高风险动作", False, evidence, context_used)
 
     action = execute_local_action(route)
     if not action:
         return None
-    title, output, ok = action
+    title, output, ok, evidence = action
     if route.get("action") in {"weather", "time", "snapshot", "music_library"}:
         if not ok:
-            return summarize_local_result(text, title, output, ok)
-        return output
-    return summarize_local_result(text, title, output, ok)
+            answer = summarize_local_result(text, title, output, ok)
+        else:
+            answer = output
+        context_used = local_agent_context_used(route_used_retrieval, False, True)
+        return with_local_agent_trace(answer, route, title, ok, evidence, context_used)
+    answer = summarize_local_result(text, title, output, ok)
+    context_used = local_agent_context_used(route_used_retrieval, bool(API_KEY and ok), True)
+    return with_local_agent_trace(answer, route, title, ok, evidence, context_used)
 
 
 def help_text() -> str:
@@ -1176,6 +1310,10 @@ def one_shot(text: str) -> int:
 
 
 if __name__ == "__main__":
+    if len(sys.argv) == 2 and sys.argv[1] == "--self-check":
+        walnut_ai_self_check()
+        print("walnut_ai self-check passed")
+        raise SystemExit(0)
     if len(sys.argv) > 1:
         raise SystemExit(one_shot(" ".join(sys.argv[1:])))
     raise SystemExit(main())
