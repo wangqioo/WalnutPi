@@ -23,3 +23,9 @@ screen/plans/agent-freeform-*-plan.json
 screen/plans/api-*-plan.json
 screen/sources/agent-freeform-*-source/
 screen/sources/api-*-source/
+screen/benchmark-runs/
+screen/manifests/v2-*.json
+screen/outputs/v2-*/
+screen/plans/v2-*-plan.json
+screen/playlists/v2-*.json
+screen/sources/v2-*-source/

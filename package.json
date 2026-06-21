@@ -1,6 +1,7 @@
 {
   "type": "module",
   "scripts": {
+    "bench:product": "bun scripts/run-product-capability-benchmarks.js",
     "screen:workspace:process": "bun scripts/process-screen-workspace-source.js",
     "screen:workspace:lvgl-build": "bun scripts/build-lvgl-app.js",
     "web": "bun web-interface/model-terminal-server.js"
