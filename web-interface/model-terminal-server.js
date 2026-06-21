@@ -20,6 +20,7 @@ import { createOneLaneQueue } from "./agent-one-lane-queue.js";
 import { createAgentTurnEventLedger } from "./agent-turn-event-ledger.js";
 import { createAgentTurnLedger } from "./agent-turn-ledger.js";
 import { createAgentTurnLoop } from "./agent-turn-loop.js";
+import { createActionRegistry } from "./action-registry.js";
 import { createProjectMemoryApi } from "./project-memory-api.js";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.js";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.js";
@@ -30,84 +31,33 @@ import { stableStringify } from "../scripts/screen-workspace-vocabulary.js";
 import { generateLvglScreenWorkspaceRuntimeAssets } from "../scripts/generate-lvgl-screen-workspace-runtime-assets.js";
 import { z } from "zod";
 
-const HOST = "127.0.0.1";
-const PORT = Number(process.env.PORT || 4173);
-const SSH_HOST = process.env.SSH_HOST || "192.168.1.24";
-const SSH_USER = process.env.SSH_USER || "root";
-const SSH_PASSWORD = process.env.SSH_PASSWORD || "root";
-const REMOTE_PROJECT_ROOT = process.env.WALNUT_REMOTE_PROJECT_ROOT || process.env.WALNUT_PROJECT_ROOT || "/home/pi/projects/WalnutPi";
-const REMOTE_BUILD_USER = process.env.WALNUT_REMOTE_BUILD_USER || "pi";
-const BASE_DIR = import.meta.dir;
-const PROJECT_ROOT = path.resolve(BASE_DIR, "..");
-const MODEL_FILE = "0c6390ea8b1ccf186ec099456954fd42.glb";
-const ACTION_POLICY_MANIFEST_PATH = path.join(PROJECT_ROOT, "action-policy-manifest.json");
-const CODEX_AUTH_PATH = process.env.CODEX_AUTH_PATH
-  ? path.resolve(process.env.CODEX_AUTH_PATH)
-  : path.join(process.env.USERPROFILE || process.env.HOME || "", ".codex", "auth.json");
-const SCREEN_WORKSPACE_ROOT = process.env.WALNUT_SCREEN_WORKSPACE_ROOT
-  ? path.resolve(process.env.WALNUT_SCREEN_WORKSPACE_ROOT)
-  : path.join(PROJECT_ROOT, "screen");
-const ACTION_OUTPUT_LIMIT = 24_000;
-const CAPTURE_OUTPUT_LIMIT = 1_500_000;
-const SCREEN_FRAME_TICKET_TTL_MS = 10 * 60_000;
-const parsedScreenRecordLimit = Number(process.env.WALNUT_SCREEN_RECORD_LIMIT || 50);
-const SCREEN_RECORD_LIMIT = Number.isFinite(parsedScreenRecordLimit) && parsedScreenRecordLimit > 0
-  ? Math.floor(parsedScreenRecordLimit)
-  : 50;
-const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BASE_DIR, "screen-sync-records");
-const SCREEN_SOURCE_IMPORT_MAX_BYTES = Number(process.env.WALNUT_SCREEN_SOURCE_IMPORT_MAX_BYTES || 25 * 1024 * 1024);
-const SCREEN_LVGL_PREVIEW_OUTPUT_DIR = path.join(SCREEN_WORKSPACE_ROOT, "outputs", "lvgl-preview");
-const WALNUT_AI_CORPUS_DIR = process.env.WALNUT_AI_CORPUS_DIR || path.join(PROJECT_ROOT, "walnut-ai-terminal", "corpus");
-const SCREEN_SUCCESS_CORPUS_PATH = path.join(WALNUT_AI_CORPUS_DIR, "screen-sync-successes.md");
-const ACTION_POLICY_MANIFEST = await loadActionPolicyManifest(ACTION_POLICY_MANIFEST_PATH);
-const WEB_ACTIONS = actionsForExecutor(ACTION_POLICY_MANIFEST, "web");
+import * as C from "./config.js";
 
-const AI_MODEL = process.env.WALNUT_AI_MODEL || "gpt-5.4-mini";
-const AI_BASE_URL = (process.env.WALNUT_AI_BASE_URL || "https://rehdasu.cn/v1").replace(/\/+$/, "");
-const AI_API_KEY = resolveAiApiKey();
-const AI_REASONING_EFFORT = process.env.WALNUT_AI_REASONING_EFFORT || "none";
-const AI_CONTEXT_LIMIT = 4;
-const AI_CONTEXT_TEXT_LIMIT = 900;
-const AI_TIMEOUT_SECONDS = Number(process.env.WALNUT_WEB_AI_TIMEOUT || 60);
-const SSH_CONTROLMASTER_ENABLED = process.platform !== "win32"
-  && !["0", "false", "no", "off"].includes(String(process.env.WALNUT_SSH_CONTROLMASTER || "1").toLowerCase());
-const SSH_CONTROL_DIR = process.env.SSH_CONTROL_DIR || path.join(tmpdir(), `walnutpi-web-ssh-${process.getuid?.() || "user"}`);
+const ACTION_POLICY_MANIFEST = await loadActionPolicyManifest(C.ACTION_POLICY_MANIFEST_PATH);
+const WEB_ACTIONS = actionsForExecutor(ACTION_POLICY_MANIFEST, "web");
+const aiApiKey = resolveAiApiKey();
 const screenFrameTickets = new Map();
-const WALNUT_MEMORY_DIR = process.env.WALNUT_MEMORY_DIR || path.join(process.env.HOME || process.env.USERPROFILE || PROJECT_ROOT, "walnut-memory");
-const WALNUT_AI_MEMORY_FILE = process.env.WALNUT_AI_MEMORY_FILE || path.join(WALNUT_MEMORY_DIR, "memory.json");
-const WALNUT_AI_SKILLS_DIR = process.env.WALNUT_AI_SKILLS_DIR || path.join(PROJECT_ROOT, "walnut-ai-terminal", "skills");
-const WALNUT_AI_PRIMARY_SKILL = process.env.WALNUT_AI_PRIMARY_SKILL || "walnutpi-1b-zerow";
-const WALNUT_CLI_SOURCE_PATH = path.join(PROJECT_ROOT, "walnut-assistant", "walnut");
-const MEMORY_FIELDS = ["preferences", "environment", "projects", "workflows", "goals", "summary"];
-const RETRIEVAL_FILE_LIMIT = 5000;
-const RETRIEVAL_RESULT_LIMIT = 8;
-const WEB_SESSIONS_DIR = process.env.WALNUT_WEB_SESSIONS_DIR || path.join(BASE_DIR, "data", "sessions");
-const WEB_METRICS_PATH = process.env.WALNUT_WEB_METRICS_PATH || path.join(BASE_DIR, "data", "metrics.jsonl");
-const AGENT_TURNS_PATH = process.env.WALNUT_AGENT_TURNS_PATH || path.join(BASE_DIR, "data", "agent-turns.jsonl");
-const AGENT_TURN_EVENTS_PATH = process.env.WALNUT_AGENT_TURN_EVENTS_PATH || path.join(BASE_DIR, "data", "agent-turn-events.jsonl");
-const AGENT_HARNESS_SESSIONS_PATH = process.env.WALNUT_AGENT_HARNESS_SESSIONS_PATH || path.join(BASE_DIR, "data", "agent-harness-sessions.json");
-const WEB_SESSION_EVENT_LIMIT = Number(process.env.WALNUT_WEB_SESSION_EVENT_LIMIT || 300);
 const webSessionLedger = createWebSessionLedger({
-  sessionsDir: WEB_SESSIONS_DIR,
-  eventLimit: WEB_SESSION_EVENT_LIMIT,
+  sessionsDir: C.WEB_SESSIONS_DIR,
+  eventLimit: C.WEB_SESSION_EVENT_LIMIT,
 });
 const webMetricsLedger = createWebMetricsLedger({
-  metricsPath: WEB_METRICS_PATH,
+  metricsPath: C.WEB_METRICS_PATH,
   limit: Number(process.env.WALNUT_WEB_METRICS_LIMIT || 200),
 });
 const agentTurnLedger = createAgentTurnLedger({
-  turnsPath: AGENT_TURNS_PATH,
+  turnsPath: C.AGENT_TURNS_PATH,
   limit: Number(process.env.WALNUT_AGENT_TURN_LIMIT || 100),
 });
 const agentEventBus = createAgentEventBus();
 const agentTurnEventLedger = createAgentTurnEventLedger({
-  eventsPath: AGENT_TURN_EVENTS_PATH,
+  eventsPath: C.AGENT_TURN_EVENTS_PATH,
   eventBus: agentEventBus,
   limit: Number(process.env.WALNUT_AGENT_TURN_EVENT_LIMIT || 500),
 });
 const agentQueue = createOneLaneQueue();
 const agentHarnessSessionStore = createAgentHarnessSessionStore({
-  filePath: AGENT_HARNESS_SESSIONS_PATH,
+  filePath: C.AGENT_HARNESS_SESSIONS_PATH,
 });
 
 const files = new Map([
@@ -116,10 +66,10 @@ const files = new Map([
   ["/workspace.html", "screen-workspace-preview.html"],
   ["/ssh-terminal.html", "ssh-terminal.html"],
   ["/vendor/ansi_up.js", "vendor/ansi_up.js"],
-  [`/${MODEL_FILE}`, MODEL_FILE],
+  [`/${C.MODEL_FILE}`, C.MODEL_FILE],
 ]);
 
-const staticUiHost = createStaticUiHost({ baseDir: BASE_DIR, files });
+const staticUiHost = createStaticUiHost({ baseDir: C.BASE_DIR, files });
 
 function json(data, status = 200) {
   return Response.json(data, { status });
@@ -140,17 +90,17 @@ function sseFrame(event) {
 
 function readCodexAuthApiKey() {
   try {
-    if (!CODEX_AUTH_PATH) return "";
-    const parsed = JSON.parse(readFileSync(CODEX_AUTH_PATH, "utf8"));
-    return typeof parsed?.OPENAI_API_KEY === "string" ? parsed.OPENAI_API_KEY : "";
+    if (!C.CODEX_AUTH_PATH) return "";
+    const parsed = JSON.parse(readFileSync(C.CODEX_AUTH_PATH, "utf8"));
+    return typeof parsed?.OPENaiApiKey === "string" ? parsed.OPENaiApiKey : "";
   } catch {
     return "";
   }
 }
 
 function resolveAiApiKey() {
-  if (Object.hasOwn(process.env, "WALNUT_AI_API_KEY")) return String(process.env.WALNUT_AI_API_KEY || "").trim();
-  if (Object.hasOwn(process.env, "OPENAI_API_KEY")) return String(process.env.OPENAI_API_KEY || "").trim();
+  if (Object.hasOwn(process.env, "WALNUT_aiApiKey")) return String(process.env.WALNUT_aiApiKey || "").trim();
+  if (Object.hasOwn(process.env, "OPENaiApiKey")) return String(process.env.OPENaiApiKey || "").trim();
   return String(readCodexAuthApiKey() || "").trim();
 }
 
@@ -172,13 +122,13 @@ function previewOnlyJson() {
 }
 
 function emptyMemory() {
-  return Object.fromEntries(MEMORY_FIELDS.map((field) => [field, []]));
+  return Object.fromEntries(C.MEMORY_FIELDS.map((field) => [field, []]));
 }
 
 function normalizeMemory(value) {
   const normalized = emptyMemory();
   if (!value || typeof value !== "object" || Array.isArray(value)) return normalized;
-  for (const field of MEMORY_FIELDS) {
+  for (const field of C.MEMORY_FIELDS) {
     if (!Array.isArray(value[field])) continue;
     const seen = new Set();
     for (const item of value[field]) {
@@ -194,7 +144,7 @@ function normalizeMemory(value) {
 
 async function readWalnutMemory() {
   try {
-    return normalizeMemory(JSON.parse(await readFile(WALNUT_AI_MEMORY_FILE, "utf8")));
+    return normalizeMemory(JSON.parse(await readFile(C.WALNUT_AI_MEMORY_FILE, "utf8")));
   } catch {
     return emptyMemory();
   }
@@ -219,7 +169,7 @@ function tokenizeQuery(value) {
   return terms;
 }
 
-async function readTextFileLimited(filePath, limit = RETRIEVAL_FILE_LIMIT) {
+async function readTextFileLimited(filePath, limit = C.RETRIEVAL_FILE_LIMIT) {
   const extension = path.extname(filePath).toLowerCase();
   if (![".md", ".json", ".txt", ".py", ".c", ".h"].includes(extension)) return "";
   try {
@@ -231,11 +181,11 @@ async function readTextFileLimited(filePath, limit = RETRIEVAL_FILE_LIMIT) {
 
 async function listRetrievalFiles() {
   const files = [
-    path.join(WALNUT_AI_SKILLS_DIR, "walnutpi-core.md"),
-    path.join(WALNUT_AI_SKILLS_DIR, "walnutpi-screen.md"),
-    path.join(WALNUT_AI_SKILLS_DIR, WALNUT_AI_PRIMARY_SKILL, "SKILL.md"),
-    path.join(WALNUT_AI_CORPUS_DIR, "successful-code.md"),
-    SCREEN_SUCCESS_CORPUS_PATH,
+    path.join(C.WALNUT_AI_SKILLS_DIR, "walnutpi-core.md"),
+    path.join(C.WALNUT_AI_SKILLS_DIR, "walnutpi-screen.md"),
+    path.join(C.WALNUT_AI_SKILLS_DIR, C.WALNUT_AI_PRIMARY_SKILL, "SKILL.md"),
+    path.join(C.WALNUT_AI_CORPUS_DIR, "successful-code.md"),
+    C.SCREEN_SUCCESS_CORPUS_PATH,
   ];
   async function addDirectoryMarkdown(root, depth = 1) {
     let entries;
@@ -252,9 +202,9 @@ async function listRetrievalFiles() {
       }
     }
   }
-  await addDirectoryMarkdown(WALNUT_AI_SKILLS_DIR, 1);
-  await addDirectoryMarkdown(path.join(WALNUT_AI_SKILLS_DIR, WALNUT_AI_PRIMARY_SKILL), 0);
-  await addDirectoryMarkdown(WALNUT_AI_CORPUS_DIR, 0);
+  await addDirectoryMarkdown(C.WALNUT_AI_SKILLS_DIR, 1);
+  await addDirectoryMarkdown(path.join(C.WALNUT_AI_SKILLS_DIR, C.WALNUT_AI_PRIMARY_SKILL), 0);
+  await addDirectoryMarkdown(C.WALNUT_AI_CORPUS_DIR, 0);
   return [...new Set(files.map((file) => path.resolve(file)))];
 }
 
@@ -283,13 +233,13 @@ async function retrieveWalnutContext(query) {
     const score = scoreRetrievalFile(filePath, content, terms);
     if (score <= 0 && !filePath.endsWith("walnutpi-core.md") && !filePath.endsWith("walnutpi-screen.md")) continue;
     results.push({
-      path: path.relative(PROJECT_ROOT, filePath).replace(/\\/g, "/"),
+      path: path.relative(C.PROJECT_ROOT, filePath).replace(/\\/g, "/"),
       score,
       preview: content,
     });
   }
   results.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
-  return results.slice(0, RETRIEVAL_RESULT_LIMIT);
+  return results.slice(0, C.RETRIEVAL_RESULT_LIMIT);
 }
 
 function sha256(value) {
@@ -301,11 +251,11 @@ function shellQuote(value) {
 }
 
 function remoteBuildShell(command) {
-  if (!REMOTE_BUILD_USER) return command;
-  return `sudo -n -u ${shellQuote(REMOTE_BUILD_USER)} sh -lc ${shellQuote(command)}`;
+  if (!C.REMOTE_BUILD_USER) return command;
+  return `sudo -n -u ${shellQuote(C.REMOTE_BUILD_USER)} sh -lc ${shellQuote(command)}`;
 }
 
-function limitedOutput(value, limit = ACTION_OUTPUT_LIMIT) {
+function limitedOutput(value, limit = C.ACTION_OUTPUT_LIMIT) {
   if (value.length <= limit) return value;
   return `${value.slice(0, limit)}\n\n[local] output truncated`;
 }
@@ -327,21 +277,21 @@ function findWindowsCommand(command) {
 }
 
 const walnutRemote = createWalnutRemoteAdapter({
-  sshHost: SSH_HOST,
-  sshUser: SSH_USER,
-  sshPassword: SSH_PASSWORD,
-  remoteProjectRoot: REMOTE_PROJECT_ROOT,
-  walnutCliSourcePath: WALNUT_CLI_SOURCE_PATH,
-  actionPolicyManifestPath: ACTION_POLICY_MANIFEST_PATH,
-  outputLimit: ACTION_OUTPUT_LIMIT,
-  captureOutputLimit: CAPTURE_OUTPUT_LIMIT,
+  sshHost: C.SSH_HOST,
+  sshUser: C.SSH_USER,
+  sshPassword: C.SSH_PASSWORD,
+  remoteProjectRoot: C.REMOTE_PROJECT_ROOT,
+  walnutCliSourcePath: C.WALNUT_CLI_SOURCE_PATH,
+  actionPolicyManifestPath: C.ACTION_POLICY_MANIFEST_PATH,
+  outputLimit: C.ACTION_OUTPUT_LIMIT,
+  captureOutputLimit: C.CAPTURE_OUTPUT_LIMIT,
   sha256,
   limitedOutput,
-  controlMasterEnabled: SSH_CONTROLMASTER_ENABLED,
-  controlDir: SSH_CONTROL_DIR,
+  controlMasterEnabled: C.SSH_CONTROLMASTER_ENABLED,
+  controlDir: C.SSH_CONTROL_DIR,
 });
 
-function clippedText(value, limit = AI_CONTEXT_TEXT_LIMIT) {
+function clippedText(value, limit = C.AI_CONTEXT_TEXT_LIMIT) {
   return String(value || "")
     .replace(/\s+/g, " ")
     .trim()
@@ -358,7 +308,7 @@ function compactMemoryForPrompt(memory) {
     summary: "记忆摘要",
   };
   const lines = [];
-  for (const field of MEMORY_FIELDS) {
+  for (const field of C.MEMORY_FIELDS) {
     const values = Array.isArray(memory?.[field]) ? memory[field].slice(0, 5) : [];
     if (!values.length) continue;
     lines.push(`${labels[field]}：`);
@@ -379,7 +329,7 @@ function aiQuestionWithContext(text, messages = [], projectMemory = null) {
   const recent = Array.isArray(messages)
     ? messages
       .filter((message) => message && (message.role === "user" || message.role === "assistant"))
-      .slice(-AI_CONTEXT_LIMIT)
+      .slice(-C.AI_CONTEXT_LIMIT)
       .map((message) => `${message.role === "user" ? "用户" : "WalnutAI"}：${clippedText(message.content)}`)
       .filter(Boolean)
     : [];
@@ -420,16 +370,16 @@ function buildScreenRepairHint(record) {
 }
 
 const screenEvidenceLedger = createScreenEvidenceLedger({
-  recordsDir: SCREEN_RECORDS_DIR,
-  recordLimit: SCREEN_RECORD_LIMIT,
-  outputLimit: ACTION_OUTPUT_LIMIT,
+  recordsDir: C.SCREEN_RECORDS_DIR,
+  recordLimit: C.SCREEN_RECORD_LIMIT,
+  outputLimit: C.ACTION_OUTPUT_LIMIT,
   buildRepairHint: buildScreenRepairHint,
 });
 
 const screenDiagnosticsApi = createScreenDiagnosticsApi({
   screenEvidenceLedger,
   screenFrameTickets,
-  screenFrameTicketTtlMs: SCREEN_FRAME_TICKET_TTL_MS,
+  screenFrameTicketTtlMs: C.SCREEN_FRAME_TICKET_TTL_MS,
   walnutRemote,
   validSha256,
   sha256,
@@ -461,7 +411,7 @@ function parseJsonObjectText(text) {
 }
 
 function aiFetchSignal() {
-  const timeoutMs = Math.max(1, AI_TIMEOUT_SECONDS) * 1000;
+  const timeoutMs = Math.max(1, C.AI_TIMEOUT_SECONDS) * 1000;
   if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
     return AbortSignal.timeout(timeoutMs);
   }
@@ -471,20 +421,20 @@ function aiFetchSignal() {
 function responsesRequestBody(body) {
   return {
     ...body,
-    model: body.model || AI_MODEL,
-    reasoning: body.reasoning || { effort: AI_REASONING_EFFORT },
+    model: body.model || C.AI_MODEL,
+    reasoning: body.reasoning || { effort: C.AI_REASONING_EFFORT },
   };
 }
 
-async function callResponsesApi({ operation, body, signal = aiFetchSignal() }) {
+async function callResponsesApi({ operation, body, signal = aiFetchSignal(), telemetry = {} }) {
   const startedAt = Date.now();
   let status = null;
   let requestId = null;
   try {
-    const response = await fetch(`${AI_BASE_URL}/responses`, {
+    const response = await fetch(`${C.AI_BASE_URL}/responses`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${AI_API_KEY}`,
+        Authorization: `Bearer ${aiApiKey}`,
         "Content-Type": "application/json",
       },
       signal,
@@ -500,10 +450,12 @@ async function callResponsesApi({ operation, body, signal = aiFetchSignal() }) {
         operation,
         ok: false,
         status,
-        model: body.model || AI_MODEL,
-        reasoningEffort: body.reasoning?.effort || AI_REASONING_EFFORT,
+        model: body.model || C.AI_MODEL,
+        reasoningEffort: body.reasoning?.effort || C.AI_REASONING_EFFORT,
         latencyMs: Date.now() - startedAt,
         requestId,
+        sessionId: telemetry.sessionId,
+        turnId: telemetry.turnId,
         error: message,
       });
       throw new Error(message);
@@ -514,10 +466,12 @@ async function callResponsesApi({ operation, body, signal = aiFetchSignal() }) {
       operation,
       ok: true,
       status,
-      model: body.model || AI_MODEL,
-      reasoningEffort: body.reasoning?.effort || AI_REASONING_EFFORT,
+      model: body.model || C.AI_MODEL,
+      reasoningEffort: body.reasoning?.effort || C.AI_REASONING_EFFORT,
       latencyMs: Date.now() - startedAt,
       requestId: requestId || data.id || null,
+      sessionId: telemetry.sessionId,
+      turnId: telemetry.turnId,
       usage: data.usage,
     });
     return data;
@@ -527,10 +481,12 @@ async function callResponsesApi({ operation, body, signal = aiFetchSignal() }) {
         kind: "openai.responses",
         operation,
         ok: false,
-        model: body.model || AI_MODEL,
-        reasoningEffort: body.reasoning?.effort || AI_REASONING_EFFORT,
+        model: body.model || C.AI_MODEL,
+        reasoningEffort: body.reasoning?.effort || C.AI_REASONING_EFFORT,
         latencyMs: Date.now() - startedAt,
         requestId,
+        sessionId: telemetry.sessionId,
+        turnId: telemetry.turnId,
         error: error.message,
       });
     }
@@ -587,6 +543,11 @@ function looksLikeReadOnlyDeviceRequest(input) {
     || /(?:看|查|检查|查询|确认|了解|判断|诊断|health|check|inspect|status|read)\S*(?:核桃派|设备|板子|系统|服务|屏幕服务|网络|联网|wifi|wi-fi|(?<![a-z])ip(?![a-z])|gpio|引脚|针脚|i2c|spi|uart|pwm|状态|健康|还好)/i.test(lower);
 }
 
+function looksLikeObservationReplanRequest(input) {
+  const text = String(input || "").trim().toLowerCase();
+  return /(观察|快照|snapshot|inspect|observe).*(下一步|续步|继续|自动|replan|next\s*tasks?)|(?:下一步|续步|继续|自动|replan|next\s*tasks?).*(观察|快照|snapshot|inspect|observe)/i.test(text);
+}
+
 function looksLikeExplicitScreenGeneration(input) {
   const text = String(input || "").trim();
   if (!text) return false;
@@ -596,12 +557,14 @@ function looksLikeExplicitScreenGeneration(input) {
 function readOnlyDeviceIntent(input) {
   const lower = String(input || "").toLowerCase();
   const mentionsNetwork = /网络|联网|wifi|wi-fi|(?<![a-z])ip(?![a-z])|路由|route|network/.test(lower);
+  const mentionsI2c = /i2c|传感器|sensor/.test(lower);
   const mentionsGpio = /gpio|引脚|针脚|i2c|spi|uart|pwm|总线|bus|set-device/.test(lower);
   const mentionsStatus = /屏幕服务|状态|健康|还好[吗嘛]|status|health|系统|服务|docker|内存|存储|磁盘|空间/.test(lower)
     || (/怎么样/.test(lower) && /核桃派|设备|板子|系统|服务/.test(lower));
   if ((mentionsNetwork && mentionsStatus) || (mentionsGpio && mentionsStatus) || (mentionsNetwork && mentionsGpio)) {
     return "device.status.read";
   }
+  if (mentionsI2c) return "device.i2c.read";
   if (mentionsGpio) return "device.gpio.read";
   if (mentionsNetwork) return "device.network.read";
   return "device.status.read";
@@ -660,6 +623,31 @@ function ruleBasedIntentClassification(text) {
     }, trimmed);
   }
 
+  if (/(密码|token|验证码|secret|ssh|passw(or)?d).*(临时|不要保存|别长期保存|不要写进|别写进|memory|长期记忆)|(?:临时|不要保存|别长期保存|不要写进|别写进).*(密码|token|验证码|secret|ssh|passw(or)?d)/i.test(lower)) {
+    return normalizeIntentClassification({ intent: "memory.sensitive_skip", subject: trimmed, confidence: 0.94, source: "rule" }, trimmed);
+  }
+  if (/(记住|长期保存|以后|默认|偏好|preference|memory).*(小屏|屏幕|生成|像素|中文|标题)|(?:小屏|屏幕|生成).*(偏好|默认|以后|长期保存|记住)/i.test(trimmed)) {
+    return normalizeIntentClassification({ intent: "memory.preference", subject: trimmed, confidence: 0.92, source: "rule" }, trimmed);
+  }
+  if (/(重启|restart).{0,12}(小屏服务|屏幕服务|walnut-screen\.service)|(?:小屏服务|屏幕服务|walnut-screen\.service).{0,12}(重启|restart)/i.test(lower)) {
+    return normalizeIntentClassification({ intent: "policy.service_restart", subject: trimmed, confidence: 0.93, source: "rule" }, trimmed);
+  }
+  if (/(apt\s+install|安装.*(?:系统包|软件包|依赖)|系统软件|重启.*核桃派|reboot|关机|shutdown|刷写|固件|overlay)/i.test(lower)) {
+    return normalizeIntentClassification({ intent: "policy.system_write", subject: trimmed, confidence: 0.93, source: "rule" }, trimmed);
+  }
+  if (/(清理|整理|维护|maintenance|磁盘|存储|空间).*(安全|人工确认|不要直接|先告诉|选项|别替我|不要执行|不要删除)|(?:安全|人工确认|不要直接|先告诉|选项|别替我|不要执行|不要删除).*(清理|整理|维护|maintenance|磁盘|存储|空间)/i.test(lower)) {
+    return normalizeIntentClassification({ intent: "policy.maintenance_guidance", subject: trimmed, confidence: 0.9, source: "rule" }, trimmed);
+  }
+  if (/(刚才|刚刚|最近|上次).*(失败|失败了|为什么|诊断|原因|修复|failure|failed)|(?:失败|failed).*(阶段|诊断|原因|修复|不要重试|别自动重试)/i.test(lower)) {
+    return normalizeIntentClassification({ intent: "diagnostics.recent_failure", subject: trimmed, confidence: 0.91, source: "rule" }, trimmed);
+  }
+  if (/(小屏|屏幕|screen).*(服务|状态|画面|frame|显示).*(不要改变|不要同步|不要重启|只读|禁止|当前)|(?:只读|不要改变|不要同步|不要重启|禁止).*(小屏|屏幕|screen).*(服务|状态|画面|frame|显示)/i.test(lower)) {
+    return normalizeIntentClassification({ intent: "screen.state_frame.read", subject: trimmed, confidence: 0.91, source: "rule" }, trimmed);
+  }
+  if (looksLikeObservationReplanRequest(trimmed)) {
+    return normalizeIntentClassification({ intent: "device.snapshot.read", subject: trimmed, confidence: 0.9, source: "rule" }, trimmed);
+  }
+
   if (looksLikeWidgetAppRequest(trimmed)) {
     return normalizeIntentClassification({
       route: "screen.widget_app",
@@ -716,7 +704,10 @@ function ruleBasedIntentClassification(text) {
     return normalizeIntentClassification({ intent: "device.note.write", subject: noteMatch[1].trim(), confidence: 0.9, source: "rule" }, trimmed);
   }
 
-  if (/gpio|引脚|针脚|i2c|spi|uart|pwm|总线|bus|set-device/.test(lower)) {
+  if (/i2c|传感器|sensor/.test(lower)) {
+    return normalizeIntentClassification({ intent: "device.i2c.read", subject: trimmed, confidence: 0.86, source: "rule" }, trimmed);
+  }
+  if (/gpio|引脚|针脚|spi|uart|pwm|总线|bus|set-device/.test(lower)) {
     return normalizeIntentClassification({ intent: "device.gpio.read", subject: trimmed, confidence: 0.84, source: "rule" }, trimmed);
   }
   if (/快照|snapshot|release|os-release|kernel|内核|hostname|启动配置|boot|设备信息|板子信息|硬件信息/.test(lower)) {
@@ -795,12 +786,13 @@ function intentClassificationSystemPrompt() {
   ].join("\n");
 }
 
-async function aiIntentClassification(text, ruleIntent) {
-  if (!AI_API_KEY) return null;
+async function aiIntentClassification(text, ruleIntent, telemetry = {}) {
+  if (!aiApiKey) return null;
   const data = await callResponsesApi({
     operation: "intent.classify",
+    telemetry,
     body: {
-      model: AI_MODEL,
+      model: C.AI_MODEL,
       input: [
         { role: "system", content: intentClassificationSystemPrompt() },
         {
@@ -831,6 +823,8 @@ async function aiIntentClassification(text, ruleIntent) {
 
 function intentClassificationAllowed(aiIntent, ruleIntent, text) {
   if (!aiIntent || aiIntent.confidence < 0.72) return false;
+  if (ruleIntent.intent === "session.summary" && aiIntent.intent !== "session.summary") return false;
+  if (ruleIntent.intent === "terminal.tool" && aiIntent.intent !== "terminal.tool") return false;
   if (ruleIntent.intent === "ai.chat" && looksLikeAssistantQuestion(text) && aiIntent.intent !== "ai.chat") return false;
   if (ruleIntent.intent === "screen.generate" && aiIntent.intent !== "screen.generate") return false;
   if (ruleIntent.intent === "screen.sync" && !["screen.sync", "screen.generate"].includes(aiIntent.intent)) return false;
@@ -848,15 +842,23 @@ function canUseRuleIntentWithoutAi(ruleIntent) {
     "screen.sync",
     "device.status.read",
     "device.snapshot.read",
+    "device.i2c.read",
     "device.network.read",
     "device.gpio.read",
     "device.notes.read",
     "device.note.write",
+    "memory.preference",
+    "memory.sensitive_skip",
+    "policy.system_write",
+    "policy.service_restart",
+    "policy.maintenance_guidance",
+    "diagnostics.recent_failure",
+    "screen.state_frame.read",
     "terminal.open",
   ].includes(ruleIntent.intent);
 }
 
-async function classifyIntent(text) {
+async function classifyIntent(text, telemetry = {}) {
   let ruleIntent;
   try {
     const evaluated = await evaluateRuleIntent(text);
@@ -876,7 +878,7 @@ async function classifyIntent(text) {
   }
   let aiClassifierUsed = false;
   try {
-    const aiIntent = await aiIntentClassification(text, ruleIntent);
+    const aiIntent = await aiIntentClassification(text, ruleIntent, telemetry);
     aiClassifierUsed = Boolean(aiIntent);
     if (intentClassificationAllowed(aiIntent, ruleIntent, text)) {
       return {
@@ -897,7 +899,7 @@ async function classifyIntent(text) {
   };
 }
 
-async function classifyAgentIntent(text, { traceId = randomUUID(), startedAt = Date.now() } = {}) {
+async function classifyAgentIntent(text, { traceId = randomUUID(), startedAt = Date.now(), sessionId = null, turnId = null } = {}) {
   const input = String(text || "").trim();
   if (!input) {
     await webMetricsLedger.append({
@@ -907,13 +909,15 @@ async function classifyAgentIntent(text, { traceId = randomUUID(), startedAt = D
       status: 400,
       latencyMs: Date.now() - startedAt,
       traceId,
+      sessionId,
+      turnId,
       span: "request",
       inputChars: 0,
       error: "missing text",
     });
     return { ok: false, status: 400, error: "missing text" };
   }
-  const result = await classifyIntent(input);
+  const result = await classifyIntent(input, { sessionId, turnId });
   const classification = result.classification;
   await webMetricsLedger.append({
     kind: "web.intent.classify",
@@ -922,6 +926,8 @@ async function classifyAgentIntent(text, { traceId = randomUUID(), startedAt = D
     status: 200,
     latencyMs: Date.now() - startedAt,
     traceId,
+    sessionId,
+    turnId,
     span: "total",
     inputChars: input.length,
     classificationSource: classification.source || "unknown",
@@ -982,6 +988,8 @@ async function syncScreenFromTurn(body) {
     stage: outcome.result?.failedStage || "complete",
     buildId: outcome.result?.buildId,
     playlistHash: outcome.result?.playlistHash,
+    sessionId: body?.sessionId,
+    turnId: body?.turnId,
     remoteTransport: remoteExecution.remoteTransport,
     connectionReused: remoteExecution.connectionReused,
     fallbackRemoteTransport: remoteExecution.fallbackRemoteTransport,
@@ -1061,10 +1069,10 @@ function successfulScreenSyncEntry(record) {
 async function rememberSuccessfulScreenSync(record) {
   if (!record?.ok) return;
   if (!record.buildId || record.mode === "preview") return;
-  await mkdir(WALNUT_AI_CORPUS_DIR, { recursive: true });
+  await mkdir(C.WALNUT_AI_CORPUS_DIR, { recursive: true });
   let existing = "";
   try {
-    existing = await readFile(SCREEN_SUCCESS_CORPUS_PATH, "utf8");
+    existing = await readFile(C.SCREEN_SUCCESS_CORPUS_PATH, "utf8");
   } catch {
     existing = [
       "# WalnutPi Screen Workspace Sync Successes",
@@ -1074,14 +1082,14 @@ async function rememberSuccessfulScreenSync(record) {
     ].join("\n");
   }
   if (existing.includes(`## ${record.buildId}`)) return;
-  await writeFile(SCREEN_SUCCESS_CORPUS_PATH, `${existing.trimEnd()}\n\n${successfulScreenSyncEntry(record)}`, "utf8");
+  await writeFile(C.SCREEN_SUCCESS_CORPUS_PATH, `${existing.trimEnd()}\n\n${successfulScreenSyncEntry(record)}`, "utf8");
 }
 
 function runLocal(command, args, options = {}) {
   const {
     timeoutMs = 15_000,
-    outputLimit = ACTION_OUTPUT_LIMIT,
-    cwd = PROJECT_ROOT,
+    outputLimit = C.ACTION_OUTPUT_LIMIT,
+    cwd = C.PROJECT_ROOT,
   } = options;
   return new Promise((resolve) => {
     const env = { ...process.env };
@@ -1181,27 +1189,27 @@ function bashPath(value) {
   return String(value).replace(/\\/g, "/").replace(/^([A-Za-z]):/, (_, drive) => `/mnt/${drive.toLowerCase()}`);
 }
 
-async function runRemote(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+async function runRemote(command, timeoutMs = 15_000, outputLimit = C.ACTION_OUTPUT_LIMIT) {
   return walnutRemote.run(command, timeoutMs, outputLimit);
 }
 
-async function runRemoteRaw(command, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+async function runRemoteRaw(command, timeoutMs = 15_000, outputLimit = C.ACTION_OUTPUT_LIMIT) {
   return walnutRemote.runRaw(command, timeoutMs, outputLimit);
 }
 
-async function runRemoteScript(script, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+async function runRemoteScript(script, timeoutMs = 15_000, outputLimit = C.ACTION_OUTPUT_LIMIT) {
   return walnutRemote.runScript(script, timeoutMs, outputLimit);
 }
 
-async function runRemoteRawScript(script, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+async function runRemoteRawScript(script, timeoutMs = 15_000, outputLimit = C.ACTION_OUTPUT_LIMIT) {
   return walnutRemote.runRawScript(script, timeoutMs, outputLimit);
 }
 
-async function runRemoteWithInput(command, input, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+async function runRemoteWithInput(command, input, timeoutMs = 15_000, outputLimit = C.ACTION_OUTPUT_LIMIT) {
   return walnutRemote.runWithInput(command, input, timeoutMs, outputLimit);
 }
 
-async function runRemoteRawWithInput(command, input, timeoutMs = 15_000, outputLimit = ACTION_OUTPUT_LIMIT) {
+async function runRemoteRawWithInput(command, input, timeoutMs = 15_000, outputLimit = C.ACTION_OUTPUT_LIMIT) {
   return walnutRemote.runRawWithInput(command, input, timeoutMs, outputLimit);
 }
 
@@ -1210,18 +1218,18 @@ function validSha256(value) {
 }
 
 const screenWorkspaceStore = createScreenWorkspaceStore({
-  workspaceRoot: SCREEN_WORKSPACE_ROOT,
+  workspaceRoot: C.SCREEN_WORKSPACE_ROOT,
 });
 
 const screenDeliveryAdapters = new Map([
   [
     "ssh-local-agent",
     createSshLocalAgentAdapter({
-      localProjectRoot: PROJECT_ROOT,
-      remoteProjectRoot: REMOTE_PROJECT_ROOT,
-      remoteBuildUser: REMOTE_BUILD_USER,
-      sshHost: SSH_HOST,
-      sshUser: SSH_USER,
+      localProjectRoot: C.PROJECT_ROOT,
+      remoteProjectRoot: C.REMOTE_PROJECT_ROOT,
+      remoteBuildUser: C.REMOTE_BUILD_USER,
+      sshHost: C.SSH_HOST,
+      sshUser: C.SSH_USER,
       runRemote,
       runRemoteRaw,
       runRemoteScript,
@@ -1257,9 +1265,16 @@ const screenWorkspaceSyncWorkflow = createScreenWorkspaceSyncWorkflow({
   newBuildId: newScreenBuildId,
 });
 
+const actionRegistry = createActionRegistry({
+  manifestPath: C.ACTION_POLICY_MANIFEST_PATH,
+  shellQuote,
+  aiTimeoutSeconds: C.AI_TIMEOUT_SECONDS,
+});
+
 const agentActionsApi = createAgentActionsApi({
   policyManifest: ACTION_POLICY_MANIFEST,
   policyActions: WEB_ACTIONS,
+  actionRegistry,
   walnutRemote,
   runRemote,
   webSessionLedger,
@@ -1267,7 +1282,7 @@ const agentActionsApi = createAgentActionsApi({
   shellQuote,
   limitedOutput,
   json,
-  aiTimeoutSeconds: AI_TIMEOUT_SECONDS,
+  aiTimeoutSeconds: C.AI_TIMEOUT_SECONDS,
 });
 
 async function readJsonRequest(req) {
@@ -1282,10 +1297,10 @@ const projectMemoryApi = createProjectMemoryApi({
   webSessionLedger,
   readWalnutMemory,
   retrieveWalnutContext,
-  memoryFile: WALNUT_AI_MEMORY_FILE,
-  skillsDir: WALNUT_AI_SKILLS_DIR,
-  corpusDir: WALNUT_AI_CORPUS_DIR,
-  eventLimit: WEB_SESSION_EVENT_LIMIT,
+  memoryFile: C.WALNUT_AI_MEMORY_FILE,
+  skillsDir: C.WALNUT_AI_SKILLS_DIR,
+  corpusDir: C.WALNUT_AI_CORPUS_DIR,
+  eventLimit: C.WEB_SESSION_EVENT_LIMIT,
   readJsonRequest,
   json,
 });
@@ -1312,10 +1327,10 @@ const screenWorkspaceApi = createScreenWorkspaceApi({
   shellQuote,
   findWindowsCommand,
   sha256,
-  projectRoot: PROJECT_ROOT,
-  screenWorkspaceRoot: SCREEN_WORKSPACE_ROOT,
-  screenSourceImportMaxBytes: SCREEN_SOURCE_IMPORT_MAX_BYTES,
-  screenLvglPreviewOutputDir: SCREEN_LVGL_PREVIEW_OUTPUT_DIR,
+  projectRoot: C.PROJECT_ROOT,
+  screenWorkspaceRoot: C.SCREEN_WORKSPACE_ROOT,
+  screenSourceImportMaxBytes: C.SCREEN_SOURCE_IMPORT_MAX_BYTES,
+  screenLvglPreviewOutputDir: C.SCREEN_LVGL_PREVIEW_OUTPUT_DIR,
   generateWidgetCatalog,
 });
 
@@ -1326,17 +1341,19 @@ const agentTurnLoop = createAgentTurnLoop({
   syncScreen: syncScreenFromTurn,
   turnLedger: agentTurnLedger,
   eventLedger: agentTurnEventLedger,
+  metricsLedger: webMetricsLedger,
   queue: agentQueue,
   readJsonRequest,
   json,
 });
 
-async function generateWidgetCatalog({ prompt, fallbackCatalog }) {
-  if (!AI_API_KEY) return null;
+async function generateWidgetCatalog({ prompt, fallbackCatalog, sessionId = null, turnId = null }) {
+  if (!aiApiKey) return null;
   const data = await callResponsesApi({
     operation: "screen.widget.catalog.generate",
+    telemetry: { sessionId, turnId },
     body: {
-      model: AI_MODEL,
+      model: C.AI_MODEL,
       input: [
         {
           role: "system",
@@ -1388,7 +1405,7 @@ async function generateWidgetCatalog({ prompt, fallbackCatalog }) {
 }
 
 function startSsh(ws) {
-  const target = `${SSH_USER}@${SSH_HOST}`;
+  const target = `${C.SSH_USER}@${C.SSH_HOST}`;
   const send = (chunk) => {
     try {
       ws.send(chunk);
@@ -1466,8 +1483,8 @@ function stopSsh(ws) {
 }
 
 const server = Bun.serve({
-  hostname: HOST,
-  port: PORT,
+  hostname: C.HOST,
+  port: C.PORT,
   idleTimeout: 255,
   async fetch(req, server) {
     const url = new URL(req.url);
@@ -1482,11 +1499,11 @@ const server = Bun.serve({
 
     if (url.pathname === "/api/actions") {
       return json(agentActionsApi.actionPolicyView({
-        target: `${SSH_USER}@${SSH_HOST}`,
+        target: `${C.SSH_USER}@${C.SSH_HOST}`,
         manifest: {
           schema: ACTION_POLICY_MANIFEST.schema,
           version: ACTION_POLICY_MANIFEST.version,
-          path: path.relative(PROJECT_ROOT, ACTION_POLICY_MANIFEST_PATH).replaceAll("\\", "/"),
+          path: path.relative(C.PROJECT_ROOT, C.ACTION_POLICY_MANIFEST_PATH).replaceAll("\\", "/"),
         },
       }));
     }
@@ -1823,5 +1840,5 @@ const server = Bun.serve({
 });
 
 console.log(`Serving model terminal at http://${server.hostname}:${server.port}/`);
-console.log(`Target: ${SSH_USER}@${SSH_HOST}`);
-console.log(`Remote project root: ${REMOTE_PROJECT_ROOT}`);
+console.log(`Target: ${C.SSH_USER}@${C.SSH_HOST}`);
+console.log(`Remote project root: ${C.REMOTE_PROJECT_ROOT}`);
