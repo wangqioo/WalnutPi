@@ -58,6 +58,7 @@ const { turn, status } = await runAgentTurn({
 
 assert.equal(status, 200);
 assert.equal(turn.schema, "walnutpi.agentTurn.v2");
+assert.equal(turn.source, "web-agent-turn");
 assert.equal(turn.sessionId, "web-demo");
 assert.equal(turn.status, "completed");
 assert.equal(turn.agents[0].id, "router");
@@ -67,6 +68,10 @@ assert.equal(turn.steps[0].kind, "intent.classify");
 assert.equal(turn.steps[1].kind, "action.run");
 assert.equal(turn.steps[1].agent, "device");
 assert.equal(turn.steps[1].action, "status");
+assert.equal(turn.steps[1].stepId, turn.steps[1].id);
+assert.equal(turn.steps[1].parentStepId, null);
+assert.match(turn.steps[1].startedAt, /^\d{4}-\d{2}-\d{2}T/);
+assert.match(turn.steps[1].finishedAt, /^\d{4}-\d{2}-\d{2}T/);
 assert.equal(turn.result.output, "ran status");
 assert.equal(Array.isArray(turn.steps), true);
 assert.equal(Array.isArray(turn.artifacts), true);
@@ -74,7 +79,10 @@ assert.equal(Array.isArray(turn.evidence), true);
 assert.equal(Array.isArray(turn.sideEffects), true);
 assert.equal(turn.recovery.status, "not-needed");
 assert.equal(turn.telemetry.schema, "walnutpi.agentTurnTelemetry.v1");
+assert.equal(turn.telemetry.summary.totalEvents, 1);
 assert.equal(turn.telemetry.metrics.totalEvents, 1);
+assert.equal(turn.diagnostics.schema, "walnutpi.agentTurnDiagnostics.v1");
+assert.equal(turn.diagnostics.steps[1].result.output, "ran status");
 
 const generated = await runAgentTurn({
   body: { text: "做一个小屏", sessionId: "web-demo" },
@@ -119,6 +127,10 @@ assert.equal(generated.turn.result.output.path, "outputs/demo.json");
 assert.equal(generated.turn.artifacts.some((item) => item.kind === "screen-manifest-v2"), true);
 assert.equal(generated.turn.artifacts.some((item) => item.kind === "screen-playlist-v1"), true);
 assert.equal(generated.turn.artifacts.some((item) => item.kind === "screen-output-480x320"), true);
+const outputArtifact = generated.turn.artifacts.find((item) => item.kind === "screen-output-480x320");
+assert.equal(typeof outputArtifact.sha256, "string");
+assert.equal(typeof outputArtifact.bytes, "number");
+assert.equal(outputArtifact.createdByStepId, generated.turn.steps[1].stepId);
 assert.equal(generated.turn.evidence.some((item) => item.kind === "weather-source-or-fetch-failure"), true);
 assert.equal(generated.turn.evidence.some((item) => item.kind === "playlist-envelope"), true);
 assert.equal(generated.turn.evidence.some((item) => item.kind === "screen-output-480x320"), true);
@@ -201,7 +213,7 @@ assert.equal(preference.status, 200);
 assert.equal(preference.turn.steps[1].kind, "memory.preference");
 assert.equal(preference.turn.evidence.some((item) => item.kind === "memory-update-candidate-or-confirmation"), true);
 assert.equal(preference.turn.evidence.some((item) => item.kind === "memory-category-key"), true);
-assert.equal(preference.turn.sideEffects.includes("durable-memory-write"), false);
+assert.equal(preference.turn.sideEffects.some((item) => item.kind === "durable-memory-write"), false);
 
 const sensitiveSkip = await runAgentTurn({
   body: { text: "临时记一下这次 SSH 密码是 123456，别长期保存", sessionId: "memory-demo" },
@@ -246,7 +258,7 @@ assert.equal(policy.turn.steps[1].kind, "policy.decision");
 assert.equal(policy.turn.evidence.some((item) => item.kind === "policy-decision-evidence"), true);
 assert.equal(policy.turn.evidence.some((item) => item.kind === "pending-local-action"), true);
 assert.equal(policy.turn.evidence.some((item) => item.kind === "no-remote-command-execution"), true);
-assert.equal(policy.turn.sideEffects.includes("service-restart"), false);
+assert.equal(policy.turn.sideEffects.some((item) => item.kind === "service-restart"), false);
 
 const diagnostics = await runAgentTurn({
   body: { text: "刚才那次动作为什么失败？告诉我诊断信息", sessionId: "diag-demo" },
@@ -298,7 +310,7 @@ assert.equal(screenRead.status, 200);
 assert.equal(screenRead.turn.evidence.some((item) => item.kind === "screen-state-output"), true);
 assert.equal(screenRead.turn.evidence.some((item) => item.kind === "frame-evidence"), true);
 assert.equal(screenRead.turn.evidence.some((item) => item.kind === "frame-hash-or-honest-failure"), true);
-assert.equal(screenRead.turn.sideEffects.includes("screen-sync"), false);
+assert.equal(screenRead.turn.sideEffects.some((item) => item.kind === "screen-sync"), false);
 
 const failed = await runAgentTurn({
   body: { text: "查状态", sessionId: "recover-demo" },
@@ -356,9 +368,9 @@ assert.equal(replanned.turn.evidence.some((item) => item.kind === "replan-eviden
 assert.deepEqual(replanned.turn.loop.turns.map((item) => item.judgment), ["continue", "done"]);
 assert.equal(replanned.turn.evidence.some((item) => item.kind === "loop-evaluator"), true);
 assert.equal(replanned.turn.pendingNext, null);
-assert.equal(replanned.turn.sideEffects.includes("device-write"), false);
-assert.equal(replanned.turn.sideEffects.includes("screen-sync"), false);
-assert.equal(replanned.turn.sideEffects.includes("service-restart"), false);
+assert.equal(replanned.turn.sideEffects.some((item) => item.kind === "device-write"), false);
+assert.equal(replanned.turn.sideEffects.some((item) => item.kind === "screen-sync"), false);
+assert.equal(replanned.turn.sideEffects.some((item) => item.kind === "service-restart"), false);
 
 const dangerousReplan = await runAgentTurn({
   body: { text: "观察后如果需要再写入", sessionId: "replan-demo" },

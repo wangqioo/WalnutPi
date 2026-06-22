@@ -671,7 +671,7 @@ function safeId(value) {
 
 export function evaluateTurn(benchmark, turn, variant = benchmark.variants?.[0]) {
   const oracle = normalizeOracle(benchmark.oracle || {});
-  const sideEffects = new Set(turn.sideEffects || []);
+  const sideEffects = sideEffectKindSet(turn);
   const missingSafety = oracle.safety.forbiddenSideEffects.filter((item) => sideEffects.has(item));
   const route = turn.route || turn.steps?.find((step) => step.kind === "intent.classify")?.result?.classification || {};
   const missingEvidence = (oracle.evidence.required || oracle.evidence.signals || []).filter((kind) => !traceSignalSupportsKind(turn, kind, { benchmark, variant }));
@@ -783,7 +783,7 @@ function replanEvidenceIsSafe(signal) {
 }
 
 function evaluateDeepSignals({ benchmark, variant = benchmark.variants?.[0], turn, oracle, missingEvidence, missingResults, missingSafety }) {
-  const sideEffects = new Set(turn.sideEffects || []);
+  const sideEffects = sideEffectKindSet(turn);
   const slots = variant?.slots || {};
   const needsRecovery = turn.status === "failed" || missingEvidence.length || missingResults.length;
   const hasRecovery = ["recovery-options", "repair-options", "repair-hint"].some((kind) => hasTraceKind(turn, kind))
@@ -797,9 +797,13 @@ function evaluateDeepSignals({ benchmark, variant = benchmark.variants?.[0], tur
     recoveryQuality: needsRecovery
       ? signalStatus(hasRecovery, hasRecovery ? "recovery evidence present" : "missing recovery evidence")
       : signalStatus(true, "not needed"),
-    telemetryHealth: signalStatus((turn.telemetry?.metrics?.failures || 0) === 0, "metrics failure count"),
+    telemetryHealth: signalStatus((turn.telemetry?.summary?.failures ?? turn.telemetry?.metrics?.failures ?? 0) === 0, "metrics failure count"),
     safetyBoundary: signalStatus(missingSafety.length === 0, missingSafety.length ? "forbidden side effects observed" : "no forbidden side effects"),
   };
+}
+
+function sideEffectKindSet(turn) {
+  return new Set((turn.sideEffects || []).map((item) => typeof item === "string" ? item : item?.kind).filter(Boolean));
 }
 
 function signalStatus(ok, note) {
@@ -816,20 +820,24 @@ function emptyTelemetrySummary() {
 }
 
 function addTelemetry(total, telemetry = {}) {
-  const metrics = telemetry.metrics || {};
+  const metrics = telemetry.summary || telemetry.metrics || {};
   const tokens = metrics.tokens || {};
   total.totalEvents += metrics.totalEvents || 0;
   total.failures += metrics.failures || 0;
-  total.elapsedMs += telemetry.elapsedMs || 0;
+  total.elapsedMs += telemetry.diagnostics?.elapsedMs || telemetry.elapsedMs || 0;
   for (const key of Object.keys(total.tokens)) total.tokens[key] += tokens[key] || 0;
 }
 
 function compactTelemetry(telemetry = {}) {
+  const metrics = telemetry.summary || telemetry.metrics || {};
+  const diagnosticMetrics = telemetry.metrics || telemetry.diagnostics?.metrics || {};
   return {
-    elapsedMs: telemetry.elapsedMs || null,
-    totalEvents: telemetry.metrics?.totalEvents || 0,
-    failures: telemetry.metrics?.failures || 0,
-    tokens: telemetry.metrics?.tokens || emptyTelemetrySummary().tokens,
+    totalEvents: metrics.totalEvents || 0,
+    failures: metrics.failures || 0,
+    diagnostics: {
+      elapsedMs: telemetry.diagnostics?.elapsedMs || telemetry.elapsedMs || null,
+      tokens: diagnosticMetrics.tokens || emptyTelemetrySummary().tokens,
+    },
   };
 }
 

@@ -40,15 +40,6 @@ export function compareRuns(base, next) {
   for (const [key, after] of nextCases) {
     if (!baseCases.has(key)) regressions.push({ key, kind: "unbaselined-case", before: null, after: caseLabel(after) });
   }
-  compareNumberGrowth({
-    key: "run",
-    kind: "telemetry-failures",
-    before: Number(base.telemetry?.failures || 0),
-    after: Number(next.telemetry?.failures || 0),
-    regressions,
-    improvements,
-  });
-
   return {
     schema: "walnutpi.productCapabilityRunCompare.v1",
     baseRunId: base.runId || null,
@@ -65,7 +56,6 @@ function compareCase({ key, before, after, regressions, improvements }) {
   compareSetGrowth({ key, kind: "missing-evidence", before: before.missingEvidence, after: after.missingEvidence, regressions, improvements });
   compareSetGrowth({ key, kind: "missing-results", before: before.missingResults, after: after.missingResults, regressions, improvements });
   compareSetGrowth({ key, kind: "forbidden-side-effects", before: before.forbiddenSideEffects, after: after.forbiddenSideEffects, regressions, improvements });
-  compareNumberGrowth({ key, kind: "telemetry-failures", before: before.telemetryFailures, after: after.telemetryFailures, regressions, improvements });
 }
 
 function compareRanked({ key, kind, before, after, rank, regressions, improvements }) {
@@ -94,7 +84,6 @@ function normalizeCase(entry) {
     missingEvidence: stringList(evaluation.evidence?.missing),
     missingResults: stringList(evaluation.evidence?.missingResults),
     forbiddenSideEffects: stringList(evaluation.safety?.forbiddenTriggered),
-    telemetryFailures: Number(entry.telemetry?.failures || 0),
   };
 }
 
@@ -179,7 +168,7 @@ function selfCheck() {
   };
   const report = compareRuns(base, worse);
   assert.equal(report.ok, false);
-  assert.equal(report.regressions.length, 5);
+  assert.equal(report.regressions.length, 4);
 
   const unbaselined = compareRuns(base, {
     runId: "new",
@@ -197,12 +186,11 @@ function selfCheck() {
   assert.equal(unbaselined.ok, false);
   assert.deepEqual(unbaselined.regressions, [{ key: "V1-02::zh-main", kind: "unbaselined-case", before: null, after: { caseId: "V1-02", variantId: "zh-main" } }]);
 
-  const runTelemetryRegression = compareRuns(
+  const runTelemetryOnly = compareRuns(
     { runId: "base", telemetry: { failures: 0 }, cases: [] },
     { runId: "new", telemetry: { failures: 1 }, cases: [] },
   );
-  assert.equal(runTelemetryRegression.ok, false);
-  assert.deepEqual(runTelemetryRegression.regressions, [{ key: "run", kind: "telemetry-failures", before: 0, after: 1 }]);
+  assert.equal(runTelemetryOnly.ok, true);
 
   const better = {
     runId: "better",

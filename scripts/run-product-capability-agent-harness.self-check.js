@@ -49,7 +49,7 @@ const fail = evaluateTurn(notesBenchmark, {
   route: { route: "screen.wallpaper", intent: "screen.generate", delivery: "none" },
   steps: [],
   evidence: [{ kind: "intent-route" }],
-  sideEffects: ["daily-note-write"],
+  sideEffects: [{ kind: "daily-note-write", stepId: "note-1", target: "daily-note", status: "observed" }],
 });
 assert.equal(fail.verdict, "needs_review");
 assert.equal(fail.goal.ok, false);

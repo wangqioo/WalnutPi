@@ -22,6 +22,24 @@ Harness 只读取这个结构化字段，不从 `flow`、自然语言输入、�
 
 `runnerStatus: "contract-only"` 只表示当前 benchmark 描述了产品合同但还没有可执行 harness 覆盖。Harness 会记录为 `skip.kind: "contract-only"`；它不是 pass，也不能当成真实产品覆盖。
 
+## Agent Turn Trace Contract
+
+Product benchmark harness 是产品 trace 的验收器，不是 TDD 假适配器。它只负责按显式 `requirements` 选择或跳过 case，调用 `/api/agent/turn`，等待 turn settle，保存 trace/artifact，用稳定 evidence 判 verdict，并汇总 regression。它不从自然语言、标题、旧字段或耗时/token 指标推断产品成功。
+
+`agentTurn.v2` 分两层：
+
+- 稳定层：`route`、`steps[]`、`artifacts[]`、`evidence[]`、`sideEffects[]`、`telemetry.summary`。Harness 默认只依赖这些字段和 case oracle。
+- 调试层：`diagnostics`、`telemetry.diagnostics`、step raw `result`、raw metrics events、command output、traceId、segments。它们可用于人工 debug 和优化，但不作为默认 product gate pass/fail 条件。
+
+当前稳定字段约定：
+
+- `steps[]` 至少包含 `stepId`、`parentStepId`、`kind`、`status`、`startedAt`、`finishedAt`。
+- `artifacts[]` 至少包含 `kind`、`path`、`sha256`、`bytes`、`createdByStepId`，并兼容保留原始 `value`。
+- `sideEffects[]` 使用 `{ kind, stepId, target, status }`；harness 兼容旧字符串形态，但新 trace 应写 typed 对象。
+- `evidence.kind` 是 harness oracle 的固定信号名入口；具体 schema 应逐步按 kind 收紧。
+
+`observation/replan` 相关信息进入 evidence：例如 `multi-step-loop`、`replan-evidence`、`agent-loop`、`loop-evaluator`。是否提出后续任务、哪些可自动继续、哪些被阻止，都应作为 evidence。模型 provider、token、latency、retry、raw metric events 属于 telemetry diagnostics。默认 product gate 不用 token 或耗时判失败；需要性能目标时应另设 perf gate。
+
 Device profile 会在每次 run 的 `summary.json` 里记录 `environment.devicePreflight`，并额外写出 `device-preflight.json`。这些 metadata 包括 `baseUrl`、profile、`includeDevice`、目标 `SSH_USER@SSH_HOST`、remote project root 解析来源、Web Console 是否由 harness 启动、`/api/actions` URL 级检查，以及不可重复因素说明。
 
 默认 device preflight 只记录 metadata，不阻止运行。需要在本机设备验证前 fail fast 时，使用：

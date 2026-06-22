@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isSafeContinuationTask, MAX_CONTINUATION_TASKS, normalizeNextTasks } from "./action-registry.js";
 import { createAgentRegistry } from "./agent-registry.js";
 import { createDeviceAgent } from "./agents/device-agent.js";
@@ -140,6 +140,7 @@ export async function runAgentTurn({
   const text = String(body.text || "").trim();
   const turn = {
     schema: "walnutpi.agentTurn.v2",
+    source: "web-agent-turn",
     turnId,
     sessionId,
     input: { text, mode },
@@ -161,6 +162,7 @@ export async function runAgentTurn({
     startedAt,
     metricsSince: startedAt,
     telemetry: emptyTelemetry(startedAt),
+    diagnostics: emptyDiagnostics(),
   };
   await emit(eventLedger, turn, { kind: "turn.started", status: "running", data: { input: turn.input } });
   await hooks.onRunStart(turn);
@@ -271,19 +273,21 @@ async function holdPendingTasks({ turn, tasks, reason, hooks, result = null }) {
 // ── Router ────────────────────────────────────────────────────────────
 
 async function runRouterAgent({ turn, text, classifyIntent, eventLedger, hooks }) {
-  const step = { id: "router-classify", agent: "router", kind: "intent.classify", status: "running" };
+  const step = beginStep({ id: "router-classify", agent: "router", kind: "intent.classify" });
   turn.steps.push(step);
   await emit(eventLedger, turn, { kind: "agent.started", status: "running", stepId: step.id, data: { agent: "router" } });
   try {
     const classify = await classifyIntent(text, { sessionId: turn.sessionId, turnId: turn.turnId });
     step.status = classify.ok ? "completed" : "failed";
     step.result = classify.ok ? { classification: classify.classification } : { error: classify.error };
+    finishStep(step);
     await emitStepDone(eventLedger, turn, step);
     if (classify.ok) await hooks?.onClassify?.(classify.classification, turn);
     return classify;
   } catch (error) {
     step.status = "failed";
     step.result = { error: error.message };
+    finishStep(step);
     await emitStepDone(eventLedger, turn, step);
     await hooks?.onStepFail?.({ kind: "intent.classify" }, turn);
     return { ok: false, status: 500, error: error.message };
@@ -295,7 +299,7 @@ async function runRouterAgent({ turn, text, classifyIntent, eventLedger, hooks }
 async function runTaskAgent({ task, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry, hooks: extHooks }) {
   const activeRegistry = registry || defaultRegistry;
   const hooks = extHooks || emptyHooks();
-  const step = { id: `${task.agent}-${turn.steps.length}`, agent: task.agent, kind: task.kind, status: "running" };
+  const step = beginStep({ id: `${task.agent}-${turn.steps.length}`, agent: task.agent, kind: task.kind, action: task.action || null });
   turn.steps.push(step);
   turn.agents.push({ id: task.agent, status: "running", task });
   await hooks.beforeStep(task, turn);
@@ -314,14 +318,15 @@ async function runTaskAgent({ task, body, text, sessionId, turn, runAction, gene
     runAction, generateScreen, syncScreen,
     eventLedger, turnLedger, metricsLedger,
     // ── Step lifecycle shortcuts ──
-    setStepResult(ok, result) { step.status = ok ? "completed" : "failed"; step.result = result; },
-    setCompleted(result) { step.status = "completed"; step.result = result; },
+    setStepResult(ok, result) { step.status = ok ? "completed" : "failed"; step.result = result; finishStep(step); },
+    setCompleted(result) { step.status = "completed"; step.result = result; finishStep(step); },
     setTurnResult(ok, result) { turn.status = ok ? "completed" : "failed"; turn.result = result; },
     setPending(reason) {
       turn.pendingNext = task.kind;
       turn.status = "pending";
       step.status = "pending";
       step.result = { task, pendingNext: task.kind, recoveryOptions: ["provide the missing input or confirmation", "retry this turn after the prerequisite is available"] };
+      finishStep(step);
     },
     finishAgent() { finishAgent(turn, task.agent, step.status); },
     observeStepResult() { observeStepResult(turn, step); },
@@ -341,6 +346,7 @@ async function runTaskAgent({ task, body, text, sessionId, turn, runAction, gene
 
     // Normal completion: hook, update trace and emit step done
     await hooks.afterStep({ stepId: step.id, stepResult: step.result }, turn);
+    finishStep(step);
     await updateTurnTrace(turn, metricsLedger);
     await emitStepDone(eventLedger, turn, step);
 
@@ -359,6 +365,7 @@ async function runTaskAgent({ task, body, text, sessionId, turn, runAction, gene
   } catch (error) {
     step.status = "failed";
     step.result = { ok: false, error: error.message };
+    finishStep(step);
     finishAgent(turn, task.agent, "failed");
     turn.status = "failed";
     turn.error = error.message;
@@ -381,6 +388,7 @@ function pendingStepResult({ turn, step, task, eventLedger, metricsLedger }) {
     pendingNext: task.kind,
     recoveryOptions: ["provide the missing input or confirmation", "retry this turn after the prerequisite is available"],
   };
+  finishStep(step);
   finishAgent(turn, task.agent, "pending");
   turn.pendingNext = task.kind;
   turn.result = step.result;
@@ -415,6 +423,7 @@ async function completeQueuedStep({ turn, step, task, eventLedger, turnLedger, m
     const result = await run();
     step.status = result.body?.ok ? "completed" : "failed";
     step.result = result.body;
+    finishStep(step);
     finishAgent(turn, task.agent, step.status);
     turn.status = result.body?.ok ? "completed" : "failed";
     turn.result = result.body;
@@ -427,6 +436,7 @@ async function completeQueuedStep({ turn, step, task, eventLedger, turnLedger, m
   } catch (error) {
     step.status = "failed";
     step.result = { ok: false, error: error.message };
+    finishStep(step);
     finishAgent(turn, task.agent, "failed");
     turn.status = "failed";
     turn.error = error.message;
@@ -445,6 +455,26 @@ async function completeQueuedStep({ turn, step, task, eventLedger, turnLedger, m
 function finishAgent(turn, agentId, status) {
   const agent = turn.agents.findLast((item) => item.id === agentId && !["completed", "failed"].includes(item.status));
   if (agent) agent.status = status;
+}
+
+function beginStep({ id, agent, kind, action = null, parentStepId = null }) {
+  return {
+    id,
+    stepId: id,
+    parentStepId,
+    agent,
+    kind,
+    status: "running",
+    action,
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+  };
+}
+
+function finishStep(step) {
+  if (!step || ["running", "queued"].includes(step.status)) return;
+  step.stepId ||= step.id;
+  step.finishedAt ||= new Date().toISOString();
 }
 
 async function failTurn({ turn, eventLedger, status, error }) {
@@ -484,8 +514,10 @@ async function updateTurnTrace(turn, metricsLedger = null) {
   turn.evidence = collectEvidence(turn);
   turn.sideEffects = classifySideEffects(turn);
   turn.recovery = collectRecovery(turn);
+  turn.contextUsed = collectContextUsed(turn);
   turn.userSummary = summarizeForUser(turn);
   turn.telemetry = await summarizeTelemetry(turn, metricsLedger);
+  turn.diagnostics = collectDiagnostics(turn);
   normalizeTurnShape(turn);
 }
 
@@ -493,30 +525,41 @@ async function updateTurnTrace(turn, metricsLedger = null) {
 
 function collectArtifacts(turn) {
   const artifacts = [];
-  const push = (kind, value) => { if (value) artifacts.push({ kind, value }); };
+  const push = (kind, value, step) => { if (value) artifacts.push(artifactSignal(kind, value, step)); };
   for (const step of turn.steps) {
     const result = step.result || {};
-    push("action-evidence", result.actionEvidence);
-    push("action-result", ["action.run"].includes(step.kind) ? result : null);
-    push("session-summary", step.kind === "session.summary" ? result.summary || result.evidence : null);
-    push("memory-candidate", step.kind === "memory.preference" ? result.evidence?.memoryUpdateCandidateOrConfirmation : null);
-    push("memory-skip-evidence", step.kind === "memory.sensitive_skip" ? result.evidence?.memorySkipEvidence : null);
-    push("terminal-action-evidence", result.mode === "terminal" ? { command: result.command, id: result.id } : null);
-    push("screen-manifest-v2", screenManifestArtifact(result));
-    push("screen-playlist-v1", screenPlaylistArtifact(result));
-    push("screen-output", screenOutputArtifact(result));
-    push("animated-screen-output", result.output?.type === "animated" ? result.output : null);
-    push("screen-output-480x320", isOutput480x320(result.output) ? result.output : null);
-    push("source-provenance", result.source || result.manifest?.provenance?.sourceAssets?.find?.((item) => item.selected) || null);
-    push("candidate-source-asset-or-failure", result.source || result.sourceAsset || null);
-    push("widget-app-contract", result.widgetApp);
-    push("delivery-manifest", result.deliveryManifest);
-    push("runtime-assets", runtimeAssetsSignal(result));
-    push("sync-record", syncRecordSignal(result));
-    push("policy-decision", step.kind === "policy.decision" ? result.decisions : null);
-    push("diagnostic-result", step.kind === "diagnostics.recent_failure.read" ? result.evidence : null);
+    push("action-evidence", result.actionEvidence, step);
+    push("action-result", ["action.run"].includes(step.kind) ? result : null, step);
+    push("session-summary", step.kind === "session.summary" ? result.summary || result.evidence : null, step);
+    push("memory-candidate", step.kind === "memory.preference" ? result.evidence?.memoryUpdateCandidateOrConfirmation : null, step);
+    push("memory-skip-evidence", step.kind === "memory.sensitive_skip" ? result.evidence?.memorySkipEvidence : null, step);
+    push("terminal-action-evidence", result.mode === "terminal" ? { command: result.command, id: result.id } : null, step);
+    push("screen-manifest-v2", screenManifestArtifact(result), step);
+    push("screen-playlist-v1", screenPlaylistArtifact(result), step);
+    push("screen-output", screenOutputArtifact(result), step);
+    push("animated-screen-output", result.output?.type === "animated" ? result.output : null, step);
+    push("screen-output-480x320", isOutput480x320(result.output) ? result.output : null, step);
+    push("source-provenance", result.source || result.manifest?.provenance?.sourceAssets?.find?.((item) => item.selected) || null, step);
+    push("candidate-source-asset-or-failure", result.source || result.sourceAsset || null, step);
+    push("widget-app-contract", result.widgetApp, step);
+    push("delivery-manifest", result.deliveryManifest, step);
+    push("runtime-assets", runtimeAssetsSignal(result), step);
+    push("sync-record", syncRecordSignal(result), step);
+    push("policy-decision", step.kind === "policy.decision" ? result.decisions : null, step);
+    push("diagnostic-result", step.kind === "diagnostics.recent_failure.read" ? result.evidence : null, step);
   }
   return artifacts;
+}
+
+function artifactSignal(kind, value, step) {
+  return {
+    kind,
+    path: artifactPath(value),
+    sha256: sha256(value),
+    bytes: Buffer.byteLength(stableJson(value)),
+    createdByStepId: step?.stepId || step?.id || null,
+    value,
+  };
 }
 
 function collectEvidence(turn) {
@@ -603,6 +646,11 @@ function compactTaskSignal(task, reason = null) {
   return { agent: task.agent, kind: task.kind, action: task.action || null, ...(reason ? { reason } : {}) };
 }
 
+function collectContextUsed(turn) {
+  const values = turn.steps.map((step) => step.result?.contextUsed).filter(Boolean);
+  return values.length ? values : null;
+}
+
 function taskKey(task) {
   return `${task.agent || ""}\0${task.kind || ""}\0${task.action || ""}`;
 }
@@ -661,7 +709,8 @@ function observeStepResult(turn, step) {
 }
 
 function normalizeTurnShape(turn) {
-  turn.steps = Array.isArray(turn.steps) ? turn.steps : [];
+  turn.source ||= "web-agent-turn";
+  turn.steps = (Array.isArray(turn.steps) ? turn.steps : []).map((step) => normalizeStep(step, turn.startedAt));
   turn.artifacts = Array.isArray(turn.artifacts) ? turn.artifacts : objectEntriesAsSignals(turn.artifacts);
   turn.evidence = Array.isArray(turn.evidence) ? turn.evidence : objectEntriesAsSignals(turn.evidence);
   turn.sideEffects = Array.isArray(turn.sideEffects) ? turn.sideEffects : objectEntriesAsSignals(turn.sideEffects);
@@ -672,8 +721,20 @@ function normalizeTurnShape(turn) {
     failedStepId: turn.recovery.failedStepId || null,
     error: turn.recovery.error || null,
   } : emptyRecovery();
-  turn.telemetry = turn.telemetry && typeof turn.telemetry === "object" ? turn.telemetry : emptyTelemetry(turn.startedAt);
+  turn.telemetry = normalizeTelemetry(turn.telemetry, turn.startedAt);
+  turn.diagnostics = turn.diagnostics && typeof turn.diagnostics === "object" ? turn.diagnostics : emptyDiagnostics();
   return turn;
+}
+
+function normalizeStep(step, fallbackStartedAt = null) {
+  const normalized = step && typeof step === "object" ? step : {};
+  normalized.id ||= normalized.stepId || "step";
+  normalized.stepId ||= normalized.id;
+  normalized.parentStepId ??= null;
+  normalized.status ||= "unknown";
+  normalized.startedAt ||= fallbackStartedAt;
+  normalized.finishedAt ??= null;
+  return normalized;
 }
 
 function objectEntriesAsSignals(value) {
@@ -693,10 +754,14 @@ function emptyRecovery() {
 
 function emptyTelemetry(startedAt) {
   const elapsedMs = startedAt ? Date.now() - Date.parse(startedAt) : null;
+  const metrics = { totalEvents: 0, failures: 0, tokens: { input: 0, output: 0, total: 0, cached: 0, reasoning: 0 }, latency: {} };
   return {
     schema: "walnutpi.agentTurnTelemetry.v1",
+    summary: { totalEvents: 0, failures: 0 },
+    diagnostics: { elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : null, metrics, events: [] },
     elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : null,
-    metrics: { totalEvents: 0, failures: 0, tokens: { input: 0, output: 0, total: 0, cached: 0, reasoning: 0 }, latency: {} },
+    metrics,
+    events: [],
   };
 }
 
@@ -771,16 +836,42 @@ function syncRecordSignal(result) {
 function classifySideEffects(turn) {
   const executed = turn.steps
     .filter((step) => step.status === "completed" || step.status === "running" || step.status === "queued")
-    .map((step) => ({ kind: step.kind, action: step.action, result: step.result }))
+    .map((step) => ({ stepId: step.stepId || step.id, kind: step.kind, action: step.action, result: step.result }))
     .filter((step) => !["intent.classify", "policy.decision", "diagnostics.recent_failure.read", "screen.state_frame.read"].includes(step.kind));
   const text = JSON.stringify(executed).toLowerCase();
+  const sourceStepId = executed.find((step) => JSON.stringify(step).toLowerCase())?.stepId || null;
   return [
-    text.includes("screen.workspace.sync") ? "screen-sync" : null,
-    text.includes("device-write") || text.includes("write-high") ? "device-write" : null,
-    text.includes("service-restart") || text.includes("restart walnut-screen.service") ? "service-restart" : null,
-    text.includes("\"action\":\"note\"") || text.includes("daily-note") ? "daily-note-write" : null,
-    text.includes("durable-memory-write") ? "durable-memory-write" : null,
+    text.includes("screen.workspace.sync") ? sideEffectSignal("screen-sync", sourceStepId, "screen-runtime") : null,
+    text.includes("device-write") || text.includes("write-high") ? sideEffectSignal("device-write", sourceStepId, "device") : null,
+    text.includes("service-restart") || text.includes("restart walnut-screen.service") ? sideEffectSignal("service-restart", sourceStepId, "walnut-screen.service") : null,
+    text.includes("\"action\":\"note\"") || text.includes("daily-note") ? sideEffectSignal("daily-note-write", sourceStepId, "daily-note") : null,
+    text.includes("durable-memory-write") ? sideEffectSignal("durable-memory-write", sourceStepId, "durable-memory") : null,
   ].filter(Boolean);
+}
+
+function sideEffectSignal(kind, stepId, target) {
+  return { kind, stepId, target, status: "observed" };
+}
+
+function artifactPath(value) {
+  if (typeof value === "string" && looksLikePath(value)) return value;
+  if (!value || typeof value !== "object") return null;
+  return value.path || value.file || value.filePath || value.outputPath || value.manifestPath || value.recordPath || value.url || null;
+}
+
+function looksLikePath(value) {
+  return /[\\/]/.test(value) || /\.[a-z0-9]{2,5}$/i.test(value);
+}
+
+function sha256(value) {
+  return createHash("sha256").update(stableJson(value)).digest("hex");
+}
+
+function stableJson(value) {
+  if (value === undefined) return "";
+  if (value === null || typeof value !== "object") return String(value);
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
 }
 
 function summarizeForUser(turn) {
@@ -790,14 +881,64 @@ function summarizeForUser(turn) {
 
 async function summarizeTelemetry(turn, metricsLedger) {
   const elapsedMs = Date.now() - Date.parse(turn.startedAt);
-  const empty = { schema: "walnutpi.agentTurnTelemetry.v1", elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : null, metrics: { totalEvents: 0, failures: 0, tokens: { input: 0, output: 0, total: 0, cached: 0, reasoning: 0 }, latency: {} } };
+  const empty = emptyTelemetry(turn.startedAt);
+  empty.elapsedMs = Number.isFinite(elapsedMs) ? elapsedMs : null;
+  empty.diagnostics.elapsedMs = empty.elapsedMs;
   if (!metricsLedger?.report || !turn.metricsSince) return empty;
   try {
     const report = await metricsLedger.report(100, { since: turn.metricsSince, sessionId: turn.sessionId, turnId: turn.turnId });
-    return { ...empty, metrics: report.summary || empty.metrics, events: (report.events || []).map((event) => ({ timestamp: event.timestamp, kind: event.kind, operation: event.operation, ok: event.ok, latencyMs: event.latencyMs, usage: event.usage, traceId: event.traceId })) };
+    const metrics = report.summary || empty.metrics;
+    const events = (report.events || []).map((event) => ({ timestamp: event.timestamp, kind: event.kind, operation: event.operation, ok: event.ok, latencyMs: event.latencyMs, usage: event.usage, traceId: event.traceId }));
+    return normalizeTelemetry({ ...empty, metrics, events, diagnostics: { ...empty.diagnostics, metrics, events } }, turn.startedAt);
   } catch {
     return empty;
   }
+}
+
+function normalizeTelemetry(telemetry, startedAt = null) {
+  const base = emptyTelemetry(startedAt);
+  const metrics = telemetry?.metrics || telemetry?.diagnostics?.metrics || base.metrics;
+  const events = telemetry?.events || telemetry?.diagnostics?.events || [];
+  const elapsedMs = telemetry?.elapsedMs ?? telemetry?.diagnostics?.elapsedMs ?? base.elapsedMs;
+  const suppliedSummary = telemetry?.summary || null;
+  const summary = suppliedSummary && (suppliedSummary.totalEvents || suppliedSummary.failures)
+    ? suppliedSummary
+    : { totalEvents: metrics.totalEvents || 0, failures: metrics.failures || 0 };
+  return {
+    schema: "walnutpi.agentTurnTelemetry.v1",
+    summary,
+    diagnostics: { elapsedMs, metrics, events },
+    elapsedMs,
+    metrics,
+    events,
+  };
+}
+
+function emptyDiagnostics() {
+  return { schema: "walnutpi.agentTurnDiagnostics.v1", steps: [], telemetry: { events: [] } };
+}
+
+function collectDiagnostics(turn) {
+  return {
+    schema: "walnutpi.agentTurnDiagnostics.v1",
+    rawTraceKind: "web-agent-turn",
+    steps: (turn.steps || []).map((step) => ({
+      stepId: step.stepId || step.id,
+      parentStepId: step.parentStepId || null,
+      agent: step.agent || null,
+      kind: step.kind || null,
+      action: step.action || null,
+      status: step.status || "unknown",
+      startedAt: step.startedAt || null,
+      finishedAt: step.finishedAt || null,
+      result: step.result || null,
+    })),
+    telemetry: {
+      elapsedMs: turn.telemetry?.diagnostics?.elapsedMs ?? turn.telemetry?.elapsedMs ?? null,
+      metrics: turn.telemetry?.diagnostics?.metrics || turn.telemetry?.metrics || null,
+      events: turn.telemetry?.diagnostics?.events || turn.telemetry?.events || [],
+    },
+  };
 }
 
 function kebabCase(value) {
