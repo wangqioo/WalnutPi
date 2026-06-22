@@ -2,6 +2,8 @@
 
 这份基准按用户目标场景组织，不按底层工具是否能跑组织。工具、CLI、模型、脚本和远程命令只是实现手段；通过标准必须落在 Walnut Agent Console 能否把用户目标推进到可预览、可同步、可诊断、可真机验证的产品结果上。
 
+产品能力质量从 `docs/product-capability-loop-map.md` 的闭环表出发判断，而不是从 `runnerStatus` 出发判断。`runnerStatus` 只说明 harness 当前是否能执行 case；benchmark 质量要看 case 是否证明了用户工作流、入口、route、受控动作、用户可见结果、trace/artifact/evidence、pass/fail oracle 和失败恢复。
+
 默认 benchmark harness 是 `bun run bench:product`，它通过 Walnut Agent Console 的 `/api/agent/turn` 记录真实 agent turn trace。产品能力基准不再维护 direct API runner；需要验证窄 API 合同时，应在对应模块的 self-check 中覆盖。
 
 ## Benchmark profiles
