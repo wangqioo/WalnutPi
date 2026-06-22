@@ -151,7 +151,6 @@ export async function runAgentTurn({
     evidence: [],
     sideEffects: [],
     pendingNext: null,
-    result: null,
     recovery: emptyRecovery(),
     loop: {
       schema: "walnutpi.agentLoop.v1",
@@ -279,14 +278,14 @@ async function runRouterAgent({ turn, text, classifyIntent, eventLedger, hooks }
   try {
     const classify = await classifyIntent(text, { sessionId: turn.sessionId, turnId: turn.turnId });
     step.status = classify.ok ? "completed" : "failed";
-    step.result = classify.ok ? { classification: classify.classification } : { error: classify.error };
+    setStepResultData(step, classify.ok ? { classification: classify.classification } : { error: classify.error });
     finishStep(step);
     await emitStepDone(eventLedger, turn, step);
     if (classify.ok) await hooks?.onClassify?.(classify.classification, turn);
     return classify;
   } catch (error) {
     step.status = "failed";
-    step.result = { error: error.message };
+    setStepResultData(step, { error: error.message });
     finishStep(step);
     await emitStepDone(eventLedger, turn, step);
     await hooks?.onStepFail?.({ kind: "intent.classify" }, turn);
@@ -308,8 +307,7 @@ async function runTaskAgent({ task, body, text, sessionId, turn, runAction, gene
   // Find the right agent runner
   const runner = activeRegistry.getRunner(task.agent);
   if (!runner) {
-    // No registered handler — mark pending for manual resolution
-    return pendingStepResult({ turn, step, task, eventLedger, metricsLedger });
+    return failMissingRunner({ turn, step, task, eventLedger, metricsLedger, hooks });
   }
 
   // Build context object with all injected services + lifecycle helpers
@@ -318,16 +316,17 @@ async function runTaskAgent({ task, body, text, sessionId, turn, runAction, gene
     runAction, generateScreen, syncScreen,
     eventLedger, turnLedger, metricsLedger,
     // ── Step lifecycle shortcuts ──
-    setStepResult(ok, result) { step.status = ok ? "completed" : "failed"; step.result = result; finishStep(step); },
-    setCompleted(result) { step.status = "completed"; step.result = result; finishStep(step); },
+    setStepResult(ok, result) { step.status = ok ? "completed" : "failed"; setStepResultData(step, result); finishStep(step); },
+    setCompleted(result) { step.status = "completed"; setStepResultData(step, result); finishStep(step); },
     setTurnResult(ok, result) { turn.status = ok ? "completed" : "failed"; turn.result = result; },
     setPending(reason) {
       turn.pendingNext = task.kind;
       turn.status = "pending";
       step.status = "pending";
-      step.result = { task, pendingNext: task.kind, recoveryOptions: ["provide the missing input or confirmation", "retry this turn after the prerequisite is available"] };
+      setStepResultData(step, { task, pendingNext: task.kind, recoveryOptions: ["provide the missing input or confirmation", "retry this turn after the prerequisite is available"] });
       finishStep(step);
     },
+    stepResult() { return stepResult(step); },
     finishAgent() { finishAgent(turn, task.agent, step.status); },
     observeStepResult() { observeStepResult(turn, step); },
     updateTurnTrace() { return updateTurnTrace(turn, metricsLedger); },
@@ -345,7 +344,7 @@ async function runTaskAgent({ task, body, text, sessionId, turn, runAction, gene
     if (agentResult?.deferred) return agentResult;
 
     // Normal completion: hook, update trace and emit step done
-    await hooks.afterStep({ stepId: step.id, stepResult: step.result }, turn);
+    await hooks.afterStep({ stepId: step.id, stepResult: stepResult(step) }, turn);
     finishStep(step);
     await updateTurnTrace(turn, metricsLedger);
     await emitStepDone(eventLedger, turn, step);
@@ -361,43 +360,46 @@ async function runTaskAgent({ task, body, text, sessionId, turn, runAction, gene
       await emitTurnDone(eventLedger, turn);
     }
 
-    return agentResult || { ok: true, status: 200, stepId: step.id, stepResult: step.result };
+    return agentResult || { ok: true, status: 200, stepId: step.id, stepResult: stepResult(step) };
   } catch (error) {
     step.status = "failed";
-    step.result = { ok: false, error: error.message };
+    setStepResultData(step, { ok: false, error: error.message });
     finishStep(step);
     finishAgent(turn, task.agent, "failed");
     turn.status = "failed";
     turn.error = error.message;
-    turn.result = step.result;
+    turn.result = stepResult(step);
     observeStepResult(turn, step);
     await hooks.onStepFail(task, turn);
     await updateTurnTrace(turn, metricsLedger);
     await emitStepDone(eventLedger, turn, step);
     await emitTurnDone(eventLedger, turn);
-    return { ok: false, status: 500, stepId: step.id, stepResult: step.result };
+    return { ok: false, status: 500, stepId: step.id, stepResult: stepResult(step) };
   }
 }
 
-// ── Pending fallback (no runner found) ────────────────────────────────
+// ── Missing runner failure ───────────────────────────────────────────
 
-function pendingStepResult({ turn, step, task, eventLedger, metricsLedger }) {
-  step.status = "pending";
-  step.result = {
+async function failMissingRunner({ turn, step, task, eventLedger, metricsLedger, hooks }) {
+  step.status = "failed";
+  setStepResultData(step, {
+    ok: false,
+    code: "unregistered-agent-runner",
+    error: `No registered agent runner for ${task.agent}`,
     task,
-    pendingNext: task.kind,
-    recoveryOptions: ["provide the missing input or confirmation", "retry this turn after the prerequisite is available"],
-  };
+    recoveryOptions: ["register the missing agent runner before rerunning this turn"],
+  });
   finishStep(step);
-  finishAgent(turn, task.agent, "pending");
-  turn.pendingNext = task.kind;
-  turn.result = step.result;
-  turn.status = "pending";
+  finishAgent(turn, task.agent, "failed");
+  turn.result = stepResult(step);
+  turn.status = "failed";
+  turn.error = stepResult(step).error;
   observeStepResult(turn, step);
-  updateTurnTrace(turn, metricsLedger);
-  emitStepDone(eventLedger, turn, step);
-  emit(eventLedger, turn, { kind: "turn.pending", status: "pending", data: { pendingNext: turn.pendingNext } });
-  return { ok: true, status: 200, stepId: step.id, stepResult: step.result };
+  await hooks.onStepFail(task, turn);
+  await updateTurnTrace(turn, metricsLedger);
+  await emitStepDone(eventLedger, turn, step);
+  await emitTurnDone(eventLedger, turn);
+  return { ok: false, status: 500, stepId: step.id, stepResult: stepResult(step) };
 }
 
 // ── Queue helpers (async operation lifecycle) ────────────────────────
@@ -422,7 +424,7 @@ async function completeQueuedStep({ turn, step, task, eventLedger, turnLedger, m
   try {
     const result = await run();
     step.status = result.body?.ok ? "completed" : "failed";
-    step.result = result.body;
+    setStepResultData(step, result.body);
     finishStep(step);
     finishAgent(turn, task.agent, step.status);
     turn.status = result.body?.ok ? "completed" : "failed";
@@ -435,12 +437,12 @@ async function completeQueuedStep({ turn, step, task, eventLedger, turnLedger, m
     await emitTurnDone(eventLedger, turn);
   } catch (error) {
     step.status = "failed";
-    step.result = { ok: false, error: error.message };
+    setStepResultData(step, { ok: false, error: error.message });
     finishStep(step);
     finishAgent(turn, task.agent, "failed");
     turn.status = "failed";
     turn.error = error.message;
-    turn.result = step.result;
+    turn.result = stepResult(step);
     turn.pendingNext = null;
     observeStepResult(turn, step);
     await updateTurnTrace(turn, metricsLedger);
@@ -471,6 +473,19 @@ function beginStep({ id, agent, kind, action = null, parentStepId = null }) {
   };
 }
 
+function setStepResultData(step, result) {
+  Object.defineProperty(step, "_result", {
+    value: result,
+    writable: true,
+    configurable: true,
+    enumerable: false,
+  });
+}
+
+function stepResult(step) {
+  return step?._result || null;
+}
+
 function finishStep(step) {
   if (!step || ["running", "queued"].includes(step.status)) return;
   step.stepId ||= step.id;
@@ -486,12 +501,13 @@ async function failTurn({ turn, eventLedger, status, error }) {
 }
 
 async function emitStepDone(eventLedger, turn, step) {
+  const result = stepResult(step);
   await emit(eventLedger, turn, {
     kind: step.status === "completed" ? "agent.completed" : step.status === "pending" || step.status === "queued" ? "agent.pending" : "agent.failed",
     status: step.status,
     stepId: step.id,
-    data: step.status === "completed" ? { agent: step.agent, kind: step.kind, result: step.result } : { agent: step.agent, kind: step.kind },
-    error: step.status === "failed" ? step.result?.error || step.result?.output || "step failed" : null,
+    data: step.status === "completed" ? { agent: step.agent, kind: step.kind, result } : { agent: step.agent, kind: step.kind },
+    error: step.status === "failed" ? result?.error || result?.output || "step failed" : null,
   });
 }
 
@@ -509,7 +525,7 @@ async function emit(eventLedger, turn, event) {
 }
 
 async function updateTurnTrace(turn, metricsLedger = null) {
-  turn.route = turn.steps.find((step) => step.kind === "intent.classify")?.result?.classification || null;
+  turn.route = stepResult(turn.steps.find((step) => step.kind === "intent.classify"))?.classification || null;
   turn.artifacts = collectArtifacts(turn);
   turn.evidence = collectEvidence(turn);
   turn.sideEffects = classifySideEffects(turn);
@@ -527,7 +543,7 @@ function collectArtifacts(turn) {
   const artifacts = [];
   const push = (kind, value, step) => { if (value) artifacts.push(artifactSignal(kind, value, step)); };
   for (const step of turn.steps) {
-    const result = step.result || {};
+    const result = stepResult(step) || {};
     push("action-evidence", result.actionEvidence, step);
     push("action-result", ["action.run"].includes(step.kind) ? result : null, step);
     push("session-summary", step.kind === "session.summary" ? result.summary || result.evidence : null, step);
@@ -569,7 +585,7 @@ function collectEvidence(turn) {
   if (turn.route) push("intent-route", turn.route);
   for (const step of turn.steps) {
     push("agentTurn-step", { id: step.id, agent: step.agent, kind: step.kind, status: step.status, action: step.action });
-    const result = step.result || {};
+    const result = stepResult(step) || {};
     push("action-policy-id", result.id);
     push("bus-read-output", result.id === "i2c_scan" ? result.output || result.actionEvidence?.output : null);
     push("action-evidence-or-honest-failure", result.actionEvidence || (result.ok === false ? result.error || result.output : null));
@@ -611,7 +627,8 @@ function collectEvidence(turn) {
 }
 
 function multiStepLoopSignal(step) {
-  const nextTasks = normalizeNextTasks(step.result?.nextTasks || step.result?.pendingNext?.nextTasks);
+  const result = stepResult(step) || {};
+  const nextTasks = normalizeNextTasks(result.nextTasks || result.pendingNext?.nextTasks);
   if (!nextTasks.length) return null;
   return {
     sourceStepId: step.id,
@@ -622,9 +639,10 @@ function multiStepLoopSignal(step) {
 }
 
 function replanEvidenceSignal(step) {
-  const nextTasks = normalizeNextTasks(step.result?.nextTasks || step.result?.pendingNext?.nextTasks);
+  const result = stepResult(step) || {};
+  const nextTasks = normalizeNextTasks(result.nextTasks || result.pendingNext?.nextTasks);
   if (!nextTasks.length) return null;
-  const heldTasks = normalizeNextTasks(step.result?.pendingNext?.tasks);
+  const heldTasks = normalizeNextTasks(result.pendingNext?.tasks);
   const heldKeys = new Set(heldTasks.map(taskKey));
   const safeTasks = nextTasks.filter(isSafeContinuationTask);
   const unsafeTasks = nextTasks.filter((task) => !isSafeContinuationTask(task));
@@ -635,7 +653,7 @@ function replanEvidenceSignal(step) {
     proposedTasks: nextTasks.map(compactTaskSignal),
     safeAutoContinue: safeAutoContinue.map(compactTaskSignal),
     blockedTasks: [
-      ...heldTasks.map((task) => compactTaskSignal(task, step.result?.pendingNext?.reason || "pending-next")),
+      ...heldTasks.map((task) => compactTaskSignal(task, result.pendingNext?.reason || "pending-next")),
       ...overLimitSafe.map((task) => compactTaskSignal(task, "max-continuation-tasks")),
       ...unsafeTasks.filter((task) => !heldKeys.has(taskKey(task))).map((task) => compactTaskSignal(task, "continuation-requires-explicit-confirmation")),
     ],
@@ -647,7 +665,7 @@ function compactTaskSignal(task, reason = null) {
 }
 
 function collectContextUsed(turn) {
-  const values = turn.steps.map((step) => step.result?.contextUsed).filter(Boolean);
+  const values = turn.steps.map((step) => stepResult(step)?.contextUsed).filter(Boolean);
   return values.length ? values : null;
 }
 
@@ -676,8 +694,11 @@ function mergePendingNext(current, next) {
 function collectRecovery(turn) {
   const failedStep = turn.steps.findLast((step) => step.status === "failed");
   const turnFailed = turn.status === "failed";
-  const pendingNext = turn.pendingNext || turn.steps.findLast((step) => step.result?.pendingNext)?.result?.pendingNext || null;
-  const resultOptions = turn.steps.flatMap((step) => normalizeRecoveryOptions(step.result?.recoveryOptions || step.result?.repairOptions));
+  const pendingNext = turn.pendingNext || stepResult(turn.steps.findLast((step) => stepResult(step)?.pendingNext))?.pendingNext || null;
+  const resultOptions = turn.steps.flatMap((step) => {
+    const result = stepResult(step) || {};
+    return normalizeRecoveryOptions(result.recoveryOptions || result.repairOptions);
+  });
   const options = [...new Set([
     ...resultOptions,
     ...(pendingNext && typeof pendingNext === "object" ? ["confirm the pending next task explicitly before running it", "choose a read-only continuation instead"] : []),
@@ -688,12 +709,12 @@ function collectRecovery(turn) {
     pendingNext,
     options,
     failedStepId: failedStep?.id || null,
-    error: failedStep?.result?.error || failedStep?.result?.output || turn.error || null,
+    error: stepResult(failedStep)?.error || stepResult(failedStep)?.output || turn.error || null,
   };
 }
 
 function observeStepResult(turn, step) {
-  const result = step?.result || {};
+  const result = stepResult(step) || {};
   if (result.pendingNext) turn.pendingNext = result.pendingNext;
   const options = normalizeRecoveryOptions(result.recoveryOptions || result.repairOptions);
   if (options.length || step.status === "failed") {
@@ -710,10 +731,10 @@ function observeStepResult(turn, step) {
 
 function normalizeTurnShape(turn) {
   turn.source ||= "web-agent-turn";
-  turn.steps = (Array.isArray(turn.steps) ? turn.steps : []).map((step) => normalizeStep(step, turn.startedAt));
-  turn.artifacts = Array.isArray(turn.artifacts) ? turn.artifacts : objectEntriesAsSignals(turn.artifacts);
-  turn.evidence = Array.isArray(turn.evidence) ? turn.evidence : objectEntriesAsSignals(turn.evidence);
-  turn.sideEffects = Array.isArray(turn.sideEffects) ? turn.sideEffects : objectEntriesAsSignals(turn.sideEffects);
+  for (const key of ["steps", "artifacts", "evidence", "sideEffects"]) {
+    if (!Array.isArray(turn[key])) throw new Error(`agentTurn.v2 ${key}[] is required`);
+  }
+  turn.steps = turn.steps.map((step) => normalizeStep(step, turn.startedAt));
   turn.recovery = turn.recovery && typeof turn.recovery === "object" ? {
     status: turn.recovery.status || "not-needed",
     pendingNext: turn.recovery.pendingNext || null,
@@ -727,7 +748,8 @@ function normalizeTurnShape(turn) {
 }
 
 function normalizeStep(step, fallbackStartedAt = null) {
-  const normalized = step && typeof step === "object" ? step : {};
+  if (!step || typeof step !== "object" || Array.isArray(step)) throw new Error("agentTurn.v2 step must be an object");
+  const normalized = step;
   normalized.id ||= normalized.stepId || "step";
   normalized.stepId ||= normalized.id;
   normalized.parentStepId ??= null;
@@ -735,11 +757,6 @@ function normalizeStep(step, fallbackStartedAt = null) {
   normalized.startedAt ||= fallbackStartedAt;
   normalized.finishedAt ??= null;
   return normalized;
-}
-
-function objectEntriesAsSignals(value) {
-  if (!value || typeof value !== "object") return [];
-  return Object.entries(value).map(([kind, entryValue]) => ({ kind, value: entryValue }));
 }
 
 function normalizeRecoveryOptions(value) {
@@ -759,9 +776,6 @@ function emptyTelemetry(startedAt) {
     schema: "walnutpi.agentTurnTelemetry.v1",
     summary: { totalEvents: 0, failures: 0 },
     diagnostics: { elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : null, metrics, events: [] },
-    elapsedMs: Number.isFinite(elapsedMs) ? elapsedMs : null,
-    metrics,
-    events: [],
   };
 }
 
@@ -836,7 +850,7 @@ function syncRecordSignal(result) {
 function classifySideEffects(turn) {
   const executed = turn.steps
     .filter((step) => step.status === "completed" || step.status === "running" || step.status === "queued")
-    .map((step) => ({ stepId: step.stepId || step.id, kind: step.kind, action: step.action, result: step.result }))
+    .map((step) => ({ stepId: step.stepId || step.id, kind: step.kind, action: step.action, result: stepResult(step) }))
     .filter((step) => !["intent.classify", "policy.decision", "diagnostics.recent_failure.read", "screen.state_frame.read"].includes(step.kind));
   const text = JSON.stringify(executed).toLowerCase();
   const sourceStepId = executed.find((step) => JSON.stringify(step).toLowerCase())?.stepId || null;
@@ -882,14 +896,13 @@ function summarizeForUser(turn) {
 async function summarizeTelemetry(turn, metricsLedger) {
   const elapsedMs = Date.now() - Date.parse(turn.startedAt);
   const empty = emptyTelemetry(turn.startedAt);
-  empty.elapsedMs = Number.isFinite(elapsedMs) ? elapsedMs : null;
-  empty.diagnostics.elapsedMs = empty.elapsedMs;
+  empty.diagnostics.elapsedMs = Number.isFinite(elapsedMs) ? elapsedMs : null;
   if (!metricsLedger?.report || !turn.metricsSince) return empty;
   try {
     const report = await metricsLedger.report(100, { since: turn.metricsSince, sessionId: turn.sessionId, turnId: turn.turnId });
-    const metrics = report.summary || empty.metrics;
+    const metrics = report.summary || empty.diagnostics.metrics;
     const events = (report.events || []).map((event) => ({ timestamp: event.timestamp, kind: event.kind, operation: event.operation, ok: event.ok, latencyMs: event.latencyMs, usage: event.usage, traceId: event.traceId }));
-    return normalizeTelemetry({ ...empty, metrics, events, diagnostics: { ...empty.diagnostics, metrics, events } }, turn.startedAt);
+    return normalizeTelemetry({ ...empty, diagnostics: { ...empty.diagnostics, metrics, events } }, turn.startedAt);
   } catch {
     return empty;
   }
@@ -897,20 +910,14 @@ async function summarizeTelemetry(turn, metricsLedger) {
 
 function normalizeTelemetry(telemetry, startedAt = null) {
   const base = emptyTelemetry(startedAt);
-  const metrics = telemetry?.metrics || telemetry?.diagnostics?.metrics || base.metrics;
-  const events = telemetry?.events || telemetry?.diagnostics?.events || [];
-  const elapsedMs = telemetry?.elapsedMs ?? telemetry?.diagnostics?.elapsedMs ?? base.elapsedMs;
-  const suppliedSummary = telemetry?.summary || null;
-  const summary = suppliedSummary && (suppliedSummary.totalEvents || suppliedSummary.failures)
-    ? suppliedSummary
-    : { totalEvents: metrics.totalEvents || 0, failures: metrics.failures || 0 };
+  const metrics = telemetry?.diagnostics?.metrics ?? base.diagnostics.metrics;
+  const events = telemetry?.diagnostics?.events ?? [];
+  const elapsedMs = telemetry?.diagnostics?.elapsedMs ?? base.diagnostics.elapsedMs;
+  const summary = { totalEvents: metrics.totalEvents || 0, failures: metrics.failures || 0 };
   return {
     schema: "walnutpi.agentTurnTelemetry.v1",
     summary,
     diagnostics: { elapsedMs, metrics, events },
-    elapsedMs,
-    metrics,
-    events,
   };
 }
 
@@ -931,12 +938,12 @@ function collectDiagnostics(turn) {
       status: step.status || "unknown",
       startedAt: step.startedAt || null,
       finishedAt: step.finishedAt || null,
-      result: step.result || null,
+      result: stepResult(step),
     })),
     telemetry: {
-      elapsedMs: turn.telemetry?.diagnostics?.elapsedMs ?? turn.telemetry?.elapsedMs ?? null,
-      metrics: turn.telemetry?.diagnostics?.metrics || turn.telemetry?.metrics || null,
-      events: turn.telemetry?.diagnostics?.events || turn.telemetry?.events || [],
+      elapsedMs: turn.telemetry?.diagnostics?.elapsedMs ?? null,
+      metrics: turn.telemetry?.diagnostics?.metrics || null,
+      events: turn.telemetry?.diagnostics?.events || [],
     },
   };
 }

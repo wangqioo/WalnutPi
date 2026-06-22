@@ -73,6 +73,7 @@ assert.equal(turn.steps[1].parentStepId, null);
 assert.match(turn.steps[1].startedAt, /^\d{4}-\d{2}-\d{2}T/);
 assert.match(turn.steps[1].finishedAt, /^\d{4}-\d{2}-\d{2}T/);
 assert.equal(turn.result.output, "ran status");
+assert.equal(Object.hasOwn(turn.steps[1], "result"), false);
 assert.equal(Array.isArray(turn.steps), true);
 assert.equal(Array.isArray(turn.artifacts), true);
 assert.equal(Array.isArray(turn.evidence), true);
@@ -80,7 +81,8 @@ assert.equal(Array.isArray(turn.sideEffects), true);
 assert.equal(turn.recovery.status, "not-needed");
 assert.equal(turn.telemetry.schema, "walnutpi.agentTurnTelemetry.v1");
 assert.equal(turn.telemetry.summary.totalEvents, 1);
-assert.equal(turn.telemetry.metrics.totalEvents, 1);
+assert.equal(turn.telemetry.diagnostics.metrics.totalEvents, 1);
+assert.equal(Object.hasOwn(turn.telemetry, "metrics"), false);
 assert.equal(turn.diagnostics.schema, "walnutpi.agentTurnDiagnostics.v1");
 assert.equal(turn.diagnostics.steps[1].result.output, "ran status");
 
@@ -190,7 +192,7 @@ assert.equal(summarized.turn.status, "completed");
 assert.equal(summarized.turn.steps[1].kind, "session.summary");
 assert.equal(summarized.turn.sideEffects.length, 0);
 assert.match(summarized.turn.userSummary, /检查 I2C/);
-assert.equal(summarized.turn.telemetry.metrics.totalEvents, 0);
+assert.equal(summarized.turn.telemetry.summary.totalEvents, 0);
 
 const preference = await runAgentTurn({
   body: { text: "以后给我生成小屏，默认用像素风和中文短标题", sessionId: "memory-demo" },
@@ -360,7 +362,7 @@ assert.equal(replanned.turn.steps.length, 3);
 assert.equal(replanned.turn.steps[1].action, "snapshot");
 assert.equal(replanned.turn.steps[2].kind, "action.run");
 assert.equal(replanned.turn.steps[2].action, "status");
-assert.equal(replanned.turn.steps[2].result.output, "ran status");
+assert.equal(replanned.turn.diagnostics.steps.find((step) => step.stepId === replanned.turn.steps[2].stepId).result.output, "ran status");
 assert.equal(replanned.turn.evidence.some((item) => item.kind === "intent-route"), true);
 assert.equal(replanned.turn.evidence.some((item) => item.kind === "agentTurn-step"), true);
 assert.equal(replanned.turn.evidence.some((item) => item.kind === "multi-step-loop"), true);
@@ -486,6 +488,27 @@ assert.equal(pendingObservation.status, 200);
 assert.equal(pendingObservation.turn.status, "pending");
 assert.equal(pendingObservation.turn.recovery.status, "pending");
 assert.equal(pendingObservation.turn.recovery.pendingNext, "screen.workspace.sync.intent");
+
+const missingRunner = await runAgentTurn({
+  body: { text: "执行未知 agent", sessionId: "missing-runner-demo" },
+  classifyIntent: async () => ({
+    ok: true,
+    status: 200,
+    classification: {
+      schema: "walnutpi.intent.route.v2",
+      intent: "unknown.agent",
+      route: "unknown.agent",
+    },
+  }),
+  registry: {
+    selectTurnPlan: () => [{ agent: "missing", kind: "missing.task" }],
+    getRunner: () => null,
+  },
+});
+assert.equal(missingRunner.status, 500);
+assert.equal(missingRunner.turn.status, "failed");
+assert.equal(missingRunner.turn.diagnostics.steps[1].result.code, "unregistered-agent-runner");
+assert.equal(missingRunner.turn.evidence.some((item) => item.kind === "pending-next"), false);
 
 const syncedTurns = [];
 const syncLoop = createAgentTurnLoop({

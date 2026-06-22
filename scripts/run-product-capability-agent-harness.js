@@ -535,6 +535,7 @@ export function selectCases(cases, args = {}) {
 function validateCases(cases) {
   return cases.map((benchmark) => {
     validateRequirements(benchmark);
+    validateOracle(benchmark);
     return benchmark;
   });
 }
@@ -552,6 +553,22 @@ function validateRequirements(benchmark) {
   }
   const unknown = Object.keys(requirements).filter((key) => !["device", "network", "model", "search"].includes(key));
   if (unknown.length) throw new Error(`benchmark ${caseId} requirements has unknown field(s): ${unknown.join(", ")}`);
+}
+
+function validateOracle(benchmark) {
+  const caseId = benchmark?.id || "unknown";
+  const oracle = benchmark?.oracle;
+  if (!oracle || typeof oracle !== "object" || Array.isArray(oracle)) throw new Error(`benchmark ${caseId} missing oracle`);
+  for (const key of ["goal", "evidence", "safety"]) {
+    if (!oracle[key] || typeof oracle[key] !== "object" || Array.isArray(oracle[key])) {
+      throw new Error(`benchmark ${caseId} oracle.${key} must be an object`);
+    }
+  }
+  if (!Array.isArray(oracle.goal.resultSignals)) throw new Error(`benchmark ${caseId} oracle.goal.resultSignals must be an array`);
+  if (!Array.isArray(oracle.evidence.required)) throw new Error(`benchmark ${caseId} oracle.evidence.required must be an array`);
+  if (!Array.isArray(oracle.safety.forbiddenSideEffects)) throw new Error(`benchmark ${caseId} oracle.safety.forbiddenSideEffects must be an array`);
+  const legacy = ["predicates", "requiredArtifacts", "requiredEvidence", "forbiddenSideEffects"].filter((key) => Object.hasOwn(oracle, key));
+  if (legacy.length) throw new Error(`benchmark ${caseId} oracle has legacy field(s): ${legacy.join(", ")}`);
 }
 
 function effectiveProfile(args = {}) {
@@ -593,18 +610,18 @@ function skippedContractTurn({ benchmark, variant, runId, sessionId = runId }) {
     route: null,
     steps: [
       {
+        stepId: "contract-skip",
+        parentStepId: null,
         kind: "contract.skip",
         status: "completed",
-        result: {
-          runnerStatus: "contract-only",
-          reason: "Benchmark defines an observable contract but is not executable by the product agent harness yet.",
-        },
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
       },
     ],
     artifacts: [],
     evidence: [],
     sideEffects: [],
-    telemetry: { elapsedMs: 0, metrics: emptyTelemetrySummary() },
+    telemetry: emptyTurnTelemetry(),
   };
 }
 
@@ -626,19 +643,18 @@ function skippedProfileTurn({ benchmark, variant, runId, sessionId = runId, prof
     route: null,
     steps: [
       {
+        stepId: "profile-skip",
+        parentStepId: null,
         kind: "profile.skip",
         status: "completed",
-        result: {
-          profile,
-          requirements: benchmark.requirements,
-          reason,
-        },
+        startedAt: new Date().toISOString(),
+        finishedAt: new Date().toISOString(),
       },
     ],
     artifacts: [],
     evidence: [{ kind: "profile-requirements-skip", value: { profile, requirements: benchmark.requirements, reason } }],
     sideEffects: [],
-    telemetry: { elapsedMs: 0, metrics: emptyTelemetrySummary() },
+    telemetry: emptyTurnTelemetry(),
   };
 }
 
@@ -670,16 +686,18 @@ function safeId(value) {
 }
 
 export function evaluateTurn(benchmark, turn, variant = benchmark.variants?.[0]) {
-  const oracle = normalizeOracle(benchmark.oracle || {});
+  validateOracle(benchmark);
+  validateAgentTurnTrace(turn);
+  const oracle = normalizeOracle(benchmark.oracle);
   const sideEffects = sideEffectKindSet(turn);
   const missingSafety = oracle.safety.forbiddenSideEffects.filter((item) => sideEffects.has(item));
-  const route = turn.route || turn.steps?.find((step) => step.kind === "intent.classify")?.result?.classification || {};
-  const missingEvidence = (oracle.evidence.required || oracle.evidence.signals || []).filter((kind) => !traceSignalSupportsKind(turn, kind, { benchmark, variant }));
-  const missingResults = (oracle.goal.resultSignals || oracle.goal.result || []).filter((kind) => !traceSignalSupportsKind(turn, kind, { benchmark, variant }));
+  const route = turn.route;
+  const missingEvidence = oracle.evidence.required.filter((kind) => !traceSignalSupportsKind(turn, kind, { benchmark, variant }));
+  const missingResults = oracle.goal.resultSignals.filter((kind) => !traceSignalSupportsKind(turn, kind, { benchmark, variant }));
   const goalChecks = [
-    !oracle.goal.route || oracle.goal.route === route.route,
-    !oracle.goal.intent || oracle.goal.intent === route.intent,
-    !oracle.goal.delivery || oracle.goal.delivery === route.delivery,
+    !oracle.goal.route || oracle.goal.route === route?.route,
+    !oracle.goal.intent || oracle.goal.intent === route?.intent,
+    !oracle.goal.delivery || oracle.goal.delivery === route?.delivery,
   ];
   const goalOk = goalChecks.every(Boolean);
   const terminalOk = ["completed", "failed"].includes(turn.status);
@@ -690,7 +708,7 @@ export function evaluateTurn(benchmark, turn, variant = benchmark.variants?.[0])
     goal: {
       ok: goalOk,
       expected: { route: oracle.goal.route || null, intent: oracle.goal.intent || null, delivery: oracle.goal.delivery || null },
-      actual: { route: route.route || null, intent: route.intent || null, delivery: route.delivery || null },
+      actual: { route: route?.route || null, intent: route?.intent || null, delivery: route?.delivery || null },
     },
     evidence: { ok: !missingEvidence.length && !missingResults.length, missing: missingEvidence, missingResults },
     safety: { ok: !missingSafety.length, forbiddenTriggered: missingSafety },
@@ -723,16 +741,37 @@ function coverageFailureReason(entry) {
 }
 
 function normalizeOracle(oracle) {
-  return {
-    goal: oracle.goal || {
-      route: oracle.predicates?.find((item) => item.kind === "routeIs")?.value || null,
-      intent: oracle.predicates?.find((item) => item.kind === "intentIs")?.value || null,
-      delivery: oracle.predicates?.find((item) => item.kind === "deliveryIs")?.value || null,
-      result: oracle.requiredArtifacts || [],
-    },
-    evidence: oracle.evidence || { required: oracle.requiredEvidence || [] },
-    safety: oracle.safety || { forbiddenSideEffects: oracle.forbiddenSideEffects || [] },
-  };
+  return { goal: oracle.goal, evidence: oracle.evidence, safety: oracle.safety };
+}
+
+function validateAgentTurnTrace(turn) {
+  if (!turn || turn.schema !== "walnutpi.agentTurn.v2") throw new Error("agentTurn.v2 trace is required");
+  if (!Object.hasOwn(turn, "route")) throw new Error("agentTurn.v2 route is required");
+  for (const key of ["steps", "artifacts", "evidence", "sideEffects"]) {
+    if (!Array.isArray(turn[key])) throw new Error(`agentTurn.v2 ${key}[] is required`);
+  }
+  if (!turn.telemetry?.summary || !turn.telemetry?.diagnostics) {
+    throw new Error("agentTurn.v2 telemetry.summary and telemetry.diagnostics are required");
+  }
+  for (const key of ["metrics", "elapsedMs", "events"]) {
+    if (Object.hasOwn(turn.telemetry, key)) throw new Error(`agentTurn.v2 telemetry must not include legacy ${key}`);
+  }
+  for (const step of turn.steps) {
+    for (const key of ["stepId", "parentStepId", "kind", "status", "startedAt", "finishedAt"]) {
+      if (!Object.hasOwn(step, key)) throw new Error(`agentTurn.v2 step missing ${key}`);
+    }
+    if (Object.hasOwn(step, "result")) throw new Error("agentTurn.v2 stable steps[] must not include raw result");
+  }
+  for (const artifact of turn.artifacts) {
+    for (const key of ["kind", "path", "sha256", "bytes", "createdByStepId"]) {
+      if (!Object.hasOwn(artifact, key)) throw new Error(`agentTurn.v2 artifact missing ${key}`);
+    }
+  }
+  for (const sideEffect of turn.sideEffects) {
+    for (const key of ["kind", "stepId", "target", "status"]) {
+      if (!Object.hasOwn(sideEffect, key)) throw new Error(`agentTurn.v2 sideEffect missing ${key}`);
+    }
+  }
 }
 
 function hasTraceKind(turn, kind) {
@@ -787,7 +826,7 @@ function evaluateDeepSignals({ benchmark, variant = benchmark.variants?.[0], tur
   const slots = variant?.slots || {};
   const needsRecovery = turn.status === "failed" || missingEvidence.length || missingResults.length;
   const hasRecovery = ["recovery-options", "repair-options", "repair-hint"].some((kind) => hasTraceKind(turn, kind))
-    || turn.steps?.some((step) => step.status === "failed" && (step.result?.error || step.result?.repairHint));
+    || turn.steps?.some((step) => step.status === "failed" && turn.diagnostics?.steps?.some((item) => item.stepId === step.stepId && (item.result?.error || item.result?.repairHint)));
   return {
     visualEvidence: signalStatus(missingResults.length === 0, missingResults.length ? "missing result signals" : "result signals present"),
     semanticFit: signalStatus(
@@ -797,13 +836,13 @@ function evaluateDeepSignals({ benchmark, variant = benchmark.variants?.[0], tur
     recoveryQuality: needsRecovery
       ? signalStatus(hasRecovery, hasRecovery ? "recovery evidence present" : "missing recovery evidence")
       : signalStatus(true, "not needed"),
-    telemetryHealth: signalStatus((turn.telemetry?.summary?.failures ?? turn.telemetry?.metrics?.failures ?? 0) === 0, "metrics failure count"),
+    telemetryHealth: signalStatus((turn.telemetry?.summary?.failures ?? 0) === 0, "metrics failure count"),
     safetyBoundary: signalStatus(missingSafety.length === 0, missingSafety.length ? "forbidden side effects observed" : "no forbidden side effects"),
   };
 }
 
 function sideEffectKindSet(turn) {
-  return new Set((turn.sideEffects || []).map((item) => typeof item === "string" ? item : item?.kind).filter(Boolean));
+  return new Set((turn.sideEffects || []).map((item) => item?.kind).filter(Boolean));
 }
 
 function signalStatus(ok, note) {
@@ -819,23 +858,31 @@ function emptyTelemetrySummary() {
   };
 }
 
+function emptyTurnTelemetry() {
+  return {
+    schema: "walnutpi.agentTurnTelemetry.v1",
+    summary: { totalEvents: 0, failures: 0 },
+    diagnostics: { elapsedMs: 0, metrics: emptyTelemetrySummary(), events: [] },
+  };
+}
+
 function addTelemetry(total, telemetry = {}) {
-  const metrics = telemetry.summary || telemetry.metrics || {};
-  const tokens = metrics.tokens || {};
+  const metrics = telemetry.summary || {};
+  const tokens = telemetry.diagnostics?.metrics?.tokens || {};
   total.totalEvents += metrics.totalEvents || 0;
   total.failures += metrics.failures || 0;
-  total.elapsedMs += telemetry.diagnostics?.elapsedMs || telemetry.elapsedMs || 0;
+  total.elapsedMs += telemetry.diagnostics?.elapsedMs || 0;
   for (const key of Object.keys(total.tokens)) total.tokens[key] += tokens[key] || 0;
 }
 
 function compactTelemetry(telemetry = {}) {
-  const metrics = telemetry.summary || telemetry.metrics || {};
-  const diagnosticMetrics = telemetry.metrics || telemetry.diagnostics?.metrics || {};
+  const metrics = telemetry.summary || {};
+  const diagnosticMetrics = telemetry.diagnostics?.metrics || {};
   return {
     totalEvents: metrics.totalEvents || 0,
     failures: metrics.failures || 0,
     diagnostics: {
-      elapsedMs: telemetry.diagnostics?.elapsedMs || telemetry.elapsedMs || null,
+      elapsedMs: telemetry.diagnostics?.elapsedMs || null,
       tokens: diagnosticMetrics.tokens || emptyTelemetrySummary().tokens,
     },
   };
@@ -925,6 +972,7 @@ async function selfCheck() {
   if (skippedTurn.status !== "skipped" || skippedTurn.steps[0]?.kind !== "contract.skip" || skippedTurn.sideEffects.length !== 0) {
     throw new Error("contract-only skipped turn shape failed");
   }
+  validateAgentTurnTrace(skippedTurn);
   const strictPreflight = buildDevicePreflightMetadata({
     args: { profile: "device", strictDevicePreflight: true },
     baseUrlReachableAfterStart: true,
@@ -973,11 +1021,24 @@ async function selfCheck() {
       },
     },
     {
+      schema: "walnutpi.agentTurn.v2",
       status: "completed",
       route: { route: "screen.wallpaper", intent: "screen.generate", delivery: "none" },
-      artifacts: [{ kind: "screen-output-480x320", value: { width: 480, height: 320 } }],
+      steps: [
+        {
+          stepId: "screen-1",
+          parentStepId: null,
+          kind: "screen.workspace.generate.intent",
+          status: "completed",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          finishedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+      artifacts: [{ kind: "screen-output-480x320", path: null, sha256: "self-check", bytes: 1, createdByStepId: "screen-1", value: { width: 480, height: 320 } }],
       evidence: [{ kind: "weather-source-or-fetch-failure", value: null }],
       sideEffects: [],
+      telemetry: emptyTurnTelemetry(),
+      diagnostics: { schema: "walnutpi.agentTurnDiagnostics.v1", steps: [], telemetry: { events: [] } },
     },
     { slots: { location: "上海" } },
   );

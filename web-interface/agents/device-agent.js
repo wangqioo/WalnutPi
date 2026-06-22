@@ -50,7 +50,7 @@ export function createDeviceAgent() {
       await ctx.updateTurnTrace();
       await ctx.emitStepDone();
       if (!ok) await ctx.emitTurnDone();
-      return { ok, status: actionResult.status || 500, stepId: ctx.step.id, stepResult: ctx.step.result };
+      return { ok, status: actionResult.status || 500, stepId: ctx.step.id, stepResult: ctx.stepResult() };
     },
   };
 }

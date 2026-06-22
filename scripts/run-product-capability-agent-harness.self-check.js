@@ -17,19 +17,51 @@ const notesBenchmark = {
   variants: [{ slots: { delivery: "preview-only" } }],
 };
 
-const emptyEvidence = evaluateTurn(notesBenchmark, {
+function trace(value = {}) {
+  const now = "2026-01-01T00:00:00.000Z";
+  return {
+    ...value,
+    schema: "walnutpi.agentTurn.v2",
+    steps: (value.steps || []).map((step, index) => ({
+      stepId: step.stepId || step.id || `step-${index}`,
+      parentStepId: step.parentStepId ?? null,
+      kind: step.kind,
+      status: step.status || "completed",
+      startedAt: step.startedAt || now,
+      finishedAt: step.finishedAt || now,
+      ...(step.action ? { action: step.action } : {}),
+    })),
+    artifacts: (value.artifacts || []).map((artifact, index) => ({
+      kind: artifact.kind,
+      path: artifact.path ?? null,
+      sha256: artifact.sha256 || `self-check-${index}`,
+      bytes: artifact.bytes || 1,
+      createdByStepId: artifact.createdByStepId || "step-0",
+      value: artifact.value,
+    })),
+    evidence: value.evidence || [],
+    sideEffects: value.sideEffects || [],
+    telemetry: value.telemetry?.summary ? value.telemetry : {
+      schema: "walnutpi.agentTurnTelemetry.v1",
+      summary: { totalEvents: 0, failures: 0 },
+      diagnostics: { elapsedMs: 0, metrics: { tokens: { input: 0, output: 0, total: 0, cached: 0, reasoning: 0 } }, events: [] },
+    },
+    diagnostics: value.diagnostics || { schema: "walnutpi.agentTurnDiagnostics.v1", steps: [], telemetry: { events: [] } },
+  };
+}
+
+const emptyEvidence = evaluateTurn(notesBenchmark, trace({
   status: "completed",
   route: { route: "memory.notes", intent: "device.notes.read", delivery: "none" },
   steps: [{ kind: "intent.classify" }],
   artifacts: [{ kind: "notes-read-result" }],
   evidence: [{ kind: "intent-route" }, { kind: "agentTurn-step" }],
   sideEffects: [],
-  telemetry: { metrics: { totalEvents: 1, failures: 0, tokens: { total: 7 } } },
-});
+}));
 assert.equal(emptyEvidence.verdict, "needs_review");
 assert.deepEqual(emptyEvidence.evidence.missingResults, ["notes-read-result"]);
 
-const pass = evaluateTurn(notesBenchmark, {
+const pass = evaluateTurn(notesBenchmark, trace({
   status: "completed",
   route: { route: "memory.notes", intent: "device.notes.read", delivery: "none" },
   steps: [{ kind: "intent.classify" }],
@@ -39,31 +71,54 @@ const pass = evaluateTurn(notesBenchmark, {
     { kind: "agentTurn-step", value: { kind: "intent.classify", status: "completed" } },
   ],
   sideEffects: [],
-  telemetry: { metrics: { totalEvents: 1, failures: 0, tokens: { total: 7 } } },
-});
+}));
 assert.equal(pass.verdict, "pass");
 assert.equal(pass.signals.visualEvidence.status, "ok");
 
-const fail = evaluateTurn(notesBenchmark, {
+const fail = evaluateTurn(notesBenchmark, trace({
   status: "completed",
   route: { route: "screen.wallpaper", intent: "screen.generate", delivery: "none" },
   steps: [],
   evidence: [{ kind: "intent-route" }],
   sideEffects: [{ kind: "daily-note-write", stepId: "note-1", target: "daily-note", status: "observed" }],
-});
+}));
 assert.equal(fail.verdict, "needs_review");
 assert.equal(fail.goal.ok, false);
 assert.deepEqual(fail.evidence.missing, ["agentTurn-step"]);
 assert.deepEqual(fail.safety.forbiddenTriggered, ["daily-note-write"]);
 assert.deepEqual(fail.evidence.missingResults, ["notes-read-result"]);
 
-const queued = evaluateTurn({ oracle: { goal: {}, evidence: { required: [] }, safety: { forbiddenSideEffects: [] } }, variants: [{}] }, {
+const queued = evaluateTurn({ oracle: { goal: { resultSignals: [] }, evidence: { required: [] }, safety: { forbiddenSideEffects: [] } }, variants: [{}] }, trace({
   status: "queued",
+  route: null,
   steps: [],
   evidence: [],
   sideEffects: [],
-});
+}));
 assert.equal(queued.verdict, "needs_review");
+
+assert.throws(
+  () => evaluateTurn(notesBenchmark, { status: "completed", route: null, steps: [], artifacts: [], evidence: [], sideEffects: [], telemetry: trace().telemetry }),
+  /agentTurn\.v2 trace is required/,
+);
+assert.throws(
+  () => evaluateTurn({ oracle: { predicates: [], evidence: { required: [] }, safety: { forbiddenSideEffects: [] } } }, trace({ route: null })),
+  /oracle\.goal must be an object/,
+);
+const legacyStepTrace = trace({ route: null, steps: [{ kind: "intent.classify" }] });
+legacyStepTrace.steps[0].result = { ok: true };
+assert.throws(
+  () => evaluateTurn(notesBenchmark, legacyStepTrace),
+  /stable steps\[\] must not include raw result/,
+);
+assert.throws(
+  () => evaluateTurn(notesBenchmark, trace({ route: null, telemetry: { summary: { totalEvents: 0, failures: 0 }, diagnostics: {}, metrics: {} } })),
+  /legacy metrics/,
+);
+assert.throws(
+  () => evaluateTurn(notesBenchmark, trace({ route: null, sideEffects: ["device-write"] })),
+  /sideEffect missing kind/,
+);
 
 const replanBenchmark = {
   id: "V1-25",
@@ -74,7 +129,7 @@ const replanBenchmark = {
   },
   variants: [{ id: "zh-main", slots: { mode: "observation-replan", continuation: "read-only" } }],
 };
-const replanPass = evaluateTurn(replanBenchmark, {
+const replanPass = evaluateTurn(replanBenchmark, trace({
   status: "completed",
   route: { route: "ai.chat", intent: "device.observe", delivery: "none" },
   steps: [{ kind: "intent.classify" }, { kind: "action.read" }],
@@ -84,7 +139,7 @@ const replanPass = evaluateTurn(replanBenchmark, {
     { kind: "replan-evidence", value: { proposedTasks: [{ action: "status" }], safeAutoContinue: [{ action: "status" }], blockedTasks: [] } },
   ],
   sideEffects: [],
-});
+}));
 assert.equal(replanPass.verdict, "pass");
 
 const policyMismatch = evaluateTurn({
@@ -94,17 +149,17 @@ const policyMismatch = evaluateTurn({
     safety: { forbiddenSideEffects: [] },
   },
   variants: [{}],
-}, {
+}, trace({
   status: "completed",
   route: { route: "device.action", intent: "device.i2c.read", delivery: "none" },
   steps: [{ kind: "action.run", status: "completed", action: "i2c_scan" }],
   evidence: [{ kind: "action-policy-id", value: "wrong_action" }],
   sideEffects: [],
-});
+}));
 assert.equal(policyMismatch.verdict, "needs_review");
 assert.deepEqual(policyMismatch.evidence.missing, ["action-policy-id"]);
 
-const replanDanger = evaluateTurn(replanBenchmark, {
+const replanDanger = evaluateTurn(replanBenchmark, trace({
   status: "completed",
   route: { route: "ai.chat", intent: "device.observe", delivery: "none" },
   steps: [{ kind: "intent.classify" }],
@@ -115,17 +170,17 @@ const replanDanger = evaluateTurn(replanBenchmark, {
     { kind: "replan-evidence", value: { proposedTasks: [{ action: "reboot" }], safeAutoContinue: [{ action: "reboot" }], blockedTasks: [] } },
   ],
   sideEffects: [],
-});
+}));
 assert.equal(replanDanger.verdict, "needs_review");
 assert.deepEqual(replanDanger.evidence.missing, ["replan-evidence"]);
 
-const replanFail = evaluateTurn(replanBenchmark, {
+const replanFail = evaluateTurn(replanBenchmark, trace({
   status: "completed",
   route: { route: "ai.chat", intent: "device.observe", delivery: "none" },
   steps: [{ kind: "intent.classify" }],
   evidence: [{ kind: "intent-route" }],
   sideEffects: [],
-});
+}));
 assert.equal(replanFail.verdict, "needs_review");
 assert.deepEqual(replanFail.evidence.missing, ["replan-evidence"]);
 assert.deepEqual(replanFail.evidence.missingResults, ["multi-step-loop"]);

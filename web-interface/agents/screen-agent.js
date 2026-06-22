@@ -80,7 +80,7 @@ export function createScreenAgent({ readPlaylistEnvelope } = {}) {
         const playlistHash = body.playlistHash || await readCurrentPlaylistHash(readPlaylistEnvelope);
         if (!playlistHash) {
           ctx.setPending("missing current playlist hash");
-          return { ok: true, status: 200, stepId: ctx.step.id, stepResult: ctx.step.result };
+          return { ok: true, status: 200, stepId: ctx.step.id, stepResult: ctx.stepResult() };
         }
         return ctx.queueTask(() =>
           ctx.syncScreen({ playlistHash, evidenceMode: body.evidenceMode, sessionId, turnId: turn.turnId }),
@@ -89,7 +89,7 @@ export function createScreenAgent({ readPlaylistEnvelope } = {}) {
 
       // Unrecognised screen task → pending
       ctx.setPending("missing prerequisites for screen task");
-      return { ok: true, status: 200, stepId: ctx.step.id, stepResult: ctx.step.result };
+      return { ok: true, status: 200, stepId: ctx.step.id, stepResult: ctx.stepResult() };
     },
   };
 }
