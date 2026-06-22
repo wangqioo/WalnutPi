@@ -80,6 +80,7 @@ type CaseSummary = JsonRecord & {
   skip?: JsonRecord | null;
   settled?: SettledTurn;
   evaluation?: EvaluationSummary;
+  repairTaskPath?: string | null;
 };
 type TelemetrySummary = {
   totalEvents: number;
@@ -99,6 +100,7 @@ type HarnessSummary = {
   skipped: { profileRequirements: number; contractOnly: number };
   concurrency: number;
   cases: CaseSummary[];
+  repairTasks: JsonRecord[];
 };
 type BenchmarkTask = {
   index: number;
@@ -159,6 +161,9 @@ async function runHarness({ args, baseUrl, preflightContext = {} }: { args: Harn
   const devicePreflight = await collectDevicePreflightMetadata({ args, baseUrl, ...preflightContext });
   const preflightPath = path.join(outDir, "device-preflight.json");
   await writeJson(preflightPath, devicePreflight);
+  const deviceRegression = buildDeviceRegressionManifest({ cases, args, runId });
+  const deviceRegressionPath = path.join(outDir, "device-regression.json");
+  await writeJson(deviceRegressionPath, deviceRegression);
   if (devicePreflight.includeDevice || devicePreflight.profile === "device") {
     console.error(`[device-preflight] ${JSON.stringify(compactDevicePreflightForConsole(devicePreflight))}`);
   }
@@ -178,12 +183,15 @@ async function runHarness({ args, baseUrl, preflightContext = {} }: { args: Harn
     environment: {
       devicePreflight,
       devicePreflightPath: path.relative(root, preflightPath).replaceAll("\\", "/"),
+      deviceRegression,
+      deviceRegressionPath: path.relative(root, deviceRegressionPath).replaceAll("\\", "/"),
     },
     startedAt: new Date().toISOString(),
     telemetry: emptyTelemetrySummary(),
     skipped: { profileRequirements: 0, contractOnly: 0 },
     concurrency: effectiveConcurrency(args),
     cases: [],
+    repairTasks: [],
   };
 
   const tasks = buildBenchmarkTasks({ cases, args, runId });
@@ -200,6 +208,15 @@ async function runHarness({ args, baseUrl, preflightContext = {} }: { args: Harn
     if (result.telemetry) addTelemetry(summary.telemetry, result.telemetry);
     summary.cases.push(result.caseSummary);
   }
+  summary.repairTasks = summary.cases
+    .filter((entry) => entry.repairTaskPath)
+    .map((entry) => ({
+      caseId: entry.caseId,
+      variantId: entry.variantId,
+      verdict: entry.verdict,
+      reason: coverageFailureReason(entry),
+      repairTaskPath: entry.repairTaskPath,
+    }));
 
   summary.finishedAt = new Date().toISOString();
   await writeJson(path.join(outDir, "summary.json"), summary);
@@ -232,6 +249,7 @@ function buildBenchmarkTasks({ cases, args = {}, runId }: { cases: BenchmarkCase
 async function runBenchmarkTask({ task, args, baseUrl, runId, turnDir }: { task: BenchmarkTask; args: HarnessArgs; baseUrl: string; runId: string; turnDir: string }): Promise<BenchmarkTaskResult> {
   const { benchmark, variant, sessionId } = task;
   const artifactBase = path.join(turnDir, `${safeId(benchmark.id)}-${safeId(variant.id)}`);
+  const runRoot = path.dirname(turnDir);
   const profileSkip = profileSkipReason(benchmark, args);
   if (profileSkip) {
     const turn = skippedProfileTurn({ benchmark, variant, runId, sessionId, profile: effectiveProfile(args), reason: profileSkip });
@@ -290,6 +308,20 @@ async function runBenchmarkTask({ task, args, baseUrl, runId, turnDir }: { task:
     artifactDir: path.join(turnDir, "artifacts", `${safeId(benchmark.id)}-${safeId(variant.id)}`),
   });
   const evaluation = evaluateTurn(benchmark, turn, variant);
+  const repairTaskPath = await maybeWriteRepairTask({
+    benchmark,
+    variant,
+    sessionId,
+    runId,
+    profile: effectiveProfile(args),
+    turn,
+    evaluation,
+    settled,
+    turnPath,
+    initialTurnPath,
+    artifactDir: extractedArtifactDir,
+    repairDir: path.join(runRoot, "repair-tasks"),
+  });
   return {
     index: task.index,
     telemetry: turn.telemetry,
@@ -303,8 +335,77 @@ async function runBenchmarkTask({ task, args, baseUrl, runId, turnDir }: { task:
       initialTurnPath,
       turnPath,
       artifactDir: extractedArtifactDir,
+      repairTaskPath,
     }),
   };
+}
+
+async function maybeWriteRepairTask({
+  benchmark,
+  variant,
+  sessionId,
+  runId,
+  profile,
+  turn,
+  evaluation,
+  settled,
+  turnPath,
+  initialTurnPath,
+  artifactDir,
+  repairDir,
+}: {
+  benchmark: BenchmarkCase;
+  variant: BenchmarkVariant;
+  sessionId: string;
+  runId: string;
+  profile: HarnessProfile;
+  turn: AgentTurn;
+  evaluation: EvaluationSummary;
+  settled: SettledTurn;
+  turnPath: string;
+  initialTurnPath?: string | null;
+  artifactDir?: string | null;
+  repairDir: string;
+}): Promise<string | null> {
+  const caseSummary = summaryCase({
+    benchmark,
+    variant,
+    sessionId,
+    turn,
+    evaluation,
+    settled,
+    turnPath,
+    initialTurnPath,
+    artifactDir,
+  });
+  if (!shouldCreateRepairTask(caseSummary)) return null;
+  const id = `${safeId(benchmark.id)}-${safeId(variant.id)}`;
+  const jsonPath = path.join(repairDir, `${id}.json`);
+  const mdPath = path.join(repairDir, `${id}.md`);
+  const task = buildCodexRepairTask({
+    benchmark,
+    variant,
+    sessionId,
+    runId,
+    profile,
+    turn,
+    evaluation,
+    settled,
+    turnPath,
+    initialTurnPath,
+    artifactDir,
+    mdPath,
+  });
+  await writeJson(jsonPath, task);
+  await mkdir(path.dirname(mdPath), { recursive: true });
+  await writeFile(mdPath, renderCodexRepairTaskMarkdown(task));
+  return path.relative(root, jsonPath).replaceAll("\\", "/");
+}
+
+function shouldCreateRepairTask(entry: CaseSummary): boolean {
+  if (!["runnable", "device-gated"].includes(String(entry.runnerStatus || ""))) return false;
+  if (entry.skip?.kind === "profile-requirements") return false;
+  return entry.verdict !== "pass" || entry.settled?.ok === false;
 }
 
 async function exportTurnIntermediateArtifacts({ turn, artifactDir }: { turn: AgentTurn; artifactDir: string }): Promise<string | null> {
@@ -615,6 +716,32 @@ function compactDevicePreflightForConsole(metadata: DevicePreflightMetadata) {
   };
 }
 
+function buildDeviceRegressionManifest({ cases, args = {}, runId }: { cases: BenchmarkCase[]; args?: HarnessArgs; runId: string }) {
+  const profile = effectiveProfile(args);
+  const deviceCases = cases
+    .filter((benchmark) => benchmark.requirements?.device || benchmark.runnerStatus === "device-gated")
+    .map((benchmark) => ({
+      caseId: benchmark.id || null,
+      title: benchmark.title || null,
+      runnerStatus: benchmark.runnerStatus || null,
+      requirements: benchmark.requirements || null,
+      variantIds: variantsForCase(benchmark, args).map((variant) => variant.id || "default"),
+      execution: profile === "device" || args.includeDevice ? "included" : "profile-skip",
+      requiredEvidence: benchmark.oracle?.evidence?.required || [],
+      resultSignals: benchmark.oracle?.goal?.resultSignals || [],
+      forbiddenSideEffects: benchmark.oracle?.safety?.forbiddenSideEffects || [],
+    }));
+  return {
+    schema: "walnutpi.deviceRegressionManifest.v1",
+    runId,
+    profile,
+    fixedRegressionRole: "device profile is the live WalnutPi regression environment for sync, delivery, activation, service state, frame evidence, and capture evidence",
+    includedInThisRun: profile === "device" || Boolean(args.includeDevice),
+    cases: deviceCases,
+    recommendedCommand: "bun run bench:product -- --profile device --concurrency 1 --strict-device-preflight",
+  };
+}
+
 async function postJson(url: string, body: JsonRecord): Promise<AgentTurn> {
   const response = await fetch(url, {
     method: "POST",
@@ -893,7 +1020,7 @@ function skippedProfileTurn({ benchmark, variant, runId, sessionId = runId, prof
   };
 }
 
-function summaryCase({ benchmark, variant, sessionId = null, turn, evaluation, settled, turnPath, initialTurnPath = null, artifactDir = null }: { benchmark: BenchmarkCase; variant: BenchmarkVariant; sessionId?: string | null; turn: AgentTurn; evaluation: EvaluationSummary; settled: SettledTurn; turnPath: string; initialTurnPath?: string | null; artifactDir?: string | null }): CaseSummary {
+function summaryCase({ benchmark, variant, sessionId = null, turn, evaluation, settled, turnPath, initialTurnPath = null, artifactDir = null, repairTaskPath = null }: { benchmark: BenchmarkCase; variant: BenchmarkVariant; sessionId?: string | null; turn: AgentTurn; evaluation: EvaluationSummary; settled: SettledTurn; turnPath: string; initialTurnPath?: string | null; artifactDir?: string | null; repairTaskPath?: string | null }): CaseSummary {
   return {
     caseId: benchmark.id,
     variantId: variant.id,
@@ -912,9 +1039,147 @@ function summaryCase({ benchmark, variant, sessionId = null, turn, evaluation, s
     initialTurnPath: initialTurnPath ? path.relative(root, initialTurnPath).replaceAll("\\", "/") : null,
     turnPath: path.relative(root, turnPath).replaceAll("\\", "/"),
     artifactDir,
+    repairTaskPath,
     sideEffects: turn.sideEffects || [],
     telemetry: compactTelemetry(turn.telemetry),
   };
+}
+
+function buildCodexRepairTask({
+  benchmark,
+  variant,
+  sessionId,
+  runId,
+  profile,
+  turn,
+  evaluation,
+  settled,
+  turnPath,
+  initialTurnPath,
+  artifactDir,
+  mdPath,
+}: {
+  benchmark: BenchmarkCase;
+  variant: BenchmarkVariant;
+  sessionId: string;
+  runId: string;
+  profile: HarnessProfile;
+  turn: AgentTurn;
+  evaluation: EvaluationSummary;
+  settled: SettledTurn;
+  turnPath: string;
+  initialTurnPath?: string | null;
+  artifactDir?: string | null;
+  mdPath: string;
+}) {
+  const relativeTurnPath = path.relative(root, turnPath).replaceAll("\\", "/");
+  const relativeInitialTurnPath = initialTurnPath ? path.relative(root, initialTurnPath).replaceAll("\\", "/") : null;
+  const relativeMarkdownPath = path.relative(root, mdPath).replaceAll("\\", "/");
+  const reason = coverageFailureReason({
+    caseId: benchmark.id,
+    variantId: variant.id,
+    runnerStatus: benchmark.runnerStatus,
+    verdict: evaluation.verdict,
+    settled,
+    evaluation,
+  });
+  return {
+    schema: "walnutpi.codexRepairTask.v1",
+    id: `${safeId(benchmark.id)}-${safeId(variant.id)}`,
+    createdAt: new Date().toISOString(),
+    run: { runId, profile, sessionId },
+    benchmark: {
+      id: benchmark.id,
+      title: benchmark.title || null,
+      suite: benchmark.suite || "main",
+      caseKind: benchmark.caseKind || "positive",
+      runnerStatus: benchmark.runnerStatus || null,
+      requirements: benchmark.requirements || null,
+      variant: {
+        id: variant.id || null,
+        input: variant.input || null,
+        slots: variant.slots || {},
+      },
+    },
+    failure: {
+      verdict: evaluation.verdict,
+      reason,
+      settled,
+      goal: evaluation.goal || null,
+      evidence: evaluation.evidence || null,
+      safety: evaluation.safety || null,
+      signals: evaluation.signals || null,
+      modelParticipation: evaluation.modelParticipation || null,
+    },
+    evidencePackage: {
+      turnPath: relativeTurnPath,
+      initialTurnPath: relativeInitialTurnPath,
+      artifactDir,
+      markdownPath: relativeMarkdownPath,
+      loopPlan: turn.loop?.plan || null,
+      loopTurns: turn.loop?.turns || [],
+      diagnosticsCount: {
+        steps: turn.diagnostics?.steps?.length || 0,
+        loopModel: turn.diagnostics?.loopModel?.length || 0,
+      },
+    },
+    codexBoundary: {
+      role: "repair-executor",
+      mayEditRepository: true,
+      productLoopRole: "runtime-feedback-environment",
+      harnessRole: "benchmark-feedback-environment",
+      mustNotMoveCodeEditingIntoProductLoop: true,
+    },
+    suggestedCommands: repairVerificationCommands(benchmark, variant, profile),
+  };
+}
+
+function renderCodexRepairTaskMarkdown(task: JsonRecord): string {
+  const commands = (task.suggestedCommands || []).map((command) => `- \`${command}\``).join("\n");
+  return [
+    `# Codex Repair Task: ${task.benchmark.id}/${task.benchmark.variant.id}`,
+    "",
+    `Reason: ${task.failure.reason}`,
+    "",
+    "## Boundary",
+    "",
+    "- Codex is the repository repair executor.",
+    "- Product loop is the runtime feedback environment.",
+    "- Benchmark harness is the regression feedback environment.",
+    "- Do not add repository editing behavior to the product loop.",
+    "",
+    "## Evidence",
+    "",
+    `- Turn trace: \`${task.evidencePackage.turnPath}\``,
+    task.evidencePackage.initialTurnPath ? `- Initial queued trace: \`${task.evidencePackage.initialTurnPath}\`` : null,
+    task.evidencePackage.artifactDir ? `- Intermediate artifacts: \`${task.evidencePackage.artifactDir}\`` : null,
+    "",
+    "## Failure",
+    "",
+    "```json",
+    JSON.stringify(task.failure, null, 2),
+    "```",
+    "",
+    "## Verification",
+    "",
+    commands || "- `bun run check`",
+    "",
+  ].filter((line) => line !== null).join("\n");
+}
+
+function repairVerificationCommands(benchmark: BenchmarkCase, variant: BenchmarkVariant, profile: HarnessProfile): string[] {
+  const commands = [
+    "bun run check",
+    "bun scripts/run-product-capability-agent-harness.self-check.ts",
+  ];
+  const caseId = benchmark.id ? ` --case-id ${benchmark.id}` : "";
+  const profileArg = ` --profile ${profile}`;
+  const variantArg = variant?.id ? " --first-variant" : "";
+  commands.push(`bun run bench:product --${profileArg}${caseId} --concurrency 1${variantArg}`);
+  if (benchmark.requirements?.device || profile === "device") {
+    commands.push(`bun run bench:product -- --profile device${caseId} --concurrency 1 --strict-device-preflight`);
+  }
+  return commands;
 }
 
 function safeId(value: any): string {
@@ -983,9 +1248,13 @@ export function currentRunCoverageFailures(summary: { cases?: CaseSummary[] }) {
 function coverageFailureReason(entry: CaseSummary): string {
   if (entry.settled?.ok === false) return `turn did not settle from ${entry.settled.initialStatus || "unknown"}`;
   const missing = [
+    ...(entry.evaluation?.goal?.ok === false ? ["goal route/intent/delivery mismatch"] : []),
     ...(entry.evaluation?.evidence?.missing || []).map((kind) => `missing evidence ${kind}`),
     ...(entry.evaluation?.evidence?.missingResults || []).map((kind) => `missing result ${kind}`),
     ...(entry.evaluation?.safety?.forbiddenTriggered || []).map((kind) => `forbidden side effect ${kind}`),
+    ...Object.entries(entry.evaluation?.signals || {})
+      .filter(([, value]: [string, any]) => value?.status === "needs_review")
+      .map(([key, value]: [string, any]) => `${key}: ${value.note || "needs review"}`),
   ];
   if (missing.length) return missing.join("; ");
   return `verdict ${entry.verdict || "unknown"}`;
@@ -1053,8 +1322,36 @@ function evaluateDeepSignals({ benchmark, variant = benchmark.variants?.[0], tur
   const needsRecovery = turn.status === "failed" || missingEvidence.length || missingResults.length;
   const hasRecovery = ["recovery-options", "repair-options", "repair-hint"].some((kind) => hasTraceKind(turn, kind))
     || turn.steps?.some((step) => step.status === "failed" && turn.diagnostics?.steps?.some((item) => item.stepId === step.stepId && (item.result?.error || item.result?.repairHint)));
+  const artifactKinds = new Set((turn.artifacts || []).map((artifact) => artifact.kind));
+  const loopTurns = turn.loop?.turns || [];
+  const loopVetoes = loopTurns.flatMap((entry) => entry.vetoes || []);
+  const repeatedAutoContinuations = repeatedContinuationKeys(loopTurns);
+  const deviceEvidenceKinds = ["service-state", "frame-evidence", "sync-result", "runtime-assets", "delivery-manifest"];
+  const expectedDeviceEvidence = Boolean(benchmark.requirements?.device || oracle.evidence.required.some((kind) => deviceEvidenceKinds.includes(kind)));
+  const hasDeviceEvidence = deviceEvidenceKinds.some((kind) => traceSignalSupportsKind(turn, kind, { benchmark, variant }));
+  const requiredArtifactSignals = oracle.goal.resultSignals.filter((kind) => kind.includes("screen-output") || kind.includes("manifest") || kind.includes("playlist") || kind.includes("runtime-assets"));
+  const missingArtifactSignals = requiredArtifactSignals.filter((kind) => !artifactKinds.has(kind) && !traceSignalSupportsKind(turn, kind, { benchmark, variant }));
+  const maxTurns = Number(turn.loop?.maxTurns || 0);
+  const exhaustedBudget = maxTurns > 0 && loopTurns.length >= maxTurns && turn.loop?.status !== "completed";
   return {
     visualEvidence: signalStatus(missingResults.length === 0, missingResults.length ? "missing result signals" : "result signals present"),
+    stateDiff: signalStatus(
+      !expectedDeviceEvidence || hasDeviceEvidence,
+      expectedDeviceEvidence && !hasDeviceEvidence ? "missing live device state evidence" : "state evidence matches profile expectations",
+    ),
+    artifactDiff: signalStatus(
+      missingArtifactSignals.length === 0,
+      missingArtifactSignals.length ? `missing artifact signals: ${missingArtifactSignals.join(", ")}` : "artifact signals present",
+    ),
+    loopQuality: signalStatus(
+      !repeatedAutoContinuations.length && !loopVetoes.some((item) => item.reason === "model-proposed-task-without-action-candidate"),
+      repeatedAutoContinuations.length
+        ? `repeated auto continuations: ${repeatedAutoContinuations.join(", ")}`
+        : loopVetoes.some((item) => item.reason === "model-proposed-task-without-action-candidate")
+          ? "model proposed a task outside action candidates"
+          : "loop proposals stayed bounded",
+    ),
+    budget: signalStatus(!exhaustedBudget, exhaustedBudget ? "loop exhausted maxTurns before completion" : "loop stayed within turn budget"),
     semanticFit: signalStatus(
       !(slots.delivery === "preview-only" && (sideEffects.has("screen-sync") || sideEffects.has("device-write"))),
       "slot-level route/safety checks",
@@ -1065,6 +1362,17 @@ function evaluateDeepSignals({ benchmark, variant = benchmark.variants?.[0], tur
     telemetryHealth: signalStatus((turn.telemetry?.summary?.failures ?? 0) === 0, "metrics failure count"),
     safetyBoundary: signalStatus(missingSafety.length === 0, missingSafety.length ? "forbidden side effects observed" : "no forbidden side effects"),
   };
+}
+
+function repeatedContinuationKeys(loopTurns: JsonRecord[]): string[] {
+  const counts = new Map<string, number>();
+  for (const entry of loopTurns) {
+    for (const task of entry.autoContinuedTasks || []) {
+      const key = `${task.agent || ""}/${task.kind || ""}/${task.action || ""}`;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+  }
+  return [...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key);
 }
 
 function sideEffectKindSet(turn: AgentTurn): Set<string> {
@@ -1246,6 +1554,40 @@ async function selfCheck() {
   if (coverageFailures.length !== 1 || coverageFailures[0].caseId !== "V1-25") {
     throw new Error("current run coverage failures should surface failing runnable cases");
   }
+  const repairTask = buildCodexRepairTask({
+    benchmark: {
+      id: "V1-25",
+      title: "loop repair",
+      runnerStatus: "runnable",
+      requirements: { device: false, network: false, model: false, search: false },
+    },
+    variant: { id: "zh-main", input: "repair me", slots: {} },
+    sessionId: "self-check-session",
+    runId: "self-check",
+    profile: "offline",
+    turn: { loop: { plan: null, turns: [] }, diagnostics: { steps: [], loopModel: [] } },
+    evaluation: coverageFailures[0] ? {
+      verdict: "needs_review",
+      evidence: { missing: ["replan-evidence"], missingResults: [] },
+      safety: { forbiddenTriggered: [] },
+      signals: { loopQuality: signalStatus(false, "bounded loop failed") },
+    } : { verdict: "pass", evidence: { missing: [], missingResults: [] }, safety: { forbiddenTriggered: [] } },
+    settled: { ok: true, initialStatus: "completed", finalStatus: "completed" },
+    turnPath: path.join(root, "screen", "benchmark-runs", "self-check", "agent-turns", "v1-25.json"),
+    artifactDir: "screen/benchmark-runs/self-check/agent-turns/artifacts/v1-25",
+    mdPath: path.join(root, "screen", "benchmark-runs", "self-check", "repair-tasks", "v1-25.md"),
+  });
+  if (repairTask.schema !== "walnutpi.codexRepairTask.v1" || repairTask.codexBoundary.productLoopRole !== "runtime-feedback-environment") {
+    throw new Error("repair task should describe Codex as repair executor and product loop as feedback environment");
+  }
+  const deviceRegression = buildDeviceRegressionManifest({
+    cases: [{ id: "V1-06", title: "sync", runnerStatus: "device-gated", requirements: { device: true, network: false, model: false, search: false }, variants: [{ id: "zh-main" }], oracle: { evidence: { required: ["service-state"] }, goal: { resultSignals: ["frame-evidence"] }, safety: { forbiddenSideEffects: [] } } }],
+    args: { profile: "device" },
+    runId: "self-check",
+  });
+  if (!deviceRegression.includedInThisRun || deviceRegression.cases[0]?.execution !== "included") {
+    throw new Error("device regression manifest should include device profile cases");
+  }
   const fakeEvidence = evaluateTurn(
     {
       id: "V1-01",
@@ -1273,7 +1615,26 @@ async function selfCheck() {
       evidence: [{ kind: "weather-source-or-fetch-failure", value: null }],
       sideEffects: [],
       pendingNext: null,
-      loop: { schema: "walnutpi.agentLoop.v1", status: "completed", maxTurns: 4, turns: [] },
+      loop: {
+        schema: "walnutpi.agentLoop.v1",
+        status: "completed",
+        maxTurns: 4,
+        plan: {
+          schema: "walnutpi.agentTurnPlan.v1",
+          source: "router+action-replan",
+          initialTasks: [],
+          remainingTasks: [],
+          executedTasks: [],
+          currentTask: null,
+          stopCondition: "complete",
+          stopCriteria: ["all blocking evidence is present"],
+          evidencePlan: [{ evidenceId: "weather-source-or-fetch-failure", status: "planned", blocking: true }],
+          requiredEvidence: ["weather-source-or-fetch-failure"],
+          maxTurns: 4,
+          progress: { phase: "completed", completedSteps: 1, remainingTurns: 3, stopReason: "stop-condition-satisfied" },
+        },
+        turns: [],
+      },
       telemetry: emptyTurnTelemetry(),
       diagnostics: { schema: "walnutpi.agentTurnDiagnostics.v1", steps: [], telemetry: { events: [] } },
     },

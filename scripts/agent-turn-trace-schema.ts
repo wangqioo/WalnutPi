@@ -102,12 +102,31 @@ export function validateLoopV1(loop) {
 
 function validateLoopPlan(plan) {
   if (!plan || typeof plan !== "object" || Array.isArray(plan)) throw new Error("agentTurn.v2 loop.plan must be an object");
-  for (const key of ["schema", "source", "initialTasks", "stopCondition", "evidencePlan", "maxTurns"]) {
+  for (const key of ["schema", "source", "initialTasks", "remainingTasks", "executedTasks", "currentTask", "stopCondition", "stopCriteria", "evidencePlan", "requiredEvidence", "maxTurns", "progress"]) {
     if (!Object.hasOwn(plan, key)) throw new Error(`agentTurn.v2 loop.plan missing ${key}`);
   }
   if (plan.schema !== "walnutpi.agentTurnPlan.v1") throw new Error("agentTurn.v2 loop.plan schema is invalid");
   if (!Array.isArray(plan.initialTasks)) throw new Error("agentTurn.v2 loop.plan initialTasks[] is required");
+  if (!Array.isArray(plan.remainingTasks)) throw new Error("agentTurn.v2 loop.plan remainingTasks[] must be an array");
+  if (!Array.isArray(plan.executedTasks)) throw new Error("agentTurn.v2 loop.plan executedTasks[] must be an array");
+  if (!Array.isArray(plan.stopCriteria)) throw new Error("agentTurn.v2 loop.plan stopCriteria[] must be an array");
   if (!Array.isArray(plan.evidencePlan)) throw new Error("agentTurn.v2 loop.plan evidencePlan[] is required");
+  if (!Array.isArray(plan.requiredEvidence)) throw new Error("agentTurn.v2 loop.plan requiredEvidence[] must be an array");
+  validateLoopPlanProgress(plan.progress);
+  for (const entry of plan.evidencePlan) validateLoopPlanEvidence(entry);
+}
+
+function validateLoopPlanProgress(progress) {
+  if (!progress || typeof progress !== "object" || Array.isArray(progress)) throw new Error("agentTurn.v2 loop.plan progress must be an object");
+  if (typeof progress.phase !== "string" || !progress.phase) throw new Error("agentTurn.v2 loop.plan progress.phase is required");
+  if (!Number.isInteger(progress.completedSteps) || progress.completedSteps < 0) throw new Error("agentTurn.v2 loop.plan progress.completedSteps must be non-negative");
+  if (!Number.isInteger(progress.remainingTurns) || progress.remainingTurns < 0) throw new Error("agentTurn.v2 loop.plan progress.remainingTurns must be non-negative");
+}
+
+function validateLoopPlanEvidence(entry) {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("agentTurn.v2 loop.plan evidencePlan entry must be an object");
+  if (typeof entry.evidenceId !== "string" || !entry.evidenceId.trim()) throw new Error("agentTurn.v2 loop.plan evidencePlan evidenceId is required");
+  if (!["planned", "present", "missing", "blocked"].includes(entry.status)) throw new Error("agentTurn.v2 loop.plan evidencePlan status is invalid");
 }
 
 export function validatePendingNextV1(pendingNext) {

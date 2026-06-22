@@ -222,20 +222,24 @@ export async function runAgentTurn({
 async function runGoalLoop({ plan, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry, hooks, loopModelAdapter }: JsonObject) {
   const pending = [...plan];
   let stepTurns = 0;
+  updateLoopPlanProgress(turn, { pending, phase: "started" });
   while (pending.length) {
     const maxTurns = Number(turn.loop?.maxTurns || MAX_AGENT_LOOP_TURNS);
     if (stepTurns >= maxTurns) {
       await holdPendingTasks({ turn, tasks: pending.splice(0), reason: "max-turns", hooks });
       turn.loop.status = "blocked";
+      updateLoopPlanProgress(turn, { pending, phase: "blocked", stopReason: "max-turns" });
       await updateTurnTrace(turn, metricsLedger);
       return { ok: true, status: 200 };
     }
 
     const task = pending.shift();
+    updateLoopPlanProgress(turn, { pending, phase: "executing", currentTask: task });
     const result = await runTaskAgent({ task, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry, hooks });
     if (result.deferred || !result.ok) return result;
 
     stepTurns += 1;
+    updateLoopPlanProgress(turn, { pending, phase: "observed", currentTask: task, result });
     const decision = await evaluateLoopProgress({ result, scenario: turn.input.scenario, remainingTurns: maxTurns - stepTurns, text, turn, loopModelAdapter });
     turn.loop.turns.push({
       sourceStepId: result.stepId || null,
@@ -257,9 +261,11 @@ async function runGoalLoop({ plan, body, text, sessionId, turn, runAction, gener
       });
       pending.unshift(...decision.autoTasks);
     }
+    updateLoopPlanProgress(turn, { pending, phase: decision.judgment, decision });
     await updateTurnTrace(turn, metricsLedger);
   }
   turn.loop.status = turn.pendingNext ? "blocked" : "completed";
+  updateLoopPlanProgress(turn, { pending, phase: turn.loop.status, stopReason: turn.pendingNext ? "pending-next" : "stop-condition-satisfied" });
   await updateTurnTrace(turn, metricsLedger);
   return { ok: true, status: 200 };
 }
@@ -353,14 +359,70 @@ async function evaluateLoopProgress({ result, scenario, remainingTurns, text, tu
 }
 
 function buildInitialLoopPlan({ plan, scenario, loopModel }: JsonObject) {
+  const evidencePlan = (scenario?.requiredEvidence || []).map((evidenceId) => ({
+    evidenceId,
+    status: "planned",
+    blocking: true,
+  }));
   return {
     schema: "walnutpi.agentTurnPlan.v1",
     source: loopModel?.enabled ? "router+model-replan" : "router+action-replan",
     initialTasks: (plan || []).map((task) => compactTaskSignal(task)),
+    remainingTasks: (plan || []).map((task) => compactTaskSignal(task)),
+    executedTasks: [],
+    currentTask: null,
     stopCondition: "complete when required evidence is present or no new safe continuation is available",
-    evidencePlan: scenario?.requiredEvidence || [],
+    stopCriteria: [
+      "all blocking evidence is present",
+      "no new safe continuation is available",
+      "remaining turn budget is exhausted",
+      "policy blocks every proposed continuation",
+    ],
+    evidencePlan,
+    requiredEvidence: scenario?.requiredEvidence || [],
     maxTurns: MAX_AGENT_LOOP_TURNS,
+    progress: {
+      phase: "planned",
+      completedSteps: 0,
+      remainingTurns: MAX_AGENT_LOOP_TURNS,
+      stopReason: null,
+    },
   };
+}
+
+function updateLoopPlanProgress(turn, { pending = [], phase = "running", currentTask = null, result = null, decision = null, stopReason = null } = {}) {
+  const plan = turn.loop?.plan;
+  if (!plan) return;
+  const completedSteps = (turn.steps || []).filter((step) => step.status === "completed").length;
+  const maxTurns = Number(turn.loop?.maxTurns || plan.maxTurns || MAX_AGENT_LOOP_TURNS);
+  plan.remainingTasks = pending.map((task) => compactTaskSignal(task));
+  plan.executedTasks = (turn.steps || [])
+    .filter((step) => step.kind !== "intent.classify")
+    .map((step) => ({
+      stepId: step.stepId || step.id || null,
+      agent: step.agent || null,
+      kind: step.kind || null,
+      action: step.action || null,
+      status: step.status || null,
+    }));
+  plan.currentTask = currentTask ? compactTaskSignal(currentTask) : null;
+  plan.progress = {
+    phase,
+    completedSteps,
+    remainingTurns: Math.max(0, maxTurns - Math.max(0, completedSteps - 1)),
+    lastStepId: result?.stepId || null,
+    lastJudgment: decision?.judgment || null,
+    stopReason,
+  };
+  const evidenceKinds = new Set((turn.evidence || []).map((item) => item.kind));
+  plan.evidencePlan = (plan.evidencePlan || []).map((entry) => {
+    const evidenceId = typeof entry === "string" ? entry : entry.evidenceId;
+    return {
+      evidenceId,
+      status: evidenceKinds.has(evidenceId) ? "present" : "planned",
+      blocking: typeof entry === "object" && Object.hasOwn(entry, "blocking") ? Boolean(entry.blocking) : true,
+    };
+  });
 }
 
 async function resolveLoopProposal({ actionProposal, result, scenario, remainingTurns, text, turn, loopModelAdapter }: JsonObject) {
