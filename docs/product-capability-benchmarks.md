@@ -1278,7 +1278,7 @@ V1 只覆盖这些场景：
 
 ## 自动化建议
 
-默认自动化入口是 `bun run bench:product`。它读取 V2 JSONL 的 `requirements`、`goal`、`evidence`、`safety`，通过 `/api/agent/turn` 保存 `agentTurn.v2` trace，再做通用评估。默认会跑每个 case 的所有 variants；快速本地检查可以加 `--first-variant`。
+默认自动化入口是 `bun run bench:product`。它读取 V2 JSONL 的 `requirements`、`goal`、`evidence`、`safety`，通过 `/api/agent/turn` 保存 `agentTurn.v2` trace，再做通用评估。默认会跑每个 case 的所有 variants，并使用 bounded worker pool 并发执行，默认 `--concurrency 4`；需要复现串行顺序时可显式加 `--concurrency 1`。快速本地检查可以加 `--first-variant`。
 
 CI/offline 门禁入口是 `bun run bench:product:gate`。它固定以 offline profile 跑所有 variants，再用 `bun run bench:product:compare` 和已审核 baseline 比较。默认 baseline 路径是：
 

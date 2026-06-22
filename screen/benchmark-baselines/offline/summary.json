@@ -6,7 +6,7 @@
   "environment": {
     "devicePreflight": {
       "schema": "walnutpi.deviceBenchmarkPreflight.v1",
-      "checkedAt": "2026-06-21T17:45:20.548Z",
+      "checkedAt": "2026-06-22T10:43:08.068Z",
       "profile": "offline",
       "includeDevice": false,
       "strict": false,
@@ -89,7 +89,7 @@
     },
     "devicePreflightPath": "screen/benchmark-runs/baseline-offline/device-preflight.json"
   },
-  "startedAt": "2026-06-21T17:45:20.554Z",
+  "startedAt": "2026-06-22T10:43:08.071Z",
   "telemetry": {
     "totalEvents": 14,
     "failures": 0,
@@ -100,16 +100,18 @@
       "cached": 0,
       "reasoning": 0
     },
-    "elapsedMs": 26260
+    "elapsedMs": 44470
   },
   "skipped": {
     "profileRequirements": 8,
     "contractOnly": 36
   },
+  "concurrency": 4,
   "cases": [
     {
       "caseId": "V1-01",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-01-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -168,6 +170,7 @@
     {
       "caseId": "V1-01",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-01-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -226,6 +229,7 @@
     {
       "caseId": "V1-01",
       "variantId": "mixed-alt",
+      "sessionId": "baseline-offline-v1-01-mixed-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -284,6 +288,7 @@
     {
       "caseId": "V1-02",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-02-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -342,6 +347,7 @@
     {
       "caseId": "V1-02",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-02-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -400,6 +406,7 @@
     {
       "caseId": "V1-03",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-03-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -451,6 +458,7 @@
     {
       "caseId": "V1-03",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-03-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -502,6 +510,7 @@
     {
       "caseId": "V1-04",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-04-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -572,7 +581,7 @@
       "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-04-zh-main.json",
       "sideEffects": [],
       "telemetry": {
-        "elapsedMs": 8940,
+        "elapsedMs": 11018,
         "totalEvents": 2,
         "failures": 0,
         "tokens": {
@@ -587,6 +596,7 @@
     {
       "caseId": "V1-04",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-04-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -657,7 +667,7 @@
       "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-04-zh-alt.json",
       "sideEffects": [],
       "telemetry": {
-        "elapsedMs": 4806,
+        "elapsedMs": 8965,
         "totalEvents": 2,
         "failures": 0,
         "tokens": {
@@ -672,6 +682,7 @@
     {
       "caseId": "V1-04",
       "variantId": "mixed-alt",
+      "sessionId": "baseline-offline-v1-04-mixed-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -742,7 +753,7 @@
       "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-04-mixed-alt.json",
       "sideEffects": [],
       "telemetry": {
-        "elapsedMs": 4718,
+        "elapsedMs": 13044,
         "totalEvents": 2,
         "failures": 0,
         "tokens": {
@@ -757,6 +768,7 @@
     {
       "caseId": "V1-05",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-05-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -808,6 +820,7 @@
     {
       "caseId": "V1-05",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-05-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -859,6 +872,7 @@
     {
       "caseId": "V1-06",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-06-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -917,6 +931,7 @@
     {
       "caseId": "V1-07",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-07-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -975,6 +990,7 @@
     {
       "caseId": "V1-07",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-07-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1033,6 +1049,7 @@
     {
       "caseId": "V1-08",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-08-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1084,6 +1101,7 @@
     {
       "caseId": "V1-08",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-08-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1135,6 +1153,7 @@
     {
       "caseId": "V1-09",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-09-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1186,6 +1205,7 @@
     {
       "caseId": "V1-09",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-09-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1237,6 +1257,7 @@
     {
       "caseId": "V1-10",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-10-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1288,6 +1309,7 @@
     {
       "caseId": "V1-10",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-10-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1339,6 +1361,7 @@
     {
       "caseId": "V1-11",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-11-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1390,6 +1413,7 @@
     {
       "caseId": "V1-11",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-11-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1441,6 +1465,7 @@
     {
       "caseId": "V1-12",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-12-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1492,6 +1517,7 @@
     {
       "caseId": "V1-12",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-12-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1543,6 +1569,7 @@
     {
       "caseId": "V1-13",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-13-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1594,6 +1621,7 @@
     {
       "caseId": "V1-13",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-13-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1645,6 +1673,7 @@
     {
       "caseId": "V1-14",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-14-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1696,6 +1725,7 @@
     {
       "caseId": "V1-14",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-14-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1747,6 +1777,7 @@
     {
       "caseId": "V1-15",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-15-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1798,6 +1829,7 @@
     {
       "caseId": "V1-15",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-15-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1849,6 +1881,7 @@
     {
       "caseId": "V1-16",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-16-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1900,6 +1933,7 @@
     {
       "caseId": "V1-16",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-16-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -1951,6 +1985,7 @@
     {
       "caseId": "V1-17",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-17-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2002,6 +2037,7 @@
     {
       "caseId": "V1-17",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-17-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2053,6 +2089,7 @@
     {
       "caseId": "V1-18",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-18-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2104,6 +2141,7 @@
     {
       "caseId": "V1-18",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-18-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2155,6 +2193,7 @@
     {
       "caseId": "V1-19",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-19-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2206,6 +2245,7 @@
     {
       "caseId": "V1-19",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-19-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2257,6 +2297,7 @@
     {
       "caseId": "V1-20",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-20-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2308,6 +2349,7 @@
     {
       "caseId": "V1-20",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-20-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2359,6 +2401,7 @@
     {
       "caseId": "V1-21",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-21-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2429,7 +2472,7 @@
       "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-21-zh-main.json",
       "sideEffects": [],
       "telemetry": {
-        "elapsedMs": 138,
+        "elapsedMs": 222,
         "totalEvents": 1,
         "failures": 0,
         "tokens": {
@@ -2444,6 +2487,7 @@
     {
       "caseId": "V1-21",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-21-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2514,7 +2558,7 @@
       "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-21-zh-alt.json",
       "sideEffects": [],
       "telemetry": {
-        "elapsedMs": 128,
+        "elapsedMs": 126,
         "totalEvents": 1,
         "failures": 0,
         "tokens": {
@@ -2529,6 +2573,7 @@
     {
       "caseId": "V1-22",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-22-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2580,6 +2625,7 @@
     {
       "caseId": "V1-22",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-22-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2631,6 +2677,7 @@
     {
       "caseId": "V1-23",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-23-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2682,6 +2729,7 @@
     {
       "caseId": "V1-23",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-23-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2733,6 +2781,7 @@
     {
       "caseId": "V1-24",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-24-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2784,6 +2833,7 @@
     {
       "caseId": "V1-24",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-24-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2835,6 +2885,7 @@
     {
       "caseId": "V1-25",
       "variantId": "zh-main",
+      "sessionId": "baseline-offline-v1-25-zh-main",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2905,7 +2956,7 @@
       "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-25-zh-main.json",
       "sideEffects": [],
       "telemetry": {
-        "elapsedMs": 5051,
+        "elapsedMs": 8581,
         "totalEvents": 3,
         "failures": 0,
         "tokens": {
@@ -2920,6 +2971,7 @@
     {
       "caseId": "V1-25",
       "variantId": "zh-alt",
+      "sessionId": "baseline-offline-v1-25-zh-alt",
       "suite": "main",
       "caseKind": "positive",
       "mutates": null,
@@ -2990,7 +3042,7 @@
       "turnPath": "screen/benchmark-runs/baseline-offline/agent-turns/v1-25-zh-alt.json",
       "sideEffects": [],
       "telemetry": {
-        "elapsedMs": 2479,
+        "elapsedMs": 2514,
         "totalEvents": 3,
         "failures": 0,
         "tokens": {
@@ -3003,5 +3055,5 @@
       }
     }
   ],
-  "finishedAt": "2026-06-21T17:45:46.988Z"
+  "finishedAt": "2026-06-22T10:43:21.159Z"
 }

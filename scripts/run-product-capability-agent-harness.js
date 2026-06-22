@@ -68,67 +68,23 @@ async function runHarness({ args, baseUrl, preflightContext = {} }) {
     startedAt: new Date().toISOString(),
     telemetry: emptyTelemetrySummary(),
     skipped: { profileRequirements: 0, contractOnly: 0 },
+    concurrency: effectiveConcurrency(args),
     cases: [],
   };
 
-  for (const benchmark of cases) {
-    for (const variant of variantsForCase(benchmark, args)) {
-      const profileSkip = profileSkipReason(benchmark, args);
-      if (profileSkip) {
-        const turn = skippedProfileTurn({ benchmark, variant, runId, profile: effectiveProfile(args), reason: profileSkip });
-        const turnPath = path.join(turnDir, `${safeId(benchmark.id)}-${safeId(variant.id)}.json`);
-        await writeJson(turnPath, turn);
-        summary.skipped.profileRequirements += 1;
-        summary.cases.push(summaryCase({
-          benchmark,
-          variant,
-          turn,
-          evaluation: { verdict: "skipped", evidence: { missing: [], missingResults: [] }, safety: { forbiddenTriggered: [] } },
-          settled: { ok: true, initialStatus: "skipped", finalStatus: "skipped" },
-          turnPath,
-        }));
-        continue;
-      }
-      if (shouldSkipHarnessExecution(benchmark)) {
-        const turn = skippedContractTurn({ benchmark, variant, runId });
-        const turnPath = path.join(turnDir, `${safeId(benchmark.id)}-${safeId(variant.id)}.json`);
-        await writeJson(turnPath, turn);
-        summary.skipped.contractOnly += 1;
-        summary.cases.push(summaryCase({
-          benchmark,
-          variant,
-          turn,
-          evaluation: { verdict: "skipped", evidence: { missing: [], missingResults: [] }, safety: { forbiddenTriggered: [] } },
-          settled: { ok: true, initialStatus: "skipped", finalStatus: "skipped" },
-          turnPath,
-        }));
-        continue;
-      }
-      const initialTurn = await postJson(`${baseUrl}/api/agent/turn`, {
-        text: variant.input,
-        sessionId: runId,
-        mode: "intent",
-      });
-      const { turn, settled } = await settleQueuedTurn({ baseUrl, sessionId: runId, initialTurn });
-      let initialTurnPath = null;
-      if (initialTurn.turnId && initialTurn.turnId === turn.turnId && initialTurn !== turn) {
-        initialTurnPath = path.join(turnDir, `${safeId(benchmark.id)}-${safeId(variant.id)}-initial.json`);
-        await writeJson(initialTurnPath, initialTurn);
-      }
-      const turnPath = path.join(turnDir, `${safeId(benchmark.id)}-${safeId(variant.id)}.json`);
-      await writeJson(turnPath, turn);
-      const evaluation = evaluateTurn(benchmark, turn, variant);
-      addTelemetry(summary.telemetry, turn.telemetry);
-      summary.cases.push(summaryCase({
-        benchmark,
-        variant,
-        turn,
-        evaluation,
-        settled,
-        initialTurnPath,
-        turnPath,
-      }));
-    }
+  const tasks = buildBenchmarkTasks({ cases, args, runId });
+  const results = await runWorkerPool(tasks, summary.concurrency, (task) => runBenchmarkTask({
+    task,
+    args,
+    baseUrl,
+    runId,
+    turnDir,
+  }));
+  for (const result of results) {
+    if (result.skipKind === "profile-requirements") summary.skipped.profileRequirements += 1;
+    else if (result.skipKind === "contract-only") summary.skipped.contractOnly += 1;
+    if (result.telemetry) addTelemetry(summary.telemetry, result.telemetry);
+    summary.cases.push(result.caseSummary);
   }
 
   summary.finishedAt = new Date().toISOString();
@@ -142,6 +98,105 @@ async function runHarness({ args, baseUrl, preflightContext = {} }) {
     }
     process.exitCode = 1;
   }
+}
+
+function buildBenchmarkTasks({ cases, args = {}, runId }) {
+  const tasks = [];
+  for (const benchmark of cases) {
+    for (const variant of variantsForCase(benchmark, args)) {
+      tasks.push({
+        index: tasks.length,
+        benchmark,
+        variant,
+        sessionId: safeId(`${runId}-${benchmark.id}-${variant.id}`),
+      });
+    }
+  }
+  return tasks;
+}
+
+async function runBenchmarkTask({ task, args, baseUrl, runId, turnDir }) {
+  const { benchmark, variant, sessionId } = task;
+  const artifactBase = path.join(turnDir, `${safeId(benchmark.id)}-${safeId(variant.id)}`);
+  const profileSkip = profileSkipReason(benchmark, args);
+  if (profileSkip) {
+    const turn = skippedProfileTurn({ benchmark, variant, runId, sessionId, profile: effectiveProfile(args), reason: profileSkip });
+    const turnPath = `${artifactBase}.json`;
+    await writeJson(turnPath, turn);
+    return {
+      index: task.index,
+      skipKind: "profile-requirements",
+      caseSummary: summaryCase({
+        benchmark,
+        variant,
+        sessionId,
+        turn,
+        evaluation: { verdict: "skipped", evidence: { missing: [], missingResults: [] }, safety: { forbiddenTriggered: [] } },
+        settled: { ok: true, initialStatus: "skipped", finalStatus: "skipped" },
+        turnPath,
+      }),
+    };
+  }
+  if (shouldSkipHarnessExecution(benchmark)) {
+    const turn = skippedContractTurn({ benchmark, variant, runId, sessionId });
+    const turnPath = `${artifactBase}.json`;
+    await writeJson(turnPath, turn);
+    return {
+      index: task.index,
+      skipKind: "contract-only",
+      caseSummary: summaryCase({
+        benchmark,
+        variant,
+        sessionId,
+        turn,
+        evaluation: { verdict: "skipped", evidence: { missing: [], missingResults: [] }, safety: { forbiddenTriggered: [] } },
+        settled: { ok: true, initialStatus: "skipped", finalStatus: "skipped" },
+        turnPath,
+      }),
+    };
+  }
+  const initialTurn = await postJson(`${baseUrl}/api/agent/turn`, {
+    text: variant.input,
+    sessionId,
+    mode: "intent",
+  });
+  const { turn, settled } = await settleQueuedTurn({ baseUrl, sessionId, initialTurn });
+  let initialTurnPath = null;
+  if (initialTurn.turnId && initialTurn.turnId === turn.turnId && initialTurn !== turn) {
+    initialTurnPath = `${artifactBase}-initial.json`;
+    await writeJson(initialTurnPath, initialTurn);
+  }
+  const turnPath = `${artifactBase}.json`;
+  await writeJson(turnPath, turn);
+  const evaluation = evaluateTurn(benchmark, turn, variant);
+  return {
+    index: task.index,
+    telemetry: turn.telemetry,
+    caseSummary: summaryCase({
+      benchmark,
+      variant,
+      sessionId,
+      turn,
+      evaluation,
+      settled,
+      initialTurnPath,
+      turnPath,
+    }),
+  };
+}
+
+async function runWorkerPool(items, concurrency, worker) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(concurrency, items.length || 1);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const current = nextIndex;
+      nextIndex += 1;
+      results[current] = await worker(items[current]);
+    }
+  }));
+  return results;
 }
 
 async function ensureWebServer(baseUrl, options = {}) {
@@ -449,6 +504,7 @@ function parseArgs(argv) {
     else if (arg === "--all-variants") parsed.allVariants = true;
     else if (arg === "--first-variant") parsed.firstVariant = true;
     else if (arg === "--profile") parsed.profile = parseProfile(argv[++i]);
+    else if (arg === "--concurrency") parsed.concurrency = parseConcurrency(argv[++i]);
     else if (arg === "--include-device") parsed.includeDevice = true;
     else if (arg === "--strict-device-preflight") parsed.strictDevicePreflight = true;
     else throw new Error(`unknown argument ${arg}`);
@@ -462,6 +518,14 @@ function parseProfile(value) {
     throw new Error(`unknown profile ${value}; expected offline, network, or device`);
   }
   return value;
+}
+
+function parseConcurrency(value) {
+  const concurrency = Number(value);
+  if (!Number.isInteger(concurrency) || concurrency < 1) {
+    throw new Error(`invalid concurrency ${value}; expected a positive integer`);
+  }
+  return concurrency;
 }
 
 export function selectCases(cases, args = {}) {
@@ -494,6 +558,10 @@ function effectiveProfile(args = {}) {
   return args.profile || (args.includeDevice ? "device" : "network");
 }
 
+function effectiveConcurrency(args = {}) {
+  return args.concurrency || 4;
+}
+
 function profileSkipReason(benchmark, args = {}) {
   const profile = effectiveProfile(args);
   const requirements = benchmark.requirements;
@@ -512,10 +580,11 @@ function shouldSkipHarnessExecution(benchmark) {
   return (benchmark.runnerStatus || "") === "contract-only";
 }
 
-function skippedContractTurn({ benchmark, variant, runId }) {
+function skippedContractTurn({ benchmark, variant, runId, sessionId = runId }) {
   return {
     schema: "walnutpi.agentTurn.v2",
     runId,
+    sessionId,
     caseId: benchmark.id,
     variantId: variant.id,
     input: variant.input,
@@ -539,10 +608,11 @@ function skippedContractTurn({ benchmark, variant, runId }) {
   };
 }
 
-function skippedProfileTurn({ benchmark, variant, runId, profile, reason }) {
+function skippedProfileTurn({ benchmark, variant, runId, sessionId = runId, profile, reason }) {
   return {
     schema: "walnutpi.agentTurn.v2",
     runId,
+    sessionId,
     caseId: benchmark.id,
     variantId: variant.id,
     input: variant.input,
@@ -572,10 +642,11 @@ function skippedProfileTurn({ benchmark, variant, runId, profile, reason }) {
   };
 }
 
-function summaryCase({ benchmark, variant, turn, evaluation, settled, turnPath, initialTurnPath = null }) {
+function summaryCase({ benchmark, variant, sessionId = null, turn, evaluation, settled, turnPath, initialTurnPath = null }) {
   return {
     caseId: benchmark.id,
     variantId: variant.id,
+    sessionId: sessionId || turn.sessionId || null,
     suite: benchmark.suite || "main",
     caseKind: benchmark.caseKind || "positive",
     mutates: benchmark.mutates || null,
@@ -785,6 +856,10 @@ async function selfCheck() {
   if (parseArgs(["--case-id", "V1-25"]).caseId !== "V1-25") {
     throw new Error("case selector should map to caseId");
   }
+  if (parseArgs(["--concurrency", "3"]).concurrency !== 3) {
+    throw new Error("concurrency parser should accept positive integers");
+  }
+  assertThrows(() => parseArgs(["--concurrency", "0"]), /invalid concurrency/);
   if (!profileSkipReason(sampleCases[1], { profile: "network" }) || profileSkipReason(sampleCases[2], { profile: "network" })) {
     throw new Error("network profile should skip device requirements only");
   }
@@ -809,6 +884,27 @@ async function selfCheck() {
   }
   if (variantsForCase(sampleCases[0], {}).length !== 2 || variantsForCase(sampleCases[0], { firstVariant: true }).length !== 1) {
     throw new Error("variant selection failed");
+  }
+  const tasks = buildBenchmarkTasks({ cases: sampleCases.slice(0, 2), args: {}, runId: "self-check" });
+  if (tasks.length !== 3 || tasks.map((task) => task.sessionId).join(",") !== "self-check-local-a,self-check-local-b,self-check-device-a") {
+    throw new Error("benchmark task construction should preserve case/variant order and assign isolated session ids");
+  }
+  const started = [];
+  let active = 0;
+  let maxActive = 0;
+  const poolResults = await runWorkerPool([0, 1, 2, 3], 2, async (item) => {
+    started.push(item);
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, item === 0 ? 20 : 1));
+    active -= 1;
+    return { index: item, value: item };
+  });
+  if (maxActive !== 2 || poolResults.map((entry) => entry.value).join(",") !== "0,1,2,3") {
+    throw new Error("worker pool should cap concurrency and return stable input order");
+  }
+  if (started[0] !== 0 || started[1] !== 1) {
+    throw new Error("worker pool should start from the stable task order");
   }
   if (!shouldSkipHarnessExecution({ runnerStatus: "contract-only" }) || shouldSkipHarnessExecution({ runnerStatus: "runnable" })) {
     throw new Error("contract-only execution skip detection failed");

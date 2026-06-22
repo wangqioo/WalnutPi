@@ -85,7 +85,7 @@ See `docs/real-device-command-scripts.md` before adding or changing real-device 
 
 - Main product benchmark entry: `bun run bench:product`.
 - `bench:product` uses Walnut Agent Console `/api/agent/turn`, records `agentTurn.v2` traces, and writes runs under `screen/benchmark-runs/<runId>/`.
-- Default benchmark behavior runs all variants for selected cases. Use `--first-variant` only for quick local checks.
+- Default benchmark behavior runs all variants for selected cases with a bounded worker pool. Default concurrency is `--concurrency 4`; use `--concurrency 1` for serial reproduction and `--first-variant` only for quick local checks.
 - Profiles:
   - `offline`: repeatable local gate profile; records cases with `requirements.device/network/model/search` as profile skips.
   - `network`: product-loop checks that may use network/model/search behavior but still record device cases as profile skips.
