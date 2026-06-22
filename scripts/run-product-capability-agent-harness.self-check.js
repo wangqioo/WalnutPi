@@ -41,6 +41,13 @@ function trace(value = {}) {
     })),
     evidence: value.evidence || [],
     sideEffects: value.sideEffects || [],
+    pendingNext: value.pendingNext ?? null,
+    loop: value.loop || {
+      schema: "walnutpi.agentLoop.v1",
+      status: value.status === "queued" ? "running" : "completed",
+      maxTurns: 4,
+      turns: [],
+    },
     telemetry: value.telemetry?.summary ? value.telemetry : {
       schema: "walnutpi.agentTurnTelemetry.v1",
       summary: { totalEvents: 0, failures: 0 },
@@ -119,6 +126,14 @@ assert.throws(
   () => evaluateTurn(notesBenchmark, trace({ route: null, sideEffects: ["device-write"] })),
   /sideEffect missing kind/,
 );
+assert.throws(
+  () => evaluateTurn(notesBenchmark, trace({ route: null, loop: { schema: "walnutpi.agentLoop.v1", status: "completed", maxTurns: 4, turns: [{ stepId: "old", observation: "done", judgment: "done", queuedTasks: [], blockedTasks: [] }] } })),
+  /loop turn missing sourceStepId/,
+);
+assert.throws(
+  () => evaluateTurn(notesBenchmark, trace({ route: null, pendingNext: "screen.workspace.sync.intent" })),
+  /pendingNext must be a typed object/,
+);
 
 const replanBenchmark = {
   id: "V1-25",
@@ -133,6 +148,12 @@ const replanPass = evaluateTurn(replanBenchmark, trace({
   status: "completed",
   route: { route: "ai.chat", intent: "device.observe", delivery: "none" },
   steps: [{ kind: "intent.classify" }, { kind: "action.read" }],
+  loop: {
+    schema: "walnutpi.agentLoop.v1",
+    status: "completed",
+    maxTurns: 4,
+    turns: [{ sourceStepId: "step-1", observation: "nextTasks", judgment: "continue", autoContinuedTasks: [{ agent: "device", kind: "action.run", action: "status" }], blockedTasks: [] }],
+  },
   artifacts: [{ kind: "multi-step-loop", value: { proposedTaskCount: 1, safeTaskCount: 1, boundedContinuation: 1 } }],
   evidence: [
     { kind: "intent-route" },

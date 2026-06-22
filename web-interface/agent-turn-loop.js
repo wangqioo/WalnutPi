@@ -204,10 +204,10 @@ async function runGoalLoop({ plan, body, text, sessionId, turn, runAction, gener
     stepTurns += 1;
     const decision = evaluateLoopProgress({ result, remainingTurns: maxTurns - stepTurns });
     turn.loop.turns.push({
-      stepId: result.stepId || null,
+      sourceStepId: result.stepId || null,
       observation: decision.observation,
       judgment: decision.judgment,
-      queuedTasks: decision.autoTasks.map(compactTaskSignal),
+      autoContinuedTasks: decision.autoTasks.map(compactTaskSignal),
       blockedTasks: decision.blockedTasks.map((task) => compactTaskSignal(task, decision.reasonFor(task))),
     });
 
@@ -251,7 +251,7 @@ function evaluateLoopProgress({ result, remainingTurns }) {
 
 async function holdPendingTasks({ turn, tasks, reason, hooks, result = null }) {
   if (!tasks.length) return;
-  const pendingNext = { kind: "nextTasks", tasks, reason };
+  const pendingNext = pendingSignal({ kind: "nextTasks", stepId: result?.stepId || null, reason, tasks });
   turn.pendingNext = mergePendingNext(turn.pendingNext, pendingNext);
   if (result?.stepResult && typeof result.stepResult === "object") result.stepResult.pendingNext = pendingNext;
   turn.recovery = {
@@ -320,10 +320,11 @@ async function runTaskAgent({ task, body, text, sessionId, turn, runAction, gene
     setCompleted(result) { step.status = "completed"; setStepResultData(step, result); finishStep(step); },
     setTurnResult(ok, result) { turn.status = ok ? "completed" : "failed"; turn.result = result; },
     setPending(reason) {
-      turn.pendingNext = task.kind;
+      const pendingNext = pendingSignal({ kind: task.kind, stepId: step.id, reason, task });
+      turn.pendingNext = pendingNext;
       turn.status = "pending";
       step.status = "pending";
-      setStepResultData(step, { task, pendingNext: task.kind, recoveryOptions: ["provide the missing input or confirmation", "retry this turn after the prerequisite is available"] });
+      setStepResultData(step, { task, pendingNext, recoveryOptions: ["provide the missing input or confirmation", "retry this turn after the prerequisite is available"] });
       finishStep(step);
     },
     stepResult() { return stepResult(step); },
@@ -407,7 +408,7 @@ async function failMissingRunner({ turn, step, task, eventLedger, metricsLedger,
 async function queueTask({ turn, step, task, eventLedger, turnLedger, metricsLedger, workQueue, run }) {
   step.status = "queued";
   turn.status = "queued";
-  turn.pendingNext = step.kind;
+  turn.pendingNext = pendingSignal({ kind: step.kind, stepId: step.id, reason: "queued", task });
   turn.result = { queued: true, stepId: step.id, agent: task.agent };
   finishAgent(turn, task.agent, "queued");
   observeStepResult(turn, step);
@@ -488,7 +489,6 @@ function stepResult(step) {
 
 function finishStep(step) {
   if (!step || ["running", "queued"].includes(step.status)) return;
-  step.stepId ||= step.id;
   step.finishedAt ||= new Date().toISOString();
 }
 
@@ -622,7 +622,7 @@ function collectEvidence(turn) {
     for (const [key, value] of Object.entries(result.evidence || {})) push(kebabCase(key), value);
   }
   push("agent-loop", turn.loop?.turns?.length ? turn.loop : null);
-  push("loop-evaluator", turn.loop?.turns?.length ? turn.loop.turns.map((item) => ({ stepId: item.stepId, observation: item.observation, judgment: item.judgment })) : null);
+  push("loop-evaluator", turn.loop?.turns?.length ? turn.loop.turns.map((item) => ({ sourceStepId: item.sourceStepId, observation: item.observation, judgment: item.judgment })) : null);
   return evidence;
 }
 
@@ -664,6 +664,16 @@ function compactTaskSignal(task, reason = null) {
   return { agent: task.agent, kind: task.kind, action: task.action || null, ...(reason ? { reason } : {}) };
 }
 
+function pendingSignal({ kind, stepId, reason, task = null, tasks = null }) {
+  return {
+    kind,
+    stepId,
+    reason: reason || "pending",
+    blockedBy: task ? compactTaskSignal(task) : null,
+    tasks: Array.isArray(tasks) ? tasks.map((item) => compactTaskSignal(item)) : [],
+  };
+}
+
 function collectContextUsed(turn) {
   const values = turn.steps.map((step) => stepResult(step)?.contextUsed).filter(Boolean);
   return values.length ? values : null;
@@ -686,8 +696,10 @@ function mergePendingNext(current, next) {
   }
   return {
     kind: "nextTasks",
+    stepId: next.stepId || current.stepId || null,
     tasks,
     reason: current.reason === next.reason ? current.reason : "multiple-continuations-pending",
+    blockedBy: null,
   };
 }
 
@@ -734,7 +746,8 @@ function normalizeTurnShape(turn) {
   for (const key of ["steps", "artifacts", "evidence", "sideEffects"]) {
     if (!Array.isArray(turn[key])) throw new Error(`agentTurn.v2 ${key}[] is required`);
   }
-  turn.steps = turn.steps.map((step) => normalizeStep(step, turn.startedAt));
+  turn.steps.forEach(validateStepShape);
+  validateLoopShape(turn.loop);
   turn.recovery = turn.recovery && typeof turn.recovery === "object" ? {
     status: turn.recovery.status || "not-needed",
     pendingNext: turn.recovery.pendingNext || null,
@@ -747,16 +760,26 @@ function normalizeTurnShape(turn) {
   return turn;
 }
 
-function normalizeStep(step, fallbackStartedAt = null) {
+function validateStepShape(step) {
   if (!step || typeof step !== "object" || Array.isArray(step)) throw new Error("agentTurn.v2 step must be an object");
-  const normalized = step;
-  normalized.id ||= normalized.stepId || "step";
-  normalized.stepId ||= normalized.id;
-  normalized.parentStepId ??= null;
-  normalized.status ||= "unknown";
-  normalized.startedAt ||= fallbackStartedAt;
-  normalized.finishedAt ??= null;
-  return normalized;
+  for (const key of ["id", "stepId", "parentStepId", "kind", "status", "startedAt", "finishedAt"]) {
+    if (!Object.hasOwn(step, key)) throw new Error(`agentTurn.v2 step missing ${key}`);
+  }
+}
+
+function validateLoopShape(loop) {
+  if (!loop || typeof loop !== "object" || Array.isArray(loop)) throw new Error("agentTurn.v2 loop is required");
+  if (loop.schema !== "walnutpi.agentLoop.v1") throw new Error("agentTurn.v2 loop schema is invalid");
+  if (!Object.hasOwn(loop, "status")) throw new Error("agentTurn.v2 loop missing status");
+  if (!Object.hasOwn(loop, "maxTurns")) throw new Error("agentTurn.v2 loop missing maxTurns");
+  if (!Array.isArray(loop.turns)) throw new Error("agentTurn.v2 loop.turns[] is required");
+  for (const turn of loop.turns) {
+    for (const key of ["sourceStepId", "observation", "judgment", "autoContinuedTasks", "blockedTasks"]) {
+      if (!Object.hasOwn(turn, key)) throw new Error(`agentTurn.v2 loop turn missing ${key}`);
+    }
+    if (!Array.isArray(turn.autoContinuedTasks)) throw new Error("agentTurn.v2 loop turn autoContinuedTasks[] is required");
+    if (!Array.isArray(turn.blockedTasks)) throw new Error("agentTurn.v2 loop turn blockedTasks[] is required");
+  }
 }
 
 function normalizeRecoveryOptions(value) {
@@ -850,7 +873,7 @@ function syncRecordSignal(result) {
 function classifySideEffects(turn) {
   const executed = turn.steps
     .filter((step) => step.status === "completed" || step.status === "running" || step.status === "queued")
-    .map((step) => ({ stepId: step.stepId || step.id, kind: step.kind, action: step.action, result: stepResult(step) }))
+    .map((step) => ({ stepId: step.stepId, kind: step.kind, action: step.action, result: stepResult(step) }))
     .filter((step) => !["intent.classify", "policy.decision", "diagnostics.recent_failure.read", "screen.state_frame.read"].includes(step.kind));
   const text = JSON.stringify(executed).toLowerCase();
   const sourceStepId = executed.find((step) => JSON.stringify(step).toLowerCase())?.stepId || null;
@@ -930,7 +953,7 @@ function collectDiagnostics(turn) {
     schema: "walnutpi.agentTurnDiagnostics.v1",
     rawTraceKind: "web-agent-turn",
     steps: (turn.steps || []).map((step) => ({
-      stepId: step.stepId || step.id,
+      stepId: step.stepId,
       parentStepId: step.parentStepId || null,
       agent: step.agent || null,
       kind: step.kind || null,

@@ -621,6 +621,8 @@ function skippedContractTurn({ benchmark, variant, runId, sessionId = runId }) {
     artifacts: [],
     evidence: [],
     sideEffects: [],
+    pendingNext: null,
+    loop: emptyTurnLoop(),
     telemetry: emptyTurnTelemetry(),
   };
 }
@@ -654,6 +656,8 @@ function skippedProfileTurn({ benchmark, variant, runId, sessionId = runId, prof
     artifacts: [],
     evidence: [{ kind: "profile-requirements-skip", value: { profile, requirements: benchmark.requirements, reason } }],
     sideEffects: [],
+    pendingNext: null,
+    loop: emptyTurnLoop(),
     telemetry: emptyTurnTelemetry(),
   };
 }
@@ -750,6 +754,8 @@ function validateAgentTurnTrace(turn) {
   for (const key of ["steps", "artifacts", "evidence", "sideEffects"]) {
     if (!Array.isArray(turn[key])) throw new Error(`agentTurn.v2 ${key}[] is required`);
   }
+  validateLoopTrace(turn.loop);
+  if (turn.pendingNext !== null && turn.pendingNext !== undefined) validatePendingNext(turn.pendingNext);
   if (!turn.telemetry?.summary || !turn.telemetry?.diagnostics) {
     throw new Error("agentTurn.v2 telemetry.summary and telemetry.diagnostics are required");
   }
@@ -772,6 +778,30 @@ function validateAgentTurnTrace(turn) {
       if (!Object.hasOwn(sideEffect, key)) throw new Error(`agentTurn.v2 sideEffect missing ${key}`);
     }
   }
+}
+
+function validateLoopTrace(loop) {
+  if (!loop || typeof loop !== "object" || Array.isArray(loop)) throw new Error("agentTurn.v2 loop is required");
+  if (loop.schema !== "walnutpi.agentLoop.v1") throw new Error("agentTurn.v2 loop schema is invalid");
+  for (const key of ["status", "maxTurns", "turns"]) {
+    if (!Object.hasOwn(loop, key)) throw new Error(`agentTurn.v2 loop missing ${key}`);
+  }
+  if (!Array.isArray(loop.turns)) throw new Error("agentTurn.v2 loop.turns[] is required");
+  for (const entry of loop.turns) {
+    for (const key of ["sourceStepId", "observation", "judgment", "autoContinuedTasks", "blockedTasks"]) {
+      if (!Object.hasOwn(entry, key)) throw new Error(`agentTurn.v2 loop turn missing ${key}`);
+    }
+    if (!Array.isArray(entry.autoContinuedTasks)) throw new Error("agentTurn.v2 loop turn autoContinuedTasks[] is required");
+    if (!Array.isArray(entry.blockedTasks)) throw new Error("agentTurn.v2 loop turn blockedTasks[] is required");
+  }
+}
+
+function validatePendingNext(pendingNext) {
+  if (!pendingNext || typeof pendingNext !== "object" || Array.isArray(pendingNext)) throw new Error("agentTurn.v2 pendingNext must be a typed object");
+  for (const key of ["kind", "stepId", "reason", "blockedBy", "tasks"]) {
+    if (!Object.hasOwn(pendingNext, key)) throw new Error(`agentTurn.v2 pendingNext missing ${key}`);
+  }
+  if (!Array.isArray(pendingNext.tasks)) throw new Error("agentTurn.v2 pendingNext.tasks[] is required");
 }
 
 function hasTraceKind(turn, kind) {
@@ -863,6 +893,15 @@ function emptyTurnTelemetry() {
     schema: "walnutpi.agentTurnTelemetry.v1",
     summary: { totalEvents: 0, failures: 0 },
     diagnostics: { elapsedMs: 0, metrics: emptyTelemetrySummary(), events: [] },
+  };
+}
+
+function emptyTurnLoop() {
+  return {
+    schema: "walnutpi.agentLoop.v1",
+    status: "skipped",
+    maxTurns: 0,
+    turns: [],
   };
 }
 
@@ -1037,6 +1076,8 @@ async function selfCheck() {
       artifacts: [{ kind: "screen-output-480x320", path: null, sha256: "self-check", bytes: 1, createdByStepId: "screen-1", value: { width: 480, height: 320 } }],
       evidence: [{ kind: "weather-source-or-fetch-failure", value: null }],
       sideEffects: [],
+      pendingNext: null,
+      loop: { schema: "walnutpi.agentLoop.v1", status: "completed", maxTurns: 4, turns: [] },
       telemetry: emptyTurnTelemetry(),
       diagnostics: { schema: "walnutpi.agentTurnDiagnostics.v1", steps: [], telemetry: { events: [] } },
     },

@@ -532,9 +532,7 @@
         actions.className = "recovery-actions";
 
         if (recovery.status === "pending" && recovery.pendingNext) {
-          const pendingText = typeof recovery.pendingNext === "object"
-            ? (recovery.pendingNext.tasks || [recovery.pendingNext]).map((t) => `${t.kind}${t.action ? `:${t.action}` : ""}`).join(", ")
-            : recovery.pendingNext;
+          const pendingText = pendingNextLabel(recovery.pendingNext);
 
           const info = document.createElement("div");
           info.className = "recovery-error";
@@ -580,6 +578,18 @@
       function reSend(text) {
         promptEl.value = text;
         sendPrompt("intent");
+      }
+
+      function pendingNextLabel(pendingNext) {
+        const tasks = Array.isArray(pendingNext.tasks) && pendingNext.tasks.length
+          ? pendingNext.tasks
+          : pendingNext.blockedBy ? [pendingNext.blockedBy] : [pendingNext];
+        const label = tasks.map((t) => `${t.kind}${t.action ? `:${t.action}` : ""}`).join(", ");
+        return pendingNext.reason ? `${label} (${pendingNext.reason})` : label;
+      }
+
+      function pendingNextKind(turn) {
+        return turn.pendingNext?.kind || null;
       }
 
       function updateRoute(classification) {
@@ -793,7 +803,7 @@
             if (mode !== "ai") updateRoute(classification);
             removeMessage(pendingMessage);
             if (turn.status === "queued") {
-              appendMessage("system", `已进入队列：${turn.pendingNext || turn.steps?.at(-1)?.kind || "step"}`);
+              appendMessage("system", `已进入队列：${pendingNextLabel(turn.pendingNext)}`);
               if (turn.recovery && turn.recovery.status !== "not-needed") showRecoveryCard(turn);
               await new Promise((resolve, reject) => {
                 watchTurn(turn, async (event) => {
@@ -818,9 +828,9 @@
               });
             } else if (turn.steps?.some((step) => step.kind === "screen.workspace.generate.intent")) {
               appendMessage("assistant", await showGeneratedScreen(turn.result, classification));
-            } else if (turn.pendingNext === "screen.workspace.sync.intent") {
+            } else if (pendingNextKind(turn) === "screen.workspace.sync.intent") {
               appendMessage("assistant", "已识别为同步工作流。请进入 Screen Workspace 确认当前播放列表后同步到核桃派。");
-            } else if (turn.pendingNext === "screen.widget_app.create.intent") {
+            } else if (pendingNextKind(turn) === "screen.widget_app.create.intent") {
               appendMessage("assistant", "已识别为 Widget App 创建工作流。设备状态快捷面板的运行时合同还在 Widget App Sync 阶段，先进入 Screen Workspace 继续预览和保存。");
             } else {
               appendMessage("assistant", turn.result?.output || "无输出。");

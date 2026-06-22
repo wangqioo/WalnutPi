@@ -368,6 +368,9 @@ assert.equal(replanned.turn.evidence.some((item) => item.kind === "agentTurn-ste
 assert.equal(replanned.turn.evidence.some((item) => item.kind === "multi-step-loop"), true);
 assert.equal(replanned.turn.evidence.some((item) => item.kind === "replan-evidence"), true);
 assert.deepEqual(replanned.turn.loop.turns.map((item) => item.judgment), ["continue", "done"]);
+assert.deepEqual(Object.keys(replanned.turn.loop.turns[0]), ["sourceStepId", "observation", "judgment", "autoContinuedTasks", "blockedTasks"]);
+assert.equal(replanned.turn.loop.turns[0].sourceStepId, replanned.turn.steps[1].stepId);
+assert.deepEqual(replanned.turn.loop.turns[0].autoContinuedTasks, [{ agent: "device", kind: "action.run", action: "status" }]);
 assert.equal(replanned.turn.evidence.some((item) => item.kind === "loop-evaluator"), true);
 assert.equal(replanned.turn.pendingNext, null);
 assert.equal(replanned.turn.sideEffects.some((item) => item.kind === "device-write"), false);
@@ -399,6 +402,8 @@ const dangerousReplan = await runAgentTurn({
 assert.equal(dangerousReplan.status, 200);
 assert.equal(dangerousReplan.turn.steps.length, 2);
 assert.equal(dangerousReplan.turn.pendingNext.tasks[0].action, "note");
+assert.equal(dangerousReplan.turn.pendingNext.stepId, dangerousReplan.turn.steps[1].stepId);
+assert.equal(dangerousReplan.turn.pendingNext.reason, "continuation-requires-explicit-confirmation");
 assert.equal(dangerousReplan.turn.recovery.status, "pending");
 assert.equal(dangerousReplan.turn.evidence.some((item) => item.kind === "replan-evidence" && item.value.blockedTasks[0].action === "note"), true);
 
@@ -435,6 +440,7 @@ assert.equal(overBudgetReplan.turn.pendingNext.reason, "max-continuation-tasks")
 assert.equal(overBudgetReplan.turn.pendingNext.tasks[0].action, "network");
 assert.equal(overBudgetReplan.turn.evidence.some((item) => item.kind === "replan-evidence" && item.value.blockedTasks.some((task) => task.action === "network" && task.reason === "max-continuation-tasks")), true);
 assert.deepEqual(overBudgetReplan.turn.loop.turns.map((item) => item.judgment), ["blocked", "done"]);
+assert.deepEqual(overBudgetReplan.turn.loop.turns[0].blockedTasks, [{ agent: "device", kind: "action.run", action: "network", reason: "max-continuation-tasks" }]);
 
 const maxTurnLoop = await runAgentTurn({
   body: { text: "最多跑到上限", sessionId: "replan-demo" },
@@ -487,7 +493,10 @@ const pendingObservation = await runAgentTurn({
 assert.equal(pendingObservation.status, 200);
 assert.equal(pendingObservation.turn.status, "pending");
 assert.equal(pendingObservation.turn.recovery.status, "pending");
-assert.equal(pendingObservation.turn.recovery.pendingNext, "screen.workspace.sync.intent");
+assert.equal(pendingObservation.turn.recovery.pendingNext.kind, "screen.workspace.sync.intent");
+assert.equal(pendingObservation.turn.recovery.pendingNext.reason, "missing prerequisites for screen task");
+assert.equal(pendingObservation.turn.recovery.pendingNext.stepId, pendingObservation.turn.steps[1].stepId);
+assert.deepEqual(pendingObservation.turn.evidence.find((item) => item.kind === "pending-next").value, pendingObservation.turn.recovery.pendingNext);
 
 const missingRunner = await runAgentTurn({
   body: { text: "执行未知 agent", sessionId: "missing-runner-demo" },
