@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { assertNoOracleForLoop, normalizeLoopScenario } from "./agent-scenario-contract.ts";
 import { validateAgentTurnV2 } from "./agent-turn-trace-schema.ts";
@@ -9,6 +9,7 @@ import { normalizeLoopModelId, normalizeLoopReasoningEffort } from "./agent-loop
 const root = path.resolve(import.meta.dirname, "..");
 const defaultCases = path.join(root, "docs", "product-capability-benchmarks.v2.jsonl");
 const defaultOutputRoot = path.join(root, "screen", "benchmark-runs");
+const webServerLockDir = path.join(root, "screen", ".agent-harness-web-server.lock");
 
 type JsonRecord = Record<string, any>;
 type HarnessProfile = "offline" | "network" | "device";
@@ -459,6 +460,18 @@ async function runWorkerPool<T, R>(items: T[], concurrency: number, worker: (ite
 async function ensureWebServer(baseUrl: string, options: { knownReachable?: boolean } = {}): Promise<{ started: boolean; stop: () => Promise<void> }> {
   if (options.knownReachable || await canReach(baseUrl)) return { started: false, stop: async () => {} };
 
+  const lock = await acquireWebServerStartLock();
+  if (!lock.acquired) {
+    const reachable = await waitForReachable(baseUrl, 30000);
+    if (reachable) return { started: false, stop: async () => {} };
+    throw new Error(`timed out waiting for another harness process to start local web server at ${baseUrl}`);
+  }
+
+  if (await canReach(baseUrl)) {
+    await lock.release();
+    return { started: false, stop: async () => {} };
+  }
+
   console.error(`baseUrl not reachable, starting local web server: bun run web`);
   const child = spawn("bun", ["run", "web"], {
     cwd: root,
@@ -473,13 +486,10 @@ async function ensureWebServer(baseUrl: string, options: { knownReachable?: bool
     exited = true;
   });
 
-  const deadline = Date.now() + 30000;
-  while (Date.now() < deadline) {
-    if (exited) {
-      if (await canReach(baseUrl)) return { started: false, stop: async () => {} };
-      throw new Error("local web server exited before baseUrl became reachable");
-    }
-    if (await canReach(baseUrl)) {
+  try {
+    const started = await waitForStartedChildServer({ baseUrl, exited: () => exited, timeoutMs: 30000 });
+    await lock.release();
+    if (started) {
       return {
         started: true,
         stop: async () => {
@@ -487,11 +497,71 @@ async function ensureWebServer(baseUrl: string, options: { knownReachable?: bool
         },
       };
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+  } catch (error) {
+    await lock.release();
+    if (!exited) child.kill();
+    throw error;
   }
 
   if (!exited) child.kill();
   throw new Error(`timed out waiting for local web server at ${baseUrl}`);
+}
+
+async function acquireWebServerStartLock(): Promise<{ acquired: boolean; release: () => Promise<void> }> {
+  try {
+    await mkdir(webServerLockDir, { recursive: false });
+    await writeFile(path.join(webServerLockDir, "owner.json"), `${JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }, null, 2)}\n`);
+    return {
+      acquired: true,
+      release: async () => {
+        await rm(webServerLockDir, { recursive: true, force: true });
+      },
+    };
+  } catch (error: any) {
+    if (error?.code === "EEXIST") {
+      if (await removeStaleWebServerStartLock()) return acquireWebServerStartLock();
+      return { acquired: false, release: async () => {} };
+    }
+    throw error;
+  }
+}
+
+async function removeStaleWebServerStartLock(): Promise<boolean> {
+  try {
+    const info = await stat(webServerLockDir);
+    if (Date.now() - info.mtimeMs < 45000) return false;
+    await rm(webServerLockDir, { recursive: true, force: true });
+    return true;
+  } catch (error: any) {
+    if (error?.code === "ENOENT") return true;
+    throw error;
+  }
+}
+
+async function waitForStartedChildServer({ baseUrl, exited, timeoutMs }: { baseUrl: string; exited: () => boolean; timeoutMs: number }): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (exited()) {
+      if (await canReach(baseUrl)) return true;
+      throw new Error("local web server exited before baseUrl became reachable");
+    }
+    if (await canReach(baseUrl)) return true;
+    await sleep(500);
+  }
+  return false;
+}
+
+async function waitForReachable(baseUrl: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await canReach(baseUrl)) return true;
+    await sleep(500);
+  }
+  return false;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function canReach(baseUrl: string): Promise<boolean> {
@@ -1537,6 +1607,15 @@ async function selfCheck() {
   if (strictDevicePreflightFailures(metadataOnlyPreflight).length !== 0) {
     throw new Error("default device preflight should record metadata without fail-fast");
   }
+  await rm(webServerLockDir, { recursive: true, force: true });
+  const firstWebLock = await acquireWebServerStartLock();
+  if (!firstWebLock.acquired) throw new Error("first harness process should acquire web server start lock");
+  const secondWebLock = await acquireWebServerStartLock();
+  if (secondWebLock.acquired) throw new Error("second harness process should wait instead of starting another web server");
+  await firstWebLock.release();
+  const thirdWebLock = await acquireWebServerStartLock();
+  if (!thirdWebLock.acquired) throw new Error("web server start lock should be reusable after release");
+  await thirdWebLock.release();
   const coverageFailures = currentRunCoverageFailures({
     cases: [
       { caseId: "V1-25", variantId: "zh-main", runnerStatus: "runnable", verdict: "pass", settled: { ok: true } },
