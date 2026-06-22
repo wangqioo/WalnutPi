@@ -285,6 +285,10 @@ async function runBenchmarkTask({ task, args, baseUrl, runId, turnDir }: { task:
   }
   const turnPath = `${artifactBase}.json`;
   await writeJson(turnPath, turn);
+  const extractedArtifactDir = await exportTurnIntermediateArtifacts({
+    turn,
+    artifactDir: path.join(turnDir, "artifacts", `${safeId(benchmark.id)}-${safeId(variant.id)}`),
+  });
   const evaluation = evaluateTurn(benchmark, turn, variant);
   return {
     index: task.index,
@@ -298,8 +302,43 @@ async function runBenchmarkTask({ task, args, baseUrl, runId, turnDir }: { task:
       settled,
       initialTurnPath,
       turnPath,
+      artifactDir: extractedArtifactDir,
     }),
   };
+}
+
+async function exportTurnIntermediateArtifacts({ turn, artifactDir }: { turn: AgentTurn; artifactDir: string }): Promise<string | null> {
+  const files: Array<{ path: string; value: any; text?: boolean }> = [];
+  for (const step of turn.diagnostics?.steps || []) {
+    if (!step?.stepId) continue;
+    files.push({
+      path: path.join(artifactDir, "actions", `${safeId(step.stepId)}.json`),
+      value: {
+        stepId: step.stepId,
+        parentStepId: step.parentStepId || null,
+        agent: step.agent || null,
+        kind: step.kind || null,
+        action: step.action || null,
+        status: step.status || null,
+        startedAt: step.startedAt || null,
+        finishedAt: step.finishedAt || null,
+        result: step.result || null,
+      },
+    });
+  }
+  for (const [index, entry] of (turn.diagnostics?.loopModel || []).entries()) {
+    const base = path.join(artifactDir, "loop-model", `${String(index + 1).padStart(2, "0")}-${safeId(entry.sourceStepId || "turn")}`);
+    if (entry.artifacts?.modelContext) files.push({ path: `${base}.context.json`, value: entry.artifacts.modelContext });
+    if (entry.artifacts?.normalizedProposal) files.push({ path: `${base}.proposal.json`, value: entry.artifacts.normalizedProposal });
+    files.push({ path: `${base}.diagnostics.json`, value: entry });
+    if (typeof entry.artifacts?.rawOutput === "string") files.push({ path: `${base}.raw.txt`, value: entry.artifacts.rawOutput, text: true });
+  }
+  if (!files.length) return null;
+  for (const file of files) {
+    await mkdir(path.dirname(file.path), { recursive: true });
+    await writeFile(file.path, file.text ? String(file.value) : `${JSON.stringify(file.value, null, 2)}\n`);
+  }
+  return path.relative(root, artifactDir).replaceAll("\\", "/");
 }
 
 async function runWorkerPool<T, R>(items: T[], concurrency: number, worker: (item: T) => Promise<R>): Promise<R[]> {
@@ -854,7 +893,7 @@ function skippedProfileTurn({ benchmark, variant, runId, sessionId = runId, prof
   };
 }
 
-function summaryCase({ benchmark, variant, sessionId = null, turn, evaluation, settled, turnPath, initialTurnPath = null }: { benchmark: BenchmarkCase; variant: BenchmarkVariant; sessionId?: string | null; turn: AgentTurn; evaluation: EvaluationSummary; settled: SettledTurn; turnPath: string; initialTurnPath?: string | null }): CaseSummary {
+function summaryCase({ benchmark, variant, sessionId = null, turn, evaluation, settled, turnPath, initialTurnPath = null, artifactDir = null }: { benchmark: BenchmarkCase; variant: BenchmarkVariant; sessionId?: string | null; turn: AgentTurn; evaluation: EvaluationSummary; settled: SettledTurn; turnPath: string; initialTurnPath?: string | null; artifactDir?: string | null }): CaseSummary {
   return {
     caseId: benchmark.id,
     variantId: variant.id,
@@ -872,6 +911,7 @@ function summaryCase({ benchmark, variant, sessionId = null, turn, evaluation, s
     settled,
     initialTurnPath: initialTurnPath ? path.relative(root, initialTurnPath).replaceAll("\\", "/") : null,
     turnPath: path.relative(root, turnPath).replaceAll("\\", "/"),
+    artifactDir,
     sideEffects: turn.sideEffects || [],
     telemetry: compactTelemetry(turn.telemetry),
   };

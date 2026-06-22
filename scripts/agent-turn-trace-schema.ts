@@ -94,9 +94,20 @@ export function validateLoopV1(loop) {
   for (const key of ["status", "maxTurns", "turns"]) {
     if (!Object.hasOwn(loop, key)) throw new Error(`agentTurn.v2 loop missing ${key}`);
   }
+  if (loop.plan !== null && loop.plan !== undefined) validateLoopPlan(loop.plan);
   if (!Array.isArray(loop.turns)) throw new Error("agentTurn.v2 loop.turns[] is required");
   for (const entry of loop.turns) validateLoopTurn(entry);
   return true;
+}
+
+function validateLoopPlan(plan) {
+  if (!plan || typeof plan !== "object" || Array.isArray(plan)) throw new Error("agentTurn.v2 loop.plan must be an object");
+  for (const key of ["schema", "source", "initialTasks", "stopCondition", "evidencePlan", "maxTurns"]) {
+    if (!Object.hasOwn(plan, key)) throw new Error(`agentTurn.v2 loop.plan missing ${key}`);
+  }
+  if (plan.schema !== "walnutpi.agentTurnPlan.v1") throw new Error("agentTurn.v2 loop.plan schema is invalid");
+  if (!Array.isArray(plan.initialTasks)) throw new Error("agentTurn.v2 loop.plan initialTasks[] is required");
+  if (!Array.isArray(plan.evidencePlan)) throw new Error("agentTurn.v2 loop.plan evidencePlan[] is required");
 }
 
 export function validatePendingNextV1(pendingNext) {

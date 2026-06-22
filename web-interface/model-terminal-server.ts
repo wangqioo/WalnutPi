@@ -1055,6 +1055,7 @@ function createRelayLoopModelAdapter() {
       const proposal = normalizeAgentLoopProposal(parseJsonObjectText(raw), { source: "model" });
       return {
         proposal,
+        rawOutput: raw,
         diagnostics: {
           provider: new URL(AI_BASE_URL).hostname,
           model: options.model || AI_MODEL,

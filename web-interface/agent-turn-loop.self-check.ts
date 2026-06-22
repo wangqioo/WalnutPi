@@ -594,7 +594,7 @@ const maxTurnLoop = await runAgentTurn({
 });
 assert.equal(maxTurnLoop.status, 200);
 assert.equal(maxTurnLoop.turn.loop.status, "blocked");
-assert.equal(maxTurnLoop.turn.pendingNext.reason, "max-turns");
+assert.equal(maxTurnLoop.turn.pendingNext.reason, "repeated-continuation-no-new-evidence");
 assert.equal(maxTurnLoop.turn.steps.length, 3);
 
 const pendingObservation = await runAgentTurn({

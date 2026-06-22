@@ -178,6 +178,7 @@ export async function runAgentTurn({
       schema: "walnutpi.agentLoop.v1",
       status: "running",
       maxTurns: MAX_AGENT_LOOP_TURNS,
+      plan: null,
       turns: [],
     },
     startedAt,
@@ -205,6 +206,7 @@ export async function runAgentTurn({
   await hooks.onClassify(classify.classification, turn);
   await updateTurnTrace(turn, metricsLedger);
   const plan = activeRegistry.selectTurnPlan(classify.classification, mode) || [{ agent: "chat", kind: "action.run", action: "ai" }];
+  turn.loop.plan = buildInitialLoopPlan({ plan, scenario: turn.input.scenario, loopModel });
   turn.agents.push({ id: "router", status: "completed", plan });
 
   const looped = await runGoalLoop({ plan, body, text, sessionId, turn, runAction, generateScreen, syncScreen, workQueue, eventLedger, turnLedger, metricsLedger, registry: activeRegistry, hooks, loopModelAdapter });
@@ -281,9 +283,12 @@ async function evaluateLoopProgress({ result, scenario, remainingTurns, text, tu
 
   for (const task of proposal.safeAutoContinue) {
     explicitlyHandled.add(taskKey(task));
-    const hardReason = !isSafeContinuationTask(task)
+    const hardReason = !candidateTaskAllowed(task, actionProposal)
+      ? "model-proposed-task-without-action-candidate"
+      : !isSafeContinuationTask(task)
       ? "continuation-requires-explicit-confirmation"
-      : scenarioVetoReason(task, scenario);
+      : repeatedContinuationReason(task, turn)
+        || scenarioVetoReason(task, scenario);
     const overBudgetReason = remainingTurns <= 0
       ? "max-turns"
       : autoTasks.length >= MAX_CONTINUATION_TASKS
@@ -303,9 +308,13 @@ async function evaluateLoopProgress({ result, scenario, remainingTurns, text, tu
   }
 
   for (const task of proposal.proposedTasks.filter((item) => !explicitlyHandled.has(taskKey(item)))) {
-    const hardReason = !isSafeContinuationTask(task)
+    const hardReason = !candidateTaskAllowed(task, actionProposal)
+      ? "model-proposed-task-without-action-candidate"
+      : !isSafeContinuationTask(task)
       ? "continuation-requires-explicit-confirmation"
-      : scenarioVetoReason(task, scenario) || "agent-proposal-not-marked-auto";
+      : repeatedContinuationReason(task, turn)
+        || scenarioVetoReason(task, scenario)
+        || "agent-proposal-not-marked-auto";
     const signal = compactTaskSignal(task, hardReason, {
       blockedBy: "loop-policy",
       agentProposed: proposal.source === "model" ? "model-next" : "next",
@@ -343,6 +352,17 @@ async function evaluateLoopProgress({ result, scenario, remainingTurns, text, tu
   };
 }
 
+function buildInitialLoopPlan({ plan, scenario, loopModel }: JsonObject) {
+  return {
+    schema: "walnutpi.agentTurnPlan.v1",
+    source: loopModel?.enabled ? "router+model-replan" : "router+action-replan",
+    initialTasks: (plan || []).map((task) => compactTaskSignal(task)),
+    stopCondition: "complete when required evidence is present or no new safe continuation is available",
+    evidencePlan: scenario?.requiredEvidence || [],
+    maxTurns: MAX_AGENT_LOOP_TURNS,
+  };
+}
+
 async function resolveLoopProposal({ actionProposal, result, scenario, remainingTurns, text, turn, loopModelAdapter }: JsonObject) {
   const actionBacked = actionProposalFromContinuation(actionProposal);
   const loopModel = turn.input?.loopModel;
@@ -369,6 +389,14 @@ async function resolveLoopProposal({ actionProposal, result, scenario, remaining
       turnId: turn.turnId,
     });
     const proposal = normalizeAgentLoopProposal(modelResult?.proposal, { source: "model" });
+    const mergedProposal = mergeModelProposalWithActionCandidates(proposal, actionProposal);
+    const artifacts = loopModelArtifacts({
+      sourceStepId: result.stepId || null,
+      modelContext,
+      modelContextHash,
+      rawOutput: modelResult?.rawOutput,
+      normalizedProposal: mergedProposal,
+    });
     turn.diagnostics.loopModel = [
       ...(turn.diagnostics.loopModel || []),
       {
@@ -382,9 +410,10 @@ async function resolveLoopProposal({ actionProposal, result, scenario, remaining
         promptHash: modelResult?.diagnostics?.promptHash || modelContextHash,
         rawOutputHash: modelResult?.diagnostics?.rawOutputHash || null,
         validationErrors: modelResult?.diagnostics?.validationErrors || [],
+        artifacts,
       },
     ];
-    return { proposal: mergeModelProposalWithActionCandidates(proposal, actionProposal), diagnostics: turn.diagnostics.loopModel.at(-1) };
+    return { proposal: mergedProposal, diagnostics: turn.diagnostics.loopModel.at(-1) };
   } catch (error) {
     const diagnostics = {
       sourceStepId: result.stepId || null,
@@ -397,6 +426,13 @@ async function resolveLoopProposal({ actionProposal, result, scenario, remaining
       promptHash: modelContextHash,
       rawOutputHash: null,
       validationErrors: [error.message],
+      artifacts: loopModelArtifacts({
+        sourceStepId: result.stepId || null,
+        modelContext,
+        modelContextHash,
+        rawOutput: null,
+        normalizedProposal: null,
+      }),
     };
     turn.diagnostics.loopModel = [...(turn.diagnostics.loopModel || []), diagnostics];
     if (turn.input?.requirements?.model) {
@@ -448,6 +484,16 @@ function createFixtureLoopModelAdapter() {
   };
 }
 
+function loopModelArtifacts({ sourceStepId, modelContext, modelContextHash, rawOutput, normalizedProposal }: JsonObject) {
+  return {
+    sourceStepId,
+    modelContextHash,
+    modelContext,
+    rawOutput: typeof rawOutput === "string" ? rawOutput : rawOutput ?? null,
+    normalizedProposal,
+  };
+}
+
 function actionProposalFromContinuation(actionProposal: JsonObject) {
   return {
     source: "action",
@@ -460,14 +506,26 @@ function actionProposalFromContinuation(actionProposal: JsonObject) {
 }
 
 function mergeModelProposalWithActionCandidates(modelProposal: JsonObject, actionProposal: JsonObject) {
-  const proposed = new Map(actionProposal.proposedTasks.map((task) => [taskKey(task), task]));
-  for (const task of [...modelProposal.proposedTasks, ...modelProposal.safeAutoContinue, ...modelProposal.blockedTasks.map((item) => item.task)]) {
-    proposed.set(taskKey(task), task);
-  }
+  const candidateMap = new Map(actionProposal.proposedTasks.map((task) => [taskKey(task), task]));
+  const proposed = new Map();
+  for (const task of modelProposal.proposedTasks) if (candidateMap.has(taskKey(task))) proposed.set(taskKey(task), candidateMap.get(taskKey(task)));
+  for (const task of modelProposal.safeAutoContinue) if (candidateMap.has(taskKey(task))) proposed.set(taskKey(task), candidateMap.get(taskKey(task)));
+  for (const item of modelProposal.blockedTasks) if (candidateMap.has(taskKey(item.task))) proposed.set(taskKey(item.task), candidateMap.get(taskKey(item.task)));
   return {
     ...modelProposal,
     proposedTasks: [...proposed.values()],
+    safeAutoContinue: modelProposal.safeAutoContinue.filter((task) => candidateMap.has(taskKey(task))),
+    blockedTasks: modelProposal.blockedTasks.filter((item) => candidateMap.has(taskKey(item.task))),
   };
+}
+
+function candidateTaskAllowed(task, actionProposal) {
+  return new Set((actionProposal.proposedTasks || []).map(taskKey)).has(taskKey(task));
+}
+
+function repeatedContinuationReason(task, turn) {
+  const completedCount = (turn.steps || []).filter((step) => taskKey(step) === taskKey(task) && step.status === "completed").length;
+  return completedCount > 0 ? "repeated-continuation-no-new-evidence" : null;
 }
 
 function normalizeContinuationProposal(stepResult: JsonObject) {

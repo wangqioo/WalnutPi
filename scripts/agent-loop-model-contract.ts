@@ -67,6 +67,11 @@ export function buildModelVisibleLoopContext({
   return {
     schema: "walnutpi.loopModelVisibleContext.v1",
     userInput: String(text || ""),
+    turnGoal: {
+      mode: "bounded-agent-turn",
+      stopCondition: "complete when required evidence is present or no new safe read-only continuation adds evidence",
+      replanPolicy: "propose a continuation only for missing evidence, failed evidence, or a genuinely new read-only observation",
+    },
     scenario: scenario ? {
       goal: scenario.goal,
       constraints: scenario.constraints || [],
@@ -85,6 +90,8 @@ export function buildModelVisibleLoopContext({
       safeAutoContinue: proposalFromAction.safeAutoContinue,
       blockedTasks: proposalFromAction.blockedTasks,
     },
+    executedTasks: executedTaskSignals(turn),
+    repetition: repetitionSignals(turn, proposalFromAction),
     previousLoopTurns: (turn?.loop?.turns || []).map((entry) => ({
       sourceStepId: entry.sourceStepId || null,
       observation: entry.observation || null,
@@ -94,6 +101,7 @@ export function buildModelVisibleLoopContext({
     })),
     budget: {
       remainingTurns,
+      maxTurns: turn?.loop?.maxTurns || null,
     },
     modelOptions,
     outputSchema: {
@@ -105,6 +113,40 @@ export function buildModelVisibleLoopContext({
       rationale: "diagnostic text",
     },
   };
+}
+
+function executedTaskSignals(turn) {
+  return (turn?.steps || [])
+    .filter((step) => step?.kind)
+    .map((step) => ({
+      stepId: step.stepId || step.id || null,
+      agent: step.agent || defaultAgentForTask(step),
+      kind: step.kind,
+      ...(step.action ? { action: step.action } : {}),
+      status: step.status || null,
+    }));
+}
+
+function repetitionSignals(turn, proposalFromAction) {
+  const executed = new Map();
+  for (const task of executedTaskSignals(turn)) {
+    const key = taskKey(task);
+    executed.set(key, (executed.get(key) || 0) + 1);
+  }
+  const candidates = [
+    ...(proposalFromAction?.proposedTasks || []),
+    ...(proposalFromAction?.safeAutoContinue || []),
+    ...((proposalFromAction?.blockedTasks || []).map((item) => item.task).filter(Boolean)),
+  ];
+  return candidates.map((task) => ({
+    task,
+    executedCount: executed.get(taskKey(task)) || 0,
+    wouldRepeat: Boolean(executed.get(taskKey(task))),
+  }));
+}
+
+function taskKey(task) {
+  return `${task?.agent || defaultAgentForTask(task || {})}\0${task?.kind || ""}\0${task?.action || ""}`;
 }
 
 export function normalizeAgentLoopProposal(value: any, { source = "model" }: { source?: string } = {}) {
