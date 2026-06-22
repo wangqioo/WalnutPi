@@ -158,15 +158,36 @@ export function createWidgetAppWorkspace({
       const app = await readWidgetApp(current.appId);
       const state = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json"));
       await writeWidgetRuntimeFiles(app, current, state);
-      await appendWidgetEvent({ type: "sync-blocked", appId: app.id, ok: false, at: new Date().toISOString() });
+      const files = await widgetSyncFiles(app.id);
+      const archive = await createTarArchive(files);
+      const remoteRoot = process.env.WALNUT_REMOTE_PROJECT_ROOT || process.env.WALNUT_PROJECT_ROOT || "/home/pi/projects/WalnutPi";
+      const script = [
+        "set -e",
+        `ROOT=${shellQuote(remoteRoot)}`,
+        'mkdir -p "$ROOT"',
+        'cd "$ROOT"',
+        "tar -xzf -",
+        "test -f screen/widget-runtime/current.txt",
+        "chmod +x scripts/build-lvgl-app.sh",
+        "if ! test -x build/lvgl_app/walnut-lvgl-screen || ! strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-widget-runtime.v1 >/dev/null; then bash scripts/build-lvgl-app.sh; fi",
+        "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-widget-runtime.v1 >/dev/null",
+        "cp lvgl_app/systemd/walnut-screen.service /etc/systemd/system/walnut-screen.service",
+        "systemctl daemon-reload",
+        "systemctl restart walnut-screen.service",
+        "sleep 0.5",
+        "systemctl is-active walnut-screen.service",
+        "walnut screen state",
+      ].join("; ");
+      const result = await runRemoteWithInput(`sudo -n sh -lc ${shellQuote(script)}`, archive, 180_000, 60_000);
+      await appendWidgetEvent({ type: "sync", appId: app.id, ok: result.ok, at: new Date().toISOString() });
       return json({
-        ok: false,
+        ok: result.ok,
         schema: "walnutpi.widget-app-sync-result.v1",
         appId: app.id,
         current,
-        status: "blocked",
-        reason: "Widget App Sync is experimental and cannot directly write systemd or restart walnut-screen.service. Convert the widget app to Screen Manifest v2 / Screen Playlist v1 and use explicit Playlist Sync.",
-      }, 409);
+        fileCount: files.length,
+        output: result.output,
+      }, result.ok ? 200 : 500);
     } catch (error) {
       return workspaceErrorResponse(error, json);
     }
