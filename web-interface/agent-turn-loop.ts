@@ -369,6 +369,9 @@ async function resolveLoopProposal({ actionProposal, result, scenario, remaining
   if (!loopModel?.enabled) {
     return { proposal: actionBacked, diagnostics: null };
   }
+  if (!actionProposal.proposedTasks.length) {
+    return { proposal: actionBacked, diagnostics: null };
+  }
   const modelContext = buildModelVisibleLoopContext({
     text,
     scenario,

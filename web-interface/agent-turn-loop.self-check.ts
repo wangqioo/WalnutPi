@@ -444,7 +444,66 @@ assert.equal(modelBackedReplan.turn.loop.turns[0].proposal.kind, "continue");
 assert.equal(modelBackedReplan.turn.loop.turns[0].policy.accepted, true);
 assert.equal(modelBackedReplan.turn.diagnostics.loopModel[0].model, "gpt-5.5");
 assert.equal(modelBackedReplan.turn.diagnostics.loopModel[0].reasoningEffort, "high");
+assert.equal(modelBackedReplan.turn.diagnostics.loopModel.length, 1);
+assert.deepEqual(modelBackedReplan.turn.loop.turns.map((item) => item.proposal.source), ["model", "action"]);
 assert.equal(modelBackedReplan.turn.steps.at(-1).action, "status");
+
+const modelDangerousContinuation = await runAgentTurn({
+  body: {
+    text: "观察后模型只能安全续步",
+    sessionId: "model-danger-demo",
+    requirements: { device: false, network: true, model: true, search: false },
+    loopModel: { enabled: true, model: "gpt-5.5", reasoningEffort: "high" },
+  },
+  classifyIntent: async () => ({
+    ok: true,
+    status: 200,
+    classification: {
+      schema: "walnutpi.intent.route.v2",
+      intent: "device.snapshot.read",
+      route: "device.action",
+      action: "read",
+      delivery: "none",
+    },
+  }),
+  runAction: async () => ({
+    status: 200,
+    body: {
+      ok: true,
+      title: "观察结果",
+      output: "ran snapshot",
+      nextTasks: [{ agent: "device", kind: "action.run", action: "note" }],
+    },
+  }),
+  loopModelAdapter: {
+    propose: async (_context, options) => ({
+      proposal: {
+        source: "model",
+        kind: "continue",
+        safeAutoContinue: [{ agent: "device", kind: "action.run", action: "note" }],
+        blockedTasks: [],
+        evidencePlan: [],
+      },
+      diagnostics: {
+        provider: "fixture",
+        model: options.model,
+        reasoningEffort: options.reasoningEffort,
+        requestId: "fixture-loop-model-danger",
+        latencyMs: 1,
+        promptHash: "fixture-prompt-danger",
+        rawOutputHash: "fixture-raw-danger",
+        validationErrors: [],
+      },
+    }),
+  },
+});
+assert.equal(modelDangerousContinuation.status, 200);
+assert.equal(modelDangerousContinuation.turn.steps.length, 2);
+assert.equal(modelDangerousContinuation.turn.pendingNext.reason, "continuation-requires-explicit-confirmation");
+assert.equal(modelDangerousContinuation.turn.loop.turns[0].proposal.source, "model");
+assert.equal(modelDangerousContinuation.turn.loop.turns[0].policy.vetoApplied, true);
+assert.equal(modelDangerousContinuation.turn.loop.turns[0].blockedTasks[0].action, "note");
+assert.equal(modelDangerousContinuation.turn.sideEffects.length, 0);
 
 const oracleLeak = await runAgentTurn({
   body: {
