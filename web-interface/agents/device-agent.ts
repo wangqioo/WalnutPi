@@ -35,6 +35,7 @@ export function createDeviceAgent() {
         sessionId: turn.sessionId,
         turnId: turn.turnId,
         text: body.text,
+        requirements: body.requirements,
       });
 
       if (actionResult.body?.ok && task.action === "snapshot" && isObservationReplanRequest(String(body.text || ""))) {

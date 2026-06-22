@@ -74,10 +74,10 @@ one action implementation
 
 WalnutPi already has partial pieces:
 
-- `web-interface/action-policy.js`
-- `web-interface/agent-actions-api.js`
+- `web-interface/action-policy.ts`
+- `web-interface/agent-actions-api.ts`
 - `action-policy-manifest.json`
-- `web-interface/screen-workspace-sync-workflow.js`
+- `web-interface/screen-workspace-sync-workflow.ts`
 - `walnut-assistant/walnut`
 - `walnut-ai-terminal/walnut_ai.py`
 
@@ -227,23 +227,23 @@ HTTP request.
 
 Important current files:
 
-- `web-interface/model-terminal-server.js`
+- `web-interface/model-terminal-server.ts`
   Main Web API assembly point. It wires intent, Action Policy, screen workspace,
   remote command execution, session ledger, and metrics.
 - `web-interface/walnut-agent-console.html`
   Current Agent Console orchestration. `sendPrompt()` still branches in the
   browser.
-- `web-interface/agent-actions-api.js`
+- `web-interface/agent-actions-api.ts`
   Runs `/api/action` through Action Policy, command building, remote execution,
   session logging, and metrics.
-- `web-interface/action-policy.js`
+- `web-interface/action-policy.ts`
   Normalizes and resolves allowed actions.
-- `web-interface/screen-workspace-sync-workflow.js`
+- `web-interface/screen-workspace-sync-workflow.ts`
   Best existing example of a WalnutPi loop step: input validation, hash checks,
   delivery, evidence, structured failure.
-- `web-interface/screen-delivery-adapters/ssh-local-agent.js`
+- `web-interface/screen-delivery-adapters/ssh-local-agent.ts`
   Real-device delivery and evidence collection.
-- `web-interface/screen-evidence-ledger.js`
+- `web-interface/screen-evidence-ledger.ts`
   Existing durable evidence pattern for screen sync.
 - `walnut-assistant/walnut`
   Device Execution Surface CLI.
@@ -363,9 +363,9 @@ device-control loop.
 
 Smallest useful patch:
 
-1. Add `web-interface/agent-turn-loop.js`.
-2. Add `web-interface/agent-turn-ledger.js` if persistence is needed now.
-3. Mount `POST /api/agent/turn` in `model-terminal-server.js`.
+1. Add `web-interface/agent-turn-loop.ts`.
+2. Add `web-interface/agent-turn-ledger.ts` if persistence is needed now.
+3. Mount `POST /api/agent/turn` in `model-terminal-server.ts`.
 4. Make the endpoint return a structured timeline for classify + selected
    action result.
 5. Add one assert-based self-check script for the turn shape.

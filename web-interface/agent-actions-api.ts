@@ -219,6 +219,13 @@ export function createAgentActionsApi({
           segments,
         },
       };
+      if (isOfflineReadHonestFailure(responseBody, body)) {
+        responseBody.ok = true;
+        responseBody.honestFailure = {
+          reason: "device-unavailable-in-offline-profile",
+          output: responseBody.output,
+        };
+      }
       if (id === "snapshot" && wantsReadOnlyContinuation(body.text)) {
         responseBody.nextTasks = [{ agent: "device", kind: "action.run", action: "status" }];
       }
@@ -398,13 +405,20 @@ function aiActionOutputFailed(output) {
   return /^(API 请求失败|API HTTP|OPENAI_API_KEY|usage:|walnut: error:|ERR:|\[local\])/i.test(firstLine);
 }
 
+function isOfflineReadHonestFailure(responseBody, body) {
+  return body?.requirements?.device === false
+    && responseBody?.risk === "read"
+    && responseBody?.ok === false
+    && /\[walnut cli preflight failed\]|\[local\] ssh2 connection failed|command skipped/i.test(String(responseBody.output || ""));
+}
+
 function sideEffectsForAction(id, action) {
   const effects = [];
   if (id === "note") effects.push({ kind: "daily-note-write", target: "daily-note", status: "observed" });
   if (id === "restart_walnut_screen_service") effects.push({ kind: "service-restart", target: "walnut-screen.service", status: "observed" });
   if (id === "reboot" || id === "reboot_device") effects.push({ kind: "reboot", target: "device", status: "observed" });
   if (id === "package-install") effects.push({ kind: "package-install", target: "device", status: "observed" });
-  if (action?.risk && action.risk !== "read") effects.push({ kind: "device-write", target: "device", status: "observed" });
+  if (action?.risk === "high") effects.push({ kind: "device-write", target: "device", status: "observed" });
   return dedupeSideEffects(effects);
 }
 

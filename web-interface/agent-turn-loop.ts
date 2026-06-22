@@ -981,8 +981,13 @@ function collectEvidence(turn) {
     push("agentTurn-step", { id: step.id, agent: step.agent, kind: step.kind, status: step.status, action: step.action });
     const result = stepResult(step) || {};
     push("action-policy-id", result.id);
+    push("daily-note-append-evidence", result.id === "note" ? dailyNoteAppendSignal(result) : null);
+    push("sanitized-text-parameter", result.id === "note" ? sanitizedTextParameterSignal(result) : null);
+    push("daily-note-path-or-confirmation", result.id === "note" ? dailyNoteConfirmationSignal(result) : null);
+    push("note-file-read-result", result.id === "notes" ? noteFileReadSignal(result) : null);
+    push("notes-read-result", result.id === "notes" ? noteFileReadSignal(result) : null);
     push("bus-read-output", result.id === "i2c_scan" ? result.output || result.actionEvidence?.output : null);
-    push("action-evidence-or-honest-failure", result.actionEvidence || (result.ok === false ? result.error || result.output : null));
+    push("action-evidence-or-honest-failure", result.actionEvidence || result.honestFailure || (result.ok === false ? result.error || result.output : null));
     push("terminal-command-evidence", result.mode === "terminal" ? result.command : null);
     push("session-event", result.mode === "terminal" || result.diagnostics?.sessionLogMs ? { action: result.id, traceId: result.diagnostics?.traceId } : null);
     push("delegation-evidence", result.contextUsed);
@@ -1275,6 +1280,44 @@ function runtimeAssetsSignal(result) {
 
 function syncRecordSignal(result) {
   return result.syncRecord || result.record || result.recordPath || result.syncRecordPath || null;
+}
+
+function dailyNoteAppendSignal(result) {
+  return {
+    ok: result.ok !== false,
+    actionPolicyId: result.id || "note",
+    risk: result.risk || "write-low",
+    target: "daily-note",
+    output: typeof result.output === "string" ? result.output.slice(0, 500) : null,
+  };
+}
+
+function sanitizedTextParameterSignal(result) {
+  return {
+    actionPolicyId: result.id || "note",
+    source: "action-policy-parameter-schema",
+    minLength: 1,
+    maxLength: 1000,
+    commandTemplate: "walnut note {text}",
+    commandBuilt: Boolean(result.command),
+  };
+}
+
+function dailyNoteConfirmationSignal(result) {
+  return result.actionEvidence?.path
+    || result.actionEvidence?.file
+    || result.actionEvidence?.notePath
+    || result.output
+    || (result.ok !== false ? "daily note append completed" : null);
+}
+
+function noteFileReadSignal(result) {
+  return {
+    ok: result.ok !== false,
+    actionPolicyId: result.id || "notes",
+    output: typeof result.output === "string" ? result.output.slice(0, 1000) : result.output || null,
+    empty: typeof result.output === "string" ? result.output.trim().length === 0 : false,
+  };
 }
 
 function classifySideEffects(turn) {

@@ -37,7 +37,7 @@ Profile selection is driven only by the structured `requirements` object in each
 Default behavior records metadata and continues. For local live-device verification where missing target metadata should stop the run:
 
 ```text
-bun scripts/run-product-capability-agent-harness.js --profile device --strict-device-preflight
+bun scripts/run-product-capability-agent-harness.ts --profile device --strict-device-preflight
 ```
 
 `--strict-device-preflight` fails fast only when `device`/`includeDevice` is active and a critical lightweight check fails:

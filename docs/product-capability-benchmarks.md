@@ -26,6 +26,30 @@ Harness 只读取这个结构化字段，不从 `flow`、自然语言输入、�
 
 Product benchmark harness 是产品 trace 的验收器，不是 TDD 假适配器。它只负责按显式 `requirements` 选择或跳过 case，调用 `/api/agent/turn`，等待 turn settle，保存 trace/artifact，用稳定 evidence 判 verdict，并汇总 regression。它不从自然语言、标题、旧字段或耗时/token 指标推断产品成功。
 
+V2 case 分为两层输入：
+
+- `scenarioContract` 是 loop-facing 场景约束，会由 harness 注入 `/api/agent/turn` 的 `scenario` 字段，并记录在 `agentTurn.v2.input.scenario`、`scenario-contract` 和 `scenario-contract-result` evidence 中。
+- `oracle` 是 harness-only 判卷合同，只能由 benchmark harness 使用，不能进入 `/api/agent/turn`。如果请求体或 trace input 携带 `oracle`，loop / harness 校验都应失败。
+
+`scenarioContract` 只描述任务约束，不给答案钥匙。它可以包含 `goal`、`constraints`、`requiredEvidence`、`allowedContinuations` 和 `blockedPolicy`，但不能包含 expected `route`、`intent`、`delivery`、`resultSignals` 或 pass predicates。
+
+示例：
+
+```json
+{
+  "scenarioContract": {
+    "schema": "walnutpi.loopScenario.v1",
+    "goal": "observation-replan",
+    "constraints": ["read-only-continuation"],
+    "requiredEvidence": ["replan-evidence", "multi-step-loop"],
+    "allowedContinuations": [{ "class": "read-only" }],
+    "blockedPolicy": {
+      "requiresConfirmation": ["device-write", "screen-sync", "service-restart", "package-install", "reboot"]
+    }
+  }
+}
+```
+
 `agentTurn.v2` 分两层：
 
 - 稳定层：`route`、`steps[]`、`artifacts[]`、`evidence[]`、`sideEffects[]`、`telemetry.summary`。Harness 默认只依赖这些字段和 case oracle。
@@ -35,8 +59,8 @@ Product benchmark harness 是产品 trace 的验收器，不是 TDD 假适配器
 
 - `steps[]` 至少包含 `stepId`、`parentStepId`、`kind`、`status`、`startedAt`、`finishedAt`。
 - `artifacts[]` 至少包含 `kind`、`path`、`sha256`、`bytes`、`createdByStepId`，并兼容保留原始 `value`。
-- `sideEffects[]` 使用 `{ kind, stepId, target, status }`；harness 兼容旧字符串形态，但新 trace 应写 typed 对象。
-- `evidence.kind` 是 harness oracle 的固定信号名入口；具体 schema 应逐步按 kind 收紧。
+- `sideEffects[]` 使用 `{ kind, stepId, target, status }` typed 对象；新 trace 不允许字符串 side effect。
+- `evidence[]` 使用 `{ kind, value }` typed signal；核心 benchmark evidence kind 由 schema registry 收紧。
 
 `observation/replan` 相关信息进入 evidence：例如 `multi-step-loop`、`replan-evidence`、`agent-loop`、`loop-evaluator`。是否提出后续任务、哪些可自动继续、哪些被阻止，都应作为 evidence。模型 provider、token、latency、retry、raw metric events 属于 telemetry diagnostics。默认 product gate 不用 token 或耗时判失败；需要性能目标时应另设 perf gate。
 
@@ -45,7 +69,7 @@ Device profile 会在每次 run 的 `summary.json` 里记录 `environment.device
 默认 device preflight 只记录 metadata，不阻止运行。需要在本机设备验证前 fail fast 时，使用：
 
 ```text
-bun scripts/run-product-capability-agent-harness.js --profile device --strict-device-preflight
+bun scripts/run-product-capability-agent-harness.ts --profile device --strict-device-preflight
 ```
 
 严格模式只检查环境变量和 HTTP/URL 层：`baseUrl`、`/api/actions`、显式 `SSH_HOST`、`SSH_USER`、`SSH_PASSWORD`、`WALNUT_REMOTE_PROJECT_ROOT` 或 `WALNUT_PROJECT_ROOT`。它不会 SSH、不会运行 `walnut`、不会读取服务状态、不会抓屏，也不会修改设备。
@@ -1307,7 +1331,7 @@ screen/benchmark-baselines/offline/summary.json
 也可以用 `--baseline <summary.json>` 临时覆盖。baseline 不存在时 gate 必须失败；生成或刷新 baseline 的流程是先人工确认一次 offline harness 结果，再复制对应 summary：
 
 ```text
-bun scripts/run-product-capability-agent-harness.js --profile offline --run-id baseline-offline
+bun scripts/run-product-capability-agent-harness.ts --profile offline --run-id baseline-offline
 New-Item -ItemType Directory -Force screen/benchmark-baselines/offline
 Copy-Item screen/benchmark-runs/baseline-offline/summary.json screen/benchmark-baselines/offline/summary.json
 ```

@@ -11,7 +11,7 @@ screen/benchmark-baselines/<profile>/summary.json
 Refresh a baseline only after reviewing the run:
 
 ```powershell
-bun scripts/run-product-capability-agent-harness.js --profile offline --run-id baseline-offline
+bun scripts/run-product-capability-agent-harness.ts --profile offline --run-id baseline-offline
 New-Item -ItemType Directory -Force screen/benchmark-baselines/offline
 Copy-Item screen/benchmark-runs/baseline-offline/summary.json screen/benchmark-baselines/offline/summary.json
 ```
