@@ -646,7 +646,7 @@
         schedulePreviewFrame();
       }
 
-      async function updateLvglScreenPreview(fallbackOutput, screenId) {
+      async function updateLvglScreenPreview(output, screenId) {
         try {
           const response = await fetch("/api/screen/workspace/lvgl-preview", {
             method: "POST",
@@ -657,9 +657,9 @@
           if (!response.ok || !data.ok || !data.frames?.[0]?.png) throw new Error(data.output || data.error || "lvgl preview failed");
           screenPreviewImageEl.alt = `${screenId || "Screen"} LVGL preview`;
           startPreviewPlayer(data.frames, data.playlistHash);
-        } catch {
+        } catch (error) {
           stopPreviewPlayer();
-          updateScreenPreview(fallbackOutput, screenId);
+          appendMessage("assistant", error.message);
         }
       }
 
@@ -674,8 +674,8 @@
           if (!response.ok || !data.ok || !data.frames?.[0]?.png) throw new Error(data.output || data.error || "lvgl preview failed");
           screenPreviewImageEl.alt = "Current LVGL screen preview";
           startPreviewPlayer(data.frames, data.playlistHash || `${mode}-${Date.now()}`);
-        } catch {
-          // ponytail: keep the workspace placeholder if LVGL preview is unavailable.
+        } catch (error) {
+          appendMessage("assistant", error.message);
         }
       }
 
@@ -756,15 +756,15 @@
           const data = JSON.parse(event.data);
           if (data.turnId !== turn.turnId) return;
           lastSeq = data.seq || lastSeq;
-          if (data.kind === "step.started") appendMessage("system", `${data.stepId || "step"}: ${data.status}`);
-          if (data.kind === "step.completed" || data.kind === "step.failed") appendMessage("system", `${data.stepId || "step"}: ${data.status}`);
+          if (data.kind === "agent.started") appendMessage("system", `${data.stepId || "agent"}: ${data.status}`);
+          if (data.kind === "agent.completed" || data.kind === "agent.failed" || data.kind === "agent.pending") appendMessage("system", `${data.stepId || "agent"}: ${data.status}`);
           if (data.kind === "turn.completed" || data.kind === "turn.failed") {
             agentEvents.close();
             agentEvents = null;
             await onDone(data);
           }
         };
-        for (const name of ["turn.completed", "turn.failed", "turn.pending", "step.started", "step.completed", "step.failed"]) {
+        for (const name of ["turn.completed", "turn.failed", "turn.pending", "agent.started", "agent.completed", "agent.failed", "agent.pending"]) {
           agentEvents.addEventListener(name, onEvent);
         }
       }

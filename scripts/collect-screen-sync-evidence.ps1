@@ -90,7 +90,7 @@ printf 'whoami: '; whoami
 printf 'pwd: '; pwd
 printf 'remoteProjectRoot: %s\n' '$remoteRootLiteral'
 test -d '$remoteRootLiteral' && printf 'projectRootExists: yes\n' || printf 'projectRootExists: no\n'
-test -f '$remoteRootLiteral/web-interface/model-terminal-server.js' && printf 'webApiFileExists: yes\n' || printf 'webApiFileExists: no\n'
+test -f '$remoteRootLiteral/web-interface/model-terminal-server.ts' && printf 'webApiFileExists: yes\n' || printf 'webApiFileExists: no\n'
 "@
 
 Invoke-Remote "Walnut screen state" "walnut screen state"
@@ -139,7 +139,7 @@ try {
 
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $startInfo.FileName = "bun"
-    $startInfo.Arguments = "web-interface/model-terminal-server.js"
+    $startInfo.Arguments = "web-interface/model-terminal-server.ts"
     $startInfo.WorkingDirectory = $repoRoot
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true

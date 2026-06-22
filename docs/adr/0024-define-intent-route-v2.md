@@ -129,8 +129,8 @@ Do not introduce a router framework, route provider interface, strategy class
 tree, plugin registry, or factory hierarchy for this.
 
 Continue using the existing `web-interface/intent-rules/rules.json`,
-`facts.js`, and `evaluator.js` path. Add Widget App facts and a few v2 route
-rules there. If a rule is awkward in JSON, use a small JavaScript predicate
+`facts.ts`, and `evaluator.ts` path. Add Widget App facts and a few v2 route
+rules there. If a rule is awkward in JSON, use a small TypeScript predicate
 rather than expanding the rule DSL.
 
 The AI router only resolves ambiguity or low-confidence routes. It must not

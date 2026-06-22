@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "allowJs": false,
+    "checkJs": false,
+    "lib": ["ES2023"],
+    "module": "Preserve",
+    "moduleDetection": "force",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "noImplicitAny": false,
+    "strict": false,
+    "target": "ES2023",
+    "types": ["bun-types", "node"]
+  },
+  "include": ["eval/**/*.ts", "scripts/**/*.ts", "web-interface/**/*.ts"]
+}

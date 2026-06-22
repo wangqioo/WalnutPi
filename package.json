@@ -1,16 +1,15 @@
 {
   "type": "module",
   "scripts": {
-    "bench:product": "bun scripts/run-product-capability-agent-harness.js",
-    "bench:product:compare": "bun scripts/compare-product-capability-runs.js",
-    "bench:product:gate": "bun scripts/run-product-capability-gate.js",
-    "bench:product:holdout": "bun scripts/run-product-capability-agent-harness.js --file docs/product-capability-benchmarks.v2.holdout.jsonl",
-    "bench:product:mutation": "bun scripts/run-product-capability-agent-harness.js --file docs/product-capability-benchmarks.v2.mutations.jsonl --first-variant",
-    "eval:iterate": "bun eval/iterate.js",
-    "eval:iterate:first": "bun eval/iterate.js --first-variant",
-    "screen:workspace:process": "bun scripts/process-screen-workspace-source.js",
-    "screen:workspace:lvgl-build": "bun scripts/build-lvgl-app.js",
-    "web": "bun web-interface/model-terminal-server.js"
+    "bench:product": "bun scripts/run-product-capability-agent-harness.ts",
+    "bench:product:compare": "bun scripts/compare-product-capability-runs.ts",
+    "bench:product:gate": "bun scripts/run-product-capability-gate.ts",
+    "bench:product:holdout": "bun scripts/run-product-capability-agent-harness.ts --file docs/product-capability-benchmarks.v2.holdout.jsonl",
+    "bench:product:mutation": "bun scripts/run-product-capability-agent-harness.ts --file docs/product-capability-benchmarks.v2.mutations.jsonl --first-variant",
+    "screen:workspace:process": "bun scripts/process-screen-workspace-source.ts",
+    "screen:workspace:lvgl-build": "bun scripts/build-lvgl-app.ts",
+    "web": "bun web-interface/model-terminal-server.ts",
+    "check": "bunx tsc --noEmit"
   },
   "dependencies": {
     "ansi_up": "^6.0.6",
@@ -19,5 +18,10 @@
     "sharp": "^0.35.1",
     "ssh2": "^1.17.0",
     "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "bun-types": "^1.3.14",
+    "typescript": "^6.0.3"
   }
 }

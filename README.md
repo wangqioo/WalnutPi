@@ -213,13 +213,13 @@ Web conversation / workspace source processing
 -> real-device sync and evidence
 ```
 
-当前小屏 contract 归 `screen/` 工作区所有。`screen/manifests/*.json` 使用 `walnutpi.screen-manifest.v2`，`screen/playlists/default.json` 使用 `walnutpi.screen-playlist.v1`。`scripts/screen-workspace-vocabulary.js` 是验证和 hash 规则事实来源，`scripts/generate-lvgl-screen-workspace-runtime-assets.js` 是 Runtime Screen Assets 生成器。LVGL Screen App 只消费由当前 Screen Playlist 派生的 Runtime Screen Assets。
+当前小屏 contract 归 `screen/` 工作区所有。`screen/manifests/*.json` 使用 `walnutpi.screen-manifest.v2`，`screen/playlists/default.json` 使用 `walnutpi.screen-playlist.v1`。`scripts/screen-workspace-vocabulary.ts` 是验证和 hash 规则事实来源，`scripts/generate-lvgl-screen-workspace-runtime-assets.ts` 是 Runtime Screen Assets 生成器。LVGL Screen App 只消费由当前 Screen Playlist 派生的 Runtime Screen Assets。
 
 运行本地控制台：
 
 ```bash
 cd /home/pi/projects/WalnutPi
-PORT=4173 bun web-interface/model-terminal-server.js
+PORT=4173 bun web-interface/model-terminal-server.ts
 ```
 
 浏览器打开：
@@ -266,7 +266,7 @@ bun run bench:product:gate
 `bench:product:gate` 固定跑 offline all-variant benchmark，然后比较 `screen/benchmark-baselines/offline/summary.json`。baseline 不存在时 gate 会失败；先人工审核一次 run，再复制 summary：
 
 ```powershell
-bun scripts/run-product-capability-agent-harness.js --profile offline --run-id baseline-offline
+bun scripts/run-product-capability-agent-harness.ts --profile offline --run-id baseline-offline
 New-Item -ItemType Directory -Force screen/benchmark-baselines/offline
 Copy-Item screen/benchmark-runs/baseline-offline/summary.json screen/benchmark-baselines/offline/summary.json
 ```
@@ -291,7 +291,7 @@ Full diagnostics: add evidenceMode="full" -> walnut screen state -> sudo -n waln
 当前常用 root/root 环境可以直接显式指定远端 checkout：
 
 ```bash
-SSH_USER=root SSH_PASSWORD=root WALNUT_REMOTE_PROJECT_ROOT=/home/pi/projects/WalnutPi WALNUT_REMOTE_BUILD_USER=pi bun web-interface/model-terminal-server.js
+SSH_USER=root SSH_PASSWORD=root WALNUT_REMOTE_PROJECT_ROOT=/home/pi/projects/WalnutPi WALNUT_REMOTE_BUILD_USER=pi bun web-interface/model-terminal-server.ts
 ```
 
 Web 同步默认用 `pi` 执行 LVGL build。若历史构建留下 root-owned 文件，需要把远端构建目录修回 `pi:pi`，否则脚本替换旧 CMake cache 或写入 Ninja cache 时会失败：
@@ -394,7 +394,7 @@ sudo walnut screen restore
 
 - Windows：优先用 `scripts/build-lvgl-app.ps1`，产物在 `build/lvgl_app-windows/`
 - Debian / WalnutPi：继续用 `scripts/build-lvgl-app.sh`，强制使用 Ninja，产物在 `build/lvgl_app/`
-- 跨平台入口：`scripts/build-lvgl-app.js`
+- 跨平台入口：`scripts/build-lvgl-app.ts`
 
 第一次构建会自动使用 `third_party/lvgl/`。如果源码不存在，脚本会拉取 LVGL v9.2.2：
 

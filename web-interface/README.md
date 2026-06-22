@@ -38,16 +38,16 @@ Normal users should not be pushed into `walnut` menus or `1 / 2 / 3` terminal ch
 The Bun server is still one process, but the implementation is split by WalnutPi domain boundary:
 
 ```text
-model-terminal-server.js        route assembly and shared process wiring
-agent-actions-api.js            Agent Action API and policy-backed execution
-action-policy.js                Action Policy Manifest validation
-project-memory-api.js           Session Log, Durable Memory, and Retrieval Corpus views
-screen-diagnostics-api.js       Sync Record, frame capture, and pixel-diff diagnostics
-screen-workspace-api.js         Screen Workspace import/process/LVGL preview routes
-screen-workspace-store.js       Screen Workspace manifest/playlist store
-screen-workspace-sync-workflow.js  playlist hash gate and sync orchestration
+model-terminal-server.ts        route assembly and shared process wiring
+agent-actions-api.ts            Agent Action API and policy-backed execution
+action-policy.ts                Action Policy Manifest validation
+project-memory-api.ts           Session Log, Durable Memory, and Retrieval Corpus views
+screen-diagnostics-api.ts       Sync Record, frame capture, and pixel-diff diagnostics
+screen-workspace-api.ts         Screen Workspace import/process/LVGL preview routes
+screen-workspace-store.ts       Screen Workspace manifest/playlist store
+screen-workspace-sync-workflow.ts  playlist hash gate and sync orchestration
 screen-delivery-adapters/       Device Transport implementations
-static-ui-host.js               static Walnut Agent Console / Workspace hosting
+static-ui-host.ts               static Walnut Agent Console / Workspace hosting
 ```
 
 ## Request Types
@@ -186,7 +186,7 @@ The first delivery adapter is deliberately narrow:
 
 - adapter: SSH / local agent
 - build: `scripts/build-lvgl-app.sh`
-- LVGL runtime asset generator: `scripts/generate-lvgl-screen-workspace-runtime-assets.js`
+- LVGL runtime asset generator: `scripts/generate-lvgl-screen-workspace-runtime-assets.ts`
 - activation: hot reload for runtime-capable binaries; `sudo -n systemctl restart walnut-screen.service` remains the upgrade fallback; `walnut screen start` remains the user-facing CLI entry
 - evidence: default fast sync verifies the runtime playlist and `walnut-screen.service` active state without reading the full framebuffer; `evidenceMode: "full"` also runs `walnut screen state` and `sudo -n walnut screen frame`
 - diagnostics image: `GET /api/screen/frame/<buildId>` calls read-only `walnut screen capture --png-base64` on demand

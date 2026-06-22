@@ -34,7 +34,7 @@ Write-Host ""
 
 Push-Location (Join-Path $repoRoot "web-interface")
 try {
-    & bun "ssh-terminal-server.js"
+    & bun "ssh-terminal-server.ts"
     if ($LASTEXITCODE -ne 0) {
         throw "SSH terminal exited with code $LASTEXITCODE."
     }

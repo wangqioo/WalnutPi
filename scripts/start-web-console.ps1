@@ -48,7 +48,7 @@ Write-Host ""
 
 Push-Location $repoRoot
 try {
-    & bun "web-interface/model-terminal-server.js"
+    & bun "web-interface/model-terminal-server.ts"
     if ($LASTEXITCODE -ne 0) {
         throw "Web console exited with code $LASTEXITCODE."
     }
