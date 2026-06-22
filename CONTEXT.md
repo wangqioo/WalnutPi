@@ -10,10 +10,6 @@ WalnutPi is an AI-native terminal system for a headless Debian device with a 480
 The natural-language user surface for WalnutPi that interprets intent, orchestrates controlled device capabilities, creates screen results, and presents evidence. It may use CLI commands, memory, retrieval, and the Screen Workspace, but it is not a general-purpose IDE.
 _Avoid_: IDE, generic IDE, tool button panel, desktop application platform
 
-**Product Capability Loop**:
-A user-facing WalnutPi workflow traced from user intent through the Walnut Agent Console, `/api/agent/turn`, Intent Route, controlled action or workspace step, user-visible result, evidence, benchmark oracle, and repair or iteration path. Benchmark quality is judged by how much of this loop it proves, not by whether a case is merely runnable.
-_Avoid_: benchmark label, isolated API test, tool availability, direct script success
-
 **WalnutPi Device**:
 The headless Debian hardware target that runs the Device Execution Surface, WalnutAI, and the LVGL Screen App. It is the real device synchronized by the Walnut Agent Console, not a simulated preview or generic Linux computer.
 _Avoid_: generic board, desktop Linux, preview device, ESP32 board
