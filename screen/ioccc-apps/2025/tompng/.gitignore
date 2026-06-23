@@ -1,9 +1,0 @@
-#
-# sort with: ../../bin/sgi.sh
-*~
-*.dSYM
-*.o
-.DS_Store
-.*.swp
-sound-15sec-seed1.wav
-sound.wav

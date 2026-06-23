@@ -3,8 +3,9 @@
 ## Project Direction
 
 WalnutPi is an AI-native terminal system for a headless Debian WalnutPi Device.
+New agent-platform work follows `docs/agent-platform-refactor-spec.md`.
 
-Current product spine:
+The current implementation is pre-refactor:
 
 ```text
 Walnut Agent Console
@@ -17,19 +18,69 @@ Walnut Agent Console
 -> Real-Device Verification
 ```
 
+The refactor target is:
+
+```text
+User
+-> Next.js Walnut Agent Console
+-> Mastra Runtime
+-> MCP Tool Gateway
+-> OPA Policy Decision
+-> WalnutPi Domain Tools
+-> Screen Command DSL / Device Action / Memory / Diagnostics
+-> Local artifacts and real-device evidence
+-> OpenTelemetry + Langfuse observability/eval
+```
+
+Screen-specific target:
+
+```text
+Agent
+-> screen tool
+-> Screen Command DSL
+-> Renderer Adapter
+-> Screen Manifest v2 / Playlist v1
+-> Runtime Screen Assets
+-> LVGL pipeline
+-> Real-Device Verification
+```
+
+WalnutPi should own only product contracts specific to the device and screen.
+Do not build a generic agent framework inside this repo.
+
 ## Main Paths
 
-- `web-interface/`: Walnut Agent Console, Screen Workspace UI, sync APIs, diagnostics.
-- `screen/`: Screen Workspace assets, manifests, outputs, playlists, runtime assets.
+- `docs/agent-platform-refactor-spec.md`: source of truth for new agent-platform work.
+- `web-interface/`: pre-refactor static console, custom runtime, screen APIs, diagnostics.
+- `screen/`: local screen artifacts, playlists, runtime assets, widget runtime.
 - `lvgl_app/`: LVGL framebuffer runtime for Screen Playlist playback.
 - `scripts/screen-workspace-vocabulary.ts`: Screen Manifest v2 / Playlist v1 validation and hash behavior.
 - `scripts/screen-workspace-pipeline.ts`: Source Asset / Screen Content processing.
 - `scripts/generate-lvgl-screen-workspace-runtime-assets.ts`: Runtime Screen Assets generator.
 - `scripts/build-lvgl-app.sh`: LVGL runtime build helper.
 - `walnut-assistant/`: Device Execution Surface and `walnut` CLI.
-- `walnut-ai-terminal/`: WalnutAI runtime, Durable Memory, Retrieval Corpus, device skills.
+- `walnut-ai-terminal/`: pre-refactor WalnutAI prototype, file-backed memory, corpus, device skills.
 - `docs/adr/`: architectural decisions.
-- `archive/experiments/`: Archived Capabilities.
+
+## Control Plane And Device Boundary
+
+Keep the WalnutPi device runtime narrow:
+
+```text
+walnut CLI
+LVGL app
+screen/runtime
+systemd walnut-screen.service
+read-only evidence scripts
+SSH2 transport
+```
+
+Do not install Postgres, Langfuse, OPA, Inngest, or similar control-plane
+services on the WalnutPi Device unless a separate deployment decision says so.
+They belong to the control plane.
+
+Do not expose arbitrary shell, `/terminal`, Human CLI Commands, arbitrary
+filesystem paths, direct LVGL calls, or direct SSH command strings as MCP tools.
 
 ## Real-Device Verification
 
@@ -76,27 +127,29 @@ See `docs/real-device-command-scripts.md` before adding or changing real-device 
 
 - `walnut` is the Device Execution Surface.
 - Human CLI Commands and Agent Action Commands have separate contracts.
-- Agent Action Commands should be governed by the Action Policy Manifest.
+- The action manifest remains an action catalog; OPA becomes the policy decision layer.
+- OPA checks happen before command construction for tool/action calls.
+- Refused and pending actions must not produce command strings.
 - System Writes and high-risk Local Actions use explicit confirmation.
 - Public command additions should fit the existing `walnut` command surface when practical.
 - WalnutAI one-shot local agent replies may append `WALNUT_AGENT_TURN_TRACE:` JSON. Keep this trace aligned with Web `/api/agent/turn` fields: `route`, `steps[]`, `evidence`, and `contextUsed`.
 
-## Agent Harness And Product Benchmarks
+## Screen Command DSL
 
-- Main product benchmark entry: `bun run bench:product`.
-- `bench:product` uses Walnut Agent Console `/api/agent/turn`, records `agentTurn.v2` traces, and writes runs under `screen/benchmark-runs/<runId>/`.
-- Default benchmark behavior runs all variants for selected cases with a bounded worker pool. Default concurrency is `--concurrency 4`; use `--concurrency 1` for serial reproduction and `--first-variant` only for quick local checks.
-- Profiles:
-  - `offline`: repeatable local gate profile; records cases with `requirements.device/network/model/search` as profile skips.
-  - `network`: product-loop checks that may use network/model/search behavior but still record device cases as profile skips.
-  - `device`: live WalnutPi verification profile; not a universal CI gate.
-- Every V2 JSONL case must declare `requirements: { device, network, model, search }` with boolean values. Harness profile filtering must use only this structured field, never prompt text, flow names, titles, or legacy compatibility fields.
-- CI/offline gate: `bun run bench:product:gate`. It runs offline all-variant benchmarks and compares against `screen/benchmark-baselines/offline/summary.json`.
-- Baseline convention: `screen/benchmark-baselines/<profile>/summary.json`. Gate must fail when the baseline is missing; do not silently bless new results.
-- Compare two runs with `bun run bench:product:compare -- <base-summary.json> <new-summary.json>`.
-- Device profile writes `device-preflight.json` plus `summary.environment.devicePreflight`. Use `--strict-device-preflight` only when missing live-device target metadata should fail fast.
-- Loop evaluation should include trace signals, but multi-step behavior must also be tested through bounded `nextTasks` continuation evidence: `multi-step-loop` and `replan-evidence`.
-- `contract-only` cases are recorded as skips and are not real product coverage.
+New agent work should not let LLM output become an authoritative Screen Manifest.
+Route screen mutations through the Screen Command DSL described in
+`docs/agent-platform-refactor-spec.md`.
+
+The command runner may call existing screen workflows, the screen pipeline,
+runtime asset generation, and sync workflow. It must not bypass playlist hash
+freshness, preview no-write mode, or mutate the LVGL runtime directly.
+
+## Evaluation Governance
+
+- The old LLM-written product benchmark corpus and `bench:*` harnesses have been removed.
+- Do not add generated benchmark cases, baselines, or run artifacts without human/SME labeling.
+- New evaluation work follows `docs/agent-platform-refactor-spec.md`: Langfuse datasets, Mastra evals, Inngest fanout, and the 3x3 grader matrix.
+- Curated eval cases must declare expected behavior, required evidence, forbidden side effects, and grader classification before they become quality gates.
 
 ## Tool Defaults
 

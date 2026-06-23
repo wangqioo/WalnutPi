@@ -1,9 +1,0 @@
-#
-# sort with: ../../bin/sgi.sh
-*.dSYM
-birken
-birken.orig
-indent
-indent.c
-indent.o
-prog.orig

@@ -517,7 +517,7 @@ async function classifyIntentWithModel(text: string, telemetry: JsonObject = {})
             "Return JSON only.",
             "Choose exactly one supported intent.",
             "Do not execute commands.",
-            "Do not infer benchmark oracle answers.",
+            "Do not infer evaluation oracle answers.",
             "Route screen content creation to screen.generate unless the user asks to sync an existing playlist.",
             "Route unsafe system writes, package installs, service restarts, reboots, and deletion/cleanup requests to policy intents.",
             "Allowed intents: " + CLASSIFIER_INTENTS.join(", "),

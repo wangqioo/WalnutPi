@@ -4,15 +4,20 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import contextlib
+import hashlib
 import io
 import json
 import os
 import secrets
 import shutil
 import subprocess
+import struct
 import sys
 import time
+import zlib
 from datetime import datetime
 from pathlib import Path
 
@@ -48,7 +53,6 @@ MUSIC_DIR_CANDIDATES = [
     HOME / "music-library",
     HOME / "Music" / "music-library",
 ]
-AIRPODS_MAC = "34:0E:22:C0:C7:CC"
 BROWSER_URL = "https://lite.duckduckgo.com/lite/"
 MUSIC_EXTENSIONS = {".mp3", ".ogg", ".oga", ".flac", ".wav"}
 ACTION_OUTPUT_LIMIT = 24000
@@ -268,22 +272,6 @@ def launch_music_visualizer() -> int:
     return 1
 
 
-def open_cn(_: argparse.Namespace | None = None) -> int:
-    if exists("walnut-cn"):
-        return stream(["walnut-cn"])
-    print("walnut-cn is missing")
-    return 1
-
-
-def open_video(args: argparse.Namespace | None = None) -> int:
-    mode = getattr(args, "mode", "color")
-    if exists("walnut-ai-video-demo-play"):
-        return stream(["walnut-ai-video-demo-play", mode])
-    print("walnut-ai-video-demo-play is missing")
-    print(f"Archived installer: sudo {project_root()}/archive/install-scripts/install-walnut-ai.sh")
-    return 1
-
-
 def notes_menu(_: argparse.Namespace | None = None) -> int:
     while True:
         clear_screen()
@@ -306,24 +294,6 @@ def notes_menu(_: argparse.Namespace | None = None) -> int:
             return 0
 
 
-def play_video_menu(_: argparse.Namespace | None = None) -> int:
-    while True:
-        clear_screen()
-        print("Walnut ASCII Video")
-        print()
-        print("  1. Color demo")
-        print("  2. Gray demo")
-        print()
-        print("  b. Back")
-        choice = input("\nSelect> ").strip().lower()
-        if choice == "1":
-            open_video(argparse.Namespace(mode="color"))
-        elif choice == "2":
-            open_video(argparse.Namespace(mode="gray"))
-        elif choice in {"b", "back", "q", "quit", "exit"}:
-            return 0
-
-
 def play_menu(_: argparse.Namespace | None = None) -> int:
     while True:
         clear_screen()
@@ -332,8 +302,7 @@ def play_menu(_: argparse.Namespace | None = None) -> int:
         print("  1. Music Player")
         print("  2. Music Visualizer")
         print("  3. Matrix Rain")
-        print("  4. ASCII Video")
-        print("  5. Clock")
+        print("  4. Clock")
         print()
         print("  b. Back")
         choice = input("\nSelect> ").strip().lower()
@@ -346,24 +315,7 @@ def play_menu(_: argparse.Namespace | None = None) -> int:
         elif choice == "3":
             launch_matrix()
         elif choice == "4":
-            play_video_menu(None)
-        elif choice == "5":
             launch_clock()
-        elif choice in {"b", "back", "q", "quit", "exit"}:
-            return 0
-
-
-def console_menu(_: argparse.Namespace | None = None) -> int:
-    while True:
-        clear_screen()
-        print("Walnut Console")
-        print()
-        print("  1. Chinese framebuffer console")
-        print()
-        print("  b. Back")
-        choice = input("\nSelect> ").strip().lower()
-        if choice == "1":
-            open_cn(None)
         elif choice in {"b", "back", "q", "quit", "exit"}:
             return 0
 
@@ -377,9 +329,7 @@ def screen_menu(_: argparse.Namespace | None = None) -> int:
         print("  2. Stop and restore login")
         print("  3. Toggle LVGL / login")
         print("  4. Screen state")
-        print("  5. Framebuffer status screen")
-        print("  6. Test pattern")
-        print("  7. Run LVGL once")
+        print("  5. Run LVGL once")
         print()
         print("  b. Back")
         choice = input("\nSelect> ").strip().lower()
@@ -396,12 +346,6 @@ def screen_menu(_: argparse.Namespace | None = None) -> int:
             screen(argparse.Namespace(screen_cmd="state"))
             pause()
         elif choice == "5":
-            screen(argparse.Namespace(screen_cmd="status"))
-            pause()
-        elif choice == "6":
-            screen(argparse.Namespace(screen_cmd="test"))
-            pause()
-        elif choice == "7":
             screen(argparse.Namespace(screen_cmd="lvgl"))
             pause()
         elif choice in {"b", "back", "q", "quit", "exit"}:
@@ -413,26 +357,22 @@ def maintenance_menu(_: argparse.Namespace | None = None) -> int:
         clear_screen()
         print("Walnut Maintenance")
         print()
-        print("  1. Fix AirPods audio")
-        print("  2. Projects")
-        print("  3. Clean")
-        print("  4. Web Browser")
-        print("  5. Monitor")
+        print("  1. Projects")
+        print("  2. Clean")
+        print("  3. Web Browser")
+        print("  4. Monitor")
         print()
         print("  b. Back")
         choice = input("\nSelect> ").strip().lower()
         if choice == "1":
-            fix_audio(None)
-            pause()
-        elif choice == "2":
             projects(None)
             pause()
-        elif choice == "3":
+        elif choice == "2":
             clean(None)
             pause()
-        elif choice == "4":
+        elif choice == "3":
             launch_browser()
-        elif choice == "5":
+        elif choice == "4":
             launch_monitor()
         elif choice in {"b", "back", "q", "quit", "exit"}:
             return 0
@@ -456,7 +396,7 @@ def status(_: argparse.Namespace | None = None) -> int:
     print(one_line(["free", "-h"]))
 
     section("Services")
-    for service in ["ssh", "NetworkManager", "docker", "frpc", "voice-keyboard-walnutpi", "bluealsa-aplay", "bluetooth"]:
+    for service in ["ssh", "NetworkManager", "docker", "frpc", "walnut-screen.service", "bluetooth"]:
         state = one_line(root_cmd(["systemctl", "is-active", service]), "unknown")
         enabled = one_line(root_cmd(["systemctl", "is-enabled", service]), "unknown")
         print(f"{service:26} active={state:10} enabled={enabled}")
@@ -470,8 +410,6 @@ def status(_: argparse.Namespace | None = None) -> int:
     else:
         print("docker not installed")
 
-    section("Audio")
-    print(one_line(["bluetoothctl", "info", AIRPODS_MAC], "AirPods not known"))
     return 0
 
 
@@ -829,7 +767,6 @@ def start_lightfield_demo() -> int:
         print(f"Run: cd {current_root} && scripts/build-lvgl-app.sh")
         return 1
     subprocess.call(root_cmd(["systemctl", "stop", "walnut-screen.service"]))
-    subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
     subprocess.call(root_cmd(["pkill", "-f", "walnut-lightfield-camera-loop"]))
     subprocess.call(root_cmd(["pkill", "-f", str(binary)]))
     if not shutil.which("ffmpeg"):
@@ -862,30 +799,139 @@ def start_lightfield_demo() -> int:
 def restore_screen_login() -> int:
     subprocess.call(root_cmd(["systemctl", "stop", "walnut-screen.service"]))
     subprocess.call(root_cmd(["pkill", "-f", "walnut-lightfield-camera-loop"]))
-    code = subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
     subprocess.call(["/bin/sh", "-c", "echo 1 > /sys/class/vtconsole/vtcon1/bind"])
-    subprocess.call(root_cmd(["systemctl", "start", "getty@tty1.service"]))
-    return code
+    return subprocess.call(root_cmd(["systemctl", "start", "getty@tty1.service"]))
 
 
 def print_screen_state() -> int:
     section("Screen")
     print(f"walnut-screen.service              {screen_service_state('walnut-screen.service')}")
-    print(f"walnut-framebuffer-status.service  {screen_service_state('walnut-framebuffer-status.service')}")
     vtcon = Path("/sys/class/vtconsole/vtcon1/bind")
     if vtcon.exists():
         print(f"vtcon1 bind                        {vtcon.read_text(encoding='utf-8').strip()}")
     return 0
 
 
-def print_screen_frame() -> int:
-    current_root = project_root()
-    if str(current_root) not in sys.path:
-        sys.path.insert(0, str(current_root))
-    try:
-        from framebuffer_ui import fb
+def read_framebuffer_info(fb_device: str = "fb0") -> dict[str, int | str]:
+    root = Path("/sys/class/graphics") / fb_device
+    virtual_size = (root / "virtual_size").read_text(encoding="utf-8").strip()
+    width_text, height_text = virtual_size.split(",", 1)
+    stride_path = root / "stride"
+    modes_path = root / "modes"
+    modes = modes_path.read_text(encoding="utf-8").strip().splitlines() if modes_path.exists() else []
+    return {
+        "name": (root / "name").read_text(encoding="utf-8").strip(),
+        "width": int(width_text),
+        "height": int(height_text),
+        "bitsPerPixel": int((root / "bits_per_pixel").read_text(encoding="utf-8").strip()),
+        "stride": int(stride_path.read_text(encoding="utf-8").strip()) if stride_path.exists() else 0,
+        "mode": modes[0] if modes else "",
+    }
 
-        print(json.dumps(fb.read_frame_evidence(), ensure_ascii=True, sort_keys=True))
+
+def framebuffer_byte_length(info: dict[str, int | str]) -> int:
+    width = int(info["width"])
+    height = int(info["height"])
+    stride = int(info["stride"])
+    bits_per_pixel = int(info["bitsPerPixel"])
+    if stride > 0:
+        return stride * height
+    bytes_per_pixel = max((bits_per_pixel + 7) // 8, 1)
+    return width * height * bytes_per_pixel
+
+
+def framebuffer_pixel_format(info: dict[str, int | str]) -> str:
+    bits_per_pixel = int(info["bitsPerPixel"])
+    if bits_per_pixel == 16:
+        return "RGB565_LE"
+    return f"{bits_per_pixel}BPP"
+
+
+def read_framebuffer(device: str = "/dev/fb0", fb_device: str = "fb0") -> tuple[dict[str, int | str], bytes]:
+    info = read_framebuffer_info(fb_device)
+    expected_byte_length = framebuffer_byte_length(info)
+    with open(device, "rb", buffering=0) as framebuffer:
+        return info, framebuffer.read(expected_byte_length)
+
+
+def framebuffer_evidence(info: dict[str, int | str], frame: bytes, device: str = "/dev/fb0", sample_size: int = 64) -> dict[str, object]:
+    sample = frame[:sample_size]
+    nonzero_bytes = sum(1 for value in frame if value != 0)
+    return {
+        "device": device,
+        "name": info["name"],
+        "width": info["width"],
+        "height": info["height"],
+        "bitsPerPixel": info["bitsPerPixel"],
+        "pixelFormat": framebuffer_pixel_format(info),
+        "stride": info["stride"],
+        "mode": info["mode"],
+        "byteLength": len(frame),
+        "expectedByteLength": framebuffer_byte_length(info),
+        "sha256": hashlib.sha256(frame).hexdigest(),
+        "nonzeroBytes": nonzero_bytes,
+        "isBlank": nonzero_bytes == 0,
+        "sample": {
+            "offset": 0,
+            "length": len(sample),
+            "base64": base64.b64encode(sample).decode("ascii"),
+            "uniqueBytes": len(set(sample)),
+        },
+    }
+
+
+def png_chunk(kind: bytes, payload: bytes) -> bytes:
+    return (
+        struct.pack(">I", len(payload))
+        + kind
+        + payload
+        + struct.pack(">I", binascii.crc32(kind + payload) & 0xFFFFFFFF)
+    )
+
+
+def rgb565_to_rgb888(frame: bytes, width: int, height: int, stride: int = 0) -> bytes:
+    row_stride = stride if stride > 0 else width * 2
+    if len(frame) < row_stride * height:
+        raise ValueError("frame is shorter than expected")
+
+    rgb = bytearray()
+    for y in range(height):
+        row_offset = y * row_stride
+        for x in range(width):
+            offset = row_offset + x * 2
+            value = frame[offset] | (frame[offset + 1] << 8)
+            red = (value >> 11) & 0x1F
+            green = (value >> 5) & 0x3F
+            blue = value & 0x1F
+            rgb.extend(((red << 3) | (red >> 2), (green << 2) | (green >> 4), (blue << 3) | (blue >> 2)))
+    return bytes(rgb)
+
+
+def rgb888_to_png(rgb: bytes, width: int, height: int) -> bytes:
+    row_length = width * 3
+    expected = row_length * height
+    if len(rgb) != expected:
+        raise ValueError("rgb byte length does not match dimensions")
+
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)
+        offset = y * row_length
+        rows.extend(rgb[offset : offset + row_length])
+
+    ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + png_chunk(b"IHDR", ihdr)
+        + png_chunk(b"IDAT", zlib.compress(bytes(rows)))
+        + png_chunk(b"IEND", b"")
+    )
+
+
+def print_screen_frame() -> int:
+    try:
+        info, frame = read_framebuffer()
+        print(json.dumps(framebuffer_evidence(info, frame), ensure_ascii=True, sort_keys=True))
         return 0
     except OSError as error:
         print(f"screen frame evidence failed: {error}")
@@ -893,13 +939,29 @@ def print_screen_frame() -> int:
 
 
 def print_screen_capture(args: argparse.Namespace) -> int:
-    current_root = project_root()
-    if str(current_root) not in sys.path:
-        sys.path.insert(0, str(current_root))
     try:
-        from framebuffer_ui import capture
-
-        payload, _ = capture.capture_png(include_base64=getattr(args, "png_base64", False))
+        info, frame = read_framebuffer()
+        if int(info["bitsPerPixel"]) != 16:
+            raise ValueError(f"unsupported framebuffer format: {info['bitsPerPixel']}bpp")
+        evidence = framebuffer_evidence(info, frame)
+        width = int(info["width"])
+        height = int(info["height"])
+        stride = int(info["stride"])
+        png = rgb888_to_png(rgb565_to_rgb888(frame, width, height, stride), width, height)
+        payload = {
+            "device": "/dev/fb0",
+            "width": width,
+            "height": height,
+            "pixelFormat": framebuffer_pixel_format(info),
+            "rawSha256": evidence["sha256"],
+            "rawByteLength": evidence["byteLength"],
+            "pngSha256": hashlib.sha256(png).hexdigest(),
+            "pngByteLength": len(png),
+            "nonzeroBytes": evidence["nonzeroBytes"],
+            "isBlank": evidence["isBlank"],
+        }
+        if getattr(args, "png_base64", False):
+            payload["pngBase64"] = base64.b64encode(png).decode("ascii")
         print(json.dumps(payload, ensure_ascii=True, sort_keys=True))
         return 0
     except (OSError, ValueError) as error:
@@ -933,35 +995,7 @@ def screen(args: argparse.Namespace) -> int:
         return print_screen_frame()
     if command == "capture":
         return print_screen_capture(args)
-    if command == "status":
-        if not require_root("screen status"):
-            return 1
-        return subprocess.call(root_cmd(["systemctl", "start", "walnut-framebuffer-status.service"]))
-    if command in {"test", "demo", "off"}:
-        current_root = project_root()
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(current_root)
-        subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
-        demo = {"test": "test", "demo": "card", "off": "off"}[command]
-        return subprocess.call(
-            ["python3", "-m", "framebuffer_ui.draw_demo", demo],
-            cwd=str(current_root),
-            env=env,
-        )
-    if command == "image":
-        current_root = project_root()
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(current_root)
-        subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
-        return subprocess.call(
-            ["python3", "-m", "framebuffer_ui.draw_image", args.path],
-            cwd=str(current_root),
-            env=env,
-        )
     if command == "ai":
-        current_root = project_root()
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(current_root)
         text = getattr(args, "text", []) or []
         if text:
             ai_text = " ".join(text).strip()
@@ -972,22 +1006,8 @@ def screen(args: argparse.Namespace) -> int:
             if run(root_cmd(["systemctl", "is-active", "walnut-screen.service"])).stdout.strip() == "active":
                 print("updated LVGL AI page")
                 return 0
-        subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
-        return subprocess.call(
-            ["python3", "-m", "framebuffer_ui.draw_ai", *text],
-            cwd=str(current_root),
-            env=env,
-        )
-    if command == "app":
-        current_root = project_root()
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(current_root)
-        subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
-        return subprocess.call(
-            ["python3", "-m", "framebuffer_ui.screen_app"],
-            cwd=str(current_root),
-            env=env,
-        )
+        print("Usage: walnut screen ai text")
+        return 2
     if command == "lvgl":
         current_root = project_root()
         binary = current_root / "build" / "lvgl_app" / "walnut-lvgl-screen"
@@ -995,9 +1015,8 @@ def screen(args: argparse.Namespace) -> int:
             print(f"LVGL binary is missing: {binary}")
             print(f"Run: cd {current_root} && scripts/build-lvgl-app.sh")
             return 1
-        subprocess.call(root_cmd(["systemctl", "stop", "walnut-framebuffer-status.service"]))
         return subprocess.call([str(binary), "/dev/fb0"], cwd=str(current_root))
-    print("Usage: walnut screen [start|stop|toggle|state|frame|capture|status|test|demo|off|image|ai|app|lvgl|lvgl-demo|restore]")
+    print("Usage: walnut screen [start|stop|toggle|state|frame|capture|ai|lvgl|lvgl-demo|restore]")
     return 2
 
 
@@ -1020,22 +1039,9 @@ def clean(_: argparse.Namespace | None = None) -> int:
     return 0
 
 
-def fix_audio(_: argparse.Namespace | None = None) -> int:
-    if not require_root("fix-audio"):
-        return 1
-    print("Switching Bluetooth audio back to PulseAudio A2DP playback mode.")
-    subprocess.call(root_cmd(["systemctl", "disable", "--now", "bluealsa-aplay"]))
-    subprocess.call(root_cmd(["systemctl", "disable", "--now", "bluealsa"]))
-    subprocess.call(root_cmd(["pkill", "-f", "^/usr/bin/bluealsa-aplay"]))
-    if exists("vk-airpods-audio"):
-        return stream(["vk-airpods-audio"])
-    print("vk-airpods-audio is missing")
-    return 1
-
-
 def projects(_: argparse.Namespace | None = None) -> int:
     section("Projects")
-    for path in [project_root(), project_root() / "archive" / "experiments" / "voice-keyboard", Path("/opt/walnut-ai"), Path("/opt/uptime-kuma"), Path("/opt/frp")]:
+    for path in [project_root(), Path("/opt/walnut-ai"), Path("/opt/uptime-kuma"), Path("/opt/frp")]:
         if path.exists():
             print(path)
     section("Git")
@@ -1097,7 +1103,7 @@ def menu(_: argparse.Namespace | None = None) -> int:
         print("  q. Exit")
         print()
         print("Advanced tools remain available as direct commands:")
-        print("  walnut ai | play | console | maintenance | video | voice")
+        print("  walnut ai | play | maintenance | voice")
         choice = input("\nSelect> ").strip().lower()
         if choice == "1":
             notes_menu(None)
@@ -1121,9 +1127,7 @@ def build_parser() -> argparse.ArgumentParser:
         "ai": open_ai,
         "notes": notes_menu,
         "play": play_menu,
-        "console": console_menu,
         "maintenance": maintenance_menu,
-        "video": open_video,
         "voice": voice,
         "today": today,
     }
@@ -1131,8 +1135,6 @@ def build_parser() -> argparse.ArgumentParser:
         p = sub.add_parser(name)
         if name == "ai":
             p.add_argument("text", nargs=argparse.REMAINDER)
-        if name == "video":
-            p.add_argument("mode", nargs="?", choices=["color", "gray", "still-color", "still-gray"], default="color")
         p.set_defaults(func=func)
 
     p_action = sub.add_parser("action")
@@ -1161,7 +1163,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_screen = sub.add_parser("screen")
     screen_sub = p_screen.add_subparsers(dest="screen_cmd")
-    for name in ["start", "stop", "toggle", "state", "frame", "status", "test", "demo", "off", "restore", "app", "lvgl"]:
+    for name in ["start", "stop", "toggle", "state", "frame", "restore", "lvgl"]:
         screen_sub.add_parser(name)
     p_lvgl_demo = screen_sub.add_parser("lvgl-demo")
     p_lvgl_demo.add_argument("demo_name", nargs="?")

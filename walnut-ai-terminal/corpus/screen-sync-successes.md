@@ -209,7 +209,7 @@ Reuse this pattern for Screen Workspace playlist sync: require current playlistH
 - previewSignatureHash: 353b6624eb3b4b2e0771b29c26450983132744590c0e327e89041c518f7802d3
 - deviceSignatureHash: 926eb605ac9b860d099f64f46d1cedf554099edd98f19a9080eeed9f032b8c79
 - checks: frameDimensionsMatched=true frameNonblank=true
-- activeItem: benchmark-v1-01-postfix static
+- activeItem: default workspace static
 - summary: 已把 Screen Workspace 资源同步到核桃派。未重新编译 LVGL，并完成 framebuffer 回证。
 
 Reuse this pattern for Screen Workspace playlist sync: require current playlistHash, prefer runtime resource sync with hot reload and fast service-active evidence; request evidenceMode=full only for diagnostic walnut screen state and sudo -n walnut screen frame verification.
