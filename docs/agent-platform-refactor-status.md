@@ -84,8 +84,9 @@ device-profile verification, not offline verification.
 
 - Wire real Mastra runtime over the new platform turn contract.
 - Add MCP/Hono gateway with per-call OPA enforcement.
-- Expand Screen Command DSL render and playlist write coverage through the new
-  command runner. Remote sync, stale hash refusal, preview no-write, frame
+- Expose and verify the already-implemented `screen.renderWallpaper` and
+  `screen.writePlaylist` command-runner paths through the product agent
+  runtime/Mastra path. Remote sync, stale hash refusal, preview no-write, frame
   evidence, and capture evidence now have an initial device-profile path, but
   full Web preview versus device frame comparison remains future work.
 - Replace static console with Next.js only after the new platform paths are
