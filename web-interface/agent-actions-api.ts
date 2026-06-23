@@ -1,4 +1,9 @@
-import { actionSummary, resolveAction } from "./action-policy.ts";
+import {
+  decideActionPolicy,
+  decisionActionSummary,
+  publicPolicyDecision,
+} from "./action-policy-decision.ts";
+import { actionSummary } from "./action-policy.ts";
 import { randomUUID } from "node:crypto";
 
 type TimingSegments = Record<string, number | null | undefined>;
@@ -67,11 +72,14 @@ export function createAgentActionsApi({
       const id = String(body.action || "");
       const turnId = body.turnId || null;
       const sessionId = webSessionLedger.safeSessionId(body.sessionId);
-      let resolved;
+      let decision;
       try {
-        resolved = policyManifest
-          ? resolveAction(policyManifest, { executor: "web", actionId: id, params: body })
-          : null;
+        decision = decideActionPolicy({
+          manifest: policyManifest,
+          executor: "web",
+          actionId: id,
+          params: body,
+        });
       } catch (error) {
         await webMetricsLedger.append({
           kind: "agent.action",
@@ -89,9 +97,7 @@ export function createAgentActionsApi({
         });
         return { body: { ok: false, error: error.message }, status: 400 };
       }
-      const allActions = await getActions();
-      const action = allActions[id];
-      if (!action || resolved?.status === "refused") {
+      if (decision?.status === "refused") {
         await webMetricsLedger.append({
           kind: "agent.action",
           operation: "agent.action",
@@ -104,11 +110,18 @@ export function createAgentActionsApi({
           turnId,
           span: "total",
           segments,
-          error: resolved?.reason || "unknown action",
+          error: decision?.reason || "unknown action",
         });
-        return { body: { ok: false, error: "未知或未允许的动作。" }, status: 400 };
+        return {
+          body: {
+            ok: false,
+            error: "未知或未允许的动作。",
+            policyDecision: decision ? publicPolicyDecision(decision) : null,
+          },
+          status: 400,
+        };
       }
-      if (resolved?.status === "pending") {
+      if (decision?.status === "pending") {
         await webMetricsLedger.append({
           kind: "agent.action",
           operation: "agent.action",
@@ -116,7 +129,7 @@ export function createAgentActionsApi({
           status: 409,
           latencyMs: elapsedSince(startedAt),
           action: id,
-          mode: action.mode,
+          mode: decision.action?.mode || "confirmable",
           traceId,
           sessionId,
           turnId,
@@ -128,16 +141,44 @@ export function createAgentActionsApi({
           body: {
           ok: false,
           status: "pending",
-          ...actionSummary(action, id),
+          ...decisionActionSummary(decision),
           error: "动作需要显式确认，Web 动作 surface 不直接执行。",
+          policyDecision: publicPolicyDecision(decision),
           },
           status: 409,
         };
       }
 
+      const allActions = await getActions();
+      const action = allActions[id];
+      if (!action) {
+        await webMetricsLedger.append({
+          kind: "agent.action",
+          operation: "agent.action",
+          ok: false,
+          status: 400,
+          latencyMs: elapsedSince(startedAt),
+          action: id || "unknown",
+          traceId,
+          sessionId,
+          turnId,
+          span: "total",
+          segments,
+          error: "web action missing after policy allow",
+        });
+        return {
+          body: {
+            ok: false,
+            error: "动作未配置 Web 执行器。",
+            policyDecision: decision ? publicPolicyDecision(decision) : null,
+          },
+          status: 400,
+        };
+      }
+
       let command = action.command;
       let contextUsed = null;
-      const actionParams = resolved?.parameterValues || body;
+      const actionParams = decision?.parameterValues || body;
       try {
         if (action.buildCommand) {
           const buildCommandStartedAt = Date.now();
@@ -184,6 +225,7 @@ export function createAgentActionsApi({
           webSessionLedger,
           webMetricsLedger,
           limitedOutput,
+          policyDecision: decision,
         });
       }
 
@@ -211,6 +253,7 @@ export function createAgentActionsApi({
         ok: remoteOk && !outputFailed,
         ...actionSummary(action, id),
         command,
+        policyDecision: decision ? publicPolicyDecision(decision) : null,
         code: result.code,
         remoteOk,
         outputFailed,
@@ -312,6 +355,7 @@ async function runTerminalAction({
   webSessionLedger,
   webMetricsLedger,
   limitedOutput,
+  policyDecision,
 }) {
   const preflightStartedAt = Date.now();
   const ensure = await walnutRemote.ensureWalnutCli();
@@ -340,8 +384,9 @@ async function runTerminalAction({
     return {
       body: {
       ok: false,
-      ...actionSummary(action, id),
+      ...decisionActionSummary(policyDecision),
       command,
+      policyDecision: publicPolicyDecision(policyDecision),
       code: ensure.code,
       remoteOk: false,
       output: limitedOutput([
@@ -365,8 +410,9 @@ async function runTerminalAction({
 
   const responseBody = {
     ok: true,
-    ...actionSummary(action, id),
+    ...decisionActionSummary(policyDecision),
     command,
+    policyDecision: publicPolicyDecision(policyDecision),
     preflightOutput: ensure.ensured ? ensure.output : "",
     sideEffects: sideEffectsForAction(id, action),
   };

@@ -4,7 +4,7 @@
   "loop": true,
   "items": [
     {
-      "manifest": "../manifests/agent-freeform-1782239081389.json",
+      "manifest": "../manifests/seed-terminal-ops.json",
       "durationMs": 8000,
       "repeat": 1,
       "transition": "cut"

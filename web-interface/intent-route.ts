@@ -41,8 +41,6 @@ export const CLASSIFIER_INTENTS = [
   "diagnostics.recent_failure",
   "screen.state_frame.read",
   "session.summary",
-  "terminal.open",
-  "terminal.tool",
   "ai.chat",
 ];
 
@@ -67,8 +65,6 @@ export function intentTypeToRoute(intent: string, fields: IntentRouteFields = {}
     "diagnostics.recent_failure": ["device.action", "read"],
     "screen.state_frame.read": ["device.action", "read"],
     "session.summary": ["ai.chat", "answer"],
-    "terminal.open": ["terminal.surface", "open"],
-    "terminal.tool": ["terminal.surface", "run_tool"],
     "ai.chat": ["ai.chat", "answer"],
   }[intent] || ["ai.chat", "answer"];
   const route: IntentRoute = {

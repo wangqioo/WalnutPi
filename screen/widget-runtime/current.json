@@ -1,9 +1,0 @@
-{
-  "schema": "walnutpi.widget-runtime-current.v1",
-  "appId": "compass-watch",
-  "versionId": "2026-06-19T00:00:00.000Z",
-  "activatedAt": "2026-06-19T13:06:16.522Z",
-  "app": "../apps/compass-watch/app.json",
-  "catalog": "../apps/compass-watch/catalog.json",
-  "a2uiSurface": "../apps/compass-watch/surface.a2ui.json"
-}

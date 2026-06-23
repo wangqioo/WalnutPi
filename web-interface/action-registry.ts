@@ -35,7 +35,6 @@ const INTENT_TO_ACTION = Object.freeze({
   "device.gpio.read": "gpio",
   "device.notes.read": "notes",
   "device.note.write": "note",
-  "terminal.tool": "video",
 });
 
 const INTENT_TO_POLICY_ACTIONS = Object.freeze({

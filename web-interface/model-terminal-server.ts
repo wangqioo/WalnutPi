@@ -1,6 +1,4 @@
-import { spawn } from "node:child_process";
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -61,7 +59,6 @@ import {
   SCREEN_RECORDS_DIR,
   SCREEN_RECORD_LIMIT,
   SCREEN_SOURCE_IMPORT_MAX_BYTES,
-  SCREEN_SUCCESS_CORPUS_PATH,
   SCREEN_WORKSPACE_ROOT,
   SSH_HOST,
   SSH_PASSWORD,
@@ -105,7 +102,6 @@ const WEB_CONFIG = {
   SCREEN_RECORDS_DIR,
   SCREEN_RECORD_LIMIT,
   SCREEN_SOURCE_IMPORT_MAX_BYTES,
-  SCREEN_SUCCESS_CORPUS_PATH,
   SCREEN_WORKSPACE_ROOT,
   SSH_HOST,
   SSH_PASSWORD,
@@ -120,9 +116,6 @@ const WEB_CONFIG = {
   WEB_SESSION_EVENT_LIMIT,
 };
 type JsonObject = Record<string, any>;
-type TerminalWsData = { child?: ChildProcessWithoutNullStreams | null; command?: string };
-type TerminalWebSocket = { close: () => void; data: TerminalWsData; send: (chunk: any) => void };
-
 const ACTION_POLICY_MANIFEST = await loadActionPolicyManifest(ACTION_POLICY_MANIFEST_PATH);
 const WEB_ACTIONS = actionsForExecutor(ACTION_POLICY_MANIFEST, "web");
 const aiApiKey = resolveAiApiKey();
@@ -153,7 +146,6 @@ const files = new Map([
   ["/", "walnut-agent-console.html"],
   ["/apps.html", "widget-app-gallery.html"],
   ["/workspace.html", "screen-workspace-preview.html"],
-  ["/ssh-terminal.html", "ssh-terminal.html"],
   ["/vendor/ansi_up.js", path.join(PROJECT_ROOT, "node_modules", "ansi_up", "ansi_up.js")],
   [`/${MODEL_FILE}`, MODEL_FILE],
 ]);
@@ -238,7 +230,6 @@ async function retrieveWalnutContext(query) {
     primarySkill: WALNUT_AI_PRIMARY_SKILL,
     projectRoot: PROJECT_ROOT,
     resultLimit: RETRIEVAL_RESULT_LIMIT,
-    screenSuccessCorpusPath: SCREEN_SUCCESS_CORPUS_PATH,
     skillsDir: WALNUT_AI_SKILLS_DIR,
   });
 }
@@ -647,7 +638,6 @@ async function persistScreenSyncResult(result, commandResults = {}, status = 200
       url: `/api/screen/records/${encodeURIComponent(record.buildId)}`,
     };
     result.syncRecordPath = result.syncRecord.recordPath;
-    await rememberSuccessfulScreenSync(record);
   } catch (error) {
     result.recordWarning = `screen sync record was not saved: ${error.message}`;
   }
@@ -679,53 +669,6 @@ async function handleAgentEvents(req, url) {
       connection: "keep-alive",
     },
   });
-}
-
-function successfulScreenSyncEntry(record) {
-  const visualChecks = record.screenEvidence?.visualChecks || {};
-  const semantic = record.screenEvidence?.semantic || {};
-  const playlistHash = record.playlistHash || record.deliveryManifest?.screenPlaylistHash || "";
-  const activeItem = record.screenEvidence?.playlistEvidence?.activeItem || semantic.activeItem || null;
-  const lines = [
-    `## ${record.buildId}`,
-    "",
-    "- kind: screen-workspace-sync-success",
-    `- finishedAt: ${record.finishedAt || ""}`,
-    `- playlistHash: ${playlistHash}`,
-    `- activeManifestHash: ${activeItem?.manifestHash || ""}`,
-    `- artifactHash: ${record.artifactHash || ""}`,
-    `- deliveryHash: ${record.deliveryHash || ""}`,
-    `- visualMatch: ${record.screenEvidence?.visualMatch || "unknown"}`,
-    `- frameHash: ${record.screenEvidence?.frame?.sha256 || ""}`,
-    `- previewSignatureHash: ${semantic.previewSignatureHash || ""}`,
-    `- deviceSignatureHash: ${semantic.deviceSignatureHash || ""}`,
-    `- checks: frameDimensionsMatched=${visualChecks.frameDimensionsMatched ?? ""} frameNonblank=${visualChecks.frameNonblank ?? ""}`,
-    `- activeItem: ${activeItem?.manifestId || "none"} ${activeItem?.outputType || ""}`,
-    `- summary: ${String(record.summary || "").replace(/\s+/g, " ").slice(0, 500)}`,
-    "",
-    "Reuse this pattern for Screen Workspace playlist sync: require current playlistHash, prefer runtime resource sync with hot reload and fast service-active evidence; request evidenceMode=full only for diagnostic walnut screen state and sudo -n walnut screen frame verification.",
-    "",
-  ];
-  return `${lines.join("\n")}\n`;
-}
-
-async function rememberSuccessfulScreenSync(record) {
-  if (!record?.ok) return;
-  if (!record.buildId || record.mode === "preview") return;
-  await mkdir(WALNUT_AI_CORPUS_DIR, { recursive: true });
-  let existing = "";
-  try {
-    existing = await readFile(SCREEN_SUCCESS_CORPUS_PATH, "utf8");
-  } catch {
-    existing = [
-      "# WalnutPi Screen Workspace Sync Successes",
-      "",
-      "This file is auto-appended by the Web screen sync flow. It stores compact successful Screen Workspace patterns only, not command logs or image bytes.",
-      "",
-    ].join("\n");
-  }
-  if (existing.includes(`## ${record.buildId}`)) return;
-  await writeFile(SCREEN_SUCCESS_CORPUS_PATH, `${existing.trimEnd()}\n\n${successfulScreenSyncEntry(record)}`, "utf8");
 }
 
 function runLocal(command: string, args: string[], options: { cwd?: string; outputLimit?: number; timeoutMs?: number } = {}) {
@@ -1019,84 +962,6 @@ async function generateWidgetCatalog({ prompt, sessionId = null, turnId = null }
   return parseJsonObjectText(parseResponsesOutput(data));
 }
 
-function startSsh(ws: TerminalWebSocket) {
-  const target = `${SSH_USER}@${SSH_HOST}`;
-  const send = (chunk) => {
-    try {
-      ws.send(chunk);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  ws.data.child = null;
-  send(`\r\n[local] checking walnut CLI on ${target}\r\n`);
-
-  walnutRemote.ensureWalnutCli()
-    .then((ensure) => {
-      if (!ensure.ok) {
-        send(`\r\n[local] walnut CLI preflight failed\r\n${ensure.output}\r\n`);
-        ws.close();
-        return;
-      }
-      if (ensure.ensured) {
-        send(`\r\n[local] ${ensure.output}\r\n`);
-      }
-      openSshSession(ws, target);
-    })
-    .catch((error) => {
-      send(`\r\n[local] walnut CLI preflight error: ${error.message}\r\n`);
-      ws.close();
-    });
-}
-
-function openSshSession(ws: TerminalWebSocket, target: string) {
-  const child = walnutRemote.openInteractiveSession();
-
-  ws.data.child = child;
-
-  const send = (chunk) => {
-    try {
-      ws.send(chunk);
-    } catch {
-      child.kill("SIGTERM");
-    }
-  };
-
-  send(`\r\n[local] ssh ${target}\r\n\r\n`);
-  if (ws.data.command) {
-    setTimeout(() => {
-      if (!child.killed && child.stdin.writable) child.stdin.write(`${ws.data.command}\n`);
-    }, 1200);
-  }
-  child.stdout.on("data", send);
-  child.stderr.on("data", send);
-
-  child.on("error", (error) => {
-    send(`\r\n[local] ${error.message}\r\n`);
-    ws.close();
-  });
-
-  child.on("close", (code, signal) => {
-    const reason = signal ? `signal ${signal}` : `code ${code}`;
-    send(`\r\n[local] session closed (${reason})\r\n`);
-    ws.close();
-  });
-}
-
-function stopSsh(ws: TerminalWebSocket) {
-  const child = ws.data.child;
-  if (!child || child.killed) return;
-
-  child.stdin.end();
-  child.kill("SIGTERM");
-
-  setTimeout(() => {
-    if (!child.killed) child.kill("SIGKILL");
-  }, 1000).unref?.();
-}
-
 const router = createRouter({
   json,
   previewOnly,
@@ -1117,25 +982,11 @@ const router = createRouter({
   staticUiHost,
 });
 
-const server = Bun.serve<TerminalWsData>({
+const server = Bun.serve({
   hostname: HOST,
   port: PORT,
   idleTimeout: 255,
   fetch: router,
-  websocket: {
-    open(ws) {
-      startSsh(ws);
-    },
-    message(ws, message) {
-      const child = ws.data.child;
-      if (!child || child.killed || !child.stdin.writable) return;
-
-      child.stdin.write(typeof message === "string" ? message : Buffer.from(message));
-    },
-    close(ws) {
-      stopSsh(ws);
-    },
-  },
 });
 
 console.log(`Serving model terminal at http://${server.hostname}:${server.port}/`);

@@ -7,7 +7,6 @@ type RetrievalOptions = {
   primarySkill: string;
   projectRoot: string;
   resultLimit: number;
-  screenSuccessCorpusPath: string;
   skillsDir: string;
 };
 
@@ -81,7 +80,6 @@ async function listRetrievalFiles(options: RetrievalOptions) {
     path.join(options.skillsDir, "walnutpi-screen.md"),
     path.join(options.skillsDir, options.primarySkill, "SKILL.md"),
     path.join(options.corpusDir, "successful-code.md"),
-    options.screenSuccessCorpusPath,
   ];
   async function addDirectoryMarkdown(root, depth = 1) {
     let entries;

@@ -1,0 +1,20 @@
+{
+  "schema": "walnutpi.screen-manifest.v2",
+  "id": "seed-terminal-ops",
+  "title": "WalnutPi Terminal Ops Seed",
+  "description": "Stable default Screen Workspace seed for fresh clones and LVGL runtime smoke tests.",
+  "output": {
+    "type": "static",
+    "path": "../outputs/seed-terminal-ops.png",
+    "width": 480,
+    "height": 320,
+    "fileSha256": "25e92e240278d7f05b70ca26bf898588f6e553546438adef64a3ebe76a40241b",
+    "rgbaFrameSha256": "9e6262d8113761db7c3513add3f448d8663eea15e0e11c3df4146e526193a2b7",
+    "rgb565FrameSha256": "e3fbf800e5918d0edc07ed7a805c7eb2bf17f57f74a99057d45e98e39186c13f"
+  },
+  "provenance": {
+    "processing": {
+      "preset": "fit-cover:480x320"
+    }
+  }
+}

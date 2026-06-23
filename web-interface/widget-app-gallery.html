@@ -233,7 +233,6 @@
         </div>
         <div class="actions">
           <button id="activate" class="primary" type="button">设为当前屏幕</button>
-          <a id="terminalLink" class="download" href="/ssh-terminal.html">终端运行</a>
         </div>
         <div id="status" class="status">正在加载应用。</div>
       </aside>
@@ -244,7 +243,6 @@
       const previewTitle = document.getElementById("previewTitle");
       const previewImage = document.getElementById("previewImage");
       const activateButton = document.getElementById("activate");
-      const terminalLink = document.getElementById("terminalLink");
       const statusEl = document.getElementById("status");
       let apps = [];
       let selectedApp = null;
@@ -307,8 +305,6 @@
           card.classList.toggle("active", card.dataset.appId === appId);
         }
         previewTitle.textContent = selectedApp.title;
-        terminalLink.href = "/ssh-terminal.html";
-        terminalLink.textContent = "打开终端";
         if (selectedApp.type === "official-demo") {
           showImage();
           activateButton.textContent = "设为当前屏幕";

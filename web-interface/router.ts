@@ -7,8 +7,6 @@ export function createRouter(deps) {
   return async function routerFetch(req, server) {
     const url = new URL(req.url);
 
-    if (url.pathname === "/terminal") return handleTerminal(req, server, url, deps);
-
     const route = staticRoutes[url.pathname];
     if (route) return route(req, url);
 
@@ -124,12 +122,6 @@ function decodePathPart(value, deps, message) {
   } catch {
     return deps.json({ ok: false, error: message }, 400);
   }
-}
-
-function handleTerminal(req, server, url, deps) {
-  if (deps.previewOnly(url)) return new Response("SSH disabled for preview", { status: 403 });
-  const upgraded = server.upgrade(req, { data: { child: null, command: url.searchParams.get("command") || "" } });
-  return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
 }
 
 async function handleHarnessSession(req, url, deps) {

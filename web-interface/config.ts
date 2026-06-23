@@ -39,7 +39,6 @@ export const SCREEN_WORKSPACE_ROOT = process.env.WALNUT_SCREEN_WORKSPACE_ROOT
   : path.join(PROJECT_ROOT, "screen");
 export const SCREEN_LVGL_PREVIEW_OUTPUT_DIR = path.join(SCREEN_WORKSPACE_ROOT, "outputs", "lvgl-preview");
 export const SCREEN_RECORDS_DIR = process.env.WALNUT_SCREEN_RECORDS_DIR || path.join(BASE_DIR, "screen-sync-records");
-export const SCREEN_SUCCESS_CORPUS_PATH = path.join(PROJECT_ROOT, "walnut-ai-terminal", "corpus", "screen-sync-successes.md");
 export const WALNUT_CLI_SOURCE_PATH = path.join(PROJECT_ROOT, "walnut-assistant", "walnut");
 export const WALNUT_MEMORY_DIR = process.env.WALNUT_MEMORY_DIR || path.join(process.env.HOME || process.env.USERPROFILE || PROJECT_ROOT, "walnut-memory");
 export const WALNUT_AI_MEMORY_FILE = process.env.WALNUT_AI_MEMORY_FILE || path.join(WALNUT_MEMORY_DIR, "memory.json");

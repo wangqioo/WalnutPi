@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { Client as SshClient } from "ssh2";
 
@@ -544,28 +543,6 @@ export function createWalnutRemoteAdapter({
     return run("sudo -n walnut screen capture --png-base64", 30_000, captureOutputLimit);
   }
 
-  function openInteractiveSession() {
-    return spawn(
-      "sshpass",
-      [
-        "-e",
-        "ssh",
-        "-tt",
-        "-o",
-        "StrictHostKeyChecking=no",
-        "-o",
-        "UserKnownHostsFile=/dev/null",
-        "-o",
-        "LogLevel=ERROR",
-        target(),
-      ],
-      {
-        env: sshEnv(),
-        stdio: ["pipe", "pipe", "pipe"],
-      },
-    );
-  }
-
   return {
     target,
     ensureWalnutCli,
@@ -576,7 +553,6 @@ export function createWalnutRemoteAdapter({
     runScript,
     runWithInput,
     capturePngBase64,
-    openInteractiveSession,
     closePooledClient,
   };
 }

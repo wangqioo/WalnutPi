@@ -55,6 +55,8 @@ screen/sources/benchmark-*-source/
 screen/sources/codex-*-source/
 screen/sources/v1-*-source/
 screen/benchmark-runs/
+screen/runtime/
+screen/widget-runtime/
 screen/manifests/v2-*.json
 screen/outputs/v2-*/
 screen/plans/v2-*-plan.json
