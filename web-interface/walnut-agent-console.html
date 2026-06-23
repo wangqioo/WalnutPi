@@ -665,10 +665,13 @@
 
       async function updateCurrentLvglPreview(mode = "playlist") {
         try {
-          const response = await fetch("/api/screen/workspace/lvgl-preview", {
+          const endpoint = mode === "widget"
+            ? "/api/screen/widget-apps/current/preview"
+            : "/api/screen/workspace/lvgl-preview";
+          const response = await fetch(endpoint, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify(mode === "widget" ? { mode: "widget" } : {}),
+            body: JSON.stringify({}),
           });
           const data = await response.json();
           if (!response.ok || !data.ok || !data.frames?.[0]?.png) throw new Error(data.output || data.error || "lvgl preview failed");

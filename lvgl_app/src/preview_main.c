@@ -9,7 +9,7 @@
 
 #define PREVIEW_WIDTH 480
 #define PREVIEW_HEIGHT 320
-#define PREVIEW_BYTES_PER_PIXEL 2
+#define PREVIEW_BYTES_PER_FRAME_UNIT 2
 
 void walnut_build_screen_ui(void);
 void walnut_build_lightfield_demo(void);
@@ -18,7 +18,7 @@ bool walnut_screen_workspace_load_runtime(const char * index_path);
 const char * walnut_screen_workspace_active_playlist_hash(void);
 
 static uint16_t preview_framebuffer[PREVIEW_WIDTH * PREVIEW_HEIGHT];
-static uint8_t draw_buffer[PREVIEW_WIDTH * PREVIEW_HEIGHT * PREVIEW_BYTES_PER_PIXEL];
+static uint8_t draw_buffer[PREVIEW_WIDTH * PREVIEW_HEIGHT * PREVIEW_BYTES_PER_FRAME_UNIT];
 
 static void write_le16(FILE * file, uint16_t value)
 {
@@ -43,7 +43,7 @@ static void preview_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_
         int32_t dst_y = area->y1 + y;
         if(dst_y < 0 || dst_y >= PREVIEW_HEIGHT) continue;
         uint16_t * dst = &preview_framebuffer[dst_y * PREVIEW_WIDTH + area->x1];
-        const uint16_t * src = (const uint16_t *)(px_map + (size_t)y * (size_t)width * PREVIEW_BYTES_PER_PIXEL);
+        const uint16_t * src = (const uint16_t *)(px_map + (size_t)y * (size_t)width * PREVIEW_BYTES_PER_FRAME_UNIT);
         int32_t copy_width = width;
         if(area->x1 < 0) {
             src += -area->x1;
@@ -51,7 +51,7 @@ static void preview_flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_
             dst = &preview_framebuffer[dst_y * PREVIEW_WIDTH];
         }
         if(area->x1 + copy_width > PREVIEW_WIDTH) copy_width = PREVIEW_WIDTH - area->x1;
-        if(copy_width > 0) memcpy(dst, src, (size_t)copy_width * PREVIEW_BYTES_PER_PIXEL);
+        if(copy_width > 0) memcpy(dst, src, (size_t)copy_width * PREVIEW_BYTES_PER_FRAME_UNIT);
     }
 
     lv_display_flush_ready(disp);
@@ -66,9 +66,9 @@ static int write_bmp(const char * output_path)
     }
 
     const uint32_t row_stride = PREVIEW_WIDTH * 3;
-    const uint32_t pixel_bytes = row_stride * PREVIEW_HEIGHT;
+    const uint32_t frame_bytes = row_stride * PREVIEW_HEIGHT;
     const uint32_t header_bytes = 14 + 40;
-    const uint32_t file_bytes = header_bytes + pixel_bytes;
+    const uint32_t file_bytes = header_bytes + frame_bytes;
 
     fwrite("BM", 1, 2, file);
     write_le32(file, file_bytes);
@@ -82,7 +82,7 @@ static int write_bmp(const char * output_path)
     write_le16(file, 1);
     write_le16(file, 24);
     write_le32(file, 0);
-    write_le32(file, pixel_bytes);
+    write_le32(file, frame_bytes);
     write_le32(file, 2835);
     write_le32(file, 2835);
     write_le32(file, 0);

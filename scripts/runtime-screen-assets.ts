@@ -10,11 +10,6 @@ import {
   validateScreenManifestV2,
   validateScreenPlaylistV1,
 } from "./screen-workspace-vocabulary.ts";
-import {
-  runtimeWidgetsFromWalnutCatalog,
-  validateWalnutLvglWidgetCatalog,
-} from "./walnut-lvgl-widget-catalog.ts";
-
 export const RUNTIME_WIDTH = 480;
 export const RUNTIME_HEIGHT = 320;
 export const RUNTIME_STRIDE = RUNTIME_WIDTH * 2;
@@ -23,8 +18,8 @@ type JsonRecord = Record<string, any>;
 type RuntimeFrame = {
   rgb565: Buffer;
   fileSha256: string;
-  rgbaPixelSha256: string;
-  rgb565PixelSha256: string;
+  rgbaFrameSha256: string;
+  rgb565FrameSha256: string;
   durationMs: number;
 };
 type RuntimeItem = {
@@ -37,25 +32,12 @@ type RuntimeItem = {
   repeat: number;
   transition: string;
 };
-type RuntimeWidget = {
-  type: string;
-  id: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  text: string;
-  value: number;
-  color: string;
-  action?: string;
-};
 type RuntimeScreenAssets = {
   playlistId: string;
   playlistHash: string;
   loop: boolean;
   frames: RuntimeFrame[];
   items: RuntimeItem[];
-  widgets: RuntimeWidget[];
 };
 
 export async function buildRuntimeScreenAssets({ workspace, playlistId }: { workspace: string; playlistId: string }): Promise<RuntimeScreenAssets> {
@@ -68,7 +50,6 @@ export async function buildRuntimeScreenAssets({ workspace, playlistId }: { work
 
   const frames: RuntimeFrame[] = [];
   const items: RuntimeItem[] = [];
-  const widgets: RuntimeWidget[] = [];
   for (const [index, item] of normalizedPlaylist.items.entries()) {
     const manifestPath = resolveWorkspaceReference(item.manifest, path.dirname(playlistPath), workspace, `items[${index}].manifest`);
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -83,11 +64,6 @@ export async function buildRuntimeScreenAssets({ workspace, playlistId }: { work
       item,
       workspaceRoot: workspace,
     });
-    widgets.push(...await widgetsForManifest({
-      manifest: normalizedManifest,
-      manifestPath,
-      workspaceRoot: workspace,
-    }));
     frames.push(...outputFrames);
     items.push({
       manifestId: normalizedManifest.id,
@@ -107,7 +83,6 @@ export async function buildRuntimeScreenAssets({ workspace, playlistId }: { work
     loop: normalizedPlaylist.loop,
     frames,
     items,
-    widgets,
   };
 }
 
@@ -139,20 +114,6 @@ export function runtimeIndexLines(config: RuntimeScreenAssets): string[] {
     `frameCount ${config.frames.length}`,
     `itemCount ${config.items.length}`,
   ];
-  for (const widget of config.widgets) {
-    lines.push([
-      "widget",
-      field(widget.type),
-      field(widget.id),
-      widget.x,
-      widget.y,
-      widget.w,
-      widget.h,
-      field(widget.text || "-"),
-      widget.value || 0,
-      field(widget.color || "ffffff"),
-    ].join(" "));
-  }
   for (const [index, frame] of config.frames.entries()) {
     const fileName = `frame-${String(index).padStart(3, "0")}.rgb565`;
     lines.push([
@@ -160,8 +121,8 @@ export function runtimeIndexLines(config: RuntimeScreenAssets): string[] {
       index,
       frame.durationMs,
       field(frame.fileSha256),
-      field(frame.rgbaPixelSha256),
-      field(frame.rgb565PixelSha256),
+      field(frame.rgbaFrameSha256),
+      field(frame.rgb565FrameSha256),
       field(`frames/${fileName}`),
     ].join(" "));
   }
@@ -182,43 +143,6 @@ export function runtimeIndexLines(config: RuntimeScreenAssets): string[] {
   return lines;
 }
 
-async function widgetsForManifest({ manifest, manifestPath, workspaceRoot }: { manifest: ScreenManifestV2; manifestPath: string; workspaceRoot: string }): Promise<RuntimeWidget[]> {
-  const widgetApp = manifest.provenance?.widgetApp;
-  if (widgetApp?.catalog) {
-    const catalogPath = resolveWorkspaceReference(widgetApp.catalog, path.dirname(manifestPath), workspaceRoot, "provenance.widgetApp.catalog");
-    const catalog = validateWalnutLvglWidgetCatalog(JSON.parse(await readFile(catalogPath, "utf8")));
-    return runtimeWidgetsFromWalnutCatalog(catalog).map(cleanRuntimeWidget);
-  }
-  const widgets = manifest.provenance?.runtimeWidgets;
-  if (!Array.isArray(widgets)) return [];
-  return widgets.slice(0, 24).map(cleanRuntimeWidget);
-}
-
-function cleanRuntimeWidget(widget: JsonRecord, index = 0): RuntimeWidget {
-  return {
-    type: cleanWidgetField(widget.type || "label", "label"),
-    id: cleanWidgetField(widget.id || `w${index}`, `w${index}`),
-    x: clampInt(widget.x, 0, RUNTIME_WIDTH - 1),
-    y: clampInt(widget.y, 0, RUNTIME_HEIGHT - 1),
-    w: clampInt(widget.w || 80, 1, RUNTIME_WIDTH),
-    h: clampInt(widget.h || 24, 1, RUNTIME_HEIGHT),
-    text: cleanWidgetField(widget.text || "-", "-"),
-    value: clampInt(widget.value || 0, 0, 100),
-    color: cleanWidgetField(String(widget.color || "ffffff").replace(/^#/, ""), "ffffff"),
-  };
-}
-
-function cleanWidgetField(value: any, defaultValue: string): string {
-  const text = String(value || defaultValue).replace(/\s+/g, "_").replace(/[^A-Za-z0-9._:+-]/g, "").slice(0, 64);
-  return text || defaultValue;
-}
-
-function clampInt(value: any, low: number, high: number): number {
-  const number = Math.round(Number(value));
-  if (!Number.isFinite(number)) return low;
-  return Math.max(low, Math.min(high, number));
-}
-
 async function imageFramesForManifest({ manifest, manifestPath, item, workspaceRoot }: { manifest: ScreenManifestV2; manifestPath: string; item: ScreenPlaylistItemV1; workspaceRoot: string }): Promise<RuntimeFrame[]> {
   const manifestDir = path.dirname(manifestPath);
   if (manifest.output.type === "static") {
@@ -226,8 +150,8 @@ async function imageFramesForManifest({ manifest, manifestPath, item, workspaceR
       await imageFrame({
         imagePath: resolveWorkspaceReference(manifest.output.path, manifestDir, workspaceRoot, "output.path"),
         fileSha256: manifest.output.fileSha256,
-        rgbaPixelSha256: manifest.output.rgbaPixelSha256,
-        rgb565PixelSha256: manifest.output.rgb565PixelSha256,
+        rgbaFrameSha256: manifest.output.rgbaFrameSha256,
+        rgb565FrameSha256: manifest.output.rgb565FrameSha256,
         durationMs: item.durationMs,
       }),
     ];
@@ -238,27 +162,27 @@ async function imageFramesForManifest({ manifest, manifestPath, item, workspaceR
       imageFrame({
         imagePath: resolveWorkspaceReference(frame.path, manifestDir, workspaceRoot, `output.frames[${index}].path`),
         fileSha256: frame.fileSha256,
-        rgbaPixelSha256: frame.rgbaPixelSha256,
-        rgb565PixelSha256: frame.rgb565PixelSha256,
+        rgbaFrameSha256: frame.rgbaFrameSha256,
+        rgb565FrameSha256: frame.rgb565FrameSha256,
         durationMs: frame.durationMs,
       }),
     ),
   );
 }
 
-async function imageFrame({ imagePath, fileSha256, rgbaPixelSha256, rgb565PixelSha256, durationMs }: { imagePath: string; fileSha256: string; rgbaPixelSha256: string; rgb565PixelSha256: string; durationMs: number }): Promise<RuntimeFrame> {
+async function imageFrame({ imagePath, fileSha256, rgbaFrameSha256, rgb565FrameSha256, durationMs }: { imagePath: string; fileSha256: string; rgbaFrameSha256: string; rgb565FrameSha256: string; durationMs: number }): Promise<RuntimeFrame> {
   const { data, info } = await sharp(imagePath)
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
   if (info.width !== RUNTIME_WIDTH || info.height !== RUNTIME_HEIGHT || info.channels !== 4) {
-    throw new Error(`runtime frame must decode to ${RUNTIME_WIDTH}x${RUNTIME_HEIGHT} RGBA pixels: ${imagePath}`);
+    throw new Error(`runtime frame must decode to ${RUNTIME_WIDTH}x${RUNTIME_HEIGHT} RGBA frame content: ${imagePath}`);
   }
   return {
     rgb565: rgb565BufferFromRgba(data, info),
     fileSha256,
-    rgbaPixelSha256,
-    rgb565PixelSha256,
+    rgbaFrameSha256,
+    rgb565FrameSha256,
     durationMs,
   };
 }

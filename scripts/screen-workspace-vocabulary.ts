@@ -10,8 +10,7 @@ export const SCREEN_PLAYLIST_V1_SCHEMA = "walnutpi.screen-playlist.v1";
 export const SCREEN_PROCESSING_PRESETS = new Set([
   "fit-cover:480x320",
   "fit-contain:480x320",
-  "pixel-grid:120x80@4x",
-  "pixel-grid:240x160@2x",
+  "terminal-print:480x320",
 ]);
 
 type JsonRecord = Record<string, any>;
@@ -22,8 +21,8 @@ export type ScreenOutputFrame = JsonRecord & {
   height: number;
   durationMs: number;
   fileSha256: string;
-  rgbaPixelSha256: string;
-  rgb565PixelSha256: string;
+  rgbaFrameSha256: string;
+  rgb565FrameSha256: string;
 };
 
 export type StaticScreenOutput = JsonRecord & {
@@ -32,8 +31,8 @@ export type StaticScreenOutput = JsonRecord & {
   width: number;
   height: number;
   fileSha256: string;
-  rgbaPixelSha256: string;
-  rgb565PixelSha256: string;
+  rgbaFrameSha256: string;
+  rgb565FrameSha256: string;
 };
 
 export type AnimatedScreenOutput = JsonRecord & {
@@ -110,35 +109,35 @@ export async function staticOutputFileSha256(filePath: string): Promise<string> 
   return sha256Hex(await readFile(filePath));
 }
 
-export function rgbaPixelSha256(
-  rgbaPixels: Buffer | Uint8Array,
+export function rgbaFrameSha256(
+  rgbaFrameData: Buffer | Uint8Array,
   { width = SCREEN_WORKSPACE_WIDTH, height = SCREEN_WORKSPACE_HEIGHT, channels = 4 }: { width?: number; height?: number; channels?: number } = {},
 ): string {
-  assertPixelBuffer(rgbaPixels, width, height, channels, "rgbaPixels");
-  return sha256Hex(Buffer.from(rgbaPixels));
+  assertFrameBuffer(rgbaFrameData, width, height, channels, "rgbaFrameData");
+  return sha256Hex(Buffer.from(rgbaFrameData));
 }
 
-export async function rgbaPixelSha256FromImage(filePath: string): Promise<string> {
-  const { data, info } = await readRgbaPixels(filePath);
-  return rgbaPixelSha256(data, info);
+export async function rgbaFrameSha256FromImage(filePath: string): Promise<string> {
+  const { data, info } = await readRgbaFrameData(filePath);
+  return rgbaFrameSha256(data, info);
 }
 
 export function rgb565BufferFromRgba(
-  rgbaPixels: Buffer | Uint8Array,
+  rgbaFrameData: Buffer | Uint8Array,
   { width = SCREEN_WORKSPACE_WIDTH, height = SCREEN_WORKSPACE_HEIGHT, channels = 4 }: { width?: number; height?: number; channels?: number } = {},
 ): Buffer {
-  assertPixelBuffer(rgbaPixels, width, height, channels, "rgbaPixels");
-  const input = Buffer.from(rgbaPixels);
+  assertFrameBuffer(rgbaFrameData, width, height, channels, "rgbaFrameData");
+  const input = Buffer.from(rgbaFrameData);
   const output = Buffer.alloc(width * height * 2);
 
-  for (let pixel = 0; pixel < width * height; pixel += 1) {
-    const inputOffset = pixel * channels;
+  for (let frameIndex = 0; frameIndex < width * height; frameIndex += 1) {
+    const inputOffset = frameIndex * channels;
     const alpha = channels >= 4 ? input[inputOffset + 3] / 255 : 1;
     const red = Math.round(input[inputOffset] * alpha);
     const green = Math.round(input[inputOffset + 1] * alpha);
     const blue = Math.round(input[inputOffset + 2] * alpha);
     const rgb565 = ((red & 0xf8) << 8) | ((green & 0xfc) << 3) | (blue >> 3);
-    const outputOffset = pixel * 2;
+    const outputOffset = frameIndex * 2;
     output[outputOffset] = rgb565 & 0xff;
     output[outputOffset + 1] = (rgb565 >> 8) & 0xff;
   }
@@ -146,16 +145,16 @@ export function rgb565BufferFromRgba(
   return output;
 }
 
-export function rgb565PixelSha256FromRgba(
-  rgbaPixels: Buffer | Uint8Array,
+export function rgb565FrameSha256FromRgba(
+  rgbaFrameData: Buffer | Uint8Array,
   { width = SCREEN_WORKSPACE_WIDTH, height = SCREEN_WORKSPACE_HEIGHT, channels = 4 }: { width?: number; height?: number; channels?: number } = {},
 ): string {
-  return sha256Hex(rgb565BufferFromRgba(rgbaPixels, { width, height, channels }));
+  return sha256Hex(rgb565BufferFromRgba(rgbaFrameData, { width, height, channels }));
 }
 
-export async function rgb565PixelSha256FromImage(filePath: string): Promise<string> {
-  const { data, info } = await readRgbaPixels(filePath);
-  return rgb565PixelSha256FromRgba(data, info);
+export async function rgb565FrameSha256FromImage(filePath: string): Promise<string> {
+  const { data, info } = await readRgbaFrameData(filePath);
+  return rgb565FrameSha256FromRgba(data, info);
 }
 
 export function animatedOutputSha256(frames: Array<Partial<ScreenOutputFrame> & JsonRecord>): string {
@@ -166,7 +165,7 @@ export function animatedOutputSha256(frames: Array<Partial<ScreenOutputFrame> & 
   hash.update("walnutpi.animated-output.v1\n");
   frames.forEach((frame, index) => {
     assertObject(frame, `frames[${index}]`);
-    const frameHash = cleanSha256(frame.frameRgb565PixelSha256 || frame.rgb565PixelSha256, `frames[${index}].rgb565PixelSha256`);
+    const frameHash = cleanSha256(frame.frameRgb565FrameSha256 || frame.rgb565FrameSha256, `frames[${index}].rgb565FrameSha256`);
     const durationMs = cleanInteger(frame.durationMs, `frames[${index}].durationMs`, 1, 600000);
     hash.update(`${frameHash}:${durationMs}\n`);
   });
@@ -258,8 +257,8 @@ function normalizeStaticOutput(output, field) {
     width: cleanExactInteger(output.width, `${field}.width`, SCREEN_WORKSPACE_WIDTH),
     height: cleanExactInteger(output.height, `${field}.height`, SCREEN_WORKSPACE_HEIGHT),
     fileSha256: cleanSha256(output.fileSha256, `${field}.fileSha256`),
-    rgbaPixelSha256: cleanSha256(output.rgbaPixelSha256, `${field}.rgbaPixelSha256`),
-    rgb565PixelSha256: cleanSha256(output.rgb565PixelSha256, `${field}.rgb565PixelSha256`),
+    rgbaFrameSha256: cleanSha256(output.rgbaFrameSha256, `${field}.rgbaFrameSha256`),
+    rgb565FrameSha256: cleanSha256(output.rgb565FrameSha256, `${field}.rgb565FrameSha256`),
   };
 }
 
@@ -294,8 +293,8 @@ function normalizeAnimationFrame(frame, field) {
     height: cleanExactInteger(frame.height, `${field}.height`, SCREEN_WORKSPACE_HEIGHT),
     durationMs: cleanInteger(frame.durationMs, `${field}.durationMs`, 1, 600000),
     fileSha256: cleanSha256(frame.fileSha256, `${field}.fileSha256`),
-    rgbaPixelSha256: cleanSha256(frame.rgbaPixelSha256, `${field}.rgbaPixelSha256`),
-    rgb565PixelSha256: cleanSha256(frame.rgb565PixelSha256, `${field}.rgb565PixelSha256`),
+    rgbaFrameSha256: cleanSha256(frame.rgbaFrameSha256, `${field}.rgbaFrameSha256`),
+    rgb565FrameSha256: cleanSha256(frame.rgb565FrameSha256, `${field}.rgb565FrameSha256`),
   };
 }
 
@@ -408,21 +407,21 @@ async function validateImageArtifact(filePath, expected, field, { verifyHashes }
   if (!verifyHashes) return;
   const fileSha256 = await staticOutputFileSha256(filePath);
   if (fileSha256 !== expected.fileSha256) throw new Error(`${field}.fileSha256 does not match artifact bytes`);
-  const rgbaHash = await rgbaPixelSha256FromImage(filePath);
-  if (rgbaHash !== expected.rgbaPixelSha256) throw new Error(`${field}.rgbaPixelSha256 does not match decoded RGBA pixels`);
-  const rgb565Hash = await rgb565PixelSha256FromImage(filePath);
-  if (rgb565Hash !== expected.rgb565PixelSha256) throw new Error(`${field}.rgb565PixelSha256 does not match decoded RGB565 pixels`);
+  const rgbaHash = await rgbaFrameSha256FromImage(filePath);
+  if (rgbaHash !== expected.rgbaFrameSha256) throw new Error(`${field}.rgbaFrameSha256 does not match decoded RGBA frame content`);
+  const rgb565Hash = await rgb565FrameSha256FromImage(filePath);
+  if (rgb565Hash !== expected.rgb565FrameSha256) throw new Error(`${field}.rgb565FrameSha256 does not match decoded RGB565 frame content`);
 }
 
-async function readRgbaPixels(filePath) {
+async function readRgbaFrameData(filePath) {
   return sharp(filePath)
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
 }
 
-function assertPixelBuffer(pixels, width, height, channels, field) {
-  if (!Buffer.isBuffer(pixels) && !(pixels instanceof Uint8Array)) {
+function assertFrameBuffer(frameData, width, height, channels, field) {
+  if (!Buffer.isBuffer(frameData) && !(frameData instanceof Uint8Array)) {
     throw new Error(`${field} must be a Buffer or Uint8Array`);
   }
   if (!Number.isInteger(width) || width <= 0) throw new Error(`${field} width must be a positive integer`);
@@ -430,7 +429,7 @@ function assertPixelBuffer(pixels, width, height, channels, field) {
   if (!Number.isInteger(channels) || channels < 3 || channels > 4) {
     throw new Error(`${field} channels must be 3 or 4`);
   }
-  if (pixels.length !== width * height * channels) {
+  if (frameData.length !== width * height * channels) {
     throw new Error(`${field} length does not match width, height, and channels`);
   }
 }

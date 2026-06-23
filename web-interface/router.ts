@@ -64,11 +64,13 @@ function createStaticRoutes(deps) {
     "/api/screen/workspace/sync": method("POST", deps, (req, url) =>
       deps.screenWorkspaceApi.handleScreenWorkspaceSync(req, deps.previewOnly(url) ? "preview" : "remote")),
     "/api/screen/widget-apps": method("GET", deps, () => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppList()),
+    "/api/screen/widget-apps/create": method("POST", deps, (req) => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppCreate(req)),
     "/api/screen/widget-apps/current/runtime": method("GET", deps, () => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppRuntime()),
+    "/api/screen/widget-apps/current/preview": method("POST", deps, () => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppPreview()),
     "/api/screen/widget-apps/current/refresh": method("POST", deps, () => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppRefresh()),
     "/api/screen/widget-apps/current/events": method("POST", deps, (req) => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppEvent(req)),
     "/api/screen/widget-apps/current/sync": method("POST", deps, () => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppSync()),
-    "/api/screen/pixel-diff": method("POST", deps, (req) => deps.screenDiagnosticsApi.handleScreenPixelDiff(req, deps.readJsonRequest)),
+    "/api/screen/frame-diff": method("POST", deps, (req) => deps.screenDiagnosticsApi.handleScreenFrameDiff(req, deps.readJsonRequest)),
     "/api/screen/records": method("GET", deps, () => deps.screenDiagnosticsApi.handleScreenRecordList()),
     "/api/action": method("POST", deps, (req, url) =>
       deps.previewOnly(url) ? deps.previewOnlyJson() : deps.agentActionsApi.handleAction(req)),

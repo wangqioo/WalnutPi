@@ -5,8 +5,6 @@ const Sha256Schema = z.string().regex(/^[a-fA-F0-9]{64}$/);
 const ProcessingPresetSchema = z.enum([
   "fit-cover:480x320",
   "fit-contain:480x320",
-  "pixel-grid:120x80@4x",
-  "pixel-grid:240x160@2x",
 ]);
 
 export const LocalSourceRefSchema = z.object({
@@ -54,6 +52,7 @@ export const ScreenCommandSchema = z.discriminatedUnion("kind", [
     playlistId: IdSchema.default("default"),
     playlistHash: Sha256Schema,
     evidenceMode: z.enum(["fast", "full"]),
+    mode: z.enum(["remote", "preview"]).default("remote"),
   }),
   z.object({
     kind: z.literal("screen.readPlaylist"),

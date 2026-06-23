@@ -24,6 +24,7 @@ import { createActionRegistry } from "./action-registry.ts";
 import { createProjectMemoryApi } from "./project-memory-api.ts";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.ts";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.ts";
+import { createLvglRuntimePreviewRenderer } from "./lvgl-runtime-preview-renderer.ts";
 import { createScreenCommandRunner } from "./screen-command-runner.ts";
 import { createStaticUiHost } from "./static-ui-host.ts";
 import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-classifier.ts";
@@ -907,6 +908,14 @@ function frameUrl(buildId) {
   return `/api/screen/frame/${encodeURIComponent(buildId)}`;
 }
 
+const lvglRuntimePreviewRenderer = createLvglRuntimePreviewRenderer({
+  projectRoot: PROJECT_ROOT,
+  screenWorkspaceRoot: SCREEN_WORKSPACE_ROOT,
+  previewOutputDir: SCREEN_LVGL_PREVIEW_OUTPUT_DIR,
+  runLocal,
+  findWindowsCommand,
+});
+
 const screenWorkspaceApi = createScreenWorkspaceApi({
   screenWorkspaceStore,
   screenWorkspaceSyncWorkflow,
@@ -919,16 +928,14 @@ const screenWorkspaceApi = createScreenWorkspaceApi({
   writeDefaultScreenPlaylist,
   generateLvglScreenWorkspaceRuntimeAssets,
   persistScreenSyncResult,
-  runLocal,
   runRemote,
   runRemoteWithInput,
   shellQuote,
-  findWindowsCommand,
+  lvglRuntimePreviewRenderer,
   sha256,
   projectRoot: PROJECT_ROOT,
   screenWorkspaceRoot: SCREEN_WORKSPACE_ROOT,
   screenSourceImportMaxBytes: SCREEN_SOURCE_IMPORT_MAX_BYTES,
-  screenLvglPreviewOutputDir: SCREEN_LVGL_PREVIEW_OUTPUT_DIR,
   generateWidgetCatalog,
 });
 
@@ -940,6 +947,9 @@ const screenCommandRunner = createScreenCommandRunner({
   processSourceAssetToScreenOutput,
   appendScreenPlaylistItem,
   writeDefaultScreenPlaylist,
+  walnutRemote,
+  validSha256,
+  sha256,
 });
 
 const agentPlatform = createAgentPlatformRuntime({
@@ -969,7 +979,7 @@ async function generateWidgetCatalog({ prompt, sessionId = null, turnId = null }
             "Do not generate an image. Do not use markdown.",
             "Schema must be walnutpi.lvgl-widget-catalog.v1.",
             "Canvas is exactly 480x320. All layout rectangles must stay inside it.",
-            "Use a small, readable pixel-style dashboard composition.",
+            "Use a compact LVGL desktop/app composition with readable controls and status surfaces.",
             "Allowed node kinds: container, rect, text, image, button, toggle, progress, gauge, list, status_tile.",
             "Allowed style tokens: screen, panel, text, muted, muted2, primary, accent, danger, trace, chip, panelBorder, barTrack.",
             "Root node id must exist and usually be a full-screen container.",
@@ -985,7 +995,7 @@ async function generateWidgetCatalog({ prompt, sessionId = null, turnId = null }
               id: "simple slug",
               title: "1-80 chars",
               size: { width: 480, height: 320 },
-              theme: "pixel-default",
+              theme: "walnut-lvgl-default",
               data: {},
               root: "root",
               nodes: [

@@ -59,8 +59,8 @@ typedef struct {
     lv_image_dsc_t image;
     char path[WALNUT_RUNTIME_PATH_MAX];
     char file_sha256[65];
-    char rgba_pixel_sha256[65];
-    char rgb565_pixel_sha256[65];
+    char rgba_frame_sha256[65];
+    char rgb565_frame_sha256[65];
     int duration_ms;
 } runtime_frame_t;
 
@@ -108,7 +108,7 @@ typedef struct {
 } color_token_t;
 
 static runtime_workspace_t runtime_workspace;
-static uint8_t runtime_frame_pixels[WALNUT_SCREEN_WIDTH * WALNUT_SCREEN_HEIGHT * 2];
+static uint8_t runtime_frame_data[WALNUT_SCREEN_WIDTH * WALNUT_SCREEN_HEIGHT * 2];
 static bool runtime_frame_valid = false;
 static const char walnut_runtime_assets_schema_marker[] = "walnutpi.lvgl-runtime-assets.v1";
 static const char walnut_widget_runtime_schema_marker[] = "walnutpi.lvgl-widget-runtime.v1";
@@ -219,20 +219,20 @@ static uint32_t parse_hex_color(const char * text, uint32_t fallback)
     return (uint32_t)strtoul(text, NULL, 16);
 }
 
-static bool read_runtime_frame_pixels(runtime_frame_t * frame)
+static bool read_runtime_frame_data(runtime_frame_t * frame)
 {
     if(frame == NULL) return false;
     FILE * file = fopen(frame->path, "rb");
     if(file == NULL) return false;
-    size_t expected = sizeof(runtime_frame_pixels);
-    size_t read_bytes = fread(runtime_frame_pixels, 1, expected, file);
+    size_t expected = sizeof(runtime_frame_data);
+    size_t read_bytes = fread(runtime_frame_data, 1, expected, file);
     int extra = fgetc(file);
     fclose(file);
     if(read_bytes != expected || extra != EOF) {
         runtime_frame_valid = false;
         return false;
     }
-    frame->image.data = runtime_frame_pixels;
+    frame->image.data = runtime_frame_data;
     frame->image.data_size = expected;
     runtime_frame_valid = true;
     return true;
@@ -286,8 +286,8 @@ static bool parse_runtime_workspace(const char * index_path)
             runtime_frame_t * frame = &runtime_workspace.frames[index];
             frame->duration_ms = atoi(fields[2]);
             copy_token(frame->file_sha256, sizeof(frame->file_sha256), fields[3]);
-            copy_token(frame->rgba_pixel_sha256, sizeof(frame->rgba_pixel_sha256), fields[4]);
-            copy_token(frame->rgb565_pixel_sha256, sizeof(frame->rgb565_pixel_sha256), fields[5]);
+            copy_token(frame->rgba_frame_sha256, sizeof(frame->rgba_frame_sha256), fields[4]);
+            copy_token(frame->rgb565_frame_sha256, sizeof(frame->rgb565_frame_sha256), fields[5]);
             path_join(frame->path, sizeof(frame->path), runtime_workspace.root_dir, fields[6]);
             frame->image.header.magic = LV_IMAGE_HEADER_MAGIC;
             frame->image.header.cf = LV_COLOR_FORMAT_RGB565;
@@ -381,7 +381,7 @@ static void workspace_apply_frame(workspace_ui_t * ui)
     int frame_count = clamp_int(item->frame_count, 1, runtime_workspace.frame_count - first_frame);
     ui->frame = clamp_int(ui->frame, first_frame, first_frame + frame_count - 1);
     runtime_frame_t * frame = &runtime_workspace.frames[ui->frame];
-    if(read_runtime_frame_pixels(frame)) lv_image_set_src(ui->image, &frame->image);
+    if(read_runtime_frame_data(frame)) lv_image_set_src(ui->image, &frame->image);
 }
 
 static void workspace_advance(workspace_ui_t * ui)

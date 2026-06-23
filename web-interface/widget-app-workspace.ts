@@ -9,19 +9,22 @@ import {
   WALNUT_WIDGET_SNAPSHOT_SOURCE_SCHEMA,
   a2uiSurfaceFromWalnutCatalog,
   runtimeWidgetsFromWalnutCatalog,
+  validateWalnutLvglWidgetCatalog,
   validateWalnutWidgetApp,
-  walnutWidgetCatalogFromPixelSpec,
 } from "../scripts/walnut-lvgl-widget-catalog.ts";
 
 export function createWidgetAppWorkspace({
   projectRoot,
   screenWorkspaceRoot,
-  runLocal,
+  readJsonRequest,
   runRemote,
   runRemoteWithInput,
   shellQuote,
   json,
   workspaceErrorResponse,
+  webMetricsLedger,
+  generateWidgetCatalog,
+  lvglRuntimePreviewRenderer,
 }) {
   const WIDGET_APPS_ROOT = path.join(screenWorkspaceRoot, "apps");
   const WIDGET_RUNTIME_ROOT = path.join(screenWorkspaceRoot, "widget-runtime");
@@ -58,6 +61,76 @@ export function createWidgetAppWorkspace({
     }
   }
 
+  async function handleWidgetAppCreate(req) {
+    let body;
+    try {
+      body = await readJsonRequest(req);
+    } catch (error) {
+      return json({ ok: false, error: error.message }, 400);
+    }
+
+    const startedAt = Date.now();
+    try {
+      const request = normalizeWidgetCreateRequest(body);
+      const generatedCatalog = generateWidgetCatalog
+        ? await generateWidgetCatalog({
+          prompt: request.prompt,
+          sessionId: request.sessionId,
+          turnId: request.turnId,
+        })
+        : null;
+      if (!generatedCatalog) {
+        throw new Error("widget app creation requires a valid LVGL widget catalog");
+      }
+      const widgetApp = await writeFromCatalog({
+        appId: request.appId,
+        prompt: request.prompt,
+        catalog: generatedCatalog,
+      });
+
+      await webMetricsLedger.append({
+        kind: "screen.widget_app.create",
+        operation: "screen.widget_app.create",
+        ok: true,
+        latencyMs: Date.now() - startedAt,
+        inputChars: request.prompt.length,
+        appId: request.appId,
+        sessionId: request.sessionId,
+        turnId: request.turnId,
+      });
+
+      return json({
+        ok: true,
+        schema: "walnutpi.widgetAppCreateResult.v1",
+        appId: widgetApp.app.id,
+        plan: {
+          schema: "walnutpi.widget-app-plan.v1",
+          prompt: request.prompt,
+          productChain: "lvgl-widget-app",
+          renderer: "walnut-lvgl-widget-catalog",
+        },
+        widgetApp: widgetApp.provenance,
+        widgetAppArtifact: widgetApp.app,
+        activationRequired: true,
+      });
+    } catch (error) {
+      await webMetricsLedger.append({
+        kind: "screen.widget_app.create",
+        operation: "screen.widget_app.create",
+        ok: false,
+        latencyMs: Date.now() - startedAt,
+        sessionId: body?.sessionId,
+        turnId: body?.turnId,
+        error: error.message,
+      });
+      return json({
+        ok: false,
+        error: "widget app creation failed",
+        output: error.message,
+      }, 400);
+    }
+  }
+
   async function handleWidgetAppActivate(reqOrBody) {
     try {
       const body = await requestBody(reqOrBody);
@@ -75,6 +148,31 @@ export function createWidgetAppWorkspace({
         readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json")),
       ]);
       return json({ ok: true, current, state });
+    } catch (error) {
+      return workspaceErrorResponse(error, json);
+    }
+  }
+
+  async function handleWidgetAppPreview() {
+    try {
+      if (!lvglRuntimePreviewRenderer) throw new Error("widget app preview renderer is not configured");
+      const current = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "current.json"));
+      const runtimeIndexPath = path.join(WIDGET_RUNTIME_ROOT, "current.txt");
+      const preview = await lvglRuntimePreviewRenderer.renderRuntime({
+        runtimeIndexPath,
+        stemPrefix: `widget-${cleanWidgetAppId(current.appId, "appId")}-lvgl`,
+        advanceMs: [0, 450, 900, 1350],
+      });
+      return json({
+        ok: true,
+        schema: "walnutpi.widgetAppLvglPreview.v1",
+        mode: "widget_app",
+        appId: current.appId,
+        runtimeIndex: `screen/widget-runtime/current.txt`,
+        frameCount: preview.frames.length,
+        frames: preview.frames,
+        buildOutput: preview.buildOutput,
+      });
     } catch (error) {
       return workspaceErrorResponse(error, json);
     }
@@ -235,32 +333,18 @@ export function createWidgetAppWorkspace({
     return apps;
   }
 
-  async function writeFromPixelSpec({ screenId, prompt, screenSpec, catalog, sourcePath }) {
-    const appDir = path.join(WIDGET_APPS_ROOT, screenId);
+  async function writeFromCatalog({ appId, prompt, catalog }) {
+    const appDir = path.join(WIDGET_APPS_ROOT, appId);
     const createdAt = new Date().toISOString();
-    let widgetCatalog = walnutWidgetCatalogFromPixelSpec({ ...screenSpec, id: screenId });
-    if (catalog) {
-      widgetCatalog = {
-        ...catalog,
-        id: screenId,
-        title: catalog.title || screenSpec.title,
-        size: { width: 480, height: 320 },
-      };
-      validateWalnutWidgetApp({
-        schema: WALNUT_WIDGET_APP_SCHEMA,
-        id: screenId,
-        title: screenSpec.title,
-        createdAt,
-        prompt,
-        a2uiSurface: null,
-        catalog: widgetCatalog,
-        actions: [],
-      });
-    }
+    const widgetCatalog = validateWalnutLvglWidgetCatalog({
+      ...catalog,
+      id: appId,
+      size: { width: 480, height: 320 },
+    });
     const app = validateWalnutWidgetApp({
       schema: WALNUT_WIDGET_APP_SCHEMA,
-      id: screenId,
-      title: screenSpec.title,
+      id: appId,
+      title: widgetCatalog.title,
       createdAt,
       prompt,
       a2uiSurface: a2uiSurfaceFromWalnutCatalog(widgetCatalog),
@@ -273,8 +357,8 @@ export function createWidgetAppWorkspace({
     await writeFile(path.join(appDir, "surface.a2ui.json"), `${JSON.stringify(app.a2uiSurface, null, 2)}\n`, "utf8");
     await writeFile(path.join(appDir, "snapshot-source.json"), `${JSON.stringify({
       schema: WALNUT_WIDGET_SNAPSHOT_SOURCE_SCHEMA,
-      screenId,
-      source: path.relative(appDir, sourcePath).replaceAll("\\", "/"),
+      appId,
+      source: "lvgl-widget-catalog",
       createdAt,
     }, null, 2)}\n`, "utf8");
     return {
@@ -282,89 +366,12 @@ export function createWidgetAppWorkspace({
       provenance: {
         schema: WALNUT_WIDGET_APP_SOURCE_SCHEMA,
         mode: "widget_app",
-        app: `../apps/${screenId}/app.json`,
-        catalog: `../apps/${screenId}/catalog.json`,
-        a2uiSurface: `../apps/${screenId}/surface.a2ui.json`,
-        snapshotSource: `../apps/${screenId}/snapshot-source.json`,
+        app: `../apps/${appId}/app.json`,
+        catalog: `../apps/${appId}/catalog.json`,
+        a2uiSurface: `../apps/${appId}/surface.a2ui.json`,
+        snapshotSource: `../apps/${appId}/snapshot-source.json`,
       },
     };
-  }
-
-  function repairLvglWidgetLayout(spec) {
-    if (!Array.isArray(spec.elements) || spec.elements.length === 0) return spec;
-    const elements = [];
-    const texts = spec.elements.filter((item) => item.type === "text").slice(0, 5);
-    const controls = spec.elements.filter((item) => item.type === "bar" || item.type === "arc").slice(0, 4);
-    const rects = spec.elements.filter((item) => item.type === "rect" && item.width >= 2 && item.height >= 2).slice(0, 3);
-    const baselineTexts = [
-      { text: spec.title, fill: "text", scale: 2 },
-      { text: spec.primaryValue, fill: "accent", scale: 2 },
-      { text: spec.footer, fill: "muted2", scale: 1 },
-    ];
-    const textSource = texts.length ? texts : baselineTexts;
-    const textSlots = [
-      { x: 6, y: 12, width: 54, scale: 2 },
-      { x: 6, y: 32, width: 54, scale: 2 },
-      { x: 6, y: 51, width: 54, scale: 1 },
-      { x: 66, y: 12, width: 48, scale: 1 },
-      { x: 66, y: 35, width: 48, scale: 1 },
-    ];
-    const controlSlots = [
-      { x: 66, y: 19, width: 46, height: 6 },
-      { x: 66, y: 42, width: 46, height: 6 },
-      { x: 86, y: 52, width: 22, height: 22 },
-      { x: 64, y: 52, width: 18, height: 18 },
-    ];
-
-    elements.push(
-      { type: "rect", x: 3, y: 3, width: 114, height: 1, fill: "panelBorder", required: false },
-      { type: "rect", x: 3, y: 76, width: 114, height: 1, fill: "panelBorder", required: false },
-      { type: "rect", x: 3, y: 4, width: 1, height: 72, fill: "panelBorder", required: false },
-      { type: "rect", x: 116, y: 4, width: 1, height: 72, fill: "panelBorder", required: false },
-    );
-    for (const [index, source] of textSource.entries()) {
-      const slot = textSlots[index];
-      if (!slot) break;
-      elements.push({
-        type: "text",
-        x: slot.x,
-        y: slot.y,
-        text: compactDisplayText(source.text || baselineTexts[index % baselineTexts.length].text, slot.scale === 2 ? 11 : 16),
-        fill: source.fill || baselineTexts[index % baselineTexts.length].fill,
-        scale: slot.scale,
-        required: true,
-      });
-    }
-    for (const [index, source] of controls.entries()) {
-      const slot = controlSlots[index];
-      elements.push({
-        type: index >= 2 ? "arc" : "bar",
-        x: slot.x,
-        y: slot.y,
-        width: slot.width,
-        height: slot.height,
-        fill: source.fill || "accent",
-        value: Math.max(0, Math.min(100, Math.round(Number(source.value ?? spec.progress ?? 50)))),
-        required: true,
-      });
-    }
-    for (const [index, source] of rects.entries()) {
-      if (elements.length >= 12) break;
-      elements.push({
-        type: "rect",
-        x: [14, 36, 103][index],
-        y: [63, 67, 10][index],
-        width: Math.min(14, Math.max(4, source.width || 4)),
-        height: Math.min(6, Math.max(2, source.height || 2)),
-        fill: source.fill || "trace",
-        required: false,
-      });
-    }
-    return { ...spec, elements };
-  }
-
-  function compactDisplayText(value, maxChars) {
-    return String(value || "").replace(/\s+/g, " ").trim().slice(0, maxChars);
   }
 
   async function activateApp(app, versionId) {
@@ -565,6 +572,17 @@ export function createWidgetAppWorkspace({
     return text;
   }
 
+  function normalizeWidgetCreateRequest(body) {
+    const prompt = String(body?.prompt || body?.text || "").replace(/\s+/g, " ").trim();
+    if (prompt.length < 4) throw new Error("prompt is too short");
+    return {
+      prompt: prompt.slice(0, 1000),
+      appId: cleanWidgetAppId(body?.appId || body?.screenId || `agent-widget-app-${Date.now()}`, "appId"),
+      sessionId: body?.sessionId ? String(body.sessionId) : null,
+      turnId: body?.turnId ? String(body.turnId) : null,
+    };
+  }
+
   async function requestBody(reqOrBody) {
     if (reqOrBody && typeof reqOrBody.json === "function") return await reqOrBody.json();
     return reqOrBody && typeof reqOrBody === "object" ? reqOrBody : {};
@@ -572,15 +590,16 @@ export function createWidgetAppWorkspace({
 
   return {
     handleWidgetAppList,
+    handleWidgetAppCreate,
     handleWidgetAppGet,
     handleWidgetAppActivate,
     handleWidgetAppRuntime,
+    handleWidgetAppPreview,
     handleWidgetAppRefresh,
     handleWidgetAppEvent,
     handleWidgetAppSync,
     handleWidgetAppDownload,
     readWidgetAppCards,
-    repairLvglWidgetLayout,
-    writeFromPixelSpec,
+    writeFromCatalog,
   };
 }

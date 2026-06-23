@@ -1,6 +1,6 @@
 {
-  "schema": "walnutpi.pixelGeneratorTemplate.v1",
-  "id": "pixel-message",
+  "schema": "walnutpi.terminalPrintTemplate.v1",
+  "id": "terminal-message",
   "canvas": { "logicalWidth": 120, "logicalHeight": 80, "scale": 4 },
   "palette": {
     "background": "#121210",
@@ -37,7 +37,7 @@
     "accent": "#e5b95c",
     "darkBackground": "#090908",
     "lightBackground": "#121210",
-    "footer": "PIXEL MESSAGE",
+    "footer": "TERMINAL MSG",
     "progress": 50,
     "batteryProgress": 72,
     "metrics": [

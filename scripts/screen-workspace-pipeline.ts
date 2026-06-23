@@ -14,15 +14,15 @@ import {
   type ScreenPlaylistV1,
   type StaticScreenOutput,
   animatedOutputSha256,
-  rgbaPixelSha256FromImage,
-  rgb565PixelSha256FromImage,
+  rgbaFrameSha256FromImage,
+  rgb565FrameSha256FromImage,
   staticOutputFileSha256,
   validateScreenManifestV2,
   validateScreenPlaylistV1,
 } from "./screen-workspace-vocabulary.ts";
 
 type JsonRecord = Record<string, any>;
-type ProcessingPreset = "fit-cover:480x320" | "fit-contain:480x320" | "pixel-grid:120x80@4x" | "pixel-grid:240x160@2x";
+type ProcessingPreset = "fit-cover:480x320" | "fit-contain:480x320";
 type OutputType = "static" | "animated";
 type AnimationBudget = { fps: number; maxSeconds: number; maxFrames: number };
 type SourceAssetInput = JsonRecord & {
@@ -114,8 +114,6 @@ const RASTER_PRESET_RENDERERS: Record<ProcessingPreset, RasterPresetRenderer> = 
       position: "centre",
       background: { r: 0, g: 0, b: 0, alpha: 1 },
     }),
-  "pixel-grid:120x80@4x": (pipeline) => renderPixelGridPreset(pipeline, 120, 80),
-  "pixel-grid:240x160@2x": (pipeline) => renderPixelGridPreset(pipeline, 240, 160),
 };
 
 export async function processSourceAssetToScreenOutput({
@@ -364,8 +362,8 @@ async function processStaticOutput({ workspace, screenId, sourcePath, preset }: 
     width: SCREEN_WORKSPACE_WIDTH,
     height: SCREEN_WORKSPACE_HEIGHT,
     fileSha256: await staticOutputFileSha256(outputPath),
-    rgbaPixelSha256: await rgbaPixelSha256FromImage(outputPath),
-    rgb565PixelSha256: await rgb565PixelSha256FromImage(outputPath),
+    rgbaFrameSha256: await rgbaFrameSha256FromImage(outputPath),
+    rgb565FrameSha256: await rgb565FrameSha256FromImage(outputPath),
   };
 
   return {
@@ -418,8 +416,8 @@ async function processAnimatedOutput({ workspace, screenId, sourcePath, preset, 
         height: SCREEN_WORKSPACE_HEIGHT,
         durationMs,
         fileSha256: await staticOutputFileSha256(framePath),
-        rgbaPixelSha256: await rgbaPixelSha256FromImage(framePath),
-        rgb565PixelSha256: await rgb565PixelSha256FromImage(framePath),
+        rgbaFrameSha256: await rgbaFrameSha256FromImage(framePath),
+        rgb565FrameSha256: await rgb565FrameSha256FromImage(framePath),
       });
     }
 
@@ -479,19 +477,6 @@ async function renderRasterImagePreset(inputPath: string, outputPath: string, pr
   if (!renderPreset) throw new Error(`unsupported processing preset: ${preset}`);
 
   await renderPreset(pipeline).png().toFile(outputPath);
-}
-
-function renderPixelGridPreset(pipeline: sharp.Sharp, gridWidth: number, gridHeight: number): sharp.Sharp {
-  return pipeline
-    .resize(gridWidth, gridHeight, {
-      fit: "cover",
-      position: "centre",
-      kernel: sharp.kernel.nearest,
-    })
-    .resize(SCREEN_WORKSPACE_WIDTH, SCREEN_WORKSPACE_HEIGHT, {
-      fit: "fill",
-      kernel: sharp.kernel.nearest,
-    });
 }
 
 async function writeSelectedSourceAsset({ workspace, sourceAsset, sourceAssetId, sourcePath, generatedAt }: { workspace: string; sourceAsset: SourceAssetInput; sourceAssetId: string; sourcePath: string; generatedAt: string }) {

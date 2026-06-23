@@ -71,10 +71,6 @@ export function createScreenWorkspaceStore({
         ...item,
         manifestId: manifestEnvelope.manifest.id,
         manifestHash: manifestEnvelope.manifestHash,
-        hasWidgetApp: Boolean(manifestEnvelope.manifest.provenance?.widgetApp?.catalog),
-        hasRuntimeWidgets: Boolean(manifestEnvelope.manifest.provenance?.widgetApp?.catalog)
-          || (Array.isArray(manifestEnvelope.manifest.provenance?.runtimeWidgets)
-            && manifestEnvelope.manifest.provenance.runtimeWidgets.length > 0),
         output: publicOutput(manifestEnvelope.manifest, manifestEnvelope.manifestPath),
       });
     }

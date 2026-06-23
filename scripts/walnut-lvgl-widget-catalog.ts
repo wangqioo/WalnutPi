@@ -8,12 +8,6 @@ export const WALNUT_SCREEN_HEIGHT = 320;
 const SAFE_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 const STYLE_TOKENS = new Set(["screen", "panel", "text", "muted", "muted2", "primary", "accent", "orange", "danger", "trace", "chip", "panelBorder", "barTrack"]);
 const NODE_KINDS = new Set(["container", "rect", "text", "image", "button", "toggle", "progress", "gauge", "list", "status_tile"]);
-const WIDGET_KIND_BY_RUNTIME_TYPE: Record<string, string> = {
-  label: "text",
-  rect: "rect",
-  bar: "progress",
-  arc: "gauge",
-};
 const RUNTIME_TYPE_BY_WIDGET_KIND: Record<string, string> = {
   text: "label",
   button: "label",
@@ -87,7 +81,7 @@ export function validateWalnutLvglWidgetCatalog(surface: JsonRecord): WidgetCata
       width: cleanExactInteger(surface.size?.width, "size.width", WALNUT_SCREEN_WIDTH),
       height: cleanExactInteger(surface.size?.height, "size.height", WALNUT_SCREEN_HEIGHT),
     },
-    theme: cleanToken(surface.theme || "pixel-default", "theme", 64),
+    theme: cleanToken(surface.theme || "walnut-lvgl-default", "theme", 64),
     data: normalizeData(surface.data || {}),
     root: cleanId(surface.root, "root"),
     nodes: normalizeNodes(surface.nodes),
@@ -114,38 +108,6 @@ export function validateWalnutWidgetApp(app) {
     catalog: validateWalnutLvglWidgetCatalog(app.catalog),
     actions: normalizeActions(app.actions || []),
   };
-}
-
-export function walnutWidgetCatalogFromPixelSpec(spec) {
-  const nodes: WidgetNode[] = [
-    {
-      id: "root",
-      kind: "container",
-      layout: { x: 0, y: 0, w: WALNUT_SCREEN_WIDTH, h: WALNUT_SCREEN_HEIGHT },
-      style: "screen",
-    },
-  ];
-  for (const [index, widget] of pixelSpecRuntimeWidgets(spec).entries()) {
-    nodes.push({
-      id: widget.id || `w${index}`,
-      kind: widgetKindFromRuntimeType(widget.type),
-      parent: "root",
-      layout: { x: widget.x, y: widget.y, w: widget.w, h: widget.h },
-      ...(widget.text ? { text: widget.text } : {}),
-      ...(widget.value ? { value: widget.value, min: 0, max: 100 } : {}),
-      style: styleFromColor(widget.color),
-    });
-  }
-  return validateWalnutLvglWidgetCatalog({
-    schema: WALNUT_LVGL_WIDGET_CATALOG_SCHEMA,
-    id: cleanId(spec.id || spec.template || "widget-app", "id"),
-    title: spec.title || "Widget App",
-    size: { width: WALNUT_SCREEN_WIDTH, height: WALNUT_SCREEN_HEIGHT },
-    theme: "pixel-default",
-    data: {},
-    root: "root",
-    nodes,
-  });
 }
 
 export function runtimeWidgetsFromWalnutCatalog(catalog) {
@@ -199,128 +161,6 @@ export function a2uiSurfaceFromWalnutCatalog(catalog) {
       value: normalized.data,
     },
   };
-}
-
-function pixelSpecRuntimeWidgets(spec) {
-  return repairedPixelElements(spec).slice(0, 12).map((element, index) => {
-    const scale = element.scale || 1;
-    const x = Math.round((element.x || 0) * 4);
-    const y = Math.round((element.y || 0) * 4);
-    if (element.type === "text") {
-      return {
-        type: "label",
-        id: `w${index}`,
-        x,
-        y: Math.max(0, y - (scale === 2 ? 24 : 14)),
-        w: Math.min(WALNUT_SCREEN_WIDTH - x, Math.max(48, String(element.text || "").length * (scale === 2 ? 20 : 12))),
-        h: scale === 2 ? 32 : 20,
-        text: element.text || "",
-        value: 0,
-        color: element.fill || "text",
-      };
-    }
-    if (element.type === "bar" || element.type === "arc") {
-      return {
-        type: element.type,
-        id: `w${index}`,
-        x,
-        y,
-        w: Math.max(24, (element.width || 20) * 4),
-        h: Math.max(12, (element.height || 6) * 4),
-        text: "",
-        value: Math.max(0, Math.min(100, Number(element.value || spec.progress || 50))),
-        color: element.fill || "accent",
-      };
-    }
-    return {
-      type: "rect",
-      id: `w${index}`,
-      x,
-      y,
-      w: Math.max(4, (element.width || 1) * 4),
-      h: Math.max(4, (element.height || 1) * 4),
-      text: "",
-      value: 0,
-      color: element.fill || "accent",
-    };
-  });
-}
-
-function repairedPixelElements(spec) {
-  if (!Array.isArray(spec.elements) || spec.elements.length === 0) return baselinePixelElements(spec);
-  const elements = [];
-  const texts = spec.elements.filter((item) => item.type === "text").slice(0, 5);
-  const controls = spec.elements.filter((item) => item.type === "bar" || item.type === "arc").slice(0, 4);
-  const rects = spec.elements.filter((item) => item.type === "rect" && item.width >= 2 && item.height >= 2).slice(0, 3);
-  const baselineTexts = [
-    { text: spec.title, fill: "text", scale: 2 },
-    { text: spec.primaryValue, fill: "accent", scale: 2 },
-    { text: spec.footer, fill: "muted2", scale: 1 },
-  ];
-  const textSource = texts.length ? texts : baselineTexts;
-  const textSlots = [
-    { x: 6, y: 12, scale: 2 },
-    { x: 6, y: 32, scale: 2 },
-    { x: 6, y: 51, scale: 1 },
-    { x: 66, y: 12, scale: 1 },
-    { x: 66, y: 35, scale: 1 },
-  ];
-  const controlSlots = [
-    { x: 66, y: 19, width: 46, height: 6 },
-    { x: 66, y: 42, width: 46, height: 6 },
-    { x: 86, y: 52, width: 22, height: 22 },
-    { x: 64, y: 52, width: 18, height: 18 },
-  ];
-  elements.push(
-    { type: "rect", x: 3, y: 3, width: 114, height: 1, fill: "panelBorder" },
-    { type: "rect", x: 3, y: 76, width: 114, height: 1, fill: "panelBorder" },
-    { type: "rect", x: 3, y: 4, width: 1, height: 72, fill: "panelBorder" },
-    { type: "rect", x: 116, y: 4, width: 1, height: 72, fill: "panelBorder" },
-  );
-  for (const [index, source] of textSource.entries()) {
-    const slot = textSlots[index];
-    if (!slot) break;
-    elements.push({
-      type: "text",
-      x: slot.x,
-      y: slot.y,
-      text: compactDisplayText(source.text || baselineTexts[index % baselineTexts.length].text, slot.scale === 2 ? 11 : 16),
-      fill: source.fill || baselineTexts[index % baselineTexts.length].fill,
-      scale: slot.scale,
-    });
-  }
-  for (const [index, source] of controls.entries()) {
-    const slot = controlSlots[index];
-    elements.push({
-      type: index >= 2 ? "arc" : "bar",
-      x: slot.x,
-      y: slot.y,
-      width: slot.width,
-      height: slot.height,
-      fill: source.fill || "accent",
-      value: Math.max(0, Math.min(100, Math.round(Number(source.value ?? spec.progress ?? 50)))),
-    });
-  }
-  for (const [index, source] of rects.entries()) {
-    if (elements.length >= 12) break;
-    elements.push({
-      type: "rect",
-      x: [14, 36, 103][index],
-      y: [63, 67, 10][index],
-      width: Math.min(14, Math.max(4, source.width || 4)),
-      height: Math.min(6, Math.max(2, source.height || 2)),
-      fill: source.fill || "trace",
-    });
-  }
-  return elements.slice(0, 12);
-}
-
-function baselinePixelElements(spec) {
-  return [
-    { type: "text", x: 6, y: 12, text: spec.title || "Widget", fill: "text", scale: 2 },
-    { type: "text", x: 6, y: 32, text: spec.primaryValue || "Ready", fill: "accent", scale: 2 },
-    { type: "bar", x: 66, y: 42, width: 46, height: 6, fill: "accent", value: spec.progress || 50 },
-  ];
 }
 
 function normalizeNodes(nodes: any): WidgetNode[] {
@@ -393,21 +233,12 @@ function normalizeData(data) {
   return JSON.parse(JSON.stringify(data));
 }
 
-function widgetKindFromRuntimeType(type) {
-  return WIDGET_KIND_BY_RUNTIME_TYPE[type] || "text";
-}
-
 function runtimeTypeFromKind(kind) {
   return RUNTIME_TYPE_BY_WIDGET_KIND[kind] || "rect";
 }
 
 function a2uiComponentFromKind(kind) {
   return A2UI_COMPONENT_BY_WIDGET_KIND[kind] || "Container";
-}
-
-function styleFromColor(color) {
-  const token = String(color || "text").replace(/^#/, "");
-  return STYLE_TOKENS.has(token) ? token : "accent";
 }
 
 function colorFromStyle(style) {

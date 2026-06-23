@@ -154,7 +154,7 @@ async function executeIntent({
   if (intent === "memory.preference") return memoryPreference({ body, turn });
   if (intent === "memory.sensitive_skip") return memorySensitiveSkip({ body, turn });
   if (intent === "diagnostics.recent_failure") return recentFailureDiagnostics({ turn, turnLedger, metricsLedger });
-  if (intent === "screen.state_frame.read") return screenStateFrameRead();
+  if (intent === "screen.state_frame.read") return screenStateFrameRead({ screenCommandRunner });
   if (intent === "screen.sync") return syncScreen({ body, screenCommandRunner });
   if (intent === "screen.generate" || intent === "screen.widget_app.create") return screenGenerationRequiresDslSource({ intent });
   if (intent.startsWith("policy.")) return policyDecision({ intent, text: body.text });
@@ -195,6 +195,7 @@ async function runDeviceAction({ actionId, body, turn, runAction }: JsonObject) 
 
 async function syncScreen({ body, screenCommandRunner }: JsonObject) {
   const playlistHash = cleanOptionalText(body.playlistHash);
+  const mode = body.mode === "preview" || body.previewOnly === true ? "preview" : "remote";
   if (!playlistHash) {
     const read = await screenCommandRunner.run({ kind: "screen.readPlaylist", playlistId: "default" });
     const hash = read.result?.playlistHash || read.evidence?.playlistHash;
@@ -204,6 +205,7 @@ async function syncScreen({ body, screenCommandRunner }: JsonObject) {
       playlistId: "default",
       playlistHash: hash,
       evidenceMode: body.evidenceMode === "full" ? "full" : "fast",
+      mode,
     });
   }
   return screenCommandRunner.run({
@@ -211,21 +213,28 @@ async function syncScreen({ body, screenCommandRunner }: JsonObject) {
     playlistId: "default",
     playlistHash,
     evidenceMode: body.evidenceMode === "full" ? "full" : "fast",
+    mode,
   });
 }
 
-function screenStateFrameRead() {
+async function screenStateFrameRead({ screenCommandRunner }: JsonObject) {
+  const capture = await screenCommandRunner.run({ kind: "screen.captureFrame" });
   return toolResult("screen", {
-    summary: "No direct read probe is registered in the new platform yet.",
+    ok: capture.ok,
+    summary: capture.ok
+      ? "Read-only screen frame evidence captured through the Screen Command DSL."
+      : capture.summary,
     result: {
       operation: "screen.state_frame.read",
-      serviceState: "unknown",
+      capture: capture.result?.capture || null,
     },
     evidence: {
+      ...capture.evidence,
       noScreenSync: true,
       noServiceRestart: true,
-      frameHashOrHonestFailure: "read-only screen frame probe is not wired to the new platform yet",
+      readOnlyDeviceProbe: true,
     },
+    diagnostics: capture.diagnostics,
   });
 }
 

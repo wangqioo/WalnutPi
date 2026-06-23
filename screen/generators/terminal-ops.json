@@ -1,6 +1,6 @@
 {
-  "schema": "walnutpi.pixelGeneratorTemplate.v1",
-  "id": "pixel-ops",
+  "schema": "walnutpi.terminalPrintTemplate.v1",
+  "id": "terminal-ops",
   "canvas": {
     "logicalWidth": 120,
     "logicalHeight": 80,
@@ -50,7 +50,7 @@
     "accent": "#78c58a",
     "darkBackground": "#090d0f",
     "lightBackground": "#101412",
-    "footer": "AGENT PIXEL",
+    "footer": "TERMINAL OPS",
     "progress": 64,
     "batteryProgress": 86,
     "metrics": [

@@ -128,7 +128,7 @@ export function createScreenDiagnosticsApi({
     });
   }
 
-  async function handleScreenPixelDiff(req, readJsonRequest) {
+  async function handleScreenFrameDiff(req, readJsonRequest) {
     let body;
     try {
       body = await readJsonRequest(req);
@@ -142,11 +142,11 @@ export function createScreenDiagnosticsApi({
       return json({ ok: false, error: "invalid buildId", summary: "缺少有效的同步记录。" }, 400);
     }
 
-    let webDevicePixelDiff;
+    let webDeviceFrameDiff;
     try {
-      webDevicePixelDiff = normalizeWebDevicePixelDiff(body.webDevicePixelDiff, validSha256);
+      webDeviceFrameDiff = normalizeWebDeviceFrameDiff(body.webDeviceFrameDiff, validSha256);
     } catch (error) {
-      return json({ ok: false, error: error.message, summary: "Web/device pixel diff 格式无效。" }, 400);
+      return json({ ok: false, error: error.message, summary: "Web/device frame diff 格式无效。" }, 400);
     }
 
     const existingRecord = await screenEvidenceLedger.readRecord(safeBuildId);
@@ -154,27 +154,27 @@ export function createScreenDiagnosticsApi({
       return json({ ok: false, error: "screen record not found", summary: "找不到这次同步记录。" }, 404);
     }
     if (
-      webDevicePixelDiff.manifestHash
+      webDeviceFrameDiff.manifestHash
       && existingRecord.manifestHash
-      && webDevicePixelDiff.manifestHash !== existingRecord.manifestHash
+      && webDeviceFrameDiff.manifestHash !== existingRecord.manifestHash
     ) {
       return json({
         ok: false,
-        error: "stale pixel diff manifestHash",
-        summary: "Web/device pixel diff 对应的 manifest 和同步记录不一致，请重新打开设备截图。",
+        error: "stale frame diff manifestHash",
+        summary: "Web/device frame diff 对应的 manifest 和同步记录不一致，请重新打开设备截图。",
         manifestHash: existingRecord.manifestHash,
       }, 409);
     }
 
     const record = await screenEvidenceLedger.updateRecord(safeBuildId, (nextRecord) => {
-      nextRecord.webDevicePixelDiff = webDevicePixelDiff;
+      nextRecord.webDeviceFrameDiff = webDeviceFrameDiff;
       return nextRecord;
     });
 
     return json({
       ok: true,
       buildId: safeBuildId,
-      webDevicePixelDiff: record.webDevicePixelDiff,
+      webDeviceFrameDiff: record.webDeviceFrameDiff,
     });
   }
 
@@ -184,7 +184,7 @@ export function createScreenDiagnosticsApi({
     handleScreenRecordFrame,
     handleScreenRecord,
     handleScreenRecordList,
-    handleScreenPixelDiff,
+    handleScreenFrameDiff,
   };
 }
 
@@ -213,17 +213,17 @@ function validPngBytes(bytes) {
   return bytes.length > signature.length && bytes.subarray(0, signature.length).equals(signature);
 }
 
-function normalizeWebDevicePixelDiff(value, validSha256) {
+function normalizeWebDeviceFrameDiff(value, validSha256) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("webDevicePixelDiff must be an object");
+    throw new Error("webDeviceFrameDiff must be an object");
   }
   const schema = String(value.schema || "").trim();
-  if (!["walnutpi.webDevicePixelDiff.v1", "walnutpi.webDevicePixelDiff.v2"].includes(schema)) {
-    throw new Error("webDevicePixelDiff schema must be walnutpi.webDevicePixelDiff.v1 or walnutpi.webDevicePixelDiff.v2");
+  if (!["walnutpi.webDeviceFrameDiff.v1", "walnutpi.webDeviceFrameDiff.v2"].includes(schema)) {
+    throw new Error("webDeviceFrameDiff schema must be walnutpi.webDeviceFrameDiff.v1 or walnutpi.webDeviceFrameDiff.v2");
   }
   const status = String(value.status || "").trim();
   if (!["matched", "different", "unavailable"].includes(status)) {
-    throw new Error("webDevicePixelDiff status is invalid");
+    throw new Error("webDeviceFrameDiff status is invalid");
   }
   const limitations = Array.isArray(value.limitations)
     ? value.limitations.map((item) => String(item || "").replace(/\s+/g, " ").trim()).filter(Boolean).slice(0, 4)
@@ -232,14 +232,14 @@ function normalizeWebDevicePixelDiff(value, validSha256) {
   if (manifestHash && !validSha256(manifestHash)) {
     throw new Error("manifestHash must be SHA-256 hex");
   }
-  const width = cleanPixelDiffInteger(value.width, "width", 1, 4096);
-  const height = cleanPixelDiffInteger(value.height, "height", 1, 4096);
-  const comparedPixels = schema === "walnutpi.webDevicePixelDiff.v2"
-    ? cleanPixelDiffInteger(value.comparedPixels, "comparedPixels", 1, 4096 * 4096)
+  const width = cleanFrameDiffInteger(value.width, "width", 1, 4096);
+  const height = cleanFrameDiffInteger(value.height, "height", 1, 4096);
+  const comparedFrameUnits = schema === "walnutpi.webDeviceFrameDiff.v2"
+    ? cleanFrameDiffInteger(value.comparedFrameUnits, "comparedFrameUnits", 1, 4096 * 4096)
     : width * height;
-  const differentPixels = cleanPixelDiffInteger(value.differentPixels, "differentPixels", 0, 4096 * 4096);
-  if (differentPixels > comparedPixels) {
-    throw new Error("differentPixels must not exceed comparedPixels");
+  const differentFrameUnits = cleanFrameDiffInteger(value.differentFrameUnits, "differentFrameUnits", 0, 4096 * 4096);
+  if (differentFrameUnits > comparedFrameUnits) {
+    throw new Error("differentFrameUnits must not exceed comparedFrameUnits");
   }
   return {
     schema,
@@ -251,21 +251,21 @@ function normalizeWebDevicePixelDiff(value, validSha256) {
       .slice(0, 80),
     manifestHash,
     frameUrl: value.frameUrl ? String(value.frameUrl).slice(0, 240) : null,
-    previewHash: cleanPixelDiffHash(value.previewHash, "previewHash", validSha256),
-    devicePngHash: cleanPixelDiffHash(value.devicePngHash, "devicePngHash", validSha256),
+    previewHash: cleanFrameDiffHash(value.previewHash, "previewHash", validSha256),
+    devicePngHash: cleanFrameDiffHash(value.devicePngHash, "devicePngHash", validSha256),
     width,
     height,
-    comparedPixels,
-    threshold: cleanPixelDiffNumber(value.threshold, "threshold", 0, 1),
-    differentPixels,
-    diffRatio: cleanPixelDiffNumber(value.diffRatio, "diffRatio", 0, 1),
-    averageChannelDelta: cleanPixelDiffNumber(value.averageChannelDelta, "averageChannelDelta", 0, 255, 3),
+    comparedFrameUnits,
+    threshold: cleanFrameDiffNumber(value.threshold, "threshold", 0, 1),
+    differentFrameUnits,
+    diffRatio: cleanFrameDiffNumber(value.diffRatio, "diffRatio", 0, 1),
+    averageChannelDelta: cleanFrameDiffNumber(value.averageChannelDelta, "averageChannelDelta", 0, 255, 3),
     limitations,
     capturedAt: new Date().toISOString(),
   };
 }
 
-function cleanPixelDiffHash(value, field, validSha256) {
+function cleanFrameDiffHash(value, field, validSha256) {
   const text = String(value || "").trim();
   if (!/^[a-f0-9]{8}$/i.test(text) && !validSha256(text)) {
     throw new Error(`${field} must be an 8-char FNV hash or SHA-256 hex`);
@@ -273,7 +273,7 @@ function cleanPixelDiffHash(value, field, validSha256) {
   return text.toLowerCase();
 }
 
-function cleanPixelDiffNumber(value, field, min, max, digits = 6) {
+function cleanFrameDiffNumber(value, field, min, max, digits = 6) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < min || number > max) {
     throw new Error(`${field} must be between ${min} and ${max}`);
@@ -281,7 +281,7 @@ function cleanPixelDiffNumber(value, field, min, max, digits = 6) {
   return Number(number.toFixed(digits));
 }
 
-function cleanPixelDiffInteger(value, field, min, max) {
+function cleanFrameDiffInteger(value, field, min, max) {
   if (!Number.isInteger(value) || value < min || value > max) {
     throw new Error(`${field} must be an integer between ${min} and ${max}`);
   }

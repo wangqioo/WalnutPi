@@ -14,6 +14,9 @@ export function createScreenCommandRunner({
   processSourceAssetToScreenOutput,
   appendScreenPlaylistItem,
   writeDefaultScreenPlaylist,
+  walnutRemote,
+  validSha256 = defaultValidSha256,
+  sha256 = defaultSha256,
 }: JsonObject) {
   const project = path.resolve(projectRoot);
   const workspace = path.resolve(workspaceRoot);
@@ -166,7 +169,7 @@ export function createScreenCommandRunner({
         playlistHash: command.playlistHash,
         evidenceMode: command.evidenceMode,
       }),
-      mode: "remote",
+      mode: command.mode,
     });
     return toolResult("screen", {
       ok: Boolean(outcome.result?.ok),
@@ -177,6 +180,10 @@ export function createScreenCommandRunner({
         sync: outcome.result,
       },
       evidence: {
+        verificationProfile: syncVerificationProfile(command.mode, outcome.status),
+        previewNoWrite: command.mode === "preview",
+        staleHashRefused: outcome.status === 409,
+        noRemoteCommandExecution: command.mode === "preview" || outcome.status === 409 || outcome.status === 400,
         playlistHash: outcome.result?.playlistHash || command.playlistHash,
         buildId: outcome.result?.buildId || null,
         screenEvidence: outcome.result?.screenEvidence || outcome.result?.evidence || null,
@@ -191,18 +198,59 @@ export function createScreenCommandRunner({
     });
   }
 
-  function captureFrame(command: Extract<ScreenCommand, { kind: "screen.captureFrame" }>) {
+  async function captureFrame(command: Extract<ScreenCommand, { kind: "screen.captureFrame" }>) {
+    if (!walnutRemote?.capturePngBase64) {
+      return toolResult("screen", {
+        ok: false,
+        summary: "Frame capture requires the WalnutPi Device capture adapter.",
+        result: { command, operation: "screen.captureFrame" },
+        evidence: {
+          verificationProfile: "device-profile",
+          noDirectLvglCall: true,
+          missingDeviceCaptureAdapter: true,
+        },
+        diagnostics: {
+          reason: "walnutRemote.capturePngBase64 is not configured",
+        },
+      });
+    }
+
+    const captureResult = await walnutRemote.capturePngBase64();
+    const parsed = parseCaptureResult(captureResult, { validSha256, sha256 });
+    if (!parsed) {
+      return toolResult("screen", {
+        ok: false,
+        summary: "Frame capture through the WalnutPi Device failed.",
+        result: {
+          command,
+          operation: "screen.captureFrame",
+          status: captureResult?.code ?? null,
+        },
+        evidence: {
+          verificationProfile: "device-profile",
+          noDirectLvglCall: true,
+          captureFailed: true,
+        },
+        diagnostics: {
+          output: captureResult?.output || null,
+        },
+      });
+    }
+
     return toolResult("screen", {
-      ok: false,
-      summary: "Frame capture is not exposed as a direct DSL write path yet.",
-      result: { command },
+      summary: "Frame captured through the WalnutPi Device capture surface.",
+      result: {
+        command,
+        operation: "screen.captureFrame",
+        capture: parsed.capture,
+      },
       evidence: {
+        verificationProfile: "device-profile",
         noDirectLvglCall: true,
-        requiredSurface: "screen diagnostics evidence API",
+        captureEvidence: parsed.capture,
+        buildId: command.buildId || null,
       },
-      diagnostics: {
-        reason: "capture requires diagnostics adapter wiring",
-      },
+      sideEffects: [],
     });
   }
 
@@ -220,6 +268,51 @@ export function createScreenCommandRunner({
 
 async function fileSha256(filePath: string) {
   return createHash("sha256").update(await readFile(filePath)).digest("hex");
+}
+
+function parseCaptureResult(result: JsonObject, { validSha256, sha256 }: JsonObject) {
+  if (!result?.ok) return null;
+  let capture: JsonObject;
+  try {
+    capture = JSON.parse(result.output);
+  } catch {
+    return null;
+  }
+  if (!capture || typeof capture !== "object" || Array.isArray(capture)) return null;
+  if (!validSha256(capture.pngSha256) || typeof capture.pngBase64 !== "string") return null;
+  const bytes = Buffer.from(capture.pngBase64, "base64");
+  if (!validPngBytes(bytes) || sha256(bytes) !== capture.pngSha256) return null;
+  return {
+    capture: {
+      schema: "walnutpi.screenCaptureEvidence.v1",
+      width: capture.width ?? null,
+      height: capture.height ?? null,
+      isBlank: capture.isBlank ?? null,
+      pngSha256: capture.pngSha256,
+      rawSha256: validSha256(capture.rawSha256) ? capture.rawSha256 : null,
+      byteLength: bytes.length,
+    },
+    bytes,
+  };
+}
+
+function validPngBytes(bytes: Buffer) {
+  const signature = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+  return bytes.length > signature.length && bytes.subarray(0, signature.length).equals(signature);
+}
+
+function defaultValidSha256(value: any) {
+  return /^[a-f0-9]{64}$/i.test(String(value || "").trim());
+}
+
+function defaultSha256(value: any) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function syncVerificationProfile(mode: string, status: number) {
+  if (mode === "preview") return "offline-preview";
+  if (status === 400 || status === 409) return "offline-contract";
+  return "device-profile";
 }
 
 function unreachable(command: never): never {

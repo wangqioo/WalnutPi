@@ -1,6 +1,6 @@
 {
-  "schema": "walnutpi.pixelGeneratorTemplate.v1",
-  "id": "pixel-weather",
+  "schema": "walnutpi.terminalPrintTemplate.v1",
+  "id": "terminal-weather",
   "canvas": { "logicalWidth": 120, "logicalHeight": 80, "scale": 4 },
   "palette": {
     "background": "#11151a",
@@ -37,7 +37,7 @@
     "accent": "#8fd6ff",
     "darkBackground": "#080c12",
     "lightBackground": "#11151a",
-    "footer": "PIXEL WEATHER",
+    "footer": "TERMINAL WX",
     "progress": 58,
     "batteryProgress": 72,
     "metrics": [

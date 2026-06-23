@@ -10,8 +10,6 @@ import {
 const PRESETS = new Set([
   "fit-cover:480x320",
   "fit-contain:480x320",
-  "pixel-grid:120x80@4x",
-  "pixel-grid:240x160@2x",
 ]);
 
 type CliArgs = {
@@ -169,8 +167,7 @@ function printHelp() {
 Options:
   --workspace <dir>              Screen Workspace root. Default: screen
   --type <static|animated>        Output type. Default: static
-  --preset <preset>              fit-cover:480x320, fit-contain:480x320,
-                                  pixel-grid:120x80@4x, pixel-grid:240x160@2x
+  --preset <preset>              fit-cover:480x320, fit-contain:480x320
   --source-id <id>               Source Asset id. Default: <screen-id>-source
   --plan-id <id>                 Screen Plan id. Default: <screen-id>-plan
   --title <text>                 Manifest title

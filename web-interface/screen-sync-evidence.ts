@@ -27,7 +27,7 @@ export function buildScreenSyncEvidence({
     stableStringify,
     fullEvidence,
   });
-  const pixelEvidence = workspacePixelEvidence({
+  const frameContentEvidence = workspaceFrameContentEvidence({
     playlistEnvelope,
     frameEvidence,
     validSha256,
@@ -48,13 +48,13 @@ export function buildScreenSyncEvidence({
     visualMatch: visual.visualMatch,
     visualChecks: visual.visualChecks,
     semantic: visual.semantic,
-    pixelEvidence,
+    frameContentEvidence,
     playlistEvidence: {
       schema: "walnutpi.screenWorkspacePlaylistEvidence.v1",
       playlistHash,
       activeItem: visual.semantic.activeItem,
       itemManifestHash: visual.semantic.activeItem?.manifestHash || null,
-      expectedRgb565PixelHash: visual.semantic.activeItem?.expectedRgb565PixelHash || null,
+      expectedRgb565FrameHash: visual.semantic.activeItem?.expectedRgb565FrameHash || null,
       displayedFrameHash: frameEvidence?.sha256 || null,
     },
     state: {
@@ -71,7 +71,7 @@ export function buildScreenSyncEvidence({
           capturedAt: new Date().toISOString(),
         },
   };
-  return { visual, pixelEvidence, frameImageUrl, failure, screenEvidence };
+  return { visual, frameContentEvidence, frameImageUrl, failure, screenEvidence };
 }
 
 export function parseFrameEvidence(result) {
@@ -94,10 +94,10 @@ export function validFrameEvidence(frame, validSha256) {
   );
 }
 
-function screenPixelEvidence({ frameEvidence, expectedRgb565PixelHashes = [], validSha256, sha256, stableStringify }) {
+function screenFrameContentEvidence({ frameEvidence, expectedRgb565FrameHashes = [], validSha256, sha256, stableStringify }) {
   if (!validFrameEvidence(frameEvidence, validSha256)) {
     return {
-      schema: "walnutpi.screenPixelEvidence.v1",
+      schema: "walnutpi.screenFrameContentEvidence.v1",
       status: "missing-frame",
       claim: "framebuffer-not-captured",
       frameHash: null,
@@ -105,8 +105,8 @@ function screenPixelEvidence({ frameEvidence, expectedRgb565PixelHashes = [], va
       nonzeroRatio: null,
       capture: null,
       limitations: [
-        "Framebuffer frame metadata was not valid for pixel evidence.",
-        "Web preview pixels are not rendered and compared in this slice.",
+        "Framebuffer frame metadata was not valid for frame evidence.",
+        "Web preview frame content is not rendered and compared in this slice.",
       ],
     };
   }
@@ -123,35 +123,35 @@ function screenPixelEvidence({ frameEvidence, expectedRgb565PixelHashes = [], va
   const nonzeroBytes = Number(frameEvidence.nonzeroBytes ?? 0);
   const byteLength = Number(frameEvidence.byteLength || 0);
   const nonzeroRatio = byteLength > 0 ? Number((nonzeroBytes / byteLength).toFixed(6)) : null;
-  const expectedHashes = expectedRgb565PixelHashes.filter((hash) => validSha256(hash));
+  const expectedHashes = expectedRgb565FrameHashes.filter((hash) => validSha256(hash));
   const rgb565HashMatched = expectedHashes.length > 0 && expectedHashes.includes(frameEvidence.sha256);
   const status = expectedHashes.length === 0 ? "metadata-only" : rgb565HashMatched ? "matched" : "mismatch";
   const claim = expectedHashes.length === 0
-    ? "framebuffer-captured-not-pixel-diffed"
+    ? "framebuffer-captured-not-frame-diffed"
     : rgb565HashMatched
       ? "framebuffer-rgb565-hash-matched"
       : "framebuffer-rgb565-hash-mismatch";
 
   return {
-    schema: "walnutpi.screenPixelEvidence.v1",
+    schema: "walnutpi.screenFrameContentEvidence.v1",
     status,
     claim,
     frameHash: frameEvidence.sha256 || null,
-    expectedRgb565PixelHashes: expectedHashes,
+    expectedRgb565FrameHashes: expectedHashes,
     rgb565HashMatched: expectedHashes.length > 0 ? rgb565HashMatched : null,
     sampleHash,
     nonzeroRatio,
     capture: {
       width: frameEvidence.width ?? null,
       height: frameEvidence.height ?? null,
-      pixelFormat: frameEvidence.pixelFormat || null,
-      bitsPerPixel: frameEvidence.bitsPerPixel ?? null,
+      frameFormat: frameEvidence.frameFormat || null,
+      bitsPerFrameUnit: frameEvidence.bitsPerFrameUnit ?? null,
       byteLength: frameEvidence.byteLength ?? null,
       expectedByteLength: frameEvidence.expectedByteLength ?? null,
       isBlank: frameEvidence.isBlank ?? null,
     },
     limitations: [
-      ...(expectedHashes.length > 0 ? [] : ["No expected RGB565 pixel hash was available for this frame evidence."]),
+      ...(expectedHashes.length > 0 ? [] : ["No expected RGB565 frame hash was available for this frame evidence."]),
       "LVGL may be dynamic, so diagnostic PNG can be later than sync-time raw frame.",
     ],
   };
@@ -173,9 +173,9 @@ function workspacePreviewSignature(playlistEnvelope) {
       repeat: item.repeat,
       transition: item.transition,
       outputType: item.output?.type || null,
-      rgb565PixelSha256: item.output?.type === "static"
-        ? item.output.rgb565PixelSha256
-        : item.output?.frames?.[0]?.rgb565PixelSha256 || null,
+      rgb565FrameSha256: item.output?.type === "static"
+        ? item.output.rgb565FrameSha256
+        : item.output?.frames?.[0]?.rgb565FrameSha256 || null,
       frameCount: item.output?.type === "animated" ? item.output.frames.length : 1,
     })),
   };
@@ -191,8 +191,8 @@ function workspaceDeviceSignature({ playlistHash, artifactHash, frameEvidence })
           sha256: frameEvidence.sha256 || null,
           width: frameEvidence.width ?? null,
           height: frameEvidence.height ?? null,
-          pixelFormat: frameEvidence.pixelFormat || null,
-          bitsPerPixel: frameEvidence.bitsPerPixel ?? null,
+          frameFormat: frameEvidence.frameFormat || null,
+          bitsPerFrameUnit: frameEvidence.bitsPerFrameUnit ?? null,
           byteLength: frameEvidence.byteLength ?? null,
           expectedByteLength: frameEvidence.expectedByteLength ?? null,
           isBlank: frameEvidence.isBlank ?? null,
@@ -210,24 +210,24 @@ function workspaceFrameCandidates(playlistEnvelope) {
       manifestId: item.manifestId,
       manifestHash: item.manifestHash,
       outputType: item.output?.type || null,
-      expectedRgb565PixelHash: frame?.rgb565PixelSha256 || null,
+      expectedRgb565FrameHash: frame?.rgb565FrameSha256 || null,
       durationMs: item.output?.type === "animated" ? frame?.durationMs || item.durationMs : item.durationMs,
       repeat: item.repeat,
-    })).filter((candidate) => candidate.expectedRgb565PixelHash);
+    })).filter((candidate) => candidate.expectedRgb565FrameHash);
   });
 }
 
 function workspaceMatchedDisplayItem(playlistEnvelope, frameEvidence, validSha256) {
   const candidates = workspaceFrameCandidates(playlistEnvelope);
   const matched = validFrameEvidence(frameEvidence, validSha256)
-    ? candidates.find((candidate) => candidate.expectedRgb565PixelHash === frameEvidence.sha256)
+    ? candidates.find((candidate) => candidate.expectedRgb565FrameHash === frameEvidence.sha256)
     : null;
   const selected = matched || candidates[0] || null;
   if (!selected) return null;
   return {
     ...selected,
     observed: Boolean(matched),
-    expectedRgb565PixelHashes: candidates.map((candidate) => candidate.expectedRgb565PixelHash),
+    expectedRgb565FrameHashes: candidates.map((candidate) => candidate.expectedRgb565FrameHash),
   };
 }
 
@@ -241,7 +241,7 @@ function workspaceVisualStatus({ playlistEnvelope, playlistHash, artifactHash, a
   const targetMatched = frameCaptured
     && frameEvidence.width === 480
     && frameEvidence.height === 320
-    && (frameEvidence.pixelFormat === "RGB565_LE" || frameEvidence.bitsPerPixel === 16);
+    && (frameEvidence.frameFormat === "RGB565_LE" || frameEvidence.bitsPerFrameUnit === 16);
   const artifactCommittedToPlaylist = artifactHashValid
     && validSha256(artifactHash)
     && playlistHash === deviceSignature.playlistHash;
@@ -255,14 +255,14 @@ function workspaceVisualStatus({ playlistEnvelope, playlistHash, artifactHash, a
     artifactCommittedToPlaylist,
     frameCaptured,
     frameDimensionsMatched: frameCaptured && frameEvidence.width === 480 && frameEvidence.height === 320,
-    framePixelFormatMatched: frameCaptured && (frameEvidence.pixelFormat === "RGB565_LE" || frameEvidence.bitsPerPixel === 16),
+    frameFrameFormatMatched: frameCaptured && (frameEvidence.frameFormat === "RGB565_LE" || frameEvidence.bitsPerFrameUnit === 16),
     frameByteLengthMatched: frameCaptured
       && Number.isInteger(frameEvidence.expectedByteLength)
       && frameEvidence.expectedByteLength === frameEvidence.byteLength,
     frameNonblank: frameCaptured && frameEvidence.isBlank === false && Number(frameEvidence.nonzeroBytes || 0) > 0,
     frameRgb565HashMatched: frameCaptured
-      && Array.isArray(activeItem?.expectedRgb565PixelHashes)
-      && activeItem.expectedRgb565PixelHashes.includes(frameEvidence.sha256),
+      && Array.isArray(activeItem?.expectedRgb565FrameHashes)
+      && activeItem.expectedRgb565FrameHashes.includes(frameEvidence.sha256),
     activeItemObserved: Boolean(activeItem?.observed),
   };
   const semantic = {
@@ -286,20 +286,20 @@ function workspaceVisualStatus({ playlistEnvelope, playlistHash, artifactHash, a
   };
 }
 
-function workspacePixelEvidence({ playlistEnvelope, frameEvidence, validSha256, sha256, stableStringify }) {
+function workspaceFrameContentEvidence({ playlistEnvelope, frameEvidence, validSha256, sha256, stableStringify }) {
   const activeItem = workspaceMatchedDisplayItem(playlistEnvelope, frameEvidence, validSha256);
-  const evidence = screenPixelEvidence({
+  const evidence = screenFrameContentEvidence({
     frameEvidence,
-    expectedRgb565PixelHashes: activeItem?.expectedRgb565PixelHashes || [],
+    expectedRgb565FrameHashes: activeItem?.expectedRgb565FrameHashes || [],
     validSha256,
     sha256,
     stableStringify,
   });
   return {
     ...evidence,
-    schema: "walnutpi.screenWorkspacePixelEvidence.v1",
-    expectedRgb565PixelHash: activeItem?.expectedRgb565PixelHash || null,
-    expectedRgb565PixelHashes: activeItem?.expectedRgb565PixelHashes || [],
+    schema: "walnutpi.screenWorkspaceFrameContentEvidence.v1",
+    expectedRgb565FrameHash: activeItem?.expectedRgb565FrameHash || null,
+    expectedRgb565FrameHashes: activeItem?.expectedRgb565FrameHashes || [],
     activeManifestHash: activeItem?.manifestHash || null,
     activeItemObserved: Boolean(activeItem?.observed),
     limitations: [

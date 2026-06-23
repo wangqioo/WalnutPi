@@ -120,7 +120,6 @@
         width: 100%;
         height: 100%;
         object-fit: contain;
-        image-rendering: pixelated;
       }
 
       .empty {
@@ -274,7 +273,6 @@
         width: 100%;
         aspect-ratio: 3 / 2;
         object-fit: contain;
-        image-rendering: pixelated;
       }
 
       .lvgl-stage-label {
@@ -320,7 +318,6 @@
         width: 100%;
         aspect-ratio: 3 / 2;
         object-fit: cover;
-        image-rendering: pixelated;
       }
 
       .item {
@@ -417,7 +414,7 @@
               </label>
               <label id="sourceUrlField" class="field is-wide" hidden>
                 <span>图片/GIF/视频直链</span>
-                <input id="sourceUrl" name="sourceUrl" autocomplete="off" placeholder="https://example.com/pixel-loop.gif" />
+                <input id="sourceUrl" name="sourceUrl" autocomplete="off" placeholder="https://example.com/screen-loop.gif" />
               </label>
               <label id="sourcePathField" class="field is-wide" hidden>
                 <span>项目内文件路径</span>
@@ -428,8 +425,6 @@
                 <select id="preset" name="preset">
                   <option value="fit-cover:480x320">铺满屏幕</option>
                   <option value="fit-contain:480x320">完整显示</option>
-                  <option value="pixel-grid:120x80@4x">低清像素化</option>
-                  <option value="pixel-grid:240x160@2x">高清像素化</option>
                 </select>
               </label>
               <label class="field">
@@ -568,11 +563,7 @@
           activeRepeat = 0;
           renderEnvelope();
           setStatus("未同步");
-          const hasWidgetApp = envelope.items.some((item) => item.hasWidgetApp || item.hasRuntimeWidgets);
-          if (hasWidgetApp) {
-            await loadLvglPreview();
-          }
-          if (!paused && !hasWidgetApp) scheduleNext(0);
+          if (!paused) scheduleNext(0);
         } catch (error) {
           envelope = null;
           screenImage.hidden = true;
@@ -623,18 +614,6 @@
           node.classList.toggle("is-active", index === activeItemIndex);
         }
         if (!item || !frame) return;
-        if (item.hasWidgetApp || item.hasRuntimeWidgets) {
-          if (lvglFrames.length) {
-            renderLvglCarousel(activeLvglFrame);
-          } else {
-            screenImage.hidden = true;
-            empty.hidden = false;
-            empty.textContent = "LVGL Widget Preview";
-          }
-          itemLabel.textContent = `${activeItemIndex + 1}/${envelope.items.length} ${item.manifestId}`;
-          outputLabel.textContent = item.hasWidgetApp ? "widget app" : "lvgl widgets";
-          return;
-        }
         empty.hidden = true;
         screenImage.hidden = false;
         screenImage.src = `${frame.url}?v=${encodeURIComponent(item.manifestHash)}`;
@@ -683,11 +662,6 @@
         activeLvglFrame = (index + lvglFrames.length) % lvglFrames.length;
         const frame = lvglFrames[activeLvglFrame];
         lvglStageImage.src = `${frame.png}?v=${encodeURIComponent(frame.playlistHash)}`;
-        if (currentItem()?.hasWidgetApp || currentItem()?.hasRuntimeWidgets) {
-          empty.hidden = true;
-          screenImage.hidden = false;
-          screenImage.src = lvglStageImage.src;
-        }
         lvglStageLabel.textContent = "LVGL";
         for (const [thumbIndex, node] of [...lvglStrip.children].entries()) {
           node.classList.toggle("is-active", thumbIndex === activeLvglFrame);

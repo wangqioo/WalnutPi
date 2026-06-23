@@ -368,10 +368,10 @@
           const activateData = await activateResponse.json();
           if (!activateResponse.ok || !activateData.ok) throw new Error(activateData.output || activateData.error || "activate failed");
 
-          const previewResponse = await fetch("/api/screen/workspace/lvgl-preview", {
+          const previewResponse = await fetch("/api/screen/widget-apps/current/preview", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ mode: "widget" }),
+            body: JSON.stringify({}),
           });
           const previewData = await previewResponse.json();
           if (!previewResponse.ok || !previewData.ok || !previewData.frames?.[0]?.png) {
