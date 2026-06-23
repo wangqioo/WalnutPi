@@ -55,6 +55,13 @@ const SAFE_TASK_KINDS = new Set([
   "screen.state_frame.read",
 ]);
 
+const DEFAULT_AGENT_BY_TASK_KIND = Object.freeze({
+  "action.run": "device",
+  "session.summary": "session",
+  "diagnostics.recent_failure.read": "diagnostics",
+  "screen.state_frame.read": "screen",
+});
+
 export function isSafeContinuationTask(task) {
   if (!SAFE_TASK_KINDS.has(task.kind)) return false;
   if (task.kind === "action.run") return SAFE_ACTION_IDS.has(String(task.action || ""));
@@ -76,28 +83,7 @@ export function normalizeNextTasks(value) {
 }
 
 function defaultAgentForTask(task) {
-  if (task.kind === "action.run") return "device";
-  if (task.kind === "session.summary") return "session";
-  if (task.kind === "diagnostics.recent_failure.read") return "diagnostics";
-  if (task.kind === "screen.state_frame.read") return "screen";
-  return "agent";
-}
-
-// -- Observation replan detection -------------------------------------------
-
-const OBSERVATION_REPLAN_PATTERNS = [
-  /观察|observe|observation/i,
-  /下一步|续步|next\s*tasks?|replan|自动继续|继续/i,
-  /只读|read[-\s]*only|安全/i,
-];
-
-export function isObservationReplanRequest(text) {
-  return OBSERVATION_REPLAN_PATTERNS.every((re) => re.test(text));
-}
-
-export function wantsReadOnlyContinuation(text) {
-  const input = String(text || "").trim();
-  return /观察完成|观察结果|只读.*继续|续步|自动继续|下一步|next\s*tasks?|replan/i.test(input);
+  return DEFAULT_AGENT_BY_TASK_KIND[task.kind] || "agent";
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -149,33 +135,8 @@ export function createActionRegistry({ manifestPath, shellQuote, aiTimeoutSecond
     const action = await getAction(actionId);
     if (!action) throw new Error(`未知动作：${actionId}`);
 
-    // --- Special case: note (requires text param) ---
-    if (actionId === "note") {
-      const text = String(params.text || "").trim();
-      if (!text) throw new Error("缺少要记录的内容。");
-      return `walnut note ${shellQuote(text)}`;
-    }
-
-    // --- Special case: ai (requires text param + contextUsed) ---
-    if (actionId === "ai") {
-      const text = String(params.text || "").trim();
-      if (!text) throw new Error("缺少要问 WalnutAI 的内容。");
-      const hasMemoryIntent = /记住|记着|以后|下次|我的偏好|我喜欢|我不喜欢|我习惯|我是|我叫|我用|我在用|我的项目|我的设备|所有对话|目标|默认/.test(text);
-      return {
-        command: [
-          `WALNUT_AI_TIMEOUT=${shellQuote(String(aiTimeoutSeconds))}`,
-          "WALNUT_AI_ENABLE_INLINE_MEMORY=0",
-          "WALNUT_AI_DISABLE_SESSION_LOG=1",
-          `walnut-ai ${shellQuote(text)}`,
-        ].join(" "),
-        contextUsed: {
-          schema: "walnutpi.webAiDelegation.v1",
-          delegatedTo: "walnut-ai",
-          toolRouting: "device-side",
-          memoryDistillCandidate: hasMemoryIntent,
-        },
-      };
-    }
+    const customBuilder = webActionBuilder(actionId, { shellQuote, aiTimeoutSeconds });
+    if (customBuilder) return customBuilder(params);
 
     // --- Template from manifest ---
     const webCfg = action.web;
@@ -239,33 +200,31 @@ function fillCommandTemplate(template, body, shellQuote) {
 }
 
 function webActionBuilder(actionId, { shellQuote, aiTimeoutSeconds }) {
-  if (actionId === "note") {
-    return (params) => {
-      const text = String(params.text || "").trim();
-      if (!text) throw new Error("缺少要记录的内容。");
-      return `walnut note ${shellQuote(text)}`;
-    };
-  }
-  if (actionId === "ai") {
-    return (params) => {
-      const text = String(params.text || "").trim();
-      if (!text) throw new Error("缺少要问 WalnutAI 的内容。");
-      const hasMemoryIntent = /记住|记着|以后|下次|我的偏好|我喜欢|我不喜欢|我习惯|我是|我叫|我用|我在用|我的项目|我的设备|所有对话|目标|默认/.test(text);
-      return {
-        command: [
-          `WALNUT_AI_TIMEOUT=${shellQuote(String(aiTimeoutSeconds))}`,
-          "WALNUT_AI_ENABLE_INLINE_MEMORY=0",
-          "WALNUT_AI_DISABLE_SESSION_LOG=1",
-          `walnut-ai ${shellQuote(text)}`,
-        ].join(" "),
-        contextUsed: {
-          schema: "walnutpi.webAiDelegation.v1",
-          delegatedTo: "walnut-ai",
-          toolRouting: "device-side",
-          memoryDistillCandidate: hasMemoryIntent,
-        },
-      };
-    };
-  }
-  return null;
+  return CUSTOM_WEB_ACTION_BUILDERS[actionId]?.({ shellQuote, aiTimeoutSeconds }) || null;
 }
+
+const CUSTOM_WEB_ACTION_BUILDERS = Object.freeze({
+  note: ({ shellQuote }) => (params) => {
+    const text = String(params.text || "").trim();
+    if (!text) throw new Error("缺少要记录的内容。");
+    return `walnut note ${shellQuote(text)}`;
+  },
+  ai: ({ shellQuote, aiTimeoutSeconds }) => (params) => {
+    const text = String(params.text || "").trim();
+    if (!text) throw new Error("缺少要问 WalnutAI 的内容。");
+    return {
+      command: [
+        `WALNUT_AI_TIMEOUT=${shellQuote(String(aiTimeoutSeconds))}`,
+        "WALNUT_AI_ENABLE_INLINE_MEMORY=0",
+        "WALNUT_AI_DISABLE_SESSION_LOG=1",
+        `walnut-ai ${shellQuote(text)}`,
+      ].join(" "),
+      contextUsed: {
+        schema: "walnutpi.webAiDelegation.v1",
+        delegatedTo: "walnut-ai",
+        toolRouting: "device-side",
+        memoryDistillCandidate: Boolean(params.memoryDistillCandidate),
+      },
+    };
+  },
+});

@@ -3,7 +3,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createRouter } from "./router.ts";
 import { createScreenEvidenceLedger } from "./screen-evidence-ledger.ts";
@@ -26,7 +26,8 @@ import { createProjectMemoryApi } from "./project-memory-api.ts";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.ts";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.ts";
 import { createStaticUiHost } from "./static-ui-host.ts";
-import { evaluateRuleIntent, intentTypeToRoute } from "./intent-rules/evaluator.ts";
+import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-rules/classifier.ts";
+import { compactRetrievalForPrompt, retrieveWalnutContext as retrieveWalnutContextWithOptions } from "./walnut-retrieval.ts";
 import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.ts";
 import { stableStringify } from "../scripts/screen-workspace-vocabulary.ts";
 import { generateLvglScreenWorkspaceRuntimeAssets } from "../scripts/generate-lvgl-screen-workspace-runtime-assets.ts";
@@ -231,96 +232,16 @@ async function readWalnutMemory() {
   }
 }
 
-function tokenizeQuery(value) {
-  const text = String(value || "").toLowerCase();
-  const terms = new Set(text.match(/[a-z0-9_./:-]+|[\u4e00-\u9fff]{2,}/g) || []);
-  const synonyms: [string, string[]][] = [
-    ["屏幕", ["screen", "lvgl", "fb0", "framebuffer"]],
-    ["小屏", ["screen", "lvgl", "fb0", "framebuffer"]],
-    ["同步", ["sync", "manifest", "delivery"]],
-    ["记忆", ["memory", "retrieval"]],
-    ["检索", ["retrieval", "skills", "corpus"]],
-    ["成功代码", ["corpus", "recipe", "example"]],
-    ["gpio", ["引脚", "排针"]],
-    ["i2c", ["传感器", "sensor"]],
-  ];
-  for (const [key, values] of synonyms) {
-    if (text.includes(key) || terms.has(key)) values.forEach((term) => terms.add(term));
-  }
-  return terms;
-}
-
-async function readTextFileLimited(filePath, limit = RETRIEVAL_FILE_LIMIT) {
-  const extension = path.extname(filePath).toLowerCase();
-  if (![".md", ".json", ".txt", ".py", ".c", ".h"].includes(extension)) return "";
-  try {
-    return (await readFile(filePath, "utf8")).trim().slice(0, limit);
-  } catch {
-    return "";
-  }
-}
-
-async function listRetrievalFiles() {
-  const files = [
-    path.join(WALNUT_AI_SKILLS_DIR, "walnutpi-core.md"),
-    path.join(WALNUT_AI_SKILLS_DIR, "walnutpi-screen.md"),
-    path.join(WALNUT_AI_SKILLS_DIR, WALNUT_AI_PRIMARY_SKILL, "SKILL.md"),
-    path.join(WALNUT_AI_CORPUS_DIR, "successful-code.md"),
-    SCREEN_SUCCESS_CORPUS_PATH,
-  ];
-  async function addDirectoryMarkdown(root, depth = 1) {
-    let entries;
-    try {
-      entries = await readdir(root, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const entryPath = path.join(root, entry.name);
-      if (entry.isFile() && entry.name.endsWith(".md")) files.push(entryPath);
-      if (entry.isDirectory() && depth > 0) {
-        files.push(path.join(entryPath, "SKILL.md"));
-      }
-    }
-  }
-  await addDirectoryMarkdown(WALNUT_AI_SKILLS_DIR, 1);
-  await addDirectoryMarkdown(path.join(WALNUT_AI_SKILLS_DIR, WALNUT_AI_PRIMARY_SKILL), 0);
-  await addDirectoryMarkdown(WALNUT_AI_CORPUS_DIR, 0);
-  return [...new Set(files.map((file) => path.resolve(file)))];
-}
-
-function scoreRetrievalFile(filePath, data, terms) {
-  const lowerPath = filePath.toLowerCase();
-  const haystack = `${lowerPath}\n${data.slice(0, 2000).toLowerCase()}`;
-  let score = 0;
-  for (const term of terms) {
-    if (!term) continue;
-    if (lowerPath.includes(term)) score += 3;
-    else if (haystack.includes(term)) score += 1;
-  }
-  if (filePath.endsWith("walnutpi-core.md")) score += 1;
-  if (filePath.endsWith("walnutpi-screen.md") && [...terms].some((term) => ["screen", "lvgl", "fb0", "framebuffer"].includes(term))) score += 4;
-  if (filePath.endsWith("screen-sync-successes.md") && [...terms].some((term) => ["sync", "manifest", "delivery", "成功代码"].includes(term))) score += 4;
-  return score;
-}
-
 async function retrieveWalnutContext(query) {
-  const terms = tokenizeQuery(query);
-  const files = await listRetrievalFiles();
-  const results = [];
-  for (const filePath of files) {
-    const content = await readTextFileLimited(filePath);
-    if (!content) continue;
-    const score = scoreRetrievalFile(filePath, content, terms);
-    if (score <= 0 && !filePath.endsWith("walnutpi-core.md") && !filePath.endsWith("walnutpi-screen.md")) continue;
-    results.push({
-      path: path.relative(PROJECT_ROOT, filePath).replace(/\\/g, "/"),
-      score,
-      preview: content,
-    });
-  }
-  results.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
-  return results.slice(0, RETRIEVAL_RESULT_LIMIT);
+  return retrieveWalnutContextWithOptions(query, {
+    corpusDir: WALNUT_AI_CORPUS_DIR,
+    fileLimit: RETRIEVAL_FILE_LIMIT,
+    primarySkill: WALNUT_AI_PRIMARY_SKILL,
+    projectRoot: PROJECT_ROOT,
+    resultLimit: RETRIEVAL_RESULT_LIMIT,
+    screenSuccessCorpusPath: SCREEN_SUCCESS_CORPUS_PATH,
+    skillsDir: WALNUT_AI_SKILLS_DIR,
+  });
 }
 
 function sha256(value) {
@@ -396,14 +317,6 @@ function compactMemoryForPrompt(memory) {
   return lines.length ? lines.join("\n") : "暂无长期记忆。";
 }
 
-function compactRetrievalForPrompt(results) {
-  if (!Array.isArray(results) || !results.length) return "无相关检索片段。";
-  return results.slice(0, 5).map((item) => [
-    `### ${item.path} (score=${item.score})`,
-    clippedText(item.preview, 1200),
-  ].join("\n")).join("\n\n");
-}
-
 function aiQuestionWithContext(text, messages = [], projectMemory = null) {
   const recent = Array.isArray(messages)
     ? messages
@@ -423,7 +336,7 @@ function aiQuestionWithContext(text, messages = [], projectMemory = null) {
     compactMemoryForPrompt(projectMemory?.memory),
     "",
     "检索到的 WalnutPi 上下文：",
-    compactRetrievalForPrompt(projectMemory?.retrieval),
+    compactRetrievalForPrompt(projectMemory?.retrieval, { clip: clippedText }),
     "",
     "最近对话：",
     recent.length ? recent.join("\n") : "（无）",
@@ -573,18 +486,75 @@ async function callResponsesApi({ operation, body, signal = aiFetchSignal(), tel
   }
 }
 
-async function classifyIntent(text: string, telemetry: JsonObject = {}) {
-  const evaluated = await evaluateRuleIntent(text);
-  if (!evaluated.classification) throw new Error("intent rule did not match");
-  return {
-    classification: evaluated.classification,
-    ruleIntent: evaluated.classification,
-    ruleShortCircuited: true,
-    aiClassifierUsed: false,
-  };
+const intentClassifier = createWalnutIntentClassifier({
+  aiEnabled: Boolean(aiApiKey),
+  classifyWithModel: classifyIntentWithModel,
+  async recordModelError(error, text, telemetry = {}) {
+    await webMetricsLedger.append({
+      kind: "web.intent.classify",
+      operation: "intent.classify.model",
+      ok: false,
+      sessionId: telemetry.sessionId,
+      turnId: telemetry.turnId,
+      inputChars: String(text || "").length,
+      error: error.message,
+    });
+  },
+});
+
+async function classifyIntentWithModel(text: string, telemetry: JsonObject = {}) {
+  const data = await callResponsesApi({
+    operation: "intent.classify",
+    telemetry,
+    body: {
+      model: AI_MODEL,
+      reasoning: { effort: "low" },
+      input: [
+        {
+          role: "system",
+          content: [
+            "You are the WalnutPi product router.",
+            "Return JSON only.",
+            "Choose exactly one supported intent.",
+            "Do not execute commands.",
+            "Do not infer benchmark oracle answers.",
+            "Route screen content creation to screen.generate unless the user asks to sync an existing playlist.",
+            "Route unsafe system writes, package installs, service restarts, reboots, and deletion/cleanup requests to policy intents.",
+            "Allowed intents: " + CLASSIFIER_INTENTS.join(", "),
+            "Allowed JSON fields: intent, subject, delivery, confidence.",
+          ].join("\n"),
+        },
+        {
+          role: "user",
+          content: JSON.stringify({
+            text,
+            structuredContext: {
+              requirements: telemetry.requirements || null,
+              scenario: telemetry.scenario
+                ? {
+                    schema: telemetry.scenario.schema,
+                    goal: telemetry.scenario.goal,
+                    constraints: telemetry.scenario.constraints,
+                    allowedContinuations: telemetry.scenario.allowedContinuations,
+                  }
+                : null,
+            },
+          }, null, 2),
+        },
+      ],
+    },
+  });
+  return parseJsonObjectText(parseResponsesOutput(data));
 }
 
-async function classifyAgentIntent(text: string, { traceId = randomUUID(), startedAt = Date.now(), sessionId = null, turnId = null }: JsonObject = {}) {
+async function classifyAgentIntent(text: string, {
+  traceId = randomUUID(),
+  startedAt = Date.now(),
+  sessionId = null,
+  turnId = null,
+  scenario = null,
+  requirements = null,
+}: JsonObject = {}) {
   const input = String(text || "").trim();
   if (!input) {
     await webMetricsLedger.append({
@@ -603,7 +573,7 @@ async function classifyAgentIntent(text: string, { traceId = randomUUID(), start
     return { ok: false, status: 400, error: "missing text" };
   }
   try {
-    const result = await classifyIntent(input, { sessionId, turnId });
+    const result = await intentClassifier.classifyIntent(input, { sessionId, turnId, scenario, requirements });
     const classification = result.classification;
     await webMetricsLedger.append({
       kind: "web.intent.classify",
@@ -658,7 +628,12 @@ async function handleIntentClassify(req) {
     });
     return json({ ok: false, error: error.message }, 400);
   }
-  const result = await classifyAgentIntent(body.text, { traceId, startedAt });
+  const result = await classifyAgentIntent(body.text, {
+    traceId,
+    startedAt,
+    scenario: body.scenario || null,
+    requirements: body.requirements || null,
+  });
   return json(result.ok ? { ok: true, classification: result.classification } : { ok: false, error: result.error }, result.status);
 }
 

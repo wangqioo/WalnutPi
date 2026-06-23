@@ -28,9 +28,11 @@ type IntentRoute = {
 
 let cachedEngine: Engine | null = null;
 let cachedRules: string | null = null;
+let cachedSubjectConfigPath: string | null = null;
+let cachedSubjectConfig: { noteWritePrefixes?: string[] } | null = null;
 
 export async function evaluateRuleIntent(text: string, { rulesPath = path.join(import.meta.dir, "rules.json") }: { rulesPath?: string } = {}) {
-  const facts = extractIntentFacts(text);
+  const facts = await extractIntentFacts(text);
   const engine = await loadEngine(rulesPath);
   const result = await engine.run(facts);
   const event = result.events[0];
@@ -38,10 +40,10 @@ export async function evaluateRuleIntent(text: string, { rulesPath = path.join(i
   return {
     facts,
     classification: intentTypeToRoute(event.type, {
-      subject: deriveSubject(text, event.type),
+      subject: await deriveSubject(text, event.type),
       delivery: event.params?.delivery || "none",
       confidence: Number(event.params?.confidence ?? 0.8),
-      source: "rule",
+      source: "fallback-rule",
       rule: event.params?.rule || event.type,
     }),
   };
@@ -83,16 +85,18 @@ export function intentTypeToRoute(intent: string, fields: IntentRouteFields = {}
     actionPolicyId: null,
     parameters: {},
     confidence: Number(fields.confidence ?? 0.5),
-    source: fields.source === "ai" ? "ai" : "rule",
+    source: normalizeIntentSource(fields.source),
     intent: {
       "screen.wallpaper.generate": "screen.generate",
     }[intent] || intent,
   };
-  if (intent === "screen.widget_app.create" && /设备|状态|status|快捷/.test(route.subject)) {
-    route.parameters.template = "device_status_quick_actions";
-  }
   if (fields.rule) route.rule = fields.rule;
   return route;
+}
+
+function normalizeIntentSource(source?: string) {
+  const normalized = String(source || "").trim();
+  return ["ai", "structured", "fallback-rule"].includes(normalized) ? normalized : "fallback-rule";
 }
 
 async function loadEngine(rulesPath: string) {
@@ -116,19 +120,25 @@ async function loadEngine(rulesPath: string) {
   return engine;
 }
 
-function deriveSubject(text: string, intent: string) {
+async function deriveSubject(text: string, intent: string) {
   const value = String(text || "").trim();
   if (intent === "device.note.write") {
-    return value.replace(/^(?:记一下|记录|note)\s*[:：]?\s*/i, "").trim() || value;
-  }
-  if (intent === "screen.generate" || intent === "screen.wallpaper.generate" || intent === "screen.widget_app.create") {
-    return value
-      .replace(/^(?:请|麻烦|帮我|给我|你|我要|我想|直接开始|直接|先|开始|继续|现在|按这个|就这个|照这个)\s*/i, "")
-      .replace(/(?:做|创建|生成|开发|写|造|设计|弄|来一个|写个|做个)\s*/i, "")
-      .replace(/(?:然后|并且|并|再)?\s*(?:同步|部署|推送|烧录|运行到|显示到)\s*(?:到|至)?\s*(?:核桃派|设备|板子|小屏|屏幕|lvgl|screen)?/ig, "")
-      .replace(/[，。,.!！?？；;：:]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim() || "Screen Workspace output";
+    for (const prefix of (await loadSubjectConfig()).noteWritePrefixes || []) {
+      if (value.toLowerCase().startsWith(prefix.toLowerCase())) {
+        return value.slice(prefix.length).replace(/^[:：\s]+/, "").trim() || value;
+      }
+    }
   }
   return value;
+}
+
+async function loadSubjectConfig(configPath = path.join(import.meta.dir, "subject.json")) {
+  if (cachedSubjectConfig && cachedSubjectConfigPath === configPath) return cachedSubjectConfig;
+  const parsed = JSON.parse(await readFile(configPath, "utf8"));
+  if (parsed.noteWritePrefixes !== undefined && (!Array.isArray(parsed.noteWritePrefixes) || parsed.noteWritePrefixes.some((item: any) => typeof item !== "string"))) {
+    throw new Error("subject noteWritePrefixes must be a string array");
+  }
+  cachedSubjectConfigPath = configPath;
+  cachedSubjectConfig = parsed;
+  return parsed;
 }

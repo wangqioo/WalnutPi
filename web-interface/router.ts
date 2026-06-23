@@ -1,339 +1,150 @@
+const METHOD_NOT_ALLOWED = { ok: false, error: "Method not allowed" };
+
 export function createRouter(deps) {
+  const staticRoutes = createStaticRoutes(deps);
+  const dynamicRoutes = createDynamicRoutes(deps);
+
   return async function routerFetch(req, server) {
     const url = new URL(req.url);
 
-    if (url.pathname === "/terminal") {
-      if (deps.previewOnly(url)) {
-        return new Response("SSH disabled for preview", { status: 403 });
-      }
-      const upgraded = server.upgrade(req, { data: { child: null, command: url.searchParams.get("command") || "" } });
-      return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
+    if (url.pathname === "/terminal") return handleTerminal(req, server, url, deps);
+
+    const route = staticRoutes[url.pathname];
+    if (route) return route(req, url);
+
+    for (const dynamicRoute of dynamicRoutes) {
+      const match = url.pathname.match(dynamicRoute.pattern);
+      if (match) return dynamicRoute.handle(req, url, match);
     }
 
-    if (url.pathname === "/api/actions") {
-      return deps.json(deps.agentActionsApi.actionPolicyView({
-        target: `${deps.config.SSH_USER}@${deps.config.SSH_HOST}`,
-        manifest: {
-          schema: deps.actionPolicyManifest.schema,
-          version: deps.actionPolicyManifest.version,
-          path: deps.path.relative(deps.config.PROJECT_ROOT, deps.config.ACTION_POLICY_MANIFEST_PATH).replaceAll("\\", "/"),
-        },
-      }));
+    if (url.pathname.startsWith("/api/screen/workspace/assets/")) {
+      return requireMethod(req, deps, "GET") || deps.screenWorkspaceApi.handleScreenWorkspaceAsset(url);
     }
 
-    if (url.pathname === "/api/memory") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.projectMemoryApi.handleMemory();
-    }
+    return (await deps.staticUiHost.handle(url.pathname)) || new Response("Not found", { status: 404 });
+  };
+}
 
-    if (url.pathname === "/api/retrieval") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.projectMemoryApi.handleRetrieval(url);
-    }
-
-    if (url.pathname === "/api/project-memory") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.projectMemoryApi.handleProjectMemory(url);
-    }
-
-    if (url.pathname === "/api/metrics") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
+function createStaticRoutes(deps) {
+  return {
+    "/api/actions": () => deps.json(deps.agentActionsApi.actionPolicyView({
+      target: `${deps.config.SSH_USER}@${deps.config.SSH_HOST}`,
+      manifest: {
+        schema: deps.actionPolicyManifest.schema,
+        version: deps.actionPolicyManifest.version,
+        path: deps.path.relative(deps.config.PROJECT_ROOT, deps.config.ACTION_POLICY_MANIFEST_PATH).replaceAll("\\", "/"),
+      },
+    })),
+    "/api/memory": method("GET", deps, () => deps.projectMemoryApi.handleMemory()),
+    "/api/retrieval": method("GET", deps, (_req, url) => deps.projectMemoryApi.handleRetrieval(url)),
+    "/api/project-memory": method("GET", deps, (_req, url) => deps.projectMemoryApi.handleProjectMemory(url)),
+    "/api/metrics": method("GET", deps, async (_req, url) => {
       const limit = Number(url.searchParams.get("limit") || 200);
       return deps.json(await deps.webMetricsLedger.report(
         Number.isFinite(limit) ? limit : 200,
         { since: url.searchParams.get("since") || null },
       ));
-    }
-
-    if (url.pathname === "/api/session") {
-      return deps.projectMemoryApi.handleSession(req, url);
-    }
-
-    if (url.pathname === "/api/intent/classify") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.handleIntentClassify(req);
-    }
-
-    if (url.pathname === "/api/agent/turn") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      if (deps.previewOnly(url)) return deps.previewOnlyJson();
-      return deps.agentTurnLoop.handleTurn(req);
-    }
-
-    if (url.pathname === "/api/agent/turns") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.agentTurnLoop.handleTurns(url);
-    }
-
-    if (url.pathname === "/api/agent/turn-events") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.agentTurnLoop.handleTurnEvents(url);
-    }
-
-    if (url.pathname === "/api/agent/events") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.handleAgentEvents(req, url);
-    }
-
-    if (url.pathname === "/api/agent/harness-session") {
-      if (req.method === "GET") {
-        const sessionId = url.searchParams.get("sessionId");
-        return deps.json({ ok: true, session: await deps.agentHarnessSessionStore.readSession(sessionId) });
-      }
-      if (req.method === "POST") {
-        let body;
-        try {
-          body = await deps.readJsonRequest(req);
-        } catch (error) {
-          return deps.json({ ok: false, error: error.message }, 400);
-        }
-        try {
-          return deps.json({ ok: true, session: await deps.agentHarnessSessionStore.upsertSession(body) });
-        } catch (error) {
-          return deps.json({ ok: false, error: error.message }, 400);
-        }
-      }
-      return deps.json({ ok: false, error: "Method not allowed" }, 405);
-    }
-
-    if (url.pathname === "/api/screen/workspace/playlist") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.handleScreenWorkspacePlaylist(url);
-    }
-
-    if (url.pathname === "/api/screen/workspace/process") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.handleScreenWorkspaceProcess(req);
-    }
-
-    if (url.pathname === "/api/screen/workspace/import") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.handleScreenWorkspaceImport(req);
-    }
-
-    if (url.pathname === "/api/screen/workspace/generate") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.handleScreenWorkspaceGenerate(req);
-    }
-
-    if (url.pathname === "/api/screen/workspace/lvgl-preview") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.handleScreenWorkspaceLvglPreview(req);
-    }
-
-    if (url.pathname === "/api/screen/lvgl-demo-preview") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.handleLvglDemoPreview(url);
-    }
-
-    if (url.pathname === "/api/screen/lvgl-apps") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.handleLvglAppList();
-    }
-
-    if (url.pathname === "/api/screen/lvgl-app/activate") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.handleLvglAppActivate(req);
-    }
-
-    const lvglAppDownloadMatch = url.pathname.match(/^\/api\/screen\/lvgl-apps\/([^/]+)\/download$/);
-    if (lvglAppDownloadMatch) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      let appId;
-      try {
-        appId = decodeURIComponent(lvglAppDownloadMatch[1]);
-      } catch {
-        return deps.json({ ok: false, error: "invalid app id" }, 400);
-      }
-      return deps.screenWorkspaceApi.handleLvglAppDownload(appId);
-    }
-
-    const iocccAppMatch = url.pathname.match(/^\/api\/screen\/ioccc-apps\/([^/]+)$/);
-    if (iocccAppMatch) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      let appId;
-      try {
-        appId = decodeURIComponent(iocccAppMatch[1]);
-      } catch {
-        return deps.json({ ok: false, error: "invalid IOCCC app id" }, 400);
-      }
-      return deps.screenWorkspaceApi.handleIocccAppGet(appId);
-    }
-
-    const iocccAppPageMatch = url.pathname.match(/^\/api\/screen\/ioccc-apps\/([^/]+)\/page$/);
-    if (iocccAppPageMatch) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      let appId;
-      try {
-        appId = decodeURIComponent(iocccAppPageMatch[1]);
-      } catch {
-        return deps.json({ ok: false, error: "invalid IOCCC app id" }, 400);
-      }
-      return deps.screenWorkspaceApi.handleIocccAppPage(appId);
-    }
-
-    const iocccAppAssetMatch = url.pathname.match(/^\/api\/screen\/ioccc-apps\/([^/]+)\/assets\/(.+)$/);
-    if (iocccAppAssetMatch) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      let appId;
-      let assetPath;
-      try {
-        appId = decodeURIComponent(iocccAppAssetMatch[1]);
-        assetPath = decodeURIComponent(iocccAppAssetMatch[2]);
-      } catch {
-        return deps.json({ ok: false, error: "invalid IOCCC asset path" }, 400);
-      }
-      return deps.screenWorkspaceApi.handleIocccAppAsset(appId, assetPath);
-    }
-
-    const iocccAppDownloadMatch = url.pathname.match(/^\/api\/screen\/ioccc-apps\/([^/]+)\/download$/);
-    if (iocccAppDownloadMatch) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      let appId;
-      try {
-        appId = decodeURIComponent(iocccAppDownloadMatch[1]);
-      } catch {
-        return deps.json({ ok: false, error: "invalid IOCCC app id" }, 400);
-      }
-      return deps.screenWorkspaceApi.handleIocccAppDownload(appId);
-    }
-
-    if (url.pathname === "/api/screen/workspace/sync") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.handleScreenWorkspaceSync(req, deps.previewOnly(url) ? "preview" : "remote");
-    }
-
-    if (url.pathname === "/api/screen/widget-apps") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppList();
-    }
-
-    if (url.pathname === "/api/screen/widget-apps/current/runtime") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppRuntime();
-    }
-
-    if (url.pathname === "/api/screen/widget-apps/current/refresh") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppRefresh();
-    }
-
-    if (url.pathname === "/api/screen/widget-apps/current/events") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppEvent(req);
-    }
-
-    if (url.pathname === "/api/screen/widget-apps/current/sync") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppSync();
-    }
-
-    const widgetAppDownloadMatch = url.pathname.match(/^\/api\/screen\/widget-apps\/([^/]+)\/download$/);
-    if (widgetAppDownloadMatch) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      let appId;
-      try {
-        appId = decodeURIComponent(widgetAppDownloadMatch[1]);
-      } catch {
-        return deps.json({ ok: false, error: "Invalid widget app id" }, 400);
-      }
-      return deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppDownload(appId);
-    }
-
-    const widgetAppActivateMatch = url.pathname.match(/^\/api\/screen\/widget-apps\/([^/]+)\/activate$/);
-    if (widgetAppActivateMatch) {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      let appId;
-      try {
-        appId = decodeURIComponent(widgetAppActivateMatch[1]);
-      } catch {
-        return deps.json({ ok: false, error: "Invalid widget app id" }, 400);
-      }
-      return deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppActivate({ appId });
-    }
-
-    const widgetAppMatch = url.pathname.match(/^\/api\/screen\/widget-apps\/([^/]+)$/);
-    if (widgetAppMatch) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      let appId;
-      try {
-        appId = decodeURIComponent(widgetAppMatch[1]);
-      } catch {
-        return deps.json({ ok: false, error: "Invalid widget app id" }, 400);
-      }
-      return deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppGet(appId);
-    }
-
-    const screenWorkspaceManifestMatch = url.pathname.match(/^\/api\/screen\/workspace\/manifest\/([^/]+)$/);
-    if (screenWorkspaceManifestMatch) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      let manifestId;
-      try {
-        manifestId = decodeURIComponent(screenWorkspaceManifestMatch[1]);
-      } catch {
-        return deps.json({ ok: false, error: "Invalid screen workspace manifest id" }, 400);
-      }
-      return deps.screenWorkspaceApi.handleScreenWorkspaceManifest(manifestId);
-    }
-
-    if (url.pathname.startsWith("/api/screen/workspace/assets/")) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenWorkspaceApi.handleScreenWorkspaceAsset(url);
-    }
-
-    if (url.pathname === "/api/screen/pixel-diff") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenDiagnosticsApi.handleScreenPixelDiff(req, deps.readJsonRequest);
-    }
-
-    if (url.pathname === "/api/screen/records") {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      return deps.screenDiagnosticsApi.handleScreenRecordList();
-    }
-
-    const screenRecordFrameMatch = url.pathname.match(/^\/api\/screen\/records\/([^/]+)\/frame\.png$/);
-    if (screenRecordFrameMatch) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      let buildId;
-      try {
-        buildId = decodeURIComponent(screenRecordFrameMatch[1]);
-      } catch {
-        return deps.json({ ok: false, error: "Invalid screen record id" }, 400);
-      }
-      return deps.screenDiagnosticsApi.handleScreenRecordFrame(buildId);
-    }
-
-    const screenRecordMatch = url.pathname.match(/^\/api\/screen\/records\/([^/]+)$/);
-    if (screenRecordMatch) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      let buildId;
-      try {
-        buildId = decodeURIComponent(screenRecordMatch[1]);
-      } catch {
-        return deps.json({ ok: false, error: "Invalid screen record id" }, 400);
-      }
-      return deps.screenDiagnosticsApi.handleScreenRecord(buildId);
-    }
-
-    const screenFrameMatch = url.pathname.match(/^\/api\/screen\/frame\/([^/]+)$/);
-    if (screenFrameMatch) {
-      if (req.method !== "GET") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      if (deps.previewOnly(url)) return deps.previewOnlyJson();
-      let buildId;
-      try {
-        buildId = decodeURIComponent(screenFrameMatch[1]);
-      } catch {
-        return deps.json({ ok: false, error: "Invalid screen frame id" }, 400);
-      }
-      return deps.screenDiagnosticsApi.handleScreenFrame(buildId);
-    }
-
-    if (url.pathname === "/api/action") {
-      if (req.method !== "POST") return deps.json({ ok: false, error: "Method not allowed" }, 405);
-      if (deps.previewOnly(url)) return deps.previewOnlyJson();
-      return deps.agentActionsApi.handleAction(req);
-    }
-
-    return (await deps.staticUiHost.handle(url.pathname)) || new Response("Not found", { status: 404 });
+    }),
+    "/api/session": (req, url) => deps.projectMemoryApi.handleSession(req, url),
+    "/api/intent/classify": method("POST", deps, (req) => deps.handleIntentClassify(req)),
+    "/api/agent/turn": method("POST", deps, (req, url) =>
+      deps.previewOnly(url) ? deps.previewOnlyJson() : deps.agentTurnLoop.handleTurn(req)),
+    "/api/agent/turns": method("GET", deps, (_req, url) => deps.agentTurnLoop.handleTurns(url)),
+    "/api/agent/turn-events": method("GET", deps, (_req, url) => deps.agentTurnLoop.handleTurnEvents(url)),
+    "/api/agent/events": method("GET", deps, (req, url) => deps.handleAgentEvents(req, url)),
+    "/api/agent/harness-session": (req, url) => handleHarnessSession(req, url, deps),
+    "/api/screen/workspace/playlist": method("GET", deps, (_req, url) => deps.screenWorkspaceApi.handleScreenWorkspacePlaylist(url)),
+    "/api/screen/workspace/process": method("POST", deps, (req) => deps.screenWorkspaceApi.handleScreenWorkspaceProcess(req)),
+    "/api/screen/workspace/import": method("POST", deps, (req) => deps.screenWorkspaceApi.handleScreenWorkspaceImport(req)),
+    "/api/screen/workspace/generate": method("POST", deps, (req) => deps.screenWorkspaceApi.handleScreenWorkspaceGenerate(req)),
+    "/api/screen/workspace/lvgl-preview": method("POST", deps, (req) => deps.screenWorkspaceApi.handleScreenWorkspaceLvglPreview(req)),
+    "/api/screen/lvgl-demo-preview": method("GET", deps, (_req, url) => deps.screenWorkspaceApi.handleLvglDemoPreview(url)),
+    "/api/screen/lvgl-apps": method("GET", deps, () => deps.screenWorkspaceApi.handleLvglAppList()),
+    "/api/screen/lvgl-app/activate": method("POST", deps, (req) => deps.screenWorkspaceApi.handleLvglAppActivate(req)),
+    "/api/screen/workspace/sync": method("POST", deps, (req, url) =>
+      deps.screenWorkspaceApi.handleScreenWorkspaceSync(req, deps.previewOnly(url) ? "preview" : "remote")),
+    "/api/screen/widget-apps": method("GET", deps, () => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppList()),
+    "/api/screen/widget-apps/current/runtime": method("GET", deps, () => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppRuntime()),
+    "/api/screen/widget-apps/current/refresh": method("POST", deps, () => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppRefresh()),
+    "/api/screen/widget-apps/current/events": method("POST", deps, (req) => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppEvent(req)),
+    "/api/screen/widget-apps/current/sync": method("POST", deps, () => deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppSync()),
+    "/api/screen/pixel-diff": method("POST", deps, (req) => deps.screenDiagnosticsApi.handleScreenPixelDiff(req, deps.readJsonRequest)),
+    "/api/screen/records": method("GET", deps, () => deps.screenDiagnosticsApi.handleScreenRecordList()),
+    "/api/action": method("POST", deps, (req, url) =>
+      deps.previewOnly(url) ? deps.previewOnlyJson() : deps.agentActionsApi.handleAction(req)),
   };
+}
+
+function createDynamicRoutes(deps) {
+  return [
+    route(/^\/api\/screen\/lvgl-apps\/([^/]+)\/download$/, "GET", deps, (appId) =>
+      deps.screenWorkspaceApi.handleLvglAppDownload(appId)),
+    route(/^\/api\/screen\/widget-apps\/([^/]+)\/download$/, "GET", deps, (appId) =>
+      deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppDownload(appId), "Invalid widget app id"),
+    route(/^\/api\/screen\/widget-apps\/([^/]+)\/activate$/, "POST", deps, (appId) =>
+      deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppActivate({ appId }), "Invalid widget app id"),
+    route(/^\/api\/screen\/widget-apps\/([^/]+)$/, "GET", deps, (appId) =>
+      deps.screenWorkspaceApi.widgetAppWorkspace.handleWidgetAppGet(appId), "Invalid widget app id"),
+    route(/^\/api\/screen\/workspace\/manifest\/([^/]+)$/, "GET", deps, (manifestId) =>
+      deps.screenWorkspaceApi.handleScreenWorkspaceManifest(manifestId), "Invalid screen workspace manifest id"),
+    route(/^\/api\/screen\/records\/([^/]+)\/frame\.png$/, "GET", deps, (buildId) =>
+      deps.screenDiagnosticsApi.handleScreenRecordFrame(buildId), "Invalid screen record id"),
+    route(/^\/api\/screen\/records\/([^/]+)$/, "GET", deps, (buildId) =>
+      deps.screenDiagnosticsApi.handleScreenRecord(buildId), "Invalid screen record id"),
+    route(/^\/api\/screen\/frame\/([^/]+)$/, "GET", deps, (buildId, _req, url) =>
+      deps.previewOnly(url) ? deps.previewOnlyJson() : deps.screenDiagnosticsApi.handleScreenFrame(buildId), "Invalid screen frame id"),
+  ];
+}
+
+function method(expectedMethod, deps, handle) {
+  return (req, url) => requireMethod(req, deps, expectedMethod) || handle(req, url);
+}
+
+function route(pattern, expectedMethod, deps, handle, invalidMessage = "invalid app id") {
+  return {
+    pattern,
+    handle(req, url, match) {
+      const methodError = requireMethod(req, deps, expectedMethod);
+      if (methodError) return methodError;
+      const id = decodePathPart(match[1], deps, invalidMessage);
+      return id instanceof Response ? id : handle(id, req, url);
+    },
+  };
+}
+
+function requireMethod(req, deps, expectedMethod) {
+  return req.method === expectedMethod ? null : deps.json(METHOD_NOT_ALLOWED, 405);
+}
+
+function decodePathPart(value, deps, message) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return deps.json({ ok: false, error: message }, 400);
+  }
+}
+
+function handleTerminal(req, server, url, deps) {
+  if (deps.previewOnly(url)) return new Response("SSH disabled for preview", { status: 403 });
+  const upgraded = server.upgrade(req, { data: { child: null, command: url.searchParams.get("command") || "" } });
+  return upgraded ? undefined : new Response("WebSocket upgrade failed", { status: 400 });
+}
+
+async function handleHarnessSession(req, url, deps) {
+  if (req.method === "GET") {
+    const sessionId = url.searchParams.get("sessionId");
+    return deps.json({ ok: true, session: await deps.agentHarnessSessionStore.readSession(sessionId) });
+  }
+  if (req.method !== "POST") return deps.json(METHOD_NOT_ALLOWED, 405);
+  let body;
+  try {
+    body = await deps.readJsonRequest(req);
+  } catch (error) {
+    return deps.json({ ok: false, error: error.message }, 400);
+  }
+  try {
+    return deps.json({ ok: true, session: await deps.agentHarnessSessionStore.upsertSession(body) });
+  } catch (error) {
+    return deps.json({ ok: false, error: error.message }, 400);
+  }
 }

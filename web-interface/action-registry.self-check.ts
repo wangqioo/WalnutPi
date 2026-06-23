@@ -4,11 +4,9 @@ import path from "node:path";
 import {
   actionIdForIntent,
   policyActionIdsForIntent,
-  isObservationReplanRequest,
   isSafeContinuationTask,
   MAX_CONTINUATION_TASKS,
   normalizeNextTasks,
-  wantsReadOnlyContinuation,
 } from "./action-registry.ts";
 
 // -- Intent routing ---------------------------------------------------------
@@ -59,19 +57,5 @@ assert.deepEqual(
   normalizeNextTasks([{ kind: "session.summary" }]),
   [{ agent: "session", kind: "session.summary" }],
 );
-
-// -- Observation replan -----------------------------------------------------
-
-assert.equal(isObservationReplanRequest("观察后自动继续"), false);
-assert.equal(isObservationReplanRequest("先观察，如果有只读下一步则自动继续"), true);
-assert.equal(isObservationReplanRequest("先做一次只读观察；如果观察结果给出下一步，只允许安全只读动作自动继续"), true);
-assert.equal(isObservationReplanRequest("查状态"), false);
-assert.equal(isObservationReplanRequest("首先生成一个唯美星空"), false);
-
-// -- ReadOnlyContinuation ---------------------------------------------------
-
-assert.equal(wantsReadOnlyContinuation("观察完成"), true);
-assert.equal(wantsReadOnlyContinuation("下一步做什么"), true);
-assert.equal(wantsReadOnlyContinuation("普通查询"), false);
 
 console.log("action registry self-check passed");

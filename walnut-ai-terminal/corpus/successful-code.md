@@ -26,12 +26,12 @@ Stable files:
 - `screen/outputs/*`
 - `screen/runtime/default.txt`
 - `screen/runtime/frames/*.rgb565`
-- `scripts/screen-workspace-vocabulary.js`
-- `scripts/generate-lvgl-screen-workspace-runtime-assets.js`
+- `scripts/screen-workspace-vocabulary.ts`
+- `scripts/generate-lvgl-screen-workspace-runtime-assets.ts`
 - `lvgl_app/src/main.c`
 - `scripts/build-lvgl-app.sh`
-- `web-interface/model-terminal-server.js`
-- `web-interface/screen-delivery-adapters/ssh-local-agent.js`
+- `web-interface/model-terminal-server.ts`
+- `web-interface/screen-delivery-adapters/ssh-local-agent.ts`
 
 Stable commands that must keep working:
 

@@ -44,6 +44,9 @@ CORPUS_DIR = Path(os.getenv("WALNUT_AI_CORPUS_DIR", str(APP_DIR / "corpus"))).ex
 ACTION_POLICY_MANIFEST = Path(
     os.getenv("WALNUT_ACTION_POLICY_MANIFEST", str(APP_DIR.parent / "action-policy-manifest.json"))
 ).expanduser()
+LOCAL_ROUTE_CONFIG_FILE = Path(
+    os.getenv("WALNUT_AI_LOCAL_ROUTE_CONFIG", str(APP_DIR / "walnut_ai_routes.json"))
+).expanduser()
 CONTEXT_FILE_LIMIT = 5000
 RETRIEVAL_SOURCE_LIMIT = 6
 RETRIEVAL_CONTEXT_LIMIT = 14000
@@ -188,24 +191,7 @@ MEMORY_UPDATE_FORMAT = {
     },
 }
 
-LOCAL_ROUTE_HINTS = (
-    "状态", "健康", "内存", "磁盘", "docker", "服务",
-    "网络", "联网", "wifi", "wi-fi", "ip地址", "本机ip", "查ip", "路由",
-    "时间", "几点", "日期", "今天几号",
-    "天气", "气温", "下雨",
-    "音乐库", "有什么歌", "哪些歌", "歌曲", "歌单", "曲库", "music-library",
-    "笔记", "记一下", "记住", "今天记了什么", "notes", "note",
-    "gpio", "引脚", "排针", "i2c", "spi", "uart", "pwm", "overlay",
-    "板子", "型号", "什么设备", "什么系统", "内核", "屏幕", "lvgl", "fb0", "framebuffer",
-    "项目", "记忆", "memory", "retrieval", "检索", "成功代码", "代码沉淀",
-    "安装", "卸载", "删除", "重启", "关机", "刷写", "固件", "emmc",
-)
-
-ONE_SHOT_MEMORY_HINTS = (
-    "记住", "记着", "以后", "下次",
-    "我的偏好", "我喜欢", "我不喜欢", "我习惯",
-    "我是", "我叫", "我用", "我在用", "我的项目", "我的设备",
-)
+LOCAL_ROUTE_CONFIG_CACHE: dict[str, object] | None = None
 
 
 def skill_names(limit: int = 16) -> list[str]:
@@ -835,8 +821,7 @@ def remember_after_turn(user_text: str, assistant_reply: str, wait: bool = False
 
 
 def should_wait_for_memory(text: str) -> bool:
-    lowered = text.casefold()
-    return any(hint in lowered for hint in ONE_SHOT_MEMORY_HINTS)
+    return contains_any(text, local_route_config().get("memoryHints", []))
 
 
 def remember_after_one_shot(user_text: str, assistant_reply: str) -> None:
@@ -846,42 +831,42 @@ def remember_after_one_shot(user_text: str, assistant_reply: str) -> None:
 
 
 def might_need_local_route(text: str) -> bool:
-    lowered = text.casefold()
-    return any(hint in lowered for hint in LOCAL_ROUTE_HINTS)
+    return contains_any(text, local_route_config().get("localRouteHints", []))
 
 
 def quick_local_route(text: str) -> dict[str, object] | None:
-    lowered = text.casefold()
-    if lowered.startswith(("/note", "记一下", "记录一下")):
-        note = text
-        for prefix in ("/note", "记一下", "记录一下"):
-            if note.casefold().startswith(prefix.casefold()):
-                note = note[len(prefix):].strip(" ：:")
-                break
-        return {"action": "note_add", "risk": "write-low", "args": {"text": note}, "reason": "记录本地笔记"}
-    if any(hint in lowered for hint in ("今天记了什么", "今天笔记", "notes today", "today notes")):
-        return {"action": "notes_today", "risk": "read", "args": {}, "reason": "查询今天笔记"}
-    if any(hint in lowered for hint in ("状态", "健康", "内存", "磁盘", "docker", "服务")):
-        return {"action": "status", "risk": "read", "args": {}, "reason": "查询设备状态"}
-    if any(hint in lowered for hint in ("网络", "联网", "wifi", "wi-fi", "ip地址", "本机ip", "查ip", "路由", "network")):
-        return {"action": "network", "risk": "read", "args": {}, "reason": "查询网络状态"}
-    if any(hint in lowered for hint in ("天气", "气温", "下雨", "weather")):
-        location = text
-        location = re.sub(r"(今天天气|天气怎么样|天气|气温|下雨|weather|怎么样|如何|查询|查一下|帮我|请)", " ", location, flags=re.IGNORECASE)
-        location = re.sub(r"[？?。,.，!！:：]", " ", location)
-        location = " ".join(location.split())
-        return {"action": "weather", "risk": "read", "args": {"location": location}, "reason": "查询实时天气"}
-    if any(hint in lowered for hint in ("几点", "时间", "日期", "今天几号", "time", "date")):
-        return {"action": "time", "risk": "read", "args": {}, "reason": "查询本地时间"}
-    if any(hint in lowered for hint in ("i2c", "i²c", "传感器", "sensor", "i2cdetect")):
-        return {"action": "i2c_scan", "risk": "read", "args": {}, "reason": "只读扫描 I2C 总线地址"}
-    if any(hint in lowered for hint in ("gpio", "引脚", "排针", "spi", "uart", "pwm", "overlay", "总线")):
-        return {"action": "gpio_read", "risk": "read", "args": {}, "reason": "只读检查 GPIO 和总线状态"}
-    if any(hint in lowered for hint in ("板子", "型号", "什么设备", "什么系统", "内核", "屏幕", "你是什么")):
-        return {"action": "snapshot", "risk": "read", "args": {}, "reason": "查询真实设备快照"}
-    if any(hint in lowered for hint in ("音乐库", "有什么歌", "哪些歌", "歌曲", "歌单", "曲库", "music-library")):
-        return {"action": "music_library", "risk": "read", "args": {}, "reason": "查询本地音乐库"}
+    for prefix in local_route_config().get("notePrefixes", []):
+        if isinstance(prefix, str) and text.casefold().startswith(prefix.casefold()):
+            note = text[len(prefix):].strip(" ：:")
+            return {"action": "note_add", "risk": "write-low", "args": {"text": note}, "reason": "记录本地笔记"}
+    for route in local_route_config().get("quickRoutes", []):
+        if not isinstance(route, dict) or not contains_any(text, route.get("hints", [])):
+            continue
+        return {
+            "action": route.get("action", ""),
+            "risk": route.get("risk", "none"),
+            "args": {},
+            "reason": route.get("reason", ""),
+        }
     return None
+
+
+def local_route_config() -> dict[str, object]:
+    global LOCAL_ROUTE_CONFIG_CACHE
+    if LOCAL_ROUTE_CONFIG_CACHE is None:
+        with LOCAL_ROUTE_CONFIG_FILE.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if not isinstance(data, dict):
+            raise ValueError("WalnutAI route config must be a JSON object")
+        LOCAL_ROUTE_CONFIG_CACHE = data
+    return LOCAL_ROUTE_CONFIG_CACHE
+
+
+def contains_any(text: str, hints: object) -> bool:
+    if not isinstance(hints, list):
+        return False
+    lowered = text.casefold()
+    return any(isinstance(hint, str) and hint.casefold() in lowered for hint in hints)
 
 
 def classify_intent(text: str) -> dict[str, object] | None:

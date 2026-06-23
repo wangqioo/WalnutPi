@@ -1,5 +1,4 @@
 import { actionSummary, resolveAction } from "./action-policy.ts";
-import { wantsReadOnlyContinuation } from "./action-registry.ts";
 import { randomUUID } from "node:crypto";
 
 type TimingSegments = Record<string, number | null | undefined>;
@@ -7,6 +6,14 @@ type ActionResponseBody = Record<string, any> & {
   diagnostics?: Record<string, any>;
   nextTasks?: any[];
   ok: boolean;
+};
+
+const SIDE_EFFECTS_BY_ACTION_ID = {
+  note: [{ kind: "daily-note-write", target: "daily-note", status: "observed" }],
+  restart_walnut_screen_service: [{ kind: "service-restart", target: "walnut-screen.service", status: "observed" }],
+  reboot: [{ kind: "reboot", target: "device", status: "observed" }],
+  reboot_device: [{ kind: "reboot", target: "device", status: "observed" }],
+  "package-install": [{ kind: "package-install", target: "device", status: "observed" }],
 };
 
 function elapsedSince(startedAt) {
@@ -226,9 +233,6 @@ export function createAgentActionsApi({
           output: responseBody.output,
         };
       }
-      if (id === "snapshot" && wantsReadOnlyContinuation(body.text)) {
-        responseBody.nextTasks = [{ agent: "device", kind: "action.run", action: "status" }];
-      }
       if (sessionId) {
         const sessionLogStartedAt = Date.now();
         await webSessionLedger.appendEvent(sessionId, {
@@ -413,11 +417,7 @@ function isOfflineReadHonestFailure(responseBody, body) {
 }
 
 function sideEffectsForAction(id, action) {
-  const effects = [];
-  if (id === "note") effects.push({ kind: "daily-note-write", target: "daily-note", status: "observed" });
-  if (id === "restart_walnut_screen_service") effects.push({ kind: "service-restart", target: "walnut-screen.service", status: "observed" });
-  if (id === "reboot" || id === "reboot_device") effects.push({ kind: "reboot", target: "device", status: "observed" });
-  if (id === "package-install") effects.push({ kind: "package-install", target: "device", status: "observed" });
+  const effects = [...(SIDE_EFFECTS_BY_ACTION_ID[id] || [])];
   if (action?.risk === "high") effects.push({ kind: "device-write", target: "device", status: "observed" });
   return dedupeSideEffects(effects);
 }

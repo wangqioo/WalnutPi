@@ -127,7 +127,7 @@
   },
   {
     "text": "观察设备状态后如需续步，自动执行只读检查，危险动作只放到待确认",
-    "intent": "device.snapshot.read",
+    "intent": "device.status.read",
     "route": "device.action",
     "action": "read",
     "delivery": "none"
@@ -155,7 +155,7 @@
   },
   {
     "text": "先看设备状态；如果有下一步，只允许自动做只读状态检查，重启和同步都先拦住",
-    "intent": "device.snapshot.read",
+    "intent": "device.status.read",
     "route": "device.action",
     "action": "read",
     "delivery": "none"

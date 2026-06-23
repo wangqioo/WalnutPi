@@ -153,12 +153,6 @@
     "event": { "type": "device.gpio.read", "params": { "delivery": "none", "confidence": 0.86 } }
   },
   {
-    "name": "observation-replan",
-    "priority": 83,
-    "conditions": { "all": [{ "fact": "hasObservationReplan", "operator": "equal", "value": true }] },
-    "event": { "type": "device.snapshot.read", "params": { "delivery": "none", "confidence": 0.9 } }
-  },
-  {
     "name": "read-status",
     "priority": 82,
     "conditions": {

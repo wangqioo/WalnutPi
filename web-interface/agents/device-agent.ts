@@ -1,6 +1,5 @@
 import {
   actionIdForIntent,
-  isObservationReplanRequest,
   normalizeNextTasks,
 } from "../action-registry.ts";
 
@@ -8,14 +7,14 @@ import {
  * Device agent — handles action.run by delegating remote/terminal execution.
  *
  * Plan matching:
- *   1. Observation-replan subject → snapshot
+ *   1. Scenario contract with safe continuations → snapshot
  *   2. Known intent-to-action mapping → matching action
  */
 export function createDeviceAgent() {
   return {
     matchPlan(classification) {
       const subject = classification?.subject || "";
-      if (isObservationReplanRequest(subject)) {
+      if (classification?.scenario?.allowedContinuations?.length) {
         return [{ agent: "device", kind: "action.run", action: "snapshot" }];
       }
       const intent = classification?.intent || "";
@@ -38,7 +37,7 @@ export function createDeviceAgent() {
         requirements: body.requirements,
       });
 
-      if (actionResult.body?.ok && task.action === "snapshot" && isObservationReplanRequest(String(body.text || ""))) {
+      if (actionResult.body?.ok && task.action === "snapshot" && body.scenario?.allowedContinuations?.length) {
         actionResult.body = withObservationReplanNextTask(actionResult.body);
       }
 
@@ -61,7 +60,7 @@ function withObservationReplanNextTask(result) {
   if (existing.length) return result;
   return {
     ...result,
-    summary: result.summary || result.output || "只读观察完成；发现可安全自动继续的只读状态检查。",
+    summary: result.summary || result.output || "read-only observation completed; safe status continuation is available",
     nextTasks: [{ agent: "device", kind: "action.run", action: "status" }],
     evidence: {
       ...(result.evidence || {}),

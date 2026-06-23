@@ -1,0 +1,55 @@
+{
+  "localRouteHints": [
+    "状态", "健康", "内存", "磁盘", "docker", "服务",
+    "wifi", "wi-fi", "ip地址", "本机ip", "查ip", "wlan", "wlan0",
+    "笔记", "记一下", "记住", "今天记了什么", "notes", "note",
+    "gpio", "引脚", "排针", "i2c", "spi", "uart", "pwm", "overlay",
+    "板子", "型号", "什么设备", "什么系统", "内核", "屏幕", "lvgl", "fb0", "framebuffer",
+    "项目", "记忆", "memory", "retrieval", "检索", "成功代码", "代码沉淀",
+    "安装", "卸载", "删除", "重启", "关机", "刷写", "固件", "emmc"
+  ],
+  "memoryHints": [
+    "记住", "记着", "以后", "下次",
+    "我的偏好", "我喜欢", "我不喜欢", "我习惯",
+    "我是", "我叫", "我用", "我在用", "我的项目", "我的设备"
+  ],
+  "notePrefixes": ["/note", "记一下", "记录一下"],
+  "quickRoutes": [
+    {
+      "action": "notes_today",
+      "risk": "read",
+      "reason": "查询今天笔记",
+      "hints": ["今天记了什么", "今天笔记", "notes today", "today notes"]
+    },
+    {
+      "action": "status",
+      "risk": "read",
+      "reason": "查询设备状态",
+      "hints": ["状态", "健康", "内存", "磁盘", "docker", "服务"]
+    },
+    {
+      "action": "network",
+      "risk": "read",
+      "reason": "查询网络状态",
+      "hints": ["wifi", "wi-fi", "ip地址", "本机ip", "查ip", "wlan", "wlan0"]
+    },
+    {
+      "action": "i2c_scan",
+      "risk": "read",
+      "reason": "只读扫描 I2C 总线地址",
+      "hints": ["i2c", "i²c", "传感器", "sensor", "i2cdetect"]
+    },
+    {
+      "action": "gpio_read",
+      "risk": "read",
+      "reason": "只读检查 GPIO 和总线状态",
+      "hints": ["gpio", "引脚", "排针", "spi", "uart", "pwm", "overlay", "总线"]
+    },
+    {
+      "action": "snapshot",
+      "risk": "read",
+      "reason": "查询真实设备快照",
+      "hints": ["板子", "型号", "什么设备", "什么系统", "内核", "屏幕", "你是什么"]
+    }
+  ]
+}

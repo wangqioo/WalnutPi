@@ -28,7 +28,7 @@ assert.deepEqual(
   [{ agent: "diagnostics", kind: "diagnostics.recent_failure.read" }],
 );
 assert.deepEqual(
-  selectTurnPlan({ intent: "ai.chat", subject: "先做一次只读观察；如果观察结果给出下一步，只允许安全只读动作自动继续" }),
+  selectTurnPlan({ intent: "ai.chat", scenario: { allowedContinuations: [{ kind: "action.run", action: "status" }] } }),
   [{ agent: "device", kind: "action.run", action: "snapshot" }],
 );
 
@@ -107,10 +107,7 @@ const generated = await runAgentTurn({
     body: {
       ok: true,
       screenId: body.screenId,
-      facts: {
-        schema: "walnutpi.screen-fact-pack.v1",
-        facts: [{ kind: "weather.current", source: "test-weather", location: "上海", temperatureC: 28 }],
-      },
+      facts: { schema: "walnutpi.screen-fact-pack.v1", facts: [] },
       manifest: { schema: "walnutpi.screen-manifest.v2", id: body.screenId },
       output: { type: "animated", path: "outputs/demo.json", width: 480, height: 320, frameCount: 2, frames: [{ durationMs: 160 }, { durationMs: 160 }] },
       playlist: { schema: "walnutpi.screen-playlist.v1", id: "default", loop: true, items: [{ manifest: "demo.json" }] },
@@ -133,7 +130,6 @@ const outputArtifact = generated.turn.artifacts.find((item) => item.kind === "sc
 assert.equal(typeof outputArtifact.sha256, "string");
 assert.equal(typeof outputArtifact.bytes, "number");
 assert.equal(outputArtifact.createdByStepId, generated.turn.steps[1].stepId);
-assert.equal(generated.turn.evidence.some((item) => item.kind === "weather-source-or-fetch-failure"), true);
 assert.equal(generated.turn.evidence.some((item) => item.kind === "playlist-envelope"), true);
 assert.equal(generated.turn.evidence.some((item) => item.kind === "screen-output-480x320"), true);
 
@@ -338,7 +334,18 @@ assert.equal(failed.turn.recovery.options.length > 0, true);
 assert.equal(failed.turn.evidence.some((item) => item.kind === "recovery-options"), true);
 
 const replanned = await runAgentTurn({
-  body: { text: "先做一次只读观察；如果观察结果给出下一步，只允许安全只读动作自动继续", sessionId: "replan-demo" },
+  body: {
+    text: "observe then continue with safe read-only status",
+    sessionId: "replan-demo",
+    scenario: {
+      schema: "walnutpi.loopScenario.v1",
+      goal: "observation-replan",
+      constraints: ["read-only-continuation"],
+      requiredEvidence: ["replan-evidence", "multi-step-loop"],
+      allowedContinuations: [{ kind: "action.run", action: "status" }],
+      blockedPolicy: { requiresConfirmation: ["device-write", "screen-sync", "service-restart", "package-install", "reboot"] },
+    },
+  },
   classifyIntent: async () => ({
     ok: true,
     status: 200,
@@ -347,7 +354,7 @@ const replanned = await runAgentTurn({
       intent: "ai.chat",
       route: "ai.chat",
       action: "answer",
-      subject: "先做一次只读观察；如果观察结果给出下一步，只允许安全只读动作自动继续",
+      subject: "observe then continue with safe read-only status",
       delivery: "none",
     },
   }),

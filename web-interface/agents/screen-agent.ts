@@ -11,87 +11,93 @@
  * Async tasks (generate, sync) are queued via ctx.queueTask().
  */
 export function createScreenAgent({ readPlaylistEnvelope }: { readPlaylistEnvelope?: any } = {}) {
+  const planByIntent = {
+    "screen.state_frame.read": [{ agent: "screen", kind: "screen.state_frame.read" }],
+  };
+  const planByRouteAction = {
+    "screen.wallpaper:sync": [{ agent: "screen", kind: "screen.workspace.sync.intent" }],
+    "screen.wallpaper:generate": [{ agent: "screen", kind: "screen.workspace.generate.intent" }],
+    "screen.widget_app:create": [{ agent: "screen", kind: "screen.widget_app.create.intent" }],
+  };
+  const taskRunners = {
+    "screen.state_frame.read": runScreenStateFrameRead,
+    "screen.workspace.generate.intent": runScreenWorkspaceGenerate,
+    "screen.widget_app.create.intent": runScreenWidgetAppCreate,
+    "screen.workspace.sync.intent": (task, ctx) => runScreenWorkspaceSync(task, ctx, readPlaylistEnvelope),
+  };
+
   return {
     matchPlan(classification) {
       const intent = classification?.intent || "";
       const route = classification?.route || "";
       const action = classification?.action || "";
-
-      if (intent === "screen.state_frame.read") {
-        return [{ agent: "screen", kind: "screen.state_frame.read" }];
-      }
-      if (route === "screen.wallpaper" && action === "sync") {
-        return [{ agent: "screen", kind: "screen.workspace.sync.intent" }];
-      }
-      if (route === "screen.wallpaper" && action === "generate") {
-        return [{ agent: "screen", kind: "screen.workspace.generate.intent" }];
-      }
-      if (route === "screen.widget_app" && action === "create") {
-        return [{ agent: "screen", kind: "screen.widget_app.create.intent" }];
-      }
-      return null;
+      return planByIntent[intent] || planByRouteAction[`${route}:${action}`] || null;
     },
 
     async run(task, ctx) {
-      const { body, text, sessionId, turn } = ctx;
-
-      // Synchronous: read-only state frame
-      if (task.kind === "screen.state_frame.read") {
-        const result = screenStateFrameReadResult();
-        ctx.setCompleted(result);
-        ctx.setTurnResult(true, result);
-        ctx.finishAgent();
-        ctx.observeStepResult();
-        await ctx.updateTurnTrace();
-        await ctx.emitStepDone();
-        return { ok: true, status: 200, stepId: ctx.step.id, stepResult: result };
-      }
-
-      // Async: generate, widget, sync — queue via ctx.queueTask
-      if (task.kind === "screen.workspace.generate.intent" && ctx.generateScreen) {
-        return ctx.queueTask(() =>
-          ctx.generateScreen({
-            prompt: text,
-            sessionId,
-            turnId: turn.turnId,
-            screenId: `agent-freeform-${Date.now()}`,
-            playlist: "default",
-            outputType: "animated",
-            preset: "fit-cover:480x320",
-          }),
-        );
-      }
-
-      if (task.kind === "screen.widget_app.create.intent" && ctx.generateScreen) {
-        return ctx.queueTask(() =>
-          ctx.generateScreen({
-            prompt: text,
-            sessionId,
-            turnId: turn.turnId,
-            screenId: `agent-widget-${Date.now()}`,
-            playlist: false,
-            outputType: "static",
-            preset: "fit-cover:480x320",
-          }),
-        );
-      }
-
-      if (task.kind === "screen.workspace.sync.intent" && ctx.syncScreen) {
-        const playlistHash = body.playlistHash || await readCurrentPlaylistHash(readPlaylistEnvelope);
-        if (!playlistHash) {
-          ctx.setPending("missing current playlist hash");
-          return { ok: true, status: 200, stepId: ctx.step.id, stepResult: ctx.stepResult() };
-        }
-        return ctx.queueTask(() =>
-          ctx.syncScreen({ playlistHash, evidenceMode: body.evidenceMode, sessionId, turnId: turn.turnId }),
-        );
-      }
-
-      // Unrecognised screen task → pending
+      const runner = taskRunners[task.kind];
+      const result = runner ? await runner(task, ctx) : null;
+      if (result) return result;
       ctx.setPending("missing prerequisites for screen task");
       return { ok: true, status: 200, stepId: ctx.step.id, stepResult: ctx.stepResult() };
     },
   };
+}
+
+async function runScreenStateFrameRead(_task, ctx) {
+  const result = screenStateFrameReadResult();
+  ctx.setCompleted(result);
+  ctx.setTurnResult(true, result);
+  ctx.finishAgent();
+  ctx.observeStepResult();
+  await ctx.updateTurnTrace();
+  await ctx.emitStepDone();
+  return { ok: true, status: 200, stepId: ctx.step.id, stepResult: result };
+}
+
+function runScreenWorkspaceGenerate(_task, ctx) {
+  if (!ctx.generateScreen) return null;
+  const { text, sessionId, turn } = ctx;
+  return ctx.queueTask(() =>
+    ctx.generateScreen({
+      prompt: text,
+      sessionId,
+      turnId: turn.turnId,
+      screenId: `agent-freeform-${Date.now()}`,
+      playlist: "default",
+      outputType: "animated",
+      preset: "fit-cover:480x320",
+    }),
+  );
+}
+
+function runScreenWidgetAppCreate(_task, ctx) {
+  if (!ctx.generateScreen) return null;
+  const { text, sessionId, turn } = ctx;
+  return ctx.queueTask(() =>
+    ctx.generateScreen({
+      prompt: text,
+      sessionId,
+      turnId: turn.turnId,
+      screenId: `agent-widget-${Date.now()}`,
+      playlist: false,
+      outputType: "static",
+      preset: "fit-cover:480x320",
+    }),
+  );
+}
+
+async function runScreenWorkspaceSync(_task, ctx, readPlaylistEnvelope) {
+  if (!ctx.syncScreen) return null;
+  const { body, sessionId, turn } = ctx;
+  const playlistHash = body.playlistHash || await readCurrentPlaylistHash(readPlaylistEnvelope);
+  if (!playlistHash) {
+    ctx.setPending("missing current playlist hash");
+    return { ok: true, status: 200, stepId: ctx.step.id, stepResult: ctx.stepResult() };
+  }
+  return ctx.queueTask(() =>
+    ctx.syncScreen({ playlistHash, evidenceMode: body.evidenceMode, sessionId, turnId: turn.turnId }),
+  );
 }
 
 async function readCurrentPlaylistHash(readPlaylistEnvelope) {
