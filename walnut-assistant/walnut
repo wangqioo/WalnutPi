@@ -823,7 +823,7 @@ def read_framebuffer_info(fb_device: str = "fb0") -> dict[str, int | str]:
         "name": (root / "name").read_text(encoding="utf-8").strip(),
         "width": int(width_text),
         "height": int(height_text),
-        "bitsPerPixel": int((root / "bits_per_pixel").read_text(encoding="utf-8").strip()),
+        "bitsPerFrameUnit": int((root / "bits_per_pixel").read_text(encoding="utf-8").strip()),
         "stride": int(stride_path.read_text(encoding="utf-8").strip()) if stride_path.exists() else 0,
         "mode": modes[0] if modes else "",
     }
@@ -833,18 +833,18 @@ def framebuffer_byte_length(info: dict[str, int | str]) -> int:
     width = int(info["width"])
     height = int(info["height"])
     stride = int(info["stride"])
-    bits_per_pixel = int(info["bitsPerPixel"])
+    bits_per_frame_unit = int(info["bitsPerFrameUnit"])
     if stride > 0:
         return stride * height
-    bytes_per_pixel = max((bits_per_pixel + 7) // 8, 1)
-    return width * height * bytes_per_pixel
+    bytes_per_frame_unit = max((bits_per_frame_unit + 7) // 8, 1)
+    return width * height * bytes_per_frame_unit
 
 
-def framebuffer_pixel_format(info: dict[str, int | str]) -> str:
-    bits_per_pixel = int(info["bitsPerPixel"])
-    if bits_per_pixel == 16:
+def framebuffer_format(info: dict[str, int | str]) -> str:
+    bits_per_frame_unit = int(info["bitsPerFrameUnit"])
+    if bits_per_frame_unit == 16:
         return "RGB565_LE"
-    return f"{bits_per_pixel}BPP"
+    return f"{bits_per_frame_unit}BPP"
 
 
 def read_framebuffer(device: str = "/dev/fb0", fb_device: str = "fb0") -> tuple[dict[str, int | str], bytes]:
@@ -862,8 +862,8 @@ def framebuffer_evidence(info: dict[str, int | str], frame: bytes, device: str =
         "name": info["name"],
         "width": info["width"],
         "height": info["height"],
-        "bitsPerPixel": info["bitsPerPixel"],
-        "pixelFormat": framebuffer_pixel_format(info),
+        "bitsPerFrameUnit": info["bitsPerFrameUnit"],
+        "frameFormat": framebuffer_format(info),
         "stride": info["stride"],
         "mode": info["mode"],
         "byteLength": len(frame),
@@ -941,8 +941,8 @@ def print_screen_frame() -> int:
 def print_screen_capture(args: argparse.Namespace) -> int:
     try:
         info, frame = read_framebuffer()
-        if int(info["bitsPerPixel"]) != 16:
-            raise ValueError(f"unsupported framebuffer format: {info['bitsPerPixel']}bpp")
+        if int(info["bitsPerFrameUnit"]) != 16:
+            raise ValueError(f"unsupported framebuffer format: {info['bitsPerFrameUnit']}bpp")
         evidence = framebuffer_evidence(info, frame)
         width = int(info["width"])
         height = int(info["height"])
@@ -952,7 +952,7 @@ def print_screen_capture(args: argparse.Namespace) -> int:
             "device": "/dev/fb0",
             "width": width,
             "height": height,
-            "pixelFormat": framebuffer_pixel_format(info),
+            "frameFormat": framebuffer_format(info),
             "rawSha256": evidence["sha256"],
             "rawByteLength": evidence["byteLength"],
             "pngSha256": hashlib.sha256(png).hexdigest(),

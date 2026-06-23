@@ -33,7 +33,6 @@ Only `playlistHash` gates sync. Item `manifestHash` values may appear inside Dev
 - summary: 已把 Screen Workspace 资源同步到核桃派。未重新编译 LVGL。
 
 Reuse this pattern for Screen Workspace playlist sync: require current playlistHash, prefer runtime resource sync with hot reload and fast service-active evidence; request evidenceMode=full only for diagnostic walnut screen state and sudo -n walnut screen frame verification.
-
 ## screen-20260616174841-5e705f36
 
 - kind: screen-workspace-sync-success
@@ -265,5 +264,59 @@ Reuse this pattern for Screen Workspace playlist sync: require current playlistH
 - checks: frameDimensionsMatched=false frameNonblank=false
 - activeItem: agent-freeform-1782058296339 animated
 - summary: 已把 Screen Workspace 资源同步到核桃派。未重新编译 LVGL。
+
+Reuse this pattern for Screen Workspace playlist sync: require current playlistHash, prefer runtime resource sync with hot reload and fast service-active evidence; request evidenceMode=full only for diagnostic walnut screen state and sudo -n walnut screen frame verification.
+
+## screen-20260623181822-f940b4f1
+
+- kind: screen-workspace-sync-success
+- finishedAt: 2026-06-23T18:18:27.665Z
+- playlistHash: 0b0cc9c9e0ddb7ab3cd46b109efdd20688a6cbdce7863bd0daf9ac44a5f27bb3
+- activeManifestHash: ec31032ffa1d1418f6192bf53cac16c79aba2447c2631522a02da871351fa288
+- artifactHash: ffecee0ad3532d64914f807d2cb989de3f955317b3882a40be0b76018a1ecc14
+- deliveryHash: f16a5cec485448194984888357d0fe8684976923cb71abcbcd5d58f96e21bdb7
+- visualMatch: captured
+- frameHash: e3fbf800e5918d0edc07ed7a805c7eb2bf17f57f74a99057d45e98e39186c13f
+- previewSignatureHash: a6a5b5f8fc15ff84054bc14c88fee7445a7d25ed2609a7c4f61b812b83a387b0
+- deviceSignatureHash: 30882862a7367fb27a93fb4dd8f8b662c2abe6349678b39438feea8113adca27
+- checks: frameDimensionsMatched=true frameNonblank=true
+- activeItem: agent-freeform-1782238523449 static
+- summary: 已把 Screen Workspace 资源同步到核桃派。未重新编译 LVGL，并完成 framebuffer 回证。
+
+Reuse this pattern for Screen Workspace playlist sync: require current playlistHash, prefer runtime resource sync with hot reload and fast service-active evidence; request evidenceMode=full only for diagnostic walnut screen state and sudo -n walnut screen frame verification.
+
+## screen-20260623182021-772abfb4
+
+- kind: screen-workspace-sync-success
+- finishedAt: 2026-06-23T18:20:26.556Z
+- playlistHash: 0b0cc9c9e0ddb7ab3cd46b109efdd20688a6cbdce7863bd0daf9ac44a5f27bb3
+- activeManifestHash: ec31032ffa1d1418f6192bf53cac16c79aba2447c2631522a02da871351fa288
+- artifactHash: ffecee0ad3532d64914f807d2cb989de3f955317b3882a40be0b76018a1ecc14
+- deliveryHash: 6ac5e35a9254a2b09e3503435a64ee3ac8b62678174915ef4cd63b491aabc827
+- visualMatch: captured
+- frameHash: e3fbf800e5918d0edc07ed7a805c7eb2bf17f57f74a99057d45e98e39186c13f
+- previewSignatureHash: a6a5b5f8fc15ff84054bc14c88fee7445a7d25ed2609a7c4f61b812b83a387b0
+- deviceSignatureHash: 30882862a7367fb27a93fb4dd8f8b662c2abe6349678b39438feea8113adca27
+- checks: frameDimensionsMatched=true frameNonblank=true
+- activeItem: agent-freeform-1782238523449 static
+- summary: 已把 Screen Workspace 资源同步到核桃派。未重新编译 LVGL，并完成 framebuffer 回证。
+
+Reuse this pattern for Screen Workspace playlist sync: require current playlistHash, prefer runtime resource sync with hot reload and fast service-active evidence; request evidenceMode=full only for diagnostic walnut screen state and sudo -n walnut screen frame verification.
+
+## screen-20260623182441-c43f68ec
+
+- kind: screen-workspace-sync-success
+- finishedAt: 2026-06-23T18:24:46.931Z
+- playlistHash: 366eac862695441f1763302df0bee50bc1b76b43b7d4c4fea3de86a84ac847ea
+- activeManifestHash: 4181abf70f466784e2024341552292ac38e95c2a40eec0af948a43e5ddfa4071
+- artifactHash: ffecee0ad3532d64914f807d2cb989de3f955317b3882a40be0b76018a1ecc14
+- deliveryHash: de7625e9b370af556c2ee7d350211cd520af0c4b4aaf6400355eaffe5258c697
+- visualMatch: captured
+- frameHash: e3fbf800e5918d0edc07ed7a805c7eb2bf17f57f74a99057d45e98e39186c13f
+- previewSignatureHash: e97aa7bb87dceef331c68a58d76e4888b840acf26d3f7a44e0f332be203f43ee
+- deviceSignatureHash: 96e5162ba3accd8f0d661d77ead06072de0c6c450e42df12df451b9a6815dd7e
+- checks: frameDimensionsMatched=true frameNonblank=true
+- activeItem: agent-freeform-1782239081389 static
+- summary: 已把 Screen Workspace 资源同步到核桃派。未重新编译 LVGL，并完成 framebuffer 回证。
 
 Reuse this pattern for Screen Workspace playlist sync: require current playlistHash, prefer runtime resource sync with hot reload and fast service-active evidence; request evidenceMode=full only for diagnostic walnut screen state and sudo -n walnut screen frame verification.
