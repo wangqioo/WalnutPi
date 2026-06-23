@@ -21,5 +21,6 @@ scripts/walnut-voice-cli text eol=lf
 *.glb binary
 *.jpg binary
 *.png binary
+*.rgb565 binary
 *.avtc binary
 *.avtx binary

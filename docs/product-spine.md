@@ -57,7 +57,7 @@ WalnutPi keeps ownership of:
 - Screen Manifest v2.
 - Screen Playlist v1.
 - 480x320 output size.
-- RGBA and RGB565 pixel hashes.
+- RGBA and RGB565 frame hashes.
 - RGB565 runtime assets under `screen/runtime/`.
 - Playlist hash freshness gates.
 - LVGL runtime parser boundaries.

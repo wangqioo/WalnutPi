@@ -43,6 +43,6 @@ Web sync contract:
 Evidence interpretation:
 
 - `visualMatch=captured` means framebuffer metadata and structural checks passed.
-- It does not mean Web preview pixels have been diffed against LVGL pixels.
-- Pixel evidence is diagnostic unless a route explicitly says it performed a Web/LVGL pixel diff.
+- It does not mean Web preview frame content has been diffed against LVGL output.
+- Frame evidence is diagnostic unless a route explicitly says it performed a Web/LVGL frame diff.
 - AI summaries must be based only on stored sync evidence.

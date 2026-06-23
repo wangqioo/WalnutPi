@@ -9,4 +9,4 @@ Screen Manifest v2 does not carry runtime UI components. Text, layout, imagery, 
 
 **Consequences**
 
-The processing pipeline owns font, layout, pixel style, image composition, and localization concerns. The LVGL Screen App becomes a stable image and animation playback surface, which reduces device-side schema complexity.
+The processing pipeline owns font, layout, image composition, and localization concerns. The LVGL Screen App becomes a stable image and animation playback surface, which reduces device-side schema complexity.

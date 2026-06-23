@@ -166,7 +166,7 @@ type ScreenCommand =
   | { kind: "screen.importSource"; source: LocalSourceRef | GeneratedSourceRef }
   | { kind: "screen.renderWallpaper"; sourceId: string; preset: ProcessingPreset; outputType: "static" | "animated" }
   | { kind: "screen.writePlaylist"; manifestId: string; mode: "replace" | "append"; durationMs: number; loop: boolean }
-  | { kind: "screen.syncPlaylist"; playlistId: string; playlistHash: string; evidenceMode: "fast" | "full" }
+  | { kind: "screen.syncPlaylist"; playlistId: string; playlistHash: string; evidenceMode: "fast" | "full"; mode?: "remote" | "preview" }
   | { kind: "screen.readPlaylist"; playlistId: string }
   | { kind: "screen.captureFrame"; buildId?: string };
 ```
@@ -193,15 +193,23 @@ Required adapters:
 
 - `WallpaperRenderer`: Source Asset or Screen Content to final 480x320 output,
   hashes, manifest, and provenance.
+- `TerminalPrintRenderer`: terminal/printed-output style generated source to
+  final 480x320 Screen Output. It is a Wallpaper Mode source renderer, not a
+  Widget App or desktop generator.
 - `RuntimeAssetRenderer`: Screen Playlist v1 to `screen/runtime/default.txt`
   and RGB565 frames.
 - `WidgetAppRenderer`: A2UI/Walnut LVGL Widget Catalog to widget runtime
   artifacts. It remains separate from Wallpaper Mode.
 
+`TerminalPrintSource` and terminal print generation must not be used to derive
+Widget App structure. Widget App generation is catalog-first through the
+Walnut LVGL Widget Catalog, with A2UI/tool-call/MCP concepts used only for
+semantic UI state and actions.
+
 Keep these contracts byte-stable:
 
 - 480x320 output size.
-- RGBA and RGB565 pixel hashes.
+- RGBA and RGB565 frame hashes.
 - RGB565 byte order and alpha handling.
 - animated output hash from frame RGB565 hashes and durations.
 - `screen/runtime/default.txt` format.
@@ -408,7 +416,7 @@ was written without a human/SME labeling loop, does not encode a calibrated
 rubric, and must not be carried forward as a golden set.
 
 Already deleted from the active repo: generated case files, baselines, run
-outputs, self-check outputs, harness code, and evaluation-derived screen
+outputs, local probe outputs, harness code, and evaluation-derived screen
 manifests, playlists, source assets, outputs, and evidence directories.
 
 Do not migrate old pass/fail status into Langfuse. At most, import a small
@@ -598,7 +606,7 @@ Exit criteria:
 Exit criteria:
 
 - Existing screen preview and sync cases pass through DSL path.
-- Pixel hash outputs are unchanged.
+- Frame hash outputs are unchanged.
 - Real-device evidence confirms the synced playlist when running the device
   profile.
 

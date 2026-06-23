@@ -85,7 +85,7 @@ The semantic material a user wants to show on the WalnutPi screen, such as text,
 _Avoid_: Screen Output, playlist item, LVGL widget
 
 **Source Asset**:
-An original image, GIF, sprite sheet, frame sequence, palette, hand-authored pixel-art file, generated image, or programmatically generated visual used to create a Screen Output. Source Assets may have any dimensions; they must be processed into a final 480x320 Screen Output before Sync.
+An original image, GIF, sprite sheet, frame sequence, palette, hand-authored visual file, generated image, or programmatically generated visual used to create a Screen Output. Source Assets may have any dimensions; they must be processed into a final 480x320 Screen Output before Sync.
 _Avoid_: Screen Output, framebuffer evidence, synced artifact
 
 **Candidate Source Asset**:
@@ -105,51 +105,59 @@ A Screen Plan that led to a selected Source Asset and generated Screen Output. E
 _Avoid_: Chat transcript, abandoned idea, authoritative manifest
 
 **Tool-Assisted Processing Pipeline**:
-The process that turns Source Assets into Screen Outputs by composing established tools for decoding, frame extraction, resizing, cropping, pixelation, compositing, hashing, and LVGL resource preparation. It should prefer tools such as ffmpeg, Sharp, and LVGL converters over hand-written image processing cores.
+The process that turns Source Assets into Screen Outputs by composing established tools for decoding, frame extraction, resizing, cropping, compositing, hashing, and LVGL resource preparation. It should prefer tools such as ffmpeg, Sharp, and LVGL converters over hand-written image processing cores.
 _Avoid_: Hand-rolled decoder, bespoke scaler, runtime asset search
 
 **Processing Provenance**:
-The source and transformation history used to create a Screen Output, such as search terms, prompts, source names, source URLs, local source hashes, license or usage notes, crop boxes, scaling choices, pixelation settings, palette choices, tool names and versions, seeds when available, and source hashes. It explains how the output was produced, but Sync is authoritative only for the local Screen Output hash.
+The source and transformation history used to create a Screen Output, such as search terms, prompts, source names, source URLs, local source hashes, license or usage notes, crop boxes, scaling choices, palette choices, tool names and versions, seeds when available, and source hashes. It explains how the output was produced, but Sync is authoritative only for the local Screen Output hash.
 _Avoid_: Sync input, live recipe, runtime dependency
 
 **Screen Output**:
-The local final 480x320 image artifact referenced by a Screen Manifest and identified by file and pixel SHA-256 hashes. Synchronization and device evidence should be tied to this artifact's pixel content rather than to live search results or remote source material.
+The local final 480x320 image artifact referenced by a Screen Manifest and identified by file SHA-256 plus the screen evidence hashes. Synchronization and device evidence should be tied to this artifact's rendered frame content rather than to live search results or remote source material.
 _Avoid_: Remote image, search result, processing recipe
 
 **Animated Screen Output**:
-A local animation artifact whose frames are final 480x320 screen images with explicit timing. A GIF may be a Source Asset or derived export, but the canonical animation output is a 480x320 frame sequence plus timing; its overall hash is derived from each frame's pixel hash and duration.
+A local animation artifact whose frames are final 480x320 screen images with explicit timing. A GIF may be a Source Asset or derived export, but the canonical animation output is a 480x320 frame sequence plus timing; its overall hash is derived from each frame's RGB565 evidence hash and duration.
 _Avoid_: Source GIF, live animation recipe, single-frame hash
 
 **Pre-rendered Screen**:
-A Screen Output where text, UI, imagery, and visual styling have already been composed into final 480x320 pixels before Sync. The LVGL Screen App displays these pixels instead of interpreting UI components at runtime.
+A Screen Output where text, UI, imagery, and visual styling have already been composed into a final 480x320 image before Sync. The LVGL Screen App displays this image instead of interpreting UI components at runtime.
 _Avoid_: Runtime UI component, LVGL layout, device-side text rendering
 
 **Default Screen Output**:
-The first Screen Output generated automatically after a user selects a Source Asset, using conservative processing defaults such as fitting or cropping to 480x320, nearest-neighbor scaling for pixel styles, and bounded animation frame rates. Users can adjust processing parameters and regenerate before Sync.
+The first Screen Output generated automatically after a user selects a Source Asset, using conservative processing defaults such as fitting or cropping to 480x320 and bounded animation frame rates. Users can adjust processing parameters and regenerate before Sync.
 _Avoid_: Final approval, source selection, manual-only render
 
-**Pixel Style**:
-The recommended visual treatment for many Screen Outputs, usually created by downscaling Source Assets to a smaller pixel grid and scaling back to 480x320 with nearest-neighbor sampling. Pixel Style is a processing choice, not a mandatory rule for every Screen Output.
-_Avoid_: Required output format, component style, LVGL widget theme
+**Terminal Print Source**:
+A generated Source Asset that intentionally looks like terminal or printed console output and may use logical cell placement before being rendered into a final 480x320 Screen Output artifact. It belongs to Wallpaper Mode or terminal-style visual output, not Widget App Mode or the desktop product model.
+_Avoid_: Widget App schema, desktop layout, LVGL catalog, interactive app
+
+**Terminal Print Renderer**:
+The local renderer that turns a Terminal Print Source specification into PNG frames or a static 480x320 Screen Output. It may own terminal-style placement rules because terminal output is a pre-rendered visual source, but it must not be used to infer LVGL Widget App structure.
+_Avoid_: desktop generator, Widget App renderer, A2UI generator
 
 **Wallpaper Mode**:
 The Screen Workspace mode for turning user-selected or user-generated images, GIFs, videos, and visual assets into Screen Outputs, Screen Manifests, Screen Playlists, and Runtime Screen Assets for playback. It owns static and animated wallpaper-style results, not live UI state or user actions.
 _Avoid_: Widget App, interactive surface, live UI, LVGL app schema
 
 **Widget App Mode**:
-The Interactive Screen App mode for turning natural-language intent into an A2UI Surface rendered by LVGL as a playable small-screen application. It owns UI semantics, data model updates, input events, and actions; it may snapshot into a Screen Output, but it is not defined by Screen Manifest v2.
-_Avoid_: Wallpaper, pre-rendered screen, playlist item, Screen Manifest schema
+The Interactive Screen App mode for turning natural-language intent into a Walnut LVGL Widget Catalog rendered by LVGL as a playable small-screen application. It borrows A2UI-over-MCP ideas for static surface delivery, dynamic tool-produced surfaces, catalog negotiation, data binding, and action events, but WalnutPi's authoritative device contract is its own LVGL catalog. It owns UI semantics, data model updates, input events, exits, and policy-mediated actions; it may snapshot into a Screen Output, but it is not defined by Screen Manifest v2 or Terminal Print Source.
+_Avoid_: Wallpaper, pre-rendered screen, playlist item, Screen Manifest schema, terminal print source
+
+**Widget App Artifact**:
+A saved generated Widget App that can be previewed, activated, versioned, synced, and diagnosed. It is not automatically the current device display and is not a Screen Playlist item.
+_Avoid_: default desktop, default music player, playlist item, wallpaper
 
 **A2UI Surface**:
-A declarative Agent-to-UI surface that describes interactive screen UI semantics, component structure, data binding, and actions before a renderer maps it to a platform such as LVGL. It is the host-facing Widget App Mode semantic shape; the Walnut LVGL Widget Catalog remains the device-facing contract.
-_Avoid_: Screen Output, Screen Manifest, pixel spec, LVGL runtime txt
+A declarative Agent-to-UI surface concept used as inspiration for Widget App semantics: components, data binding, catalog negotiation, static resource-style surfaces, dynamic tool-produced surfaces, and action events that return to the server as tool calls. WalnutPi may import or project an A2UI-like surface, but the Walnut LVGL Widget Catalog remains the authoritative device-facing contract.
+_Avoid_: Screen Output, Screen Manifest, Terminal Print Source, LVGL runtime txt, device runtime contract
 
 **Walnut LVGL Widget Catalog**:
-The small device-facing Widget App Mode contract that defines which UI elements, layout primitives, style tokens, bindings, and actions the WalnutPi LVGL runtime supports. It is validated before device delivery and may be derived from an A2UI Surface, but it remains Walnut-owned so the device runtime is stable across A2UI or MCP changes.
-_Avoid_: Full A2UI compliance, web UI schema, arbitrary LVGL calls, Screen Manifest
+The small device-facing Widget App Mode contract that defines which UI elements, layout primitives, style tokens, bindings, exits, and actions the WalnutPi LVGL runtime supports. It is validated before device delivery and may be derived from an A2UI-like surface or an MCP tool/resource result, but it remains Walnut-owned so the device runtime is stable across A2UI, tool-call, or MCP changes.
+_Avoid_: Full A2UI compliance, web UI schema, arbitrary LVGL calls, Screen Manifest, TerminalPrintSource
 
-**Pixel Hash**:
-A SHA-256 hash of normalized decoded 480x320 pixel content. RGBA pixel hashes support preview and processing checks, while RGB565 pixel hashes are authoritative for device framebuffer evidence; file hashes prove delivery integrity for specific encoded artifacts.
+**Frame Hash**:
+A SHA-256 hash of normalized decoded 480x320 frame content. RGBA frame hashes support preview and processing checks, while RGB565 frame hashes are authoritative for device framebuffer evidence; file hashes prove delivery integrity for specific encoded artifacts.
 _Avoid_: File hash, manifest hash, source hash
 
 **Screen Manifest**:
@@ -196,6 +204,10 @@ _Avoid_: device evidence, sync result, frame capture
 The program that displays a Screen Manifest result on the real WalnutPi framebuffer. It renders the final screen output; it is not the Screen Manifest itself.
 _Avoid_: Manifest, screen contract
 
+**Device Display Mode**:
+The current product mode occupying the WalnutPi screen, such as Screen Playlist playback, a Widget App, a demo, or the system TTY. Display mode changes are explicit device operations and must not be implied by generating an artifact.
+_Avoid_: generated output, app type, preview state, default screen
+
 **Interactive Screen App**:
 A local WalnutPi screen application that accepts user input such as keys, buttons, or touch. It is distinct from Screen Output and Screen Playlist playback, and should enter the current product spine only after a separate interaction contract is defined.
 _Avoid_: Screen Manifest, Playlist Item, pre-rendered screen
@@ -223,7 +235,7 @@ The simplified Screen Playlist Sync state shown to ordinary users, limited to wh
 _Avoid_: developer diagnostics, hash status, build status, raw evidence
 
 **Developer Diagnostics**:
-Detailed technical evidence for debugging synchronization, device execution, and screen rendering, including hashes, command output, delivery evidence, frame evidence, pixel differences, and sync history. It is not the beginner-facing status or normal user result.
+Detailed technical evidence for debugging synchronization, device execution, and screen rendering, including hashes, command output, delivery evidence, frame evidence, frame differences, and sync history. It is not the beginner-facing status or normal user result.
 _Avoid_: beginner status, user-facing result, normal UI
 
 **Agent Observability**:
@@ -231,7 +243,7 @@ Developer and operator visibility into Walnut Agent Console behavior, including 
 _Avoid_: user memory, chat content, beginner status
 
 **Sync Record**:
-A persisted Developer Diagnostics record for one Screen Playlist Sync, including the sync result, delivery evidence, device evidence, optional captured frame, and later pixel-diff findings. It is not Durable Memory, a Session Log, or a beginner-facing status.
+A persisted Developer Diagnostics record for one Screen Playlist Sync, including the sync result, delivery evidence, device evidence, optional captured frame, and later frame-diff findings. It is not Durable Memory, a Session Log, or a beginner-facing status.
 _Avoid_: log file, memory, screenshot cache, chat record
 
 **Repair Proposal**:

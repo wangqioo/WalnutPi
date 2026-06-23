@@ -22,7 +22,7 @@ The Walnut Agent Console should feel like one intent-driven surface:
 user says what they want
 -> WalnutPi chooses an Intent Route
 -> screen requests become bounded 480x320 Screen Manifests
--> image, text, or video material can be searched/summarized/ASCII-converted/pixelized
+-> image, text, or video material can be searched, summarized, converted, and processed
 -> Local Actions run only through Local Action Policy
 -> risky actions ask for confirmation
 -> Screen Preview helps inspect the result
@@ -42,7 +42,7 @@ model-terminal-server.ts        route assembly and shared process wiring
 agent-actions-api.ts            Agent Action API and policy-backed execution
 action-policy.ts                Action Policy Manifest validation
 project-memory-api.ts           Session Log, Durable Memory, and Retrieval Corpus views
-screen-diagnostics-api.ts       Sync Record, frame capture, and pixel-diff diagnostics
+screen-diagnostics-api.ts       Sync Record, frame capture, and frame-diff diagnostics
 screen-workspace-api.ts         Screen Workspace import/process/LVGL preview routes
 screen-workspace-store.ts       Screen Workspace manifest/playlist store
 screen-workspace-sync-workflow.ts  playlist hash gate and sync orchestration
@@ -191,10 +191,9 @@ The first delivery adapter is deliberately narrow:
 - evidence: default fast sync verifies the runtime playlist and `walnut-screen.service` active state without reading the full framebuffer; `evidenceMode: "full"` also runs `walnut screen state` and `sudo -n walnut screen frame`
 - diagnostics image: `GET /api/screen/frame/<buildId>` calls read-only `walnut screen capture --png-base64` on demand
 - sync history: `GET /api/screen/records` and `GET /api/screen/records/<buildId>` read local developer diagnostics records; cached `frame.png` is served from `GET /api/screen/records/<buildId>/frame.png` without reconnecting to the device
-- pixel diff record: `POST /api/screen/pixel-diff` stores the browser-computed `walnutpi.webDevicePixelDiff.v2` object into a local sync record. It does not connect to WalnutPi, capture a frame, or change sync status.
+- frame diff record: `POST /api/screen/frame-diff` stores the browser-computed `walnutpi.webDeviceFrameDiff.v2` object into a local sync record. It does not connect to WalnutPi, capture a frame, or change sync status.
 
 Beginner UI only shows `未同步`, `同步中`, `已同步到核桃派`, or `同步失败`.
-`buildId`, playlist hash, manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, metadata-only pixel evidence, diagnostic Web/device pixel diff, `visualMatch` / `visualChecks`, history, repair hints, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.
+`buildId`, playlist hash, manifest hash, artifact hash, delivery hash, command output, screen-state evidence, framebuffer frame hashes, metadata-only frame evidence, diagnostic Web/device frame diff, `visualMatch` / `visualChecks`, history, repair hints, and device screenshots stay in the developer diagnostics panel. The default sync JSON does not embed PNG bytes or `pngBase64`.
 
 Sync records are saved under `web-interface/screen-sync-records/` by default and are ignored by Git. Each record includes `record.json` and `summary.json`; opening the on-demand device frame caches `frame.png` into the same record. `WALNUT_SCREEN_RECORD_LIMIT` controls retention, defaulting to 50 records, and `WALNUT_SCREEN_RECORDS_DIR` can point records outside the repo.
-

@@ -21,6 +21,7 @@ nul
 screen/apps/agent-freeform-*/
 screen/apps/agent-widget-*/
 screen/apps/benchmark-*/
+screen/apps/codex-*/
 screen/apps/v1-*/
 screen/apps/v2-*/
 screen/benchmark-evidence/
@@ -31,16 +32,19 @@ screen/manifests/agent-freeform-*.json
 screen/manifests/agent-widget-*.json
 screen/manifests/api-*.json
 screen/manifests/benchmark-*.json
+screen/manifests/codex-*.json
 screen/manifests/v1-*.json
 screen/outputs/agent-freeform-*/
 screen/outputs/agent-widget-*/
 screen/outputs/api-*/
 screen/outputs/benchmark-*/
+screen/outputs/codex-*/
 screen/outputs/v1-*/
 screen/plans/agent-freeform-*-plan.json
 screen/plans/agent-widget-*-plan.json
 screen/plans/api-*-plan.json
 screen/plans/benchmark-*-plan.json
+screen/plans/codex-*-plan.json
 screen/plans/v1-*-plan.json
 screen/playlists/benchmark-*.json
 screen/playlists/v1-*.json
@@ -48,6 +52,7 @@ screen/sources/agent-freeform-*-source/
 screen/sources/agent-widget-*-source/
 screen/sources/api-*-source/
 screen/sources/benchmark-*-source/
+screen/sources/codex-*-source/
 screen/sources/v1-*-source/
 screen/benchmark-runs/
 screen/manifests/v2-*.json

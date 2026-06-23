@@ -37,8 +37,14 @@ firmware is not tightly coupled to A2UI protocol churn.
 Existing wallpaper, animation, playlist, hash, sync, and real-device evidence
 work remains valid.
 
-The existing `PixelScreenSpec` and `runtimeWidgets` path should be treated as a
-transitional experiment, not the long-term Widget App Mode contract.
+`TerminalPrintSource` is not a Widget App Mode contract. It may remain as a
+terminal-style pre-rendered Source Asset generator for Wallpaper Mode, but it
+must not be used to derive Widget App structure or LVGL desktop behavior.
+
+`runtimeWidgets` in Screen Manifest provenance is retired for Playlist Runtime
+Assets. Playlist playback consumes only final static or animated Screen Output
+frames. Widget App runtime widgets are produced from the Walnut LVGL Widget
+Catalog in the separate Widget App product chain.
 
 Widget App Mode needs a small first catalog before runtime implementation:
 text, image, container, rect, button, toggle, progress/bar, gauge/arc, list,

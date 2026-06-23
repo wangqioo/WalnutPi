@@ -18,7 +18,7 @@ Widget App Mode uses this product chain:
 Walnut Agent Console
 -> Intent Route: widget_app
 -> Widget App Plan
--> A2UI Surface
+-> A2UI-over-MCP-inspired surface/resource/tool result
 -> Walnut LVGL Widget Catalog
 -> Runtime Widget Assets / App State
 -> explicit Widget App Sync
@@ -27,14 +27,24 @@ Walnut Agent Console
 -> Real-Device Verification
 ```
 
-The Walnut LVGL Widget Catalog is the authoritative device contract. A2UI is
-the agent-facing semantic interchange format, and LVGL C code is the renderer.
-Screen Manifest v2 and Screen Playlist v1 must not become Widget App schemas.
+The Walnut LVGL Widget Catalog is the authoritative device contract. A2UI over
+MCP is an inspiration for how static UI can be delivered as resources, dynamic
+UI can be produced by tools, and UI actions can return to server-side tool
+calls. WalnutPi may project from that semantic shape, but LVGL C code renders
+the Walnut catalog, not raw A2UI. Screen Manifest v2 and Screen Playlist v1
+must not become Widget App schemas.
 
-The Catalog is a limited semantic widget tree, not a pixel drawing API and not
+The Catalog is a limited semantic widget tree, not a raw drawing API and not
 a general web layout system. The first catalog should cover text, image,
 container, rect, button, toggle, progress/bar, gauge/arc, list, and status tile,
 with limited row, column, absolute, and small-grid layout.
+
+Widget App generation must be catalog-first at the WalnutPi device seam. It may
+borrow A2UI-over-MCP ideas for static resource delivery, tool-produced dynamic
+surfaces, catalog negotiation, semantic UI state, and action events, but it
+must not use `TerminalPrintSource` as its default product model. Terminal-style
+pre-rendered source control belongs to Wallpaper Mode, not the LVGL
+desktop/application chain.
 
 Widget App state supports controlled dynamic bindings from approved sources
 such as device status, network status, screen playback, daily notes, local
