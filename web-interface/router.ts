@@ -48,9 +48,9 @@ function createStaticRoutes(deps) {
     "/api/session": (req, url) => deps.projectMemoryApi.handleSession(req, url),
     "/api/intent/classify": method("POST", deps, (req) => deps.handleIntentClassify(req)),
     "/api/agent/turn": method("POST", deps, (req, url) =>
-      deps.previewOnly(url) ? deps.previewOnlyJson() : deps.agentTurnLoop.handleTurn(req)),
-    "/api/agent/turns": method("GET", deps, (_req, url) => deps.agentTurnLoop.handleTurns(url)),
-    "/api/agent/turn-events": method("GET", deps, (_req, url) => deps.agentTurnLoop.handleTurnEvents(url)),
+      deps.previewOnly(url) ? deps.previewOnlyJson() : deps.agentPlatform.handleTurn(req)),
+    "/api/agent/turns": method("GET", deps, (_req, url) => deps.agentPlatform.handleTurns(url)),
+    "/api/agent/turn-events": method("GET", deps, (_req, url) => deps.agentPlatform.handleTurnEvents(url)),
     "/api/agent/events": method("GET", deps, (req, url) => deps.handleAgentEvents(req, url)),
     "/api/agent/harness-session": (req, url) => handleHarnessSession(req, url, deps),
     "/api/screen/workspace/playlist": method("GET", deps, (_req, url) => deps.screenWorkspaceApi.handleScreenWorkspacePlaylist(url)),

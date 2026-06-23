@@ -744,7 +744,7 @@
           body: JSON.stringify({ mode, text, sessionId }),
         });
         const data = await response.json();
-        if (!response.ok || data.status === "failed") throw new Error(data.result?.output || data.error || "turn failed");
+        if (!response.ok || data.status === "failed") throw new Error(platformTurnText(data) || data.error || "turn failed");
         return data;
       }
 
@@ -781,6 +781,21 @@
         ].join("\n");
       }
 
+      function latestToolResult(turn) {
+        return Array.isArray(turn?.toolResults) ? turn.toolResults.at(-1) : null;
+      }
+
+      function platformTurnText(turn) {
+        const latest = latestToolResult(turn);
+        const payload = latest?.result?.payload || latest?.result?.sync || latest?.result || {};
+        return turn?.userSummary
+          || latest?.summary
+          || payload.output
+          || payload.reply
+          || payload.summary
+          || "";
+      }
+
       function setBusy(busy) {
         promptEl.disabled = busy;
         submitIntentEl.disabled = busy;
@@ -799,42 +814,10 @@
             appendMessage("assistant", localAssistantInfoReply());
           } else {
             const turn = await runTurn(mode, text);
-            const classification = turn.steps?.[0]?.result?.classification;
+            const classification = turn.route;
             if (mode !== "ai") updateRoute(classification);
             removeMessage(pendingMessage);
-            if (turn.status === "queued") {
-              appendMessage("system", `已进入队列：${pendingNextLabel(turn.pendingNext)}`);
-              if (turn.recovery && turn.recovery.status !== "not-needed") showRecoveryCard(turn);
-              await new Promise((resolve, reject) => {
-                watchTurn(turn, async (event) => {
-                  try {
-                    if (event.kind === "turn.failed") throw new Error(event.error || "turn failed");
-                    const finalTurn = {
-                      ...turn,
-                      status: event.status,
-                      result: event.data?.result,
-                    };
-                    if (turn.steps?.some((step) => step.kind === "screen.workspace.generate.intent")) {
-                      appendMessage("assistant", await showGeneratedScreen(finalTurn.result, classification));
-                    } else {
-                      appendMessage("assistant", finalTurn.result?.output || "已完成。");
-                    }
-                    if (finalTurn.recovery && finalTurn.recovery.status !== "not-needed") showRecoveryCard(finalTurn);
-                    resolve();
-                  } catch (error) {
-                    reject(error);
-                  }
-                });
-              });
-            } else if (turn.steps?.some((step) => step.kind === "screen.workspace.generate.intent")) {
-              appendMessage("assistant", await showGeneratedScreen(turn.result, classification));
-            } else if (pendingNextKind(turn) === "screen.workspace.sync.intent") {
-              appendMessage("assistant", "已识别为同步工作流。请进入 Screen Workspace 确认当前播放列表后同步到核桃派。");
-            } else if (pendingNextKind(turn) === "screen.widget_app.create.intent") {
-              appendMessage("assistant", "已识别为 Widget App 创建工作流。设备状态快捷面板的运行时合同还在 Widget App Sync 阶段，先进入 Screen Workspace 继续预览和保存。");
-            } else {
-              appendMessage("assistant", turn.result?.output || "无输出。");
-            }
+            appendMessage("assistant", platformTurnText(turn) || "无输出。");
             if (turn.recovery && turn.recovery.status !== "not-needed") showRecoveryCard(turn);
           }
           promptEl.value = "";

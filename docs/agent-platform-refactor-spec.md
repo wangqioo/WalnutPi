@@ -43,6 +43,9 @@ Agent
 
 - Do not turn WalnutPi into a generic agent framework.
 - Do not replace the LVGL runtime with a web renderer.
+- Do not avoid the real WalnutPi Device. The refactor must make device access
+  explicit, typed, policy-checked, and auditable; it must not replace real
+  device evidence with local-only mocks for device claims.
 - Do not let LLM output become an authoritative Screen Manifest.
 - Do not move local screen artifacts to S3, R2, or MinIO by default.
 - Do not index raw session logs into vector search.
@@ -94,38 +97,55 @@ With:
 - Mastra tools backed by MCP tool wrappers.
 - Inngest for background, replayable, and scheduled workflows.
 
-Keep `/api/agent/turn` as a compatibility product entry while the frontend is
-being replaced. Its implementation should become a thin adapter that invokes a
-Mastra workflow and returns a WalnutPi projection.
+Keep `/api/agent/turn` as the product entry while the frontend is being
+replaced. Its implementation must invoke the new platform runtime/workflow and
+return the new platform turn shape. Do not route it through the deleted custom
+agent loop.
 
 ## Trace Contract
 
-`agentTurn.v2` remains as a compatibility/export contract during migration. It
-must stop being the internal runtime state.
+`agentTurn.v2` is superseded. It must not be the internal runtime state or the
+production `/api/agent/turn` response shape.
 
-Stable projection fields remain:
+The new local projection is `walnutpi.agentPlatformTurn.v1` and is built from
+typed WalnutPi tool results:
 
 - `route`
 - `steps[]`
-- `artifacts[]`
 - `evidence[]`
 - `sideEffects[]`
 - `telemetry.summary`
-- `contextUsed`
 - `userSummary`
+- `toolResults[]`
 
 New runtime trace source:
 
 ```text
-Mastra run
+Platform/Mastra run
 -> typed WalnutPi tool results
 -> OpenTelemetry spans
 -> Langfuse trace/session
--> agentTurn.v2 compatibility projection
+-> walnutpi.agentPlatformTurn.v1 local projection
 ```
 
 Do not project from arbitrary raw step shapes. Each WalnutPi tool must return a
 typed result before it can participate in product evaluation.
+
+## Refactor Lessons
+
+- This is a destructive replacement, not a compatibility migration. Delete old
+  runtime paths instead of adding shims that keep the custom agent loop alive.
+- Real-device interaction is expected. Device and screen flows should hit the
+  WalnutPi through the narrow Device Execution Surface when they make device
+  claims.
+- The safety boundary is not "never touch the device"; it is "never touch the
+  device through arbitrary shell, stale playlist hashes, untyped tool results,
+  missing policy decisions, or undocumented side effects."
+- Verification must state its profile. Offline checks prove local contracts
+  only; device-profile checks prove sync, delivery, activation, service state,
+  frame evidence, and capture evidence on the real WalnutPi.
+- Smoke tests that call device-backed actions are device-profile tests. Do not
+  describe them as local-only or mock verification.
 
 ## Screen Command DSL
 
@@ -535,6 +555,10 @@ SSH2 transport
 Do not install Postgres, Langfuse, OPA, or Inngest on the WalnutPi Device unless
 there is a separate deployment decision. They belong to the control plane.
 
+The control plane may and should call the real device through this boundary for
+device-profile verification. These calls must use typed tool results and
+recorded evidence, not raw command strings exposed to agents.
+
 ## Migration Phases
 
 ### Phase 0: Freeze And Supersede Docs
@@ -552,26 +576,31 @@ Exit criteria:
 
 - Define typed result schemas for device, screen, memory, diagnostics, and
   policy tools.
-- Refactor `agent-turn-trace-projector.ts` to consume typed results where
-  available.
-- Keep old loop running.
+- Replace the old agent turn projector with typed result projection.
+- Delete the old custom loop and registry from the production path.
 
 Exit criteria:
 
-- Typecheck and relevant self-checks pass.
-- Projector no longer relies on undocumented fields for newly typed tools.
+- Typecheck passes.
+- `/api/agent/turn` no longer imports or invokes the old custom loop.
+- New platform turns are built only from typed tool result contracts.
+- Device-backed smoke checks are clearly marked as device-profile verification.
 
 ### Phase 2: Screen Command DSL
 
 - Implement `ScreenCommand` schemas.
 - Implement command runner over existing screen workflows.
-- Add self-checks for render, playlist write, stale hash sync refusal, and
+- Add contract checks for render, playlist write, stale hash sync refusal, and
   preview no-write.
+- Add device-profile checks for sync delivery, activation, service state, frame
+  evidence, and capture evidence through the DSL path.
 
 Exit criteria:
 
 - Existing screen preview and sync cases pass through DSL path.
 - Pixel hash outputs are unchanged.
+- Real-device evidence confirms the synced playlist when running the device
+  profile.
 
 ### Phase 3: OPA Policy
 
@@ -603,7 +632,7 @@ Exit criteria:
 - Implement Mastra router and product workflows.
 - Route `/api/agent/turn` to Mastra for one vertical slice:
   `device.status.read`.
-- Project Mastra run into `agentTurn.v2`.
+- Project Mastra run into `walnutpi.agentPlatformTurn.v1`.
 
 Exit criteria:
 
@@ -639,14 +668,15 @@ Exit criteria:
 
 ### Phase 8: Remove Old Runtime
 
-- Delete or archive custom agent loop and registry.
-- Keep compatibility projections for diagnostics only.
+- Delete custom agent loop and registry.
+- Delete compatibility projections for the old runtime.
 - Do not reintroduce legacy harness compatibility.
 
 Exit criteria:
 
 - No production route imports `agent-turn-loop.ts`.
 - All product capabilities are registered as Mastra workflows/tools.
+- No production route emits `agentTurn.v2`.
 
 ## Required Follow-Up Docs
 
@@ -670,5 +700,6 @@ curated screen eval
 device-profile evidence eval
 ```
 
-Device gates may remain profile-gated, but device claims must still use
-real-device evidence.
+Device gates may remain profile-gated, but any claim about device state,
+delivery, activation, runtime frame output, or capture evidence must be backed
+by real-device evidence from the WalnutPi Device.

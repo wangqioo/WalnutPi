@@ -17,21 +17,20 @@ import { actionsForExecutor, loadActionPolicyManifest } from "./action-policy.ts
 import { createAgentActionsApi } from "./agent-actions-api.ts";
 import { createAgentEventBus } from "./agent-event-bus.ts";
 import { createAgentHarnessSessionStore } from "./agent-harness-session-store.ts";
-import { createOneLaneQueue } from "./agent-one-lane-queue.ts";
 import { createAgentTurnEventLedger } from "./agent-turn-event-ledger.ts";
 import { createAgentTurnLedger } from "./agent-turn-ledger.ts";
-import { createAgentTurnLoop } from "./agent-turn-loop.ts";
+import { createAgentPlatformRuntime } from "./agent-platform-runtime.ts";
 import { createActionRegistry } from "./action-registry.ts";
 import { createProjectMemoryApi } from "./project-memory-api.ts";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.ts";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.ts";
+import { createScreenCommandRunner } from "./screen-command-runner.ts";
 import { createStaticUiHost } from "./static-ui-host.ts";
 import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-rules/classifier.ts";
 import { compactRetrievalForPrompt, retrieveWalnutContext as retrieveWalnutContextWithOptions } from "./walnut-retrieval.ts";
 import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.ts";
 import { stableStringify } from "../scripts/screen-workspace-vocabulary.ts";
 import { generateLvglScreenWorkspaceRuntimeAssets } from "../scripts/generate-lvgl-screen-workspace-runtime-assets.ts";
-import { normalizeAgentLoopProposal } from "../scripts/agent-loop-model-contract.ts";
 import {
   ACTION_OUTPUT_LIMIT,
   ACTION_POLICY_MANIFEST_PATH,
@@ -145,7 +144,6 @@ const agentTurnEventLedger = createAgentTurnEventLedger({
   eventBus: agentEventBus,
   limit: Number(process.env.WALNUT_AGENT_TURN_EVENT_LIMIT || 500),
 });
-const agentQueue = createOneLaneQueue();
 const agentHarnessSessionStore = createAgentHarnessSessionStore({
   filePath: AGENT_HARNESS_SESSIONS_PATH,
 });
@@ -655,54 +653,6 @@ async function persistScreenSyncResult(result, commandResults = {}, status = 200
   return json(result, status);
 }
 
-async function syncScreenFromTurn(body: JsonObject) {
-  const startedAt = Date.now();
-  const outcome = await screenWorkspaceSyncWorkflow.run({
-    requestJson: async () => body || {},
-    mode: "remote",
-  });
-  const latencyMs = Date.now() - startedAt;
-  const result = outcome.result as JsonObject;
-  const remoteExecution = result.remoteExecution || {};
-  await webMetricsLedger.append({
-    kind: "screen.workspace.sync",
-    operation: "screen.workspace.sync",
-    ok: Boolean(result.ok),
-    status: outcome.status,
-    latencyMs,
-    mode: result.mode,
-    stage: result.failedStage || "complete",
-    buildId: result.buildId,
-    playlistHash: result.playlistHash,
-    sessionId: body?.sessionId,
-    turnId: body?.turnId,
-    remoteTransport: remoteExecution.remoteTransport,
-    connectionReused: remoteExecution.connectionReused,
-    segments: {
-      workspaceSyncMs: latencyMs,
-      deliveryMs: result.segments?.deliveryMs,
-      preflightMs: remoteExecution.segments?.preflightMs,
-      remoteMs: remoteExecution.segments?.remoteMs,
-    },
-    error: result.ok ? null : result.summary || result.output,
-  });
-  try {
-    const record = await screenEvidenceLedger.persistSyncResult(result, outcome.commandResults);
-    const recordDir = screenEvidenceLedger.recordDir(record.buildId);
-    result.syncRecord = {
-      buildId: record.buildId,
-      recordPath: recordDir ? path.join(recordDir, "record.json") : null,
-      summaryPath: recordDir ? path.join(recordDir, "summary.json") : null,
-      url: `/api/screen/records/${encodeURIComponent(record.buildId)}`,
-    };
-    result.syncRecordPath = result.syncRecord.recordPath;
-    await rememberSuccessfulScreenSync(record);
-  } catch (error) {
-    result.recordWarning = `screen sync record was not saved: ${error.message}`;
-  }
-  return { status: outcome.status, body: result };
-}
-
 async function handleAgentEvents(req, url) {
   const sessionId = url.searchParams.get("sessionId") || null;
   const afterSeq = Number(url.searchParams.get("afterSeq") || url.searchParams.get("lastSeq") || req.headers.get("last-event-id") || 0);
@@ -982,68 +932,26 @@ const screenWorkspaceApi = createScreenWorkspaceApi({
   generateWidgetCatalog,
 });
 
-const agentTurnLoop = createAgentTurnLoop({
+const screenCommandRunner = createScreenCommandRunner({
+  projectRoot: PROJECT_ROOT,
+  workspaceRoot: SCREEN_WORKSPACE_ROOT,
+  screenWorkspaceStore,
+  screenWorkspaceSyncWorkflow,
+  processSourceAssetToScreenOutput,
+  appendScreenPlaylistItem,
+  writeDefaultScreenPlaylist,
+});
+
+const agentPlatform = createAgentPlatformRuntime({
   classifyIntent: classifyAgentIntent,
   runAction: agentActionsApi.runAction,
-  generateScreen: screenWorkspaceApi.generateScreenWorkspace,
-  syncScreen: syncScreenFromTurn,
-  loopModelAdapter: createRelayLoopModelAdapter(),
-  readPlaylistEnvelope: () => screenWorkspaceStore.readPlaylistEnvelope("default"),
+  screenCommandRunner,
   turnLedger: agentTurnLedger,
   eventLedger: agentTurnEventLedger,
   metricsLedger: webMetricsLedger,
-  queue: agentQueue,
   readJsonRequest,
   json,
 });
-
-function createRelayLoopModelAdapter() {
-  return {
-    async propose(context: JsonObject, options: JsonObject = {}) {
-      if (!aiApiKey) throw new Error("AI API key is not configured");
-      const startedAt = Date.now();
-      const promptText = JSON.stringify(context, null, 2);
-      const data: JsonObject = await callResponsesApi({
-        operation: "agent.loop.propose",
-        telemetry: { sessionId: options.sessionId, turnId: options.turnId },
-        body: {
-          model: options.model || AI_MODEL,
-          reasoning: { effort: options.reasoningEffort || AI_REASONING_EFFORT },
-          input: [
-            {
-              role: "system",
-              content: [
-                "You are the proposal layer inside the WalnutPi agent loop.",
-                "You do not execute actions.",
-                "Return JSON only.",
-                "Use only the visible context. Do not mention or infer hidden oracle or evaluator answers.",
-                "If evidence is missing or a continuation is unsafe, block it.",
-                "Allowed output fields: source, kind, safeAutoContinue, proposedTasks, blockedTasks, evidencePlan, rationale.",
-                "source must be model.",
-              ].join("\n"),
-            },
-            { role: "user", content: promptText },
-          ],
-        },
-      });
-      const raw = parseResponsesOutput(data);
-      const proposal = normalizeAgentLoopProposal(parseJsonObjectText(raw), { source: "model" });
-      return {
-        proposal,
-        rawOutput: raw,
-        diagnostics: {
-          provider: new URL(AI_BASE_URL).hostname,
-          model: options.model || AI_MODEL,
-          reasoningEffort: options.reasoningEffort || AI_REASONING_EFFORT,
-          requestId: data.id || null,
-          latencyMs: Date.now() - startedAt,
-          promptHash: sha256(promptText),
-          rawOutputHash: sha256(raw),
-        },
-      };
-    },
-  };
-}
 
 async function generateWidgetCatalog({ prompt, sessionId = null, turnId = null }) {
   if (!aiApiKey) return null;
@@ -1190,7 +1098,7 @@ const router = createRouter({
   projectMemoryApi,
   webMetricsLedger,
   handleIntentClassify,
-  agentTurnLoop,
+  agentPlatform,
   handleAgentEvents,
   agentHarnessSessionStore,
   readJsonRequest,
