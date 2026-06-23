@@ -61,6 +61,21 @@ local-only or mock verification.
 - ADR 0025 and `CONTEXT.md` record the split between generated Widget App
   Artifacts and Screen Playlist playback.
 - `bun run check` passes after removing the old generated-source-to-Widget-App path.
+- `scripts/collect-screen-sync-evidence.ps1 -Sync` now preflights the tracked
+  default playlist before sync. If the playlist references missing or old
+  generated manifests that do not satisfy the frame hash schema, the script
+  explicitly reports that ignored generated artifacts must be cleaned and
+  rebuilt, removes only `git check-ignore` approved generated artifacts, rebuilds
+  a Wallpaper default playlist through the current Web API, then continues the
+  device-profile sync path.
+- `walnut screen frame` and `walnut screen capture` now expose
+  `bitsPerFrameUnit` and `frameFormat` in the Device Execution Surface. The
+  only remaining lower-level reference to `bits_per_pixel` is the Linux sysfs
+  filename read by the device CLI.
+- Device-profile sync evidence was rerun after deleting the current
+  `agent-freeform-*` generated artifacts. The script rebuilt the default
+  playlist and completed with `ok: True`, `visualMatch: captured`, and
+  `frameContentEvidenceClaim: framebuffer-rgb565-hash-matched`.
 
 The smoke run that called the chat action was device-backed. Treat that as
 device-profile verification, not offline verification.
@@ -69,8 +84,10 @@ device-profile verification, not offline verification.
 
 - Wire real Mastra runtime over the new platform turn contract.
 - Add MCP/Hono gateway with per-call OPA enforcement.
-- Expand Screen Command DSL to cover real render, playlist write, remote sync,
-  and full capture comparison flows end to end with device-profile evidence.
+- Expand Screen Command DSL render and playlist write coverage through the new
+  command runner. Remote sync, stale hash refusal, preview no-write, frame
+  evidence, and capture evidence now have an initial device-profile path, but
+  full Web preview versus device frame comparison remains future work.
 - Replace static console with Next.js only after the new platform paths are
   stable enough to expose.
 - Add curated eval scaffolding without restoring deleted generated benchmark
