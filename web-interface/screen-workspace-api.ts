@@ -21,6 +21,7 @@ const FreeformGenerateRequestSchema = z.object({
   text: z.string().optional(),
   screenId: z.string().optional(),
   sourceId: z.string().optional(),
+  templateId: z.string().optional(),
   title: z.string().optional(),
   outputType: z.enum(["static", "animated"]).optional(),
   preset: z.enum(["fit-cover:480x320", "fit-contain:480x320", "pixel-grid:120x80@4x", "pixel-grid:240x160@2x"]).optional(),
@@ -33,6 +34,42 @@ const FreeformGenerateRequestSchema = z.object({
 });
 type FreeformGenerateRequest = z.infer<typeof FreeformGenerateRequestSchema>;
 type JsonObject = Record<string, any>;
+
+const WORKSPACE_IMPORT_EXTENSION_BY_MEDIA_TYPE = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "video/mp4": ".mp4",
+  "video/webm": ".webm",
+  "video/quicktime": ".mov",
+};
+
+const WORKSPACE_IMPORT_EXTENSION_ALIASES = {
+  ".png": ".png",
+  ".jpg": ".jpg",
+  ".jpeg": ".jpg",
+  ".gif": ".gif",
+  ".webp": ".webp",
+  ".mp4": ".mp4",
+  ".webm": ".webm",
+  ".mov": ".mov",
+};
+
+const WORKSPACE_OUTPUT_TYPES = new Set(["static", "animated"]);
+const WORKSPACE_PRESETS = new Set([
+  "fit-cover:480x320",
+  "fit-contain:480x320",
+  "pixel-grid:120x80@4x",
+  "pixel-grid:240x160@2x",
+]);
+const WORKSPACE_PLAYLIST_MODES = new Set(["replace", "append"]);
+const PIXEL_ELEMENT_NUMBER_FIELDS = {
+  x: { min: 0, max: 119, fallback: 0 },
+  y: { min: 0, max: 79, fallback: 0 },
+  width: { min: 1, max: 120, fallback: 1, optional: true },
+  height: { min: 1, max: 80, fallback: 1, optional: true },
+};
 
 const PixelMetricSchema = z.object({
   label: z.string().min(1).max(8),
@@ -174,33 +211,6 @@ export function createScreenWorkspaceApi({
     cleanPlaylistMode: cleanWorkspacePlaylistMode,
     cleanInteger: cleanWorkspaceInteger,
   });
-  const IOCCC_ROOT = path.join(SCREEN_WORKSPACE_ROOT, "ioccc-apps");
-  const IOCCC_FUN_ENTRIES = [
-    ["1984", "mullender", "Mullender"],
-    ["1986", "marshall", "Marshall"],
-    ["1988", "applin", "Applin"],
-    ["1989", "roemer", "Roemer"],
-    ["1990", "tbr", "TBR"],
-    ["1994", "smr", "SMR"],
-    ["1998", "banks", "Banks"],
-    ["2000", "natori", "Natori"],
-    ["2001", "anonymous", "Anonymous"],
-    ["2004", "omoikane", "Omoikane"],
-    ["2005", "toledo", "Toledo"],
-    ["2006", "birken", "Birken"],
-    ["2011", "akari", "Akari"],
-    ["2013", "endoh1", "Endoh"],
-    ["2014", "endoh1", "Endoh"],
-    ["2015", "dogon", "Dogon"],
-    ["2018", "endoh1", "Endoh"],
-    ["2019", "endoh", "Endoh"],
-    ["2020", "endoh1", "Endoh"],
-    ["2024", "tompng", "Tompng"],
-    ["2025", "endoh1", "Nixie clock"],
-    ["2025", "cable", "Pong boot image"],
-    ["2025", "ferguson", "Flat earth"],
-    ["2025", "tompng", "Tompng"],
-  ];
 
   async function handleScreenWorkspacePlaylist(url) {
     try {
@@ -255,80 +265,14 @@ export function createScreenWorkspaceApi({
     }
   }
 
-  async function handleIocccAppGet(appId) {
-    try {
-      const app = await readIocccFunApp(appId);
-      const sourcePath = firstExistingPath(app.entryDir, ["prog.c", "prog.orig.c", "prog.alt.c"]);
-      const readmePath = firstExistingPath(app.entryDir, ["README.md", "README"]);
-      return json({
-        ok: true,
-        app,
-        source: sourcePath ? await readFile(sourcePath, "utf8") : "",
-        readme: readmePath ? (await readFile(readmePath, "utf8")).slice(0, 1600) : "",
-      });
-    } catch (error) {
-      return workspaceErrorResponse(error, json);
-    }
-  }
-
-  async function handleIocccAppPage(appId) {
-    try {
-      const app = await readIocccFunApp(appId);
-      const sourcePath = firstExistingPath(app.entryDir, ["prog.c", `${app.name}.c`, `${app.name}.alt.c`, `${app.name}.orig.c`]);
-      const readmePath = firstExistingPath(app.entryDir, ["README.md", "README"]);
-      const source = sourcePath ? await readFile(sourcePath, "utf8") : "";
-      const readme = readmePath ? await readFile(readmePath, "utf8") : "";
-      return new Response(iocccAppHtml(app, readme, source), { headers: { "content-type": "text/html; charset=utf-8" } });
-    } catch (error) {
-      return workspaceErrorResponse(error, json);
-    }
-  }
-
-  async function handleIocccAppAsset(appId, assetPath) {
-    try {
-      const app = await readIocccFunApp(appId);
-      const cleanAssetPath = String(assetPath || "").replaceAll("\\", "/").split("/").filter(Boolean).join("/");
-      const filePath = path.join(IOCCC_ROOT, cleanAssetPath);
-      const relative = path.relative(IOCCC_ROOT, filePath);
-      if (relative.startsWith("..") || path.isAbsolute(relative) || !existsSync(filePath)) {
-        return json({ ok: false, error: "IOCCC asset not found" }, 404);
-      }
-      return new Response(Bun.file(filePath), { headers: { "content-type": iocccAssetContentType(filePath) } });
-    } catch (error) {
-      return workspaceErrorResponse(error, json);
-    }
-  }
-
-
-
-
-
-
-
-
   async function handleLvglAppDownload(appId) {
     try {
-      const app = readLvglDemoApp(appId) as any;
+      const app = await readLvglDemoApp(appId);
       const archive = await createTarArchive(await lvglDemoArchiveFiles(app.id));
       return new Response(archive, {
         headers: {
           "content-type": "application/gzip",
           "content-disposition": `attachment; filename="${app.id}.lvgl-app.tar.gz"`,
-        },
-      });
-    } catch (error) {
-      return workspaceErrorResponse(error, json);
-    }
-  }
-
-  async function handleIocccAppDownload(appId) {
-    try {
-      const app = await readIocccFunApp(appId);
-      const archive = await createTarArchive(await collectFiles(app.entryDir, `ioccc/${app.year}/${app.name}`));
-      return new Response(archive, {
-        headers: {
-          "content-type": "application/gzip",
-          "content-disposition": `attachment; filename="${app.id}.tar.gz"`,
         },
       });
     } catch (error) {
@@ -499,7 +443,7 @@ export function createScreenWorkspaceApi({
       const prompt = cleanFreeformPrompt(request.prompt || request.text);
       const screenId = cleanScreenWorkspaceId(request.screenId || `agent-freeform-${Date.now()}`, "screenId");
       const sourceId = cleanScreenWorkspaceId(request.sourceId || `${screenId}-source`, "sourceId");
-      const plan = buildScreenGenerationPlan(prompt);
+      const plan = buildScreenGenerationPlan(prompt, { templateId: request.templateId });
       const facts = await collectScreenFacts(plan);
       const template = await readPixelGeneratorTemplate(plan.template);
       let screenSpec = buildFreeformPixelScreenSpec({
@@ -509,7 +453,7 @@ export function createScreenWorkspaceApi({
         plan,
         facts,
       });
-      screenSpec = PixelScreenSpecSchema.parse(plan.composition === "fact-card" ? screenSpec : widgetAppWorkspace.repairLvglWidgetLayout(screenSpec));
+      screenSpec = PixelScreenSpecSchema.parse(widgetAppWorkspace.repairLvglWidgetLayout(screenSpec));
       const generatedCatalog = plan.widgetApp ? generateWidgetCatalog
         ? await generateWidgetCatalog({
           prompt,
@@ -807,7 +751,12 @@ export function createScreenWorkspaceApi({
 
   function readLvglDemoApp(appId) {
     const id = cleanScreenWorkspaceId(appId || "", "appId");
-    return id;
+    return readLvglAppRegistry()
+      .then((registry) => registry.find((entry) => entry.id === id))
+      .then((registryEntry) => {
+        if (!registryEntry) throw new Error("unsupported LVGL app");
+        return walnutLvglAppFromRegistryEntry(registryEntry);
+      });
   }
 
   async function readWorkspaceSourceAsset(sourceAssetId) {
@@ -1028,148 +977,37 @@ export function createScreenWorkspaceApi({
     return PixelGeneratorTemplateSchema.parse(JSON.parse(await readFile(templatePath, "utf8")));
   }
 
-  function selectPixelGeneratorTemplate(prompt) {
-    const text = String(prompt || "").toLowerCase();
-    if (/天气|weather|雨|晴|阴|温度|气温/.test(text) && !/(cpu|负载|wlan|wifi|wi-fi|ip)/i.test(text)) return "pixel-weather";
-    if (/公告|消息|留言|提醒|倒计时|message|notice|quote/.test(text)) return "pixel-message";
-    return "pixel-ops";
+  function selectPixelGeneratorTemplate({ templateId }: { templateId?: string } = {}) {
+    return templateId ? cleanScreenWorkspaceId(templateId, "templateId") : "pixel-ops";
   }
 
-  function buildScreenGenerationPlan(prompt) {
-    const template = selectPixelGeneratorTemplate(prompt);
-    const needs = [];
-    const weatherLocation = extractWeatherCity(prompt);
-    if (weatherLocation) {
-      needs.push({ kind: "weather.current", location: weatherLocation });
-    }
+  function buildScreenGenerationPlan(prompt, options: JsonObject = {}) {
+    const template = selectPixelGeneratorTemplate({ templateId: options.templateId });
     return {
       schema: "walnutpi.screen-generation-plan.v1",
       prompt,
       template,
-      needs,
-      composition: needs.length ? "fact-card" : "prompt-template",
-      widgetApp: needs.length ? false : true,
+      needs: [],
+      composition: "template-default",
+      widgetApp: true,
     };
   }
 
   async function collectScreenFacts(plan) {
-    const cards = [];
-    const facts = [];
-    for (const need of plan.needs) {
-      if (need.kind === "weather.current") {
-        const fact = await collectWeatherFact(need);
-        facts.push(fact);
-        cards.push(weatherFactCard(fact));
-      }
-    }
     return {
       schema: "walnutpi.screen-fact-pack.v1",
-      facts,
-      cards,
+      facts: [],
+      cards: [],
       widgetApp: plan.widgetApp,
     };
   }
 
-  async function collectWeatherFact(need) {
-    try {
-      const weather = await fetchCurrentWeather(need.location);
-      return {
-        kind: "weather.current",
-        source: "wttr.in",
-        ...weather,
-        location: need.location,
-        station: weather.city,
-      };
-    } catch (error) {
-      return {
-        kind: "weather.current",
-        source: "unavailable",
-        location: need.location,
-        condition: "UNKNOWN",
-        temperatureC: null,
-        humidity: null,
-        windKph: null,
-        precipMm: null,
-        observedAt: new Date().toISOString(),
-        advice: "天气查询失败",
-        error: error.message,
-      };
-    }
-  }
-
-  function extractWeatherCity(prompt) {
-    const text = String(prompt || "");
-    const match = text.match(/(?:把|查询|获取|显示|生成|做(?:一个)?|看)?\s*([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z\s-]{1,40}?)(?:的)?(?:今天|现在|当前|实时)?(?:天气|气温|温度|weather)/iu)
-      || text.match(/(?:天气|气温|温度|weather)(?:\s+(?:in|for|at))?.{0,8}?([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z\s-]{1,40})/iu);
-    return cleanWeatherCity(match?.[1] || "");
-  }
-
-  function cleanWeatherCity(value) {
-    return String(value || "")
-      .replace(/^(?:请|给我|帮我|帮忙|麻烦|联网|在线|实时|查一下|查|查询|获取|显示|生成|做成|做|看|把|一下|当前|今天|现在|一个|小屏|核桃派)+/u, "")
-      .replace(/^(?:please|check|fetch|get|show|make|current|today|now|the)\s+/iu, "")
-      .replace(/\s+(?:weather|forecast)$/iu, "")
-      .trim();
-  }
-
-  async function fetchCurrentWeather(city) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6000);
-    try {
-      const url = `https://wttr.in/${encodeURIComponent(city)}?format=j1`;
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: { "user-agent": "WalnutPi-Agent-Console/1.0" },
-      });
-      if (!response.ok) throw new Error(`weather HTTP ${response.status}`);
-      const data: JsonObject = await response.json();
-      const current = data.current_condition?.[0] || {};
-      const area = data.nearest_area?.[0] || {};
-      const condition = current.lang_zh?.[0]?.value || current.weatherDesc?.[0]?.value || "UNKNOWN";
-      const temperatureC = numberOrNull(current.temp_C);
-      const humidity = numberOrNull(current.humidity);
-      const windKph = numberOrNull(current.windspeedKmph);
-      const precipMm = numberOrNull(current.precipMM);
-      return {
-        city: area.areaName?.[0]?.value || city,
-        country: area.country?.[0]?.value || "",
-        condition,
-        temperatureC,
-        humidity,
-        windKph,
-        precipMm,
-        observedAt: new Date().toISOString(),
-        advice: weatherAdvice({ condition, precipMm, temperatureC }),
-      };
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  function numberOrNull(value) {
-    const number = Number(value);
-    return Number.isFinite(number) ? number : null;
-  }
-
-  function weatherAdvice({ condition, precipMm, temperatureC }) {
-    const text = String(condition || "");
-    if ((precipMm || 0) > 0 || /雨|rain|shower/i.test(text)) return "带伞出门";
-    if (temperatureC !== null && temperatureC >= 32) return "注意防晒";
-    if (temperatureC !== null && temperatureC <= 8) return "注意保暖";
-    return "适合出行";
-  }
-
   function buildFreeformPixelScreenSpec({ prompt, title, template, plan, facts }) {
-    const text = prompt.toLowerCase();
     const defaults = template.defaults;
-    const temp = text.includes("温") || text.includes("temp") ? "42.6C" : "OK";
-    const cpu = text.includes("cpu") || text.includes("负载") ? "31%" : "LIVE";
-    const ip = text.includes("ip") || text.includes("wlan") || text.includes("wi-fi") || text.includes("wifi") ? "192.168.1.24" : "ready";
-    const power = text.includes("电") || text.includes("battery") ? "86%" : "8.0S";
     const metrics = defaults.metrics.map((metric) => ({ ...metric }));
-    let primaryLabel = ip === "ready" ? "DEVICE" : "WLAN0 / IP";
-    let primaryValue = ip;
-    let footer = text.includes("walnutpi live") ? "WalnutPi live" : defaults.footer;
+    let primaryLabel = "DEVICE";
+    let primaryValue = "ready";
+    let footer = defaults.footer;
     const card = facts?.cards?.[0];
     if (plan?.composition === "fact-card" && card) {
       primaryLabel = card.title;
@@ -1183,12 +1021,8 @@ export function createScreenWorkspaceApi({
       }
     } else if (template.id === "pixel-message") {
       primaryLabel = "MESSAGE";
-      primaryValue = compactDisplayText(screenMessageText(prompt), template.layout.primaryValue.maxChars);
+      primaryValue = compactDisplayText(prompt, template.layout.primaryValue.maxChars);
       footer = defaults.footer;
-    } else {
-      metrics[0].value = cpu;
-      metrics[1].value = temp;
-      metrics[2].value = power;
     }
     return PixelScreenSpecSchema.parse({
       schema: "walnutpi.pixelScreenSpec.v1",
@@ -1197,35 +1031,15 @@ export function createScreenWorkspaceApi({
       logicalHeight: template.canvas.logicalHeight,
       scale: template.canvas.scale,
       title: compactText(title, template.layout.title.maxChars),
-      background: text.includes("深色") || text.includes("dark") ? defaults.darkBackground : defaults.lightBackground,
-      accent: text.includes("警") || text.includes("红") ? template.palette.red : defaults.accent,
-      progress: text.includes("电") || text.includes("battery") ? defaults.batteryProgress : defaults.progress,
+      background: defaults.lightBackground,
+      accent: defaults.accent,
+      progress: defaults.progress,
       primaryLabel,
       primaryValue,
       footer,
       metrics,
       ...(card ? { elements: factCardPixelElements(card) } : {}),
     });
-  }
-
-  function weatherFactCard(fact) {
-    const temp = fact.temperatureC === null || fact.temperatureC === undefined ? "--C" : `${Math.round(fact.temperatureC)}C`;
-    const humidity = fact.humidity === null || fact.humidity === undefined ? "--%" : `${Math.round(fact.humidity)}%`;
-    const wind = fact.windKph === null || fact.windKph === undefined ? "--K" : `${Math.round(fact.windKph)}KPH`;
-    const rain = fact.precipMm === null || fact.precipMm === undefined ? "--MM" : `${fact.precipMm}MM`;
-    return {
-      kind: "fact-card",
-      sourceKind: fact.kind,
-      title: compactDisplayText(fact.location || "WEATHER", 12),
-      value: temp,
-      subtitle: compactDisplayText(fact.condition || "UNKNOWN", 14),
-      footer: compactDisplayText(fact.advice || "WEATHER", 14),
-      items: [
-        { label: "HUM", value: humidity, bar: Math.max(0, Math.min(34, Math.round(Number(fact.humidity || 0) / 3))) },
-        { label: "WIND", value: wind },
-        { label: "RAIN", value: rain, bar: Math.max(0, Math.min(34, Math.round(Number(fact.precipMm || 0) * 6))) },
-      ],
-    };
   }
 
   function factCardPixelElements(card) {
@@ -1245,16 +1059,6 @@ export function createScreenWorkspaceApi({
     ];
   }
 
-  function screenMessageText(prompt) {
-    const text = String(prompt || "").trim();
-    const afterColon = text.match(/[：:]\s*([^。.!！?？；;]+)/);
-    if (afterColon?.[1]?.trim()) return afterColon[1].trim();
-    return text
-      .replace(/^(?:自由生成|生成|创建|设计|做|做个|来一个)?\s*(?:一个|一张)?\s*(?:像素风)?\s*(?:480x320)?\s*(?:小屏|屏幕|公告|消息|提醒)?[：:，,\s]*/i, "")
-      .replace(/[。.!！?？；;].*$/g, "")
-      .trim() || "HELLO";
-  }
-
   function cleanAiPixelSceneSpec(spec) {
     if (!Array.isArray(spec.elements)) return spec;
     return {
@@ -1262,15 +1066,26 @@ export function createScreenWorkspaceApi({
       title: compactText(spec.title, 12),
       background: /^#[0-9a-fA-F]{6}$/.test(String(spec.background || "")) ? spec.background : "#101412",
       accent: /^#[0-9a-fA-F]{6}$/.test(String(spec.accent || "")) ? spec.accent : "#78c58a",
-      elements: spec.elements.slice(0, 24).map((element) => ({
-        ...element,
-        x: Math.max(0, Math.min(119, Math.round(Number(element.x) || 0))),
-        y: Math.max(0, Math.min(79, Math.round(Number(element.y) || 0))),
-        width: element.width === undefined ? undefined : Math.max(1, Math.min(120, Math.round(Number(element.width) || 1))),
-        height: element.height === undefined ? undefined : Math.max(1, Math.min(80, Math.round(Number(element.height) || 1))),
-        scale: element.scale === 2 ? 2 : 1,
-      })),
+      elements: spec.elements.slice(0, 24).map(cleanAiPixelElement),
     };
+  }
+
+  function cleanAiPixelElement(element) {
+    const cleaned = { ...element };
+    for (const field of Object.keys(PIXEL_ELEMENT_NUMBER_FIELDS)) {
+      const value = cleanPixelElementNumber(element, field);
+      if (value === undefined) delete cleaned[field];
+      else cleaned[field] = value;
+    }
+    cleaned.scale = element.scale === 2 ? 2 : 1;
+    return cleaned;
+  }
+
+  function cleanPixelElementNumber(element, field) {
+    const rule = PIXEL_ELEMENT_NUMBER_FIELDS[field];
+    if (rule.optional && element[field] === undefined) return undefined;
+    const number = Math.round(Number(element[field]) || rule.fallback);
+    return Math.max(rule.min, Math.min(rule.max, number));
   }
 
 
@@ -1359,17 +1174,34 @@ export function createScreenWorkspaceApi({
   }
 
   function drawFreeSceneElement(element, palette, occupied) {
-    const scale = element.scale || 1;
-    const box = element.type === "text"
-      ? textRect(element.x, element.y, element.text || "", scale)
-      : { x: element.x, y: element.y, width: element.width || 1, height: element.height || 1 };
+    const geometry = pixelElementGeometry[element.type] || pixelElementGeometry.rect;
+    const renderer = pixelElementRenderers[element.type] || pixelElementRenderers.rect;
+    const box = geometry(element);
     const placed = element.required ? (rectInsideCanvas(box) && !occupied.some((item) => rectsOverlap(box, item)) ? box : null) : placeFreeRect(box, occupied);
     if (!placed) return "";
     occupied.push(placed);
-    if (element.type === "text") {
-      return pxText(placed.x + 1, placed.y + (scale === 2 ? 8 : 5), element.text || "", palette[element.fill || "text"] || element.fill || palette.text, scale);
-    }
-    return rect(placed.x, placed.y, placed.width, placed.height, palette[element.fill || "accent"] || element.fill || palette.accent);
+    return renderer(element, placed, palette);
+  }
+
+  const pixelElementGeometry = {
+    text: (element) => textRect(element.x, element.y, element.text || "", element.scale || 1),
+    rect: (element) => ({ x: element.x, y: element.y, width: element.width || 1, height: element.height || 1 }),
+    bar: (element) => ({ x: element.x, y: element.y, width: element.width || 1, height: element.height || 1 }),
+    arc: (element) => ({ x: element.x, y: element.y, width: element.width || 1, height: element.height || 1 }),
+  };
+
+  const pixelElementRenderers = {
+    text: (element, placed, palette) => {
+      const scale = element.scale || 1;
+      return pxText(placed.x + 1, placed.y + (scale === 2 ? 8 : 5), element.text || "", pixelElementFill(palette, element.fill, "text"), scale);
+    },
+    rect: (element, placed, palette) => rect(placed.x, placed.y, placed.width, placed.height, pixelElementFill(palette, element.fill, "accent")),
+    bar: (element, placed, palette) => rect(placed.x, placed.y, placed.width, placed.height, pixelElementFill(palette, element.fill, "accent")),
+    arc: (element, placed, palette) => rect(placed.x, placed.y, placed.width, placed.height, pixelElementFill(palette, element.fill, "accent")),
+  };
+
+  function pixelElementFill(palette, fill, fallbackKey) {
+    return palette[fill || fallbackKey] || fill || palette[fallbackKey];
   }
 
   function compactText(text, maxChars) {
@@ -1482,10 +1314,6 @@ export function createScreenWorkspaceApi({
   }
 
   function freeformTitle(prompt) {
-    if (/天气|weather|晴|雨|阴/i.test(prompt)) return "Weather";
-    if (/公告|消息|提醒|message|notice/i.test(prompt)) return "Message";
-    if (/ops/i.test(prompt)) return "WalnutPi Ops";
-    if (/live/i.test(prompt)) return "WalnutPi live";
     return "WalnutPi Screen";
   }
 
@@ -1523,36 +1351,15 @@ export function createScreenWorkspaceApi({
 
   function cleanWorkspaceImportMediaType(value) {
     const mediaType = String(value || "").split(";")[0].trim().toLowerCase();
-    const allowed = new Set([
-      "image/png",
-      "image/jpeg",
-      "image/gif",
-      "image/webp",
-      "video/mp4",
-      "video/webm",
-      "video/quicktime",
-    ]);
-    if (!allowed.has(mediaType)) {
+    if (!(mediaType in WORKSPACE_IMPORT_EXTENSION_BY_MEDIA_TYPE)) {
       throw new Error("source URL must point to a PNG, JPEG, GIF, WebP, MP4, WebM, or MOV file");
     }
     return mediaType;
   }
 
   function workspaceImportExtension(mediaType, sourceUrl) {
-    const byType = {
-      "image/png": ".png",
-      "image/jpeg": ".jpg",
-      "image/gif": ".gif",
-      "image/webp": ".webp",
-      "video/mp4": ".mp4",
-      "video/webm": ".webm",
-      "video/quicktime": ".mov",
-    };
     const extension = path.extname(new URL(sourceUrl).pathname).toLowerCase();
-    if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".webm", ".mov"].includes(extension)) {
-      return extension === ".jpeg" ? ".jpg" : extension;
-    }
-    return byType[mediaType] || ".bin";
+    return WORKSPACE_IMPORT_EXTENSION_ALIASES[extension] || WORKSPACE_IMPORT_EXTENSION_BY_MEDIA_TYPE[mediaType] || ".bin";
   }
 
   function lvglPreviewExePath() {
@@ -1637,19 +1444,13 @@ export function createScreenWorkspaceApi({
 
   function cleanWorkspaceOutputType(value) {
     const text = String(value || "static").trim();
-    if (text !== "static" && text !== "animated") throw new Error("outputType must be static or animated");
+    if (!WORKSPACE_OUTPUT_TYPES.has(text)) throw new Error("outputType must be static or animated");
     return text;
   }
 
   function cleanWorkspacePreset(value) {
     const text = String(value || "").trim();
-    const allowed = new Set([
-      "fit-cover:480x320",
-      "fit-contain:480x320",
-      "pixel-grid:120x80@4x",
-      "pixel-grid:240x160@2x",
-    ]);
-    if (!allowed.has(text)) throw new Error("preset is not supported");
+    if (!WORKSPACE_PRESETS.has(text)) throw new Error("preset is not supported");
     return text;
   }
 
@@ -1664,7 +1465,7 @@ export function createScreenWorkspaceApi({
 
   function cleanWorkspacePlaylistMode(value) {
     const text = String(value || "replace").trim();
-    if (text !== "replace" && text !== "append") throw new Error("playlistMode must be replace or append");
+    if (!WORKSPACE_PLAYLIST_MODES.has(text)) throw new Error("playlistMode must be replace or append");
     return text;
   }
 
@@ -1759,101 +1560,6 @@ export function createScreenWorkspaceApi({
         include: [entry.upstream.source],
       },
     };
-  }
-
-  async function readIocccFunApps() {
-    const apps = [];
-    for (const [year, name, title] of IOCCC_FUN_ENTRIES) {
-      const entryDir = path.join(IOCCC_ROOT, year, name);
-      if (!existsSync(entryDir)) continue;
-      const app = iocccFunApp(year, name, title, entryDir);
-      apps.push(stripLocalIocccPath(app));
-    }
-    return apps;
-  }
-
-
-  async function readIocccFunApp(appId) {
-    const app = IOCCC_FUN_ENTRIES
-      .map(([year, name, title]) => iocccFunApp(year, name, title, path.join(IOCCC_ROOT, year, name)))
-      .find((entry) => entry.id === appId);
-    if (!app || !existsSync(app.entryDir)) throw new Error("unsupported IOCCC app");
-    const relative = path.relative(IOCCC_ROOT, app.entryDir);
-    if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error("invalid IOCCC app path");
-    return app;
-  }
-
-  function iocccFunApp(year, name, title, entryDir) {
-    const id = `ioccc-${year}-${name}`.replace(/[^a-zA-Z0-9_-]/g, "-");
-    return {
-      schema: "walnutpi.ioccc-app.v1",
-      id,
-      title: `${year} ${title}`,
-      type: "ioccc-c-toy",
-      year,
-      name,
-      entryDir,
-      source: path.relative(PROJECT_ROOT, entryDir).replaceAll("\\", "/"),
-      page: `/api/screen/ioccc-apps/${encodeURIComponent(id)}/page`,
-      download: `/api/screen/ioccc-apps/${encodeURIComponent(id)}/download`,
-    };
-  }
-
-  function stripLocalIocccPath(app) {
-    const { entryDir, ...publicApp } = app;
-    return publicApp;
-  }
-
-  function firstExistingPath(root, names) {
-    for (const name of names) {
-      const filePath = path.join(root, name);
-      if (existsSync(filePath)) return filePath;
-    }
-    return "";
-  }
-
-  function iocccAppHtml(app, readme, source) {
-    return `<!doctype html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(app.title)}</title>
-    <style>
-      body { margin: 0 auto; max-width: 960px; padding: 24px; background: #070808; color: #f4f1e8; font-family: ui-sans-serif, system-ui, sans-serif; line-height: 1.55; }
-      a { color: #ff9f0a; }
-      .meta { color: #a9aaa6; }
-      pre { overflow: auto; padding: 16px; background: #111314; border: 1px solid rgba(240,236,226,.14); }
-      code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
-    </style>
-  </head>
-  <body>
-    <p><a href="/apps.html">返回 App Gallery</a></p>
-    <h1>${escapeHtml(app.title)}</h1>
-    <p class="meta">IOCCC ${escapeHtml(app.year)} / ${escapeHtml(app.name)}</p>
-    <h2>README</h2>
-    <pre><code>${escapeHtml(readme || "No README found.")}</code></pre>
-    <h2>Source</h2>
-    <pre><code>${escapeHtml(source || "No source file found.")}</code></pre>
-  </body>
-</html>`;
-  }
-
-  function escapeHtml(value) {
-    return String(value || "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
-  }
-
-  function iocccAssetContentType(filePath) {
-    const ext = path.extname(filePath).toLowerCase();
-    if (ext === ".html") return "text/html; charset=utf-8";
-    if (ext === ".css") return "text/css; charset=utf-8";
-    if (ext === ".js") return "text/javascript; charset=utf-8";
-    if (ext === ".md" || ext === ".txt" || ext === ".c" || ext === ".h" || ext === ".sh") return "text/plain; charset=utf-8";
-    if (ext === ".png") return "image/png";
-    if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
-    if (ext === ".gif") return "image/gif";
-    if (ext === ".svg") return "image/svg+xml";
-    return "application/octet-stream";
   }
 
   async function collectFiles(root, archiveRoot) {
@@ -1956,16 +1662,11 @@ export function createScreenWorkspaceApi({
     handleLvglAppList,
     handleLvglAppDownload,
     handleLvglAppActivate,
-    handleIocccAppGet,
-    handleIocccAppPage,
-    handleIocccAppAsset,
-    handleIocccAppDownload,
     handleScreenWorkspaceSync,
     widgetAppWorkspace,
     __test: {
       compactText,
       compactDisplayText,
-      extractWeatherCity,
       buildScreenGenerationPlan,
       buildFreeformPixelScreenSpec,
     },

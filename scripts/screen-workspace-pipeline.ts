@@ -91,6 +91,7 @@ type AnimatedProcessResult = {
   outputJsonPath: string;
   tools: Array<{ name: string; version: string }>;
 };
+type RasterPresetRenderer = (pipeline: sharp.Sharp) => sharp.Sharp;
 
 export const DEFAULT_ANIMATION_BUDGET = {
   fps: 6,
@@ -101,6 +102,21 @@ export const DEFAULT_ANIMATION_BUDGET = {
 const SCREEN_PLAN_SCHEMA = "walnutpi.screen-plan.v1";
 const SCREEN_SOURCE_ASSET_SCHEMA = "walnutpi.screen-source-asset.v1";
 const SCREEN_OUTPUT_SCHEMA = "walnutpi.screen-output.v1";
+const RASTER_PRESET_RENDERERS: Record<ProcessingPreset, RasterPresetRenderer> = {
+  "fit-cover:480x320": (pipeline) =>
+    pipeline.resize(SCREEN_WORKSPACE_WIDTH, SCREEN_WORKSPACE_HEIGHT, {
+      fit: "cover",
+      position: "centre",
+    }),
+  "fit-contain:480x320": (pipeline) =>
+    pipeline.resize(SCREEN_WORKSPACE_WIDTH, SCREEN_WORKSPACE_HEIGHT, {
+      fit: "contain",
+      position: "centre",
+      background: { r: 0, g: 0, b: 0, alpha: 1 },
+    }),
+  "pixel-grid:120x80@4x": (pipeline) => renderPixelGridPreset(pipeline, 120, 80),
+  "pixel-grid:240x160@2x": (pipeline) => renderPixelGridPreset(pipeline, 240, 160),
+};
 
 export async function processSourceAssetToScreenOutput({
   workspaceRoot = "screen",
@@ -459,50 +475,23 @@ async function renderImagePreset(inputPath: string, outputPath: string, preset: 
 
 async function renderRasterImagePreset(inputPath: string, outputPath: string, preset: string): Promise<void> {
   const pipeline = sharp(inputPath, { animated: false }).rotate().ensureAlpha();
+  const renderPreset = RASTER_PRESET_RENDERERS[preset as ProcessingPreset];
+  if (!renderPreset) throw new Error(`unsupported processing preset: ${preset}`);
 
-  if (preset === "fit-cover:480x320") {
-    await pipeline
-      .resize(SCREEN_WORKSPACE_WIDTH, SCREEN_WORKSPACE_HEIGHT, {
-        fit: "cover",
-        position: "centre",
-      })
-      .png()
-      .toFile(outputPath);
-    return;
-  }
+  await renderPreset(pipeline).png().toFile(outputPath);
+}
 
-  if (preset === "fit-contain:480x320") {
-    await pipeline
-      .resize(SCREEN_WORKSPACE_WIDTH, SCREEN_WORKSPACE_HEIGHT, {
-        fit: "contain",
-        position: "centre",
-        background: { r: 0, g: 0, b: 0, alpha: 1 },
-      })
-      .png()
-      .toFile(outputPath);
-    return;
-  }
-
-  if (preset === "pixel-grid:120x80@4x" || preset === "pixel-grid:240x160@2x") {
-    const match = preset.match(/^pixel-grid:(\d+)x(\d+)@/);
-    if (!match) throw new Error(`unsupported processing preset: ${preset}`);
-    const [gridWidth, gridHeight] = match.slice(1, 3).map(Number);
-    await pipeline
-      .resize(gridWidth, gridHeight, {
-        fit: "cover",
-        position: "centre",
-        kernel: sharp.kernel.nearest,
-      })
-      .resize(SCREEN_WORKSPACE_WIDTH, SCREEN_WORKSPACE_HEIGHT, {
-        fit: "fill",
-        kernel: sharp.kernel.nearest,
-      })
-      .png()
-      .toFile(outputPath);
-    return;
-  }
-
-  throw new Error(`unsupported processing preset: ${preset}`);
+function renderPixelGridPreset(pipeline: sharp.Sharp, gridWidth: number, gridHeight: number): sharp.Sharp {
+  return pipeline
+    .resize(gridWidth, gridHeight, {
+      fit: "cover",
+      position: "centre",
+      kernel: sharp.kernel.nearest,
+    })
+    .resize(SCREEN_WORKSPACE_WIDTH, SCREEN_WORKSPACE_HEIGHT, {
+      fit: "fill",
+      kernel: sharp.kernel.nearest,
+    });
 }
 
 async function writeSelectedSourceAsset({ workspace, sourceAsset, sourceAssetId, sourcePath, generatedAt }: { workspace: string; sourceAsset: SourceAssetInput; sourceAssetId: string; sourcePath: string; generatedAt: string }) {

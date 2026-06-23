@@ -8,6 +8,32 @@ export const WALNUT_SCREEN_HEIGHT = 320;
 const SAFE_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
 const STYLE_TOKENS = new Set(["screen", "panel", "text", "muted", "muted2", "primary", "accent", "orange", "danger", "trace", "chip", "panelBorder", "barTrack"]);
 const NODE_KINDS = new Set(["container", "rect", "text", "image", "button", "toggle", "progress", "gauge", "list", "status_tile"]);
+const WIDGET_KIND_BY_RUNTIME_TYPE: Record<string, string> = {
+  label: "text",
+  rect: "rect",
+  bar: "progress",
+  arc: "gauge",
+};
+const RUNTIME_TYPE_BY_WIDGET_KIND: Record<string, string> = {
+  text: "label",
+  button: "label",
+  toggle: "label",
+  list: "label",
+  status_tile: "label",
+  rect: "rect",
+  progress: "bar",
+  gauge: "arc",
+};
+const A2UI_COMPONENT_BY_WIDGET_KIND: Record<string, string> = {
+  text: "Text",
+  status_tile: "Text",
+  button: "Button",
+  toggle: "Button",
+  image: "Image",
+  progress: "Progress",
+  gauge: "Gauge",
+  list: "List",
+};
 
 type JsonRecord = Record<string, any>;
 type WidgetAction = { name: string; params: JsonRecord };
@@ -87,7 +113,6 @@ export function validateWalnutWidgetApp(app) {
     a2uiSurface: app.a2uiSurface && typeof app.a2uiSurface === "object" ? app.a2uiSurface : null,
     catalog: validateWalnutLvglWidgetCatalog(app.catalog),
     actions: normalizeActions(app.actions || []),
-    ...(app.ioccc && typeof app.ioccc === "object" ? { ioccc: normalizeData(app.ioccc) } : {}),
   };
 }
 
@@ -369,29 +394,15 @@ function normalizeData(data) {
 }
 
 function widgetKindFromRuntimeType(type) {
-  if (type === "label") return "text";
-  if (type === "rect") return "rect";
-  if (type === "bar") return "progress";
-  if (type === "arc") return "gauge";
-  return "text";
+  return WIDGET_KIND_BY_RUNTIME_TYPE[type] || "text";
 }
 
 function runtimeTypeFromKind(kind) {
-  if (kind === "text" || kind === "button" || kind === "toggle" || kind === "list" || kind === "status_tile") return "label";
-  if (kind === "rect") return "rect";
-  if (kind === "progress") return "bar";
-  if (kind === "gauge") return "arc";
-  return "rect";
+  return RUNTIME_TYPE_BY_WIDGET_KIND[kind] || "rect";
 }
 
 function a2uiComponentFromKind(kind) {
-  if (kind === "text" || kind === "status_tile") return "Text";
-  if (kind === "button" || kind === "toggle") return "Button";
-  if (kind === "image") return "Image";
-  if (kind === "progress") return "Progress";
-  if (kind === "gauge") return "Gauge";
-  if (kind === "list") return "List";
-  return "Container";
+  return A2UI_COMPONENT_BY_WIDGET_KIND[kind] || "Container";
 }
 
 function styleFromColor(color) {

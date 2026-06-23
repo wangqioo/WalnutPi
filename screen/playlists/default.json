@@ -4,7 +4,7 @@
   "loop": true,
   "items": [
     {
-      "manifest": "../manifests/agent-freeform-1781882713697.json",
+      "manifest": "../manifests/agent-freeform-1782149570019.json",
       "durationMs": 8000,
       "repeat": 1,
       "transition": "cut"

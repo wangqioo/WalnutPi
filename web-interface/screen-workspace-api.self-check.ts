@@ -32,42 +32,34 @@ const prompt = "联网查上海天气，做成 480x320 小屏预览，不同步�
 const plan = api.__test.buildScreenGenerationPlan(prompt);
 const mixedPrompt = "查一下 Shanghai weather，生成 480x320 小屏卡片，不要同步到真机";
 const mixedPlan = api.__test.buildScreenGenerationPlan(mixedPrompt);
-const holdoutPrompt = "帮我把上海天气做成核桃派屏幕卡片，今天只看预览，别同步设备";
+const explicitPlan = api.__test.buildScreenGenerationPlan(prompt, { templateId: "pixel-weather" });
 
-assert.equal(api.__test.extractWeatherCity(prompt), "上海");
-assert.deepEqual(plan.needs, [{ kind: "weather.current", location: "上海" }]);
-assert.equal(api.__test.extractWeatherCity(mixedPrompt), "Shanghai");
-assert.deepEqual(mixedPlan.needs, [{ kind: "weather.current", location: "Shanghai" }]);
-assert.equal(api.__test.extractWeatherCity(holdoutPrompt), "上海");
-assert.equal(plan.template, "pixel-weather");
-assert.equal(plan.composition, "fact-card");
-assert.equal(plan.widgetApp, false);
+assert.deepEqual(plan.needs, []);
+assert.deepEqual(mixedPlan.needs, []);
+assert.equal(plan.template, "pixel-ops");
+assert.equal(mixedPlan.template, "pixel-ops");
+assert.equal(explicitPlan.template, "pixel-weather");
+assert.equal(plan.composition, "template-default");
+assert.equal(plan.widgetApp, true);
 assert.equal(api.__test.compactText("上海天气", 12), "上海天气");
 assert.equal(api.__test.compactDisplayText("多云转晴", 14), "多云转晴");
 
-const template = JSON.parse(await readFile(path.resolve("screen", "generators", "pixel-weather.json"), "utf8"));
+const template = JSON.parse(await readFile(path.resolve("screen", "generators", "pixel-ops.json"), "utf8"));
 const screenSpec = api.__test.buildFreeformPixelScreenSpec({
   prompt,
   title: "上海天气",
   template,
   plan,
-  facts: {
-    cards: [{
-      title: "上海",
-      value: "28C",
-      subtitle: "多云",
-      footer: "适合出行",
-      items: [
-        { label: "HUM", value: "60%", bar: 20 },
-        { label: "WIND", value: "8KPH" },
-        { label: "RAIN", value: "0MM", bar: 0 },
-      ],
-    }],
-  },
+  facts: { cards: [] },
 });
 
 assert.equal(screenSpec.title, "上海天气");
-assert.equal(screenSpec.primaryLabel, "上海");
-assert.equal(screenSpec.footer, "适合出行");
+assert.equal(screenSpec.template, "pixel-ops");
+assert.equal(screenSpec.primaryLabel, "DEVICE");
+assert.equal(screenSpec.primaryValue, "ready");
+assert.equal(screenSpec.footer, "AGENT PIXEL");
+assert.equal(screenSpec.background, template.defaults.lightBackground);
+assert.equal(screenSpec.accent, template.defaults.accent);
+assert.equal(screenSpec.progress, template.defaults.progress);
 
 console.log("screen-workspace-api self-check passed");

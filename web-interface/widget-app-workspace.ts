@@ -25,6 +25,9 @@ export function createWidgetAppWorkspace({
 }) {
   const WIDGET_APPS_ROOT = path.join(screenWorkspaceRoot, "apps");
   const WIDGET_RUNTIME_ROOT = path.join(screenWorkspaceRoot, "widget-runtime");
+  const LOCAL_WIDGET_ACTION_HANDLERS = {
+    pomodoro: pomodoroBindings,
+  };
 
   async function handleWidgetAppList() {
     try {
@@ -107,7 +110,8 @@ export function createWidgetAppWorkspace({
       if (!new Set(app.actions.map((action) => action.name)).has(actionName)) {
         throw new Error("action is not allowed by active widget app");
       }
-      if (app.id === "pomodoro") {
+      const localActionHandler = LOCAL_WIDGET_ACTION_HANDLERS[app.id];
+      if (localActionHandler) {
         const previousState = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json")).catch(() => ({
           bindings: defaultWidgetAppState(app),
         }));
@@ -116,7 +120,7 @@ export function createWidgetAppWorkspace({
           appId: app.id,
           versionId: current.versionId,
           updatedAt: new Date().toISOString(),
-          bindings: pomodoroBindings(actionName, previousState.bindings),
+          bindings: localActionHandler(actionName, previousState.bindings),
           latestAction: { name: actionName, ok: true, code: 0, at: new Date().toISOString() },
         };
         await writeWidgetRuntimeFiles(app, current, state);
@@ -219,9 +223,8 @@ export function createWidgetAppWorkspace({
           id: app.id,
           title: app.title,
           createdAt: app.createdAt,
-          type: app.id.startsWith("ioccc-") ? "ioccc-lvgl-app" : "local-lvgl-app",
+          type: "local-lvgl-app",
           mode: app.mode,
-          ioccc: app.ioccc || null,
           download: `/api/screen/widget-apps/${encodeURIComponent(app.id)}/download`,
         });
       } catch {
@@ -417,13 +420,9 @@ export function createWidgetAppWorkspace({
   }
 
   function defaultWidgetAppState(app) {
-    if (app.id === "pomodoro") {
-      return { remaining: "25:00", status: "READY", progress: 100, mode: "idle" };
-    }
-    if (app.id === "device-status" || /设备|状态|status|quick/i.test(`${app.id} ${app.title}`)) {
-      return { ip: "unknown", memory: "unknown", disk: "unknown", frp: "unknown", service: "unknown" };
-    }
-    return {};
+    return app.catalog?.data && typeof app.catalog.data === "object" && !Array.isArray(app.catalog.data)
+      ? { ...app.catalog.data }
+      : {};
   }
 
   function deviceStatusBindings(output) {

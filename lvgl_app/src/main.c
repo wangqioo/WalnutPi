@@ -102,6 +102,11 @@ typedef struct {
     runtime_widget_t widgets[WALNUT_RUNTIME_MAX_WIDGETS];
 } runtime_workspace_t;
 
+typedef struct {
+    const char * name;
+    uint32_t value;
+} color_token_t;
+
 static runtime_workspace_t runtime_workspace;
 static uint8_t runtime_frame_pixels[WALNUT_SCREEN_WIDTH * WALNUT_SCREEN_HEIGHT * 2];
 static bool runtime_frame_valid = false;
@@ -109,6 +114,20 @@ static const char walnut_runtime_assets_schema_marker[] = "walnutpi.lvgl-runtime
 static const char walnut_widget_runtime_schema_marker[] = "walnutpi.lvgl-widget-runtime.v1";
 static const char walnut_runtime_hot_reload_marker[] = "walnutpi.lvgl-runtime-hot-reload.v1";
 static const char walnut_widget_runtime_marker[] = "walnutpi.lvgl-widget-runtime.v1";
+static const color_token_t color_tokens[] = {
+    { "text", 0xf4f1df },
+    { "muted", 0x94a0a4 },
+    { "muted2", 0x7f8d87 },
+    { "cyan", 0x8fd6ff },
+    { "green", 0x78c58a },
+    { "yellow", 0xf0c35d },
+    { "red", 0xe06a5f },
+    { "accent", 0x78c58a },
+    { "trace", 0x2d455a },
+    { "chip", 0x203242 },
+    { "panelBorder", 0x263443 },
+    { "barTrack", 0x263443 },
+};
 
 #if defined(__linux__) && !defined(WALNUT_LVGL_NO_FBDEV)
 static char runtime_watch_path[WALNUT_RUNTIME_PATH_MAX];
@@ -194,18 +213,9 @@ static void path_join(char * dst, size_t dst_size, const char * dir, const char 
 static uint32_t parse_hex_color(const char * text, uint32_t fallback)
 {
     if(text == NULL || text[0] == '\0') return fallback;
-    if(strcmp(text, "text") == 0) return 0xf4f1df;
-    if(strcmp(text, "muted") == 0) return 0x94a0a4;
-    if(strcmp(text, "muted2") == 0) return 0x7f8d87;
-    if(strcmp(text, "cyan") == 0) return 0x8fd6ff;
-    if(strcmp(text, "green") == 0) return 0x78c58a;
-    if(strcmp(text, "yellow") == 0) return 0xf0c35d;
-    if(strcmp(text, "red") == 0) return 0xe06a5f;
-    if(strcmp(text, "accent") == 0) return 0x78c58a;
-    if(strcmp(text, "trace") == 0) return 0x2d455a;
-    if(strcmp(text, "chip") == 0) return 0x203242;
-    if(strcmp(text, "panelBorder") == 0) return 0x263443;
-    if(strcmp(text, "barTrack") == 0) return 0x263443;
+    for(size_t index = 0; index < sizeof(color_tokens) / sizeof(color_tokens[0]); index++) {
+        if(strcmp(text, color_tokens[index].name) == 0) return color_tokens[index].value;
+    }
     return (uint32_t)strtoul(text, NULL, 16);
 }
 
@@ -702,9 +712,16 @@ static void anim_opa_cb(void * obj, int32_t value)
     lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)value, 0);
 }
 
-static void apply_widget_animation(lv_obj_t * obj, runtime_widget_t * widget)
+typedef void (*widget_animation_apply_fn)(lv_obj_t * obj, runtime_widget_t * widget);
+
+typedef struct {
+    const char * name;
+    widget_animation_apply_fn apply;
+} widget_animation_renderer_t;
+
+static void apply_pulse_widget_animation(lv_obj_t * obj, runtime_widget_t * widget)
 {
-    if(obj == NULL || widget == NULL || strcmp(widget->animation, "pulse") != 0) return;
+    (void)widget;
     lv_anim_t anim;
     lv_anim_init(&anim);
     lv_anim_set_var(&anim, obj);
@@ -716,63 +733,106 @@ static void apply_widget_animation(lv_obj_t * obj, runtime_widget_t * widget)
     lv_anim_start(&anim);
 }
 
+static const widget_animation_renderer_t widget_animation_renderers[] = {
+    { "pulse", apply_pulse_widget_animation },
+};
+
+static void apply_widget_animation(lv_obj_t * obj, runtime_widget_t * widget)
+{
+    if(obj == NULL || widget == NULL) return;
+    for(size_t index = 0; index < sizeof(widget_animation_renderers) / sizeof(widget_animation_renderers[0]); index++) {
+        if(strcmp(widget->animation, widget_animation_renderers[index].name) == 0) {
+            widget_animation_renderers[index].apply(obj, widget);
+            return;
+        }
+    }
+}
+
+typedef void (*runtime_widget_render_fn)(lv_obj_t * scr, runtime_widget_t * widget);
+
+typedef struct {
+    const char * type;
+    runtime_widget_render_fn render;
+} runtime_widget_renderer_t;
+
+static void render_runtime_label_widget(lv_obj_t * scr, runtime_widget_t * widget)
+{
+    lv_obj_t * label = lv_label_create(scr);
+    lv_label_set_text(label, widget->text);
+    lv_obj_set_style_text_color(label, lv_color_hex(parse_hex_color(widget->color, 0xf4f1df)), 0);
+    lv_obj_set_style_text_font(label, widget->h >= 48 ? &lv_font_montserrat_24 : &lv_font_montserrat_14, 0);
+    lv_obj_set_width(label, clamp_int(widget->w, 20, WALNUT_SCREEN_WIDTH));
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
+    lv_obj_align(label, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
+    apply_widget_animation(label, widget);
+}
+
+static void render_runtime_rect_widget(lv_obj_t * scr, runtime_widget_t * widget)
+{
+    lv_obj_t * rect_obj = lv_obj_create(scr);
+    lv_obj_remove_style_all(rect_obj);
+    lv_obj_set_style_bg_opa(rect_obj, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(rect_obj, lv_color_hex(parse_hex_color(widget->color, 0x78c58a)), 0);
+    lv_obj_set_size(rect_obj, clamp_int(widget->w, 1, WALNUT_SCREEN_WIDTH), clamp_int(widget->h, 1, WALNUT_SCREEN_HEIGHT));
+    lv_obj_align(rect_obj, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
+    apply_widget_animation(rect_obj, widget);
+}
+
+static void render_runtime_bar_widget(lv_obj_t * scr, runtime_widget_t * widget)
+{
+    lv_obj_t * bar = lv_bar_create(scr);
+    lv_obj_remove_style_all(bar);
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(0x263443), 0);
+    lv_obj_set_style_bg_color(bar, lv_color_hex(parse_hex_color(widget->color, 0x78c58a)), LV_PART_INDICATOR);
+    lv_obj_set_size(bar, clamp_int(widget->w, 20, WALNUT_SCREEN_WIDTH), clamp_int(widget->h, 6, 40));
+    lv_obj_align(bar, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
+    lv_bar_set_range(bar, 0, 100);
+    lv_bar_set_value(bar, clamp_int(widget->value, 0, 100), LV_ANIM_OFF);
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, bar);
+    lv_anim_set_values(&anim, clamp_int(widget->value - 8, 0, 100), clamp_int(widget->value + 8, 0, 100));
+    lv_anim_set_duration(&anim, 900);
+    lv_anim_set_playback_duration(&anim, 900);
+    lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_exec_cb(&anim, anim_bar_value_cb);
+    lv_anim_start(&anim);
+    apply_widget_animation(bar, widget);
+}
+
+static void render_runtime_arc_widget(lv_obj_t * scr, runtime_widget_t * widget)
+{
+    lv_obj_t * arc = lv_arc_create(scr);
+    lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(0x263443), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(arc, lv_color_hex(parse_hex_color(widget->color, 0x8fd6ff)), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_width(arc, 10, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(arc, 10, LV_PART_INDICATOR);
+    lv_obj_set_size(arc, clamp_int(widget->w, 30, WALNUT_SCREEN_WIDTH), clamp_int(widget->h, 30, WALNUT_SCREEN_HEIGHT));
+    lv_obj_align(arc, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
+    lv_arc_set_range(arc, 0, 100);
+    lv_arc_set_value(arc, clamp_int(widget->value, 0, 100));
+    apply_widget_animation(arc, widget);
+}
+
+static const runtime_widget_renderer_t runtime_widget_renderers[] = {
+    { "label", render_runtime_label_widget },
+    { "rect", render_runtime_rect_widget },
+    { "bar", render_runtime_bar_widget },
+    { "arc", render_runtime_arc_widget },
+};
+
 static void build_runtime_widgets(lv_obj_t * scr)
 {
     for(int index = 0; index < runtime_workspace.widget_count; index++) {
         runtime_widget_t * widget = &runtime_workspace.widgets[index];
-        if(strcmp(widget->type, "label") == 0) {
-            lv_obj_t * label = lv_label_create(scr);
-            lv_label_set_text(label, widget->text);
-            lv_obj_set_style_text_color(label, lv_color_hex(parse_hex_color(widget->color, 0xf4f1df)), 0);
-            lv_obj_set_style_text_font(label, widget->h >= 48 ? &lv_font_montserrat_24 : &lv_font_montserrat_14, 0);
-            lv_obj_set_width(label, clamp_int(widget->w, 20, WALNUT_SCREEN_WIDTH));
-            lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-            lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
-            lv_obj_align(label, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
-            apply_widget_animation(label, widget);
-        }
-        else if(strcmp(widget->type, "rect") == 0) {
-            lv_obj_t * rect_obj = lv_obj_create(scr);
-            lv_obj_remove_style_all(rect_obj);
-            lv_obj_set_style_bg_opa(rect_obj, LV_OPA_COVER, 0);
-            lv_obj_set_style_bg_color(rect_obj, lv_color_hex(parse_hex_color(widget->color, 0x78c58a)), 0);
-            lv_obj_set_size(rect_obj, clamp_int(widget->w, 1, WALNUT_SCREEN_WIDTH), clamp_int(widget->h, 1, WALNUT_SCREEN_HEIGHT));
-            lv_obj_align(rect_obj, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
-            apply_widget_animation(rect_obj, widget);
-        }
-        else if(strcmp(widget->type, "bar") == 0) {
-            lv_obj_t * bar = lv_bar_create(scr);
-            lv_obj_remove_style_all(bar);
-            lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
-            lv_obj_set_style_bg_color(bar, lv_color_hex(0x263443), 0);
-            lv_obj_set_style_bg_color(bar, lv_color_hex(parse_hex_color(widget->color, 0x78c58a)), LV_PART_INDICATOR);
-            lv_obj_set_size(bar, clamp_int(widget->w, 20, WALNUT_SCREEN_WIDTH), clamp_int(widget->h, 6, 40));
-            lv_obj_align(bar, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
-            lv_bar_set_range(bar, 0, 100);
-            lv_bar_set_value(bar, clamp_int(widget->value, 0, 100), LV_ANIM_OFF);
-            lv_anim_t anim;
-            lv_anim_init(&anim);
-            lv_anim_set_var(&anim, bar);
-            lv_anim_set_values(&anim, clamp_int(widget->value - 8, 0, 100), clamp_int(widget->value + 8, 0, 100));
-            lv_anim_set_duration(&anim, 900);
-            lv_anim_set_playback_duration(&anim, 900);
-            lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
-            lv_anim_set_exec_cb(&anim, anim_bar_value_cb);
-            lv_anim_start(&anim);
-            apply_widget_animation(bar, widget);
-        }
-        else if(strcmp(widget->type, "arc") == 0) {
-            lv_obj_t * arc = lv_arc_create(scr);
-            lv_obj_remove_style(arc, NULL, LV_PART_KNOB);
-            lv_obj_set_style_arc_color(arc, lv_color_hex(0x263443), LV_PART_MAIN);
-            lv_obj_set_style_arc_color(arc, lv_color_hex(parse_hex_color(widget->color, 0x8fd6ff)), LV_PART_INDICATOR);
-            lv_obj_set_style_arc_width(arc, 10, LV_PART_MAIN);
-            lv_obj_set_style_arc_width(arc, 10, LV_PART_INDICATOR);
-            lv_obj_set_size(arc, clamp_int(widget->w, 30, WALNUT_SCREEN_WIDTH), clamp_int(widget->h, 30, WALNUT_SCREEN_HEIGHT));
-            lv_obj_align(arc, LV_ALIGN_TOP_LEFT, clamp_int(widget->x, 0, WALNUT_SCREEN_WIDTH - 1), clamp_int(widget->y, 0, WALNUT_SCREEN_HEIGHT - 1));
-            lv_arc_set_range(arc, 0, 100);
-            lv_arc_set_value(arc, clamp_int(widget->value, 0, 100));
-            apply_widget_animation(arc, widget);
+        for(size_t renderer_index = 0; renderer_index < sizeof(runtime_widget_renderers) / sizeof(runtime_widget_renderers[0]); renderer_index++) {
+            if(strcmp(widget->type, runtime_widget_renderers[renderer_index].type) == 0) {
+                runtime_widget_renderers[renderer_index].render(scr, widget);
+                break;
+            }
         }
     }
 }
@@ -807,33 +867,98 @@ void walnut_preview_apply_dynamic_time(int advance_ms)
 }
 
 #if defined(__linux__) && !defined(WALNUT_LVGL_NO_FBDEV)
-int main(int argc, char ** argv)
+typedef struct {
+    const char * fbdev;
+    const char * runtime_path;
+    const char * demo_name;
+} main_options_t;
+
+typedef bool (*main_arg_apply_fn)(main_options_t * options, const char * value);
+
+typedef struct {
+    const char * flag;
+    bool requires_value;
+    main_arg_apply_fn apply;
+} main_arg_handler_t;
+
+typedef void (*demo_build_fn)(void);
+
+typedef struct {
+    const char * name;
+    demo_build_fn build;
+} demo_renderer_t;
+
+static bool apply_runtime_arg(main_options_t * options, const char * value)
 {
-    const char * fbdev = "/dev/fb0";
-    const char * runtime_path = "screen/runtime/default.txt";
-    const char * demo_name = NULL;
-    for(int i = 1; i < argc; i++) {
-        if(strcmp(argv[i], "--runtime") == 0 && i + 1 < argc) {
-            runtime_path = argv[++i];
+    options->runtime_path = value;
+    return true;
+}
+
+static bool apply_no_runtime_arg(main_options_t * options, const char * value)
+{
+    (void)value;
+    options->runtime_path = NULL;
+    return true;
+}
+
+static bool apply_demo_arg(main_options_t * options, const char * value)
+{
+    options->demo_name = value;
+    options->runtime_path = NULL;
+    return true;
+}
+
+static const main_arg_handler_t main_arg_handlers[] = {
+    { "--runtime", true, apply_runtime_arg },
+    { "--no-runtime", false, apply_no_runtime_arg },
+    { "--demo", true, apply_demo_arg },
+};
+
+static bool apply_main_arg(int argc, char ** argv, int * index, main_options_t * options)
+{
+    for(size_t handler_index = 0; handler_index < sizeof(main_arg_handlers) / sizeof(main_arg_handlers[0]); handler_index++) {
+        const main_arg_handler_t * handler = &main_arg_handlers[handler_index];
+        if(strcmp(argv[*index], handler->flag) != 0) continue;
+        if(handler->requires_value) {
+            if(*index + 1 >= argc) return true;
+            (*index)++;
+            return handler->apply(options, argv[*index]);
         }
-        else if(strcmp(argv[i], "--no-runtime") == 0) {
-            runtime_path = NULL;
-        }
-        else if(strcmp(argv[i], "--demo") == 0 && i + 1 < argc && strcmp(argv[i + 1], "lightfield") == 0) {
-            demo_name = argv[++i];
-            runtime_path = NULL;
-        }
-        else if(strcmp(argv[i], "--demo") == 0) {
-            continue;
-        }
-        else {
-            fbdev = argv[i];
+        return handler->apply(options, NULL);
+    }
+    return false;
+}
+
+static const demo_renderer_t demo_renderers[] = {
+    { "lightfield", walnut_build_lightfield_demo },
+};
+
+static bool build_demo_by_name(const char * demo_name)
+{
+    for(size_t demo_index = 0; demo_index < sizeof(demo_renderers) / sizeof(demo_renderers[0]); demo_index++) {
+        if(strcmp(demo_name, demo_renderers[demo_index].name) == 0) {
+            demo_renderers[demo_index].build();
+            return true;
         }
     }
+    return false;
+}
 
-    if(runtime_path != NULL) {
-        copy_token(runtime_watch_path, sizeof(runtime_watch_path), runtime_path);
-        walnut_screen_workspace_load_runtime(runtime_path);
+int main(int argc, char ** argv)
+{
+    main_options_t options = {
+        .fbdev = "/dev/fb0",
+        .runtime_path = "screen/runtime/default.txt",
+        .demo_name = NULL,
+    };
+    for(int i = 1; i < argc; i++) {
+        if(apply_main_arg(argc, argv, &i, &options)) continue;
+        options.fbdev = argv[i];
+    }
+
+    if(options.runtime_path != NULL) {
+        copy_token(runtime_watch_path, sizeof(runtime_watch_path), options.runtime_path);
+        walnut_screen_workspace_load_runtime(options.runtime_path);
     }
     if(walnut_screen_workspace_active_playlist_hash()[0] == '\0' && workspace_playlist_enabled()) {
         fprintf(stderr, "workspace playlist hash missing\n");
@@ -849,17 +974,14 @@ int main(int argc, char ** argv)
         fprintf(stderr, "failed to create LVGL fbdev display\n");
         return 1;
     }
-    lv_linux_fbdev_set_file(disp, fbdev);
+    lv_linux_fbdev_set_file(disp, options.fbdev);
     lv_linux_fbdev_set_force_refresh(disp, true);
 
-    if(demo_name != NULL && strcmp(demo_name, "lightfield") == 0) {
-        walnut_build_lightfield_demo();
-    }
-    else if(demo_name != NULL) {
-        fprintf(stderr, "unknown LVGL demo: %s\n", demo_name);
+    if(options.demo_name != NULL && !build_demo_by_name(options.demo_name)) {
+        fprintf(stderr, "unknown LVGL demo: %s\n", options.demo_name);
         return 1;
     }
-    else {
+    if(options.demo_name == NULL) {
         walnut_build_screen_ui();
     }
     (void)walnut_runtime_hot_reload_marker;
