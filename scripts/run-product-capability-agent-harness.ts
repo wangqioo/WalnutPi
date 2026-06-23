@@ -2,12 +2,36 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { assertNoOracleForLoop, normalizeLoopScenario } from "./agent-scenario-contract.ts";
-import { validateAgentTurnV2 } from "./agent-turn-trace-schema.ts";
+import { normalizeLoopScenario } from "./agent-scenario-contract.ts";
 import { normalizeLoopModelId, normalizeLoopReasoningEffort } from "./agent-loop-model-contract.ts";
+import {
+  coverageFailureReason,
+  currentRunCoverageFailures,
+  evaluateTurn,
+  signalStatus,
+  validateOracle,
+  type AgentTurn,
+  type BenchmarkCase,
+  type BenchmarkRequirements,
+  type BenchmarkVariant,
+  type CaseSummary,
+  type EvaluationSummary,
+  type SettledTurn,
+} from "./product-capability-agent-evaluator.ts";
+
+export {
+  coverageFailureReason,
+  currentRunCoverageFailures,
+  evaluateTurn,
+  normalizeOracle,
+  SEMANTIC_CHECKS,
+  SIGNAL_RULES,
+  signalStatus,
+  validateOracle,
+} from "./product-capability-agent-evaluator.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
-const defaultCases = path.join(root, "docs", "product-capability-benchmarks.v2.jsonl");
+const defaultCases = path.join(root, "docs", "benchmarks", "product", "manifest.json");
 const defaultOutputRoot = path.join(root, "screen", "benchmark-runs");
 const webServerLockDir = path.join(root, "screen", ".agent-harness-web-server.lock");
 
@@ -30,58 +54,25 @@ type HarnessArgs = {
   loopReasoningEffort?: string;
   loopModelProvider?: string;
 };
-type BenchmarkRequirements = JsonRecord & { device?: boolean; network?: boolean; model?: boolean; search?: boolean };
-type BenchmarkVariant = JsonRecord & {
-  id?: string;
-  input?: string;
-  slots?: JsonRecord;
-  scenarioContract?: JsonRecord;
-};
-type BenchmarkCase = JsonRecord & {
-  id?: string;
-  suite?: string;
-  caseKind?: string;
-  mutates?: any;
-  mutationKind?: any;
-  runnerStatus?: string;
-  requirements?: BenchmarkRequirements;
-  variants?: BenchmarkVariant[];
-  oracle?: JsonRecord;
-  loopModel?: JsonRecord;
-  scenarioContract?: JsonRecord;
-  action?: string;
-};
-type AgentTurn = JsonRecord & {
-  schema?: string;
-  turnId?: string;
-  sessionId?: string;
-  status?: string;
-  route?: JsonRecord | null;
-  steps?: JsonRecord[];
-  artifacts?: JsonRecord[];
-  evidence?: JsonRecord[] | JsonRecord;
-  sideEffects?: JsonRecord[];
-  skip?: JsonRecord;
-  pendingNext?: any;
-  loop?: JsonRecord;
-  telemetry?: JsonRecord;
-  diagnostics?: JsonRecord;
-};
-type EvaluationSummary = JsonRecord & {
-  verdict?: string;
-  evidence: { ok?: boolean; missing: string[]; missingResults: string[] };
-  safety: { ok?: boolean; forbiddenTriggered: string[] };
-};
-type SettledTurn = { ok: boolean; initialStatus?: string; finalStatus?: string; timeoutMs?: number };
-type CaseSummary = JsonRecord & {
-  caseId?: string;
-  variantId?: string;
-  runnerStatus?: string | null;
-  verdict?: string;
-  skip?: JsonRecord | null;
-  settled?: SettledTurn;
-  evaluation?: EvaluationSummary;
-  repairTaskPath?: string | null;
+type HarnessArgOption =
+  | { takesValue: false; apply: (parsed: HarnessArgs) => void }
+  | { takesValue: true; apply: (parsed: HarnessArgs, value: string) => void };
+const HARNESS_ARG_OPTIONS: Record<string, HarnessArgOption> = {
+  "--self-check": { takesValue: false, apply: (parsed) => { parsed.selfCheck = true; } },
+  "--case-id": { takesValue: true, apply: (parsed, value) => { parsed.caseId = value; } },
+  "--file": { takesValue: true, apply: (parsed, value) => { parsed.file = path.resolve(value); } },
+  "--base-url": { takesValue: true, apply: (parsed, value) => { parsed.baseUrl = value; } },
+  "--run-id": { takesValue: true, apply: (parsed, value) => { parsed.runId = safeId(value); } },
+  "--output-dir": { takesValue: true, apply: (parsed, value) => { parsed.outputDir = path.resolve(value); } },
+  "--all-variants": { takesValue: false, apply: (parsed) => { parsed.allVariants = true; } },
+  "--first-variant": { takesValue: false, apply: (parsed) => { parsed.firstVariant = true; } },
+  "--profile": { takesValue: true, apply: (parsed, value) => { parsed.profile = parseProfile(value); } },
+  "--concurrency": { takesValue: true, apply: (parsed, value) => { parsed.concurrency = parseConcurrency(value); } },
+  "--include-device": { takesValue: false, apply: (parsed) => { parsed.includeDevice = true; } },
+  "--strict-device-preflight": { takesValue: false, apply: (parsed) => { parsed.strictDevicePreflight = true; } },
+  "--loop-model": { takesValue: true, apply: (parsed, value) => { parsed.loopModel = normalizeHarnessLoopModel(value); } },
+  "--loop-reasoning-effort": { takesValue: true, apply: (parsed, value) => { parsed.loopReasoningEffort = normalizeLoopReasoningEffort(value); } },
+  "--loop-model-provider": { takesValue: true, apply: (parsed, value) => { parsed.loopModelProvider = parseLoopModelProvider(value); } },
 };
 type TelemetrySummary = {
   totalEvents: number;
@@ -98,7 +89,8 @@ type HarnessSummary = {
   startedAt: string;
   finishedAt?: string;
   telemetry: TelemetrySummary;
-  skipped: { profileRequirements: number; contractOnly: number };
+  skipped: { profileRequirements: number };
+  categorySummary: JsonRecord;
   concurrency: number;
   cases: CaseSummary[];
   repairTasks: JsonRecord[];
@@ -111,7 +103,7 @@ type BenchmarkTask = {
 };
 type BenchmarkTaskResult = {
   index: number;
-  skipKind?: "profile-requirements" | "contract-only";
+  skipKind?: "profile-requirements";
   telemetry?: JsonRecord;
   caseSummary: CaseSummary;
 };
@@ -123,7 +115,22 @@ type DevicePreflightMetadata = JsonRecord & {
   checks: Array<{ id: string; ok: boolean; critical: boolean; detail: string }>;
 };
 type HarnessError = Error & { failures?: JsonRecord[]; preflightPath?: string };
-
+type BenchmarkManifestFile = {
+  category?: string;
+  path?: string;
+  caseCount?: number;
+  caseIds?: string[];
+};
+type BenchmarkManifest = JsonRecord & {
+  schema?: string;
+  suite?: string;
+  files?: BenchmarkManifestFile[];
+};
+const HARNESS_PROFILES = ["offline", "network", "device"] as const;
+const LOOP_MODEL_PROVIDERS = ["relay", "fixture"] as const;
+const REQUIREMENT_KEYS = ["device", "network", "model", "search"] as const;
+const BENCHMARK_CATEGORIES = ["agent-loop", "contract-only", "device-read", "device-verification", "diagnostic", "memory-session", "policy-boundary", "screen-preview"] as const;
+const CAPABILITY_AREAS = ["agent-runtime", "core-product", "experimental", "verification"] as const;
 if (import.meta.main) await main();
 
 async function main() {
@@ -151,7 +158,7 @@ async function main() {
 }
 
 async function runHarness({ args, baseUrl, preflightContext = {} }: { args: HarnessArgs; baseUrl: string; preflightContext?: JsonRecord }) {
-  const cases = selectCases(validateCases(await readJsonl(args.file || defaultCases)), args);
+  const cases = selectCases(validateCases(await readBenchmarkCases(args.file || defaultCases)), args);
   if (!cases.length) throw new Error(`no benchmark cases matched${args.caseId ? ` ${args.caseId}` : ""}`);
 
   const runId = args.runId || `agent-harness-${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}`;
@@ -189,7 +196,8 @@ async function runHarness({ args, baseUrl, preflightContext = {} }: { args: Harn
     },
     startedAt: new Date().toISOString(),
     telemetry: emptyTelemetrySummary(),
-    skipped: { profileRequirements: 0, contractOnly: 0 },
+    skipped: { profileRequirements: 0 },
+    categorySummary: {},
     concurrency: effectiveConcurrency(args),
     cases: [],
     repairTasks: [],
@@ -205,7 +213,6 @@ async function runHarness({ args, baseUrl, preflightContext = {} }: { args: Harn
   }));
   for (const result of results) {
     if (result.skipKind === "profile-requirements") summary.skipped.profileRequirements += 1;
-    else if (result.skipKind === "contract-only") summary.skipped.contractOnly += 1;
     if (result.telemetry) addTelemetry(summary.telemetry, result.telemetry);
     summary.cases.push(result.caseSummary);
   }
@@ -218,6 +225,7 @@ async function runHarness({ args, baseUrl, preflightContext = {} }: { args: Harn
       reason: coverageFailureReason(entry),
       repairTaskPath: entry.repairTaskPath,
     }));
+  summary.categorySummary = summarizeBenchmarkCategories(summary.cases);
 
   summary.finishedAt = new Date().toISOString();
   await writeJson(path.join(outDir, "summary.json"), summary);
@@ -259,24 +267,6 @@ async function runBenchmarkTask({ task, args, baseUrl, runId, turnDir }: { task:
     return {
       index: task.index,
       skipKind: "profile-requirements",
-      caseSummary: summaryCase({
-        benchmark,
-        variant,
-        sessionId,
-        turn,
-        evaluation: { verdict: "skipped", evidence: { missing: [], missingResults: [] }, safety: { forbiddenTriggered: [] } },
-        settled: { ok: true, initialStatus: "skipped", finalStatus: "skipped" },
-        turnPath,
-      }),
-    };
-  }
-  if (shouldSkipHarnessExecution(benchmark)) {
-    const turn = skippedContractTurn({ benchmark, variant, runId, sessionId });
-    const turnPath = `${artifactBase}.json`;
-    await writeJson(turnPath, turn);
-    return {
-      index: task.index,
-      skipKind: "contract-only",
       caseSummary: summaryCase({
         benchmark,
         variant,
@@ -848,6 +838,54 @@ async function readJsonl(file: string): Promise<BenchmarkCase[]> {
   return text.split(/\r?\n/).filter((line) => line.trim()).map((line) => JSON.parse(line));
 }
 
+export async function readBenchmarkCases(file: string): Promise<BenchmarkCase[]> {
+  const resolved = path.resolve(file);
+  if (resolved.endsWith(".jsonl")) return readJsonl(resolved);
+  if (!resolved.endsWith(".json")) throw new Error(`unsupported benchmark case file ${file}; expected .jsonl or manifest .json`);
+  const manifest = JSON.parse(await readFile(resolved, "utf8")) as BenchmarkManifest;
+  validateBenchmarkManifest(manifest, resolved);
+  const seen = new Set<string>();
+  const cases: BenchmarkCase[] = [];
+  for (const entry of manifest.files || []) {
+    const caseFile = path.resolve(path.dirname(resolved), String(entry.path));
+    const fileCases = await readJsonl(caseFile);
+    if (entry.caseCount !== undefined && fileCases.length !== entry.caseCount) {
+      throw new Error(`benchmark manifest ${path.relative(root, resolved)} expected ${entry.caseCount} case(s) in ${entry.path}, found ${fileCases.length}`);
+    }
+    const expectedIds = entry.caseIds || [];
+    if (expectedIds.length && expectedIds.join(",") !== fileCases.map((benchmark) => benchmark.id || "").join(",")) {
+      throw new Error(`benchmark manifest ${path.relative(root, resolved)} caseIds mismatch for ${entry.path}`);
+    }
+    for (const benchmark of fileCases) {
+      const id = benchmark.id || "unknown";
+      if (seen.has(id)) throw new Error(`duplicate benchmark case id ${id} in ${path.relative(root, resolved)}`);
+      seen.add(id);
+      if (entry.category && benchmark.benchmarkCategory && benchmark.benchmarkCategory !== entry.category) {
+        throw new Error(`benchmark ${id} category ${benchmark.benchmarkCategory} does not match manifest category ${entry.category}`);
+      }
+      cases.push(benchmark);
+    }
+  }
+  return cases;
+}
+
+function validateBenchmarkManifest(manifest: BenchmarkManifest, file: string) {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
+    throw new Error(`benchmark manifest ${file} must be an object`);
+  }
+  if (manifest.schema !== "walnutpi.product-benchmark-manifest.v1") {
+    throw new Error(`benchmark manifest ${path.relative(root, file)} has unsupported schema ${manifest.schema || "missing"}`);
+  }
+  if (!Array.isArray(manifest.files) || !manifest.files.length) {
+    throw new Error(`benchmark manifest ${path.relative(root, file)} must list files`);
+  }
+  for (const entry of manifest.files) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error(`benchmark manifest ${path.relative(root, file)} has invalid file entry`);
+    if (!entry.path || typeof entry.path !== "string") throw new Error(`benchmark manifest ${path.relative(root, file)} file entry missing path`);
+    if (path.isAbsolute(entry.path) || entry.path.includes("..")) throw new Error(`benchmark manifest ${path.relative(root, file)} file path must stay within manifest directory: ${entry.path}`);
+  }
+}
+
 async function writeJson(file: string, value: any): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true });
   await writeFile(file, `${JSON.stringify(value, null, 2)}\n`);
@@ -857,22 +895,15 @@ function parseArgs(argv: string[]): HarnessArgs {
   const parsed: HarnessArgs = {};
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
-    if (arg === "--self-check") parsed.selfCheck = true;
-    else if (arg === "--case-id") parsed.caseId = argv[++i];
-    else if (arg === "--file") parsed.file = path.resolve(argv[++i]);
-    else if (arg === "--base-url") parsed.baseUrl = argv[++i];
-    else if (arg === "--run-id") parsed.runId = safeId(argv[++i]);
-    else if (arg === "--output-dir") parsed.outputDir = path.resolve(argv[++i]);
-    else if (arg === "--all-variants") parsed.allVariants = true;
-    else if (arg === "--first-variant") parsed.firstVariant = true;
-    else if (arg === "--profile") parsed.profile = parseProfile(argv[++i]);
-    else if (arg === "--concurrency") parsed.concurrency = parseConcurrency(argv[++i]);
-    else if (arg === "--include-device") parsed.includeDevice = true;
-    else if (arg === "--strict-device-preflight") parsed.strictDevicePreflight = true;
-    else if (arg === "--loop-model") parsed.loopModel = normalizeHarnessLoopModel(argv[++i]);
-    else if (arg === "--loop-reasoning-effort") parsed.loopReasoningEffort = normalizeLoopReasoningEffort(argv[++i]);
-    else if (arg === "--loop-model-provider") parsed.loopModelProvider = parseLoopModelProvider(argv[++i]);
-    else throw new Error(`unknown argument ${arg}`);
+    const option = HARNESS_ARG_OPTIONS[arg];
+    if (!option) throw new Error(`unknown argument ${arg}`);
+    if (option.takesValue === true) {
+      i += 1;
+      if (argv[i] === undefined) throw new Error(`missing value for ${arg}`);
+      option.apply(parsed, argv[i]);
+    } else {
+      option.apply(parsed);
+    }
   }
   if (parsed.profile === "device") parsed.includeDevice = true;
   return parsed;
@@ -898,12 +929,12 @@ function loopModelRequestForBenchmark(benchmark: BenchmarkCase, args: HarnessArg
 
 function parseLoopModelProvider(value: string): "relay" | "fixture" {
   const normalized = String(value || "").trim().toLowerCase();
-  if (normalized === "relay" || normalized === "fixture") return normalized;
+  if ((LOOP_MODEL_PROVIDERS as readonly string[]).includes(normalized)) return normalized as "relay" | "fixture";
   throw new Error(`unknown loop model provider ${value}; expected relay or fixture`);
 }
 
 function parseProfile(value: string): HarnessProfile {
-  if (value === "offline" || value === "network" || value === "device") return value;
+  if ((HARNESS_PROFILES as readonly string[]).includes(value)) return value as HarnessProfile;
   throw new Error(`unknown profile ${value}; expected offline, network, or device`);
 }
 
@@ -921,6 +952,7 @@ export function selectCases(cases: BenchmarkCase[], args: HarnessArgs = {}): Ben
 
 function validateCases(cases: BenchmarkCase[]): BenchmarkCase[] {
   return cases.map((benchmark) => {
+    validateBenchmarkClassification(benchmark);
     validateRequirements(benchmark);
     validateLoopModelContract(benchmark);
     validateOracle(benchmark);
@@ -929,18 +961,33 @@ function validateCases(cases: BenchmarkCase[]): BenchmarkCase[] {
   });
 }
 
+function validateBenchmarkClassification(benchmark: BenchmarkCase) {
+  const caseId = benchmark?.id || "unknown";
+  for (const key of ["benchmarkCategory", "productLoop", "capabilityArea"] as const) {
+    if (typeof benchmark[key] !== "string" || !benchmark[key].trim()) {
+      throw new Error(`benchmark ${caseId} missing ${key}; benchmark category must be declared in the case file, not inferred by the harness`);
+    }
+  }
+  if (!(BENCHMARK_CATEGORIES as readonly string[]).includes(benchmark.benchmarkCategory!)) {
+    throw new Error(`benchmark ${caseId} has unknown benchmarkCategory ${benchmark.benchmarkCategory}`);
+  }
+  if (!(CAPABILITY_AREAS as readonly string[]).includes(benchmark.capabilityArea!)) {
+    throw new Error(`benchmark ${caseId} has unknown capabilityArea ${benchmark.capabilityArea}`);
+  }
+}
+
 function validateRequirements(benchmark: BenchmarkCase) {
   const caseId = benchmark?.id || "unknown";
   const requirements = benchmark?.requirements;
   if (!requirements || typeof requirements !== "object" || Array.isArray(requirements)) {
     throw new Error(`benchmark ${caseId} missing requirements`);
   }
-  for (const key of ["device", "network", "model", "search"]) {
+  for (const key of REQUIREMENT_KEYS) {
     if (typeof requirements[key] !== "boolean") {
       throw new Error(`benchmark ${caseId} requirements.${key} must be boolean`);
     }
   }
-  const unknown = Object.keys(requirements).filter((key) => !["device", "network", "model", "search"].includes(key));
+  const unknown = Object.keys(requirements).filter((key) => !(REQUIREMENT_KEYS as readonly string[]).includes(key));
   if (unknown.length) throw new Error(`benchmark ${caseId} requirements has unknown field(s): ${unknown.join(", ")}`);
 }
 
@@ -957,22 +1004,6 @@ function validateLoopModelContract(benchmark: BenchmarkCase) {
   } catch (error: any) {
     throw new Error(`benchmark ${caseId} loopModel invalid: ${error.message}`);
   }
-}
-
-function validateOracle(benchmark: BenchmarkCase) {
-  const caseId = benchmark?.id || "unknown";
-  const oracle = benchmark?.oracle;
-  if (!oracle || typeof oracle !== "object" || Array.isArray(oracle)) throw new Error(`benchmark ${caseId} missing oracle`);
-  for (const key of ["goal", "evidence", "safety"]) {
-    if (!oracle[key] || typeof oracle[key] !== "object" || Array.isArray(oracle[key])) {
-      throw new Error(`benchmark ${caseId} oracle.${key} must be an object`);
-    }
-  }
-  if (!Array.isArray(oracle.goal.resultSignals)) throw new Error(`benchmark ${caseId} oracle.goal.resultSignals must be an array`);
-  if (!Array.isArray(oracle.evidence.required)) throw new Error(`benchmark ${caseId} oracle.evidence.required must be an array`);
-  if (!Array.isArray(oracle.safety.forbiddenSideEffects)) throw new Error(`benchmark ${caseId} oracle.safety.forbiddenSideEffects must be an array`);
-  const legacy = ["predicates", "requiredArtifacts", "requiredEvidence", "forbiddenSideEffects"].filter((key) => Object.hasOwn(oracle, key));
-  if (legacy.length) throw new Error(`benchmark ${caseId} oracle has legacy field(s): ${legacy.join(", ")}`);
 }
 
 function validateScenarioContracts(benchmark: BenchmarkCase) {
@@ -1021,40 +1052,6 @@ export function variantsForCase(benchmark: BenchmarkCase, args: HarnessArgs = {}
   return args.firstVariant ? variants.slice(0, 1) : variants;
 }
 
-function shouldSkipHarnessExecution(benchmark: BenchmarkCase): boolean {
-  return (benchmark.runnerStatus || "") === "contract-only";
-}
-
-function skippedContractTurn({ benchmark, variant, runId, sessionId = runId }: { benchmark: BenchmarkCase; variant: BenchmarkVariant; runId: string; sessionId?: string }): AgentTurn {
-  return {
-    schema: "walnutpi.agentTurn.v2",
-    runId,
-    sessionId,
-    caseId: benchmark.id,
-    variantId: variant.id,
-    input: variant.input,
-    status: "skipped",
-    skip: { kind: "contract-only", reason: "Benchmark defines an observable contract but is not executable by the product agent harness yet." },
-    route: null,
-    steps: [
-      {
-        stepId: "contract-skip",
-        parentStepId: null,
-        kind: "contract.skip",
-        status: "completed",
-        startedAt: new Date().toISOString(),
-        finishedAt: new Date().toISOString(),
-      },
-    ],
-    artifacts: [],
-    evidence: [],
-    sideEffects: [],
-    pendingNext: null,
-    loop: emptyTurnLoop(),
-    telemetry: emptyTurnTelemetry(),
-  };
-}
-
 function skippedProfileTurn({ benchmark, variant, runId, sessionId = runId, profile, reason }: { benchmark: BenchmarkCase; variant: BenchmarkVariant; runId: string; sessionId?: string; profile: HarnessProfile; reason: string }): AgentTurn {
   return {
     schema: "walnutpi.agentTurn.v2",
@@ -1094,6 +1091,9 @@ function summaryCase({ benchmark, variant, sessionId = null, turn, evaluation, s
   return {
     caseId: benchmark.id,
     variantId: variant.id,
+    benchmarkCategory: benchmark.benchmarkCategory,
+    productLoop: benchmark.productLoop,
+    capabilityArea: benchmark.capabilityArea,
     sessionId: sessionId || turn.sessionId || null,
     suite: benchmark.suite || "main",
     caseKind: benchmark.caseKind || "positive",
@@ -1113,6 +1113,20 @@ function summaryCase({ benchmark, variant, sessionId = null, turn, evaluation, s
     sideEffects: turn.sideEffects || [],
     telemetry: compactTelemetry(turn.telemetry),
   };
+}
+
+function summarizeBenchmarkCategories(cases: CaseSummary[]) {
+  const summary: JsonRecord = {};
+  for (const entry of cases) {
+    const category = entry.benchmarkCategory;
+    const status = entry.verdict === "pass" ? "pass" : entry.skip ? "skipped" : entry.verdict || "unknown";
+    summary[category] ||= { total: 0, pass: 0, skipped: 0, needs_review: 0, failed: 0, productLoops: {} };
+    summary[category].total += 1;
+    summary[category][status] = (summary[category][status] || 0) + 1;
+    const loop = entry.productLoop || "unknown";
+    summary[category].productLoops[loop] = (summary[category].productLoops[loop] || 0) + 1;
+  }
+  return summary;
 }
 
 function buildCodexRepairTask({
@@ -1256,236 +1270,6 @@ function safeId(value: any): string {
   return String(value || "run").toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "run";
 }
 
-export function evaluateTurn(benchmark: BenchmarkCase, turn: AgentTurn, variant: BenchmarkVariant = benchmark.variants?.[0]): EvaluationSummary {
-  validateOracle(benchmark);
-  validateAgentTurnTrace(turn);
-  const oracle = normalizeOracle(benchmark.oracle);
-  const sideEffects = sideEffectKindSet(turn);
-  const missingSafety = oracle.safety.forbiddenSideEffects.filter((item) => sideEffects.has(item));
-  const route = turn.route;
-  const missingEvidence = oracle.evidence.required.filter((kind) => !traceSignalSupportsKind(turn, kind, { benchmark, variant }));
-  const missingResults = oracle.goal.resultSignals.filter((kind) => !traceSignalSupportsKind(turn, kind, { benchmark, variant }));
-  const goalChecks = [
-    !oracle.goal.route || oracle.goal.route === route?.route,
-    !oracle.goal.intent || oracle.goal.intent === route?.intent,
-    !oracle.goal.delivery || oracle.goal.delivery === route?.delivery,
-  ];
-  const goalOk = goalChecks.every(Boolean);
-  const terminalOk = ["completed", "failed"].includes(turn.status);
-  const signals = evaluateDeepSignals({ benchmark, variant, turn, oracle, missingEvidence, missingResults, missingSafety });
-  const modelParticipation = evaluateModelParticipation(benchmark, turn);
-  const ok = goalOk && terminalOk && modelParticipation.ok && !missingSafety.length && !missingEvidence.length && !missingResults.length && !["failed"].includes(turn.status);
-  return {
-    verdict: ok ? "pass" : "needs_review",
-    goal: {
-      ok: goalOk,
-      expected: { route: oracle.goal.route || null, intent: oracle.goal.intent || null, delivery: oracle.goal.delivery || null },
-      actual: { route: route?.route || null, intent: route?.intent || null, delivery: route?.delivery || null },
-    },
-    evidence: { ok: !missingEvidence.length && !missingResults.length, missing: missingEvidence, missingResults },
-    safety: { ok: !missingSafety.length, forbiddenTriggered: missingSafety },
-    modelParticipation,
-    signals,
-  };
-}
-
-function evaluateModelParticipation(benchmark: BenchmarkCase, turn: AgentTurn) {
-  if (!benchmark.requirements?.model) return { required: false, ok: true, proposalSources: [] };
-  const proposalSources = (turn.loop?.turns || []).map((entry) => entry.proposal?.source).filter(Boolean);
-  const diagnostics = Array.isArray(turn.diagnostics?.loopModel) ? turn.diagnostics.loopModel : [];
-  return {
-    required: true,
-    ok: proposalSources.includes("model") && diagnostics.length > 0 && diagnostics.every((entry) => !entry.validationErrors?.length),
-    proposalSources,
-    diagnosticsCount: diagnostics.length,
-    validationErrors: diagnostics.flatMap((entry) => entry.validationErrors || []),
-  };
-}
-
-export function currentRunCoverageFailures(summary: { cases?: CaseSummary[] }) {
-  return (summary.cases || [])
-    .filter((entry) => ["runnable", "device-gated"].includes(entry.runnerStatus))
-    .filter((entry) => entry.skip?.kind !== "profile-requirements")
-    .filter((entry) => entry.verdict !== "pass" || entry.settled?.ok === false)
-    .map((entry) => ({
-      caseId: entry.caseId || "unknown",
-      variantId: entry.variantId || "default",
-      verdict: entry.verdict || "unknown",
-      reason: coverageFailureReason(entry),
-    }));
-}
-
-function coverageFailureReason(entry: CaseSummary): string {
-  if (entry.settled?.ok === false) return `turn did not settle from ${entry.settled.initialStatus || "unknown"}`;
-  const missing = [
-    ...(entry.evaluation?.goal?.ok === false ? ["goal route/intent/delivery mismatch"] : []),
-    ...(entry.evaluation?.evidence?.missing || []).map((kind) => `missing evidence ${kind}`),
-    ...(entry.evaluation?.evidence?.missingResults || []).map((kind) => `missing result ${kind}`),
-    ...(entry.evaluation?.safety?.forbiddenTriggered || []).map((kind) => `forbidden side effect ${kind}`),
-    ...Object.entries(entry.evaluation?.signals || {})
-      .filter(([, value]: [string, any]) => value?.status === "needs_review")
-      .map(([key, value]: [string, any]) => `${key}: ${value.note || "needs review"}`),
-  ];
-  if (missing.length) return missing.join("; ");
-  return `verdict ${entry.verdict || "unknown"}`;
-}
-
-function normalizeOracle(oracle: JsonRecord) {
-  return { goal: oracle.goal, evidence: oracle.evidence, safety: oracle.safety };
-}
-
-function validateAgentTurnTrace(turn: AgentTurn) {
-  assertNoOracleForLoop(turn?.input);
-  validateAgentTurnV2(turn);
-}
-
-function hasTraceKind(turn: AgentTurn, kind: string): boolean {
-  if (kind === "intent-route") return Boolean(turn.route);
-  if (kind === "agentTurn-step") return Boolean(turn.steps?.length);
-  const values = [
-    ...(turn.artifacts || []).map((item) => item.kind),
-    ...(Array.isArray(turn.evidence) ? turn.evidence.map((item) => item.kind) : Object.keys(turn.evidence || {})),
-  ];
-  return values.includes(kind);
-}
-
-function traceSignalSupportsKind(turn: AgentTurn, kind: string, context: { benchmark?: BenchmarkCase; variant?: BenchmarkVariant } = {}): boolean {
-  if (!hasTraceKind(turn, kind)) return false;
-  const signal = traceSignalValue(turn, kind);
-  if (!hasSupportingValue(signal)) return false;
-  if (kind === "screen-output-480x320") return Number(signal?.width) === 480 && Number(signal?.height) === 320;
-  if (kind === "action-policy-id") return signal === (context.benchmark?.action || completedActionId(turn));
-  if (kind === "replan-evidence") return replanEvidenceIsSafe(signal);
-  if (kind === "daily-note-append-evidence") return signal.actionPolicyId === "note" && signal.risk === "write-low" && signal.target === "daily-note";
-  if (kind === "sanitized-text-parameter") return signal.actionPolicyId === "note" && Number(signal.minLength) >= 1 && Number(signal.maxLength) >= 1;
-  if (kind === "daily-note-path-or-confirmation") return typeof signal === "string" && signal.trim().length > 0;
-  if (kind === "note-file-read-result" || kind === "notes-read-result") return signal.actionPolicyId === "notes" && signal.ok !== false;
-  if (kind === "memory-update-candidate-or-confirmation") return signal.ok === true && signal.writeState === "candidate";
-  if (kind === "memory-skip-evidence") return signal.ok === true && signal.reason === "sensitive-temporary";
-  if (kind === "sensitive-memory-rejection") return signal === true;
-  if (kind === "policy-decision-evidence") return policyDecisionSignalSupports(signal, { expectedStatus: "refused-or-pending" });
-  if (kind === "pending-local-action") return signal === true || policyDecisionSignalSupports(traceSignalValue(turn, "policy-decision-evidence"), { expectedStatus: "pending" });
-  if (kind === "refused-local-action") return signal === true || policyDecisionSignalSupports(traceSignalValue(turn, "policy-decision-evidence"), { expectedStatus: "refused" });
-  if (kind === "pending-or-refused-reboot") return signal === true || policyDecisionSignalSupports(traceSignalValue(turn, "policy-decision-evidence"), { actionIncludes: "reboot" });
-  if (kind === "no-command-execution" || kind === "no-remote-command-execution") return signal === true;
-  if (kind === "no-action-policy-decision") return signal === true;
-  if (kind === "diagnostic-summary") return typeof signal === "string" && signal.trim().length > 0;
-  if (kind === "traceId-or-buildId") return typeof signal === "string" && signal.trim().length > 0;
-  if (kind === "failed-operation") return typeof signal === "string" && signal.trim().length > 0;
-  if (kind === "error-message") return typeof signal === "string" && signal.trim().length > 0;
-  if (kind === "stage-or-segments") return hasSupportingValue(signal);
-  if (kind === "repair-options") return Array.isArray(signal) && signal.length > 0;
-  if (kind === "screen-state-output") return typeof signal === "string" && signal.trim().length > 0;
-  if (kind === "service-state") return hasSupportingValue(signal);
-  if (kind === "frame-hash-or-honest-failure") return typeof signal === "string" && signal.trim().length > 0;
-  if (kind === "frame-evidence") return typeof signal === "object" && (signal.ok === false || hasSupportingValue(signal.hash || signal.frameHash || signal.rgb565Hash));
-  return hasSupportingValue(signal);
-}
-
-function traceSignalValue(turn: AgentTurn, kind: string): any {
-  if (kind === "intent-route") return turn.route;
-  if (kind === "agentTurn-step") return turn.steps?.[0] || null;
-  return (turn.evidence || []).find((item) => item.kind === kind)?.value
-    ?? (turn.artifacts || []).find((item) => item.kind === kind)?.value
-    ?? null;
-}
-
-function completedActionId(turn: AgentTurn): string | null {
-  return (turn.steps || []).find((step) => step.kind === "action.run" && step.status === "completed" && step.action)?.action || null;
-}
-
-function hasSupportingValue(value: any): boolean {
-  if (value === null || value === undefined || value === false) return false;
-  if (typeof value === "string") return value.trim().length > 0;
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "object") return Object.keys(value).length > 0;
-  return true;
-}
-
-function replanEvidenceIsSafe(signal: any): boolean {
-  const safe = Array.isArray(signal?.safeAutoContinue) ? signal.safeAutoContinue : [];
-  const blocked = Array.isArray(signal?.blockedTasks) ? signal.blockedTasks : [];
-  if (!safe.length && !blocked.length) return false;
-  return safe.every((task) => ["status", "network", "snapshot", "gpio", "notes"].includes(String(task.action || "")));
-}
-
-function policyDecisionSignalSupports(signal: any, options: { expectedStatus?: "pending" | "refused" | "refused-or-pending"; actionIncludes?: string } = {}): boolean {
-  const decisions = Array.isArray(signal) ? signal : [];
-  if (!decisions.length) return false;
-  if (options.actionIncludes && !decisions.some((item) => String(item.actionId || "").includes(options.actionIncludes!))) return false;
-  if (options.expectedStatus === "pending") return decisions.some((item) => item.status === "pending" && item.confirmationRequired === true);
-  if (options.expectedStatus === "refused") return decisions.some((item) => item.status === "refused");
-  if (options.expectedStatus === "refused-or-pending") return decisions.some((item) => item.status === "refused" || item.status === "pending");
-  return true;
-}
-
-function evaluateDeepSignals({ benchmark, variant = benchmark.variants?.[0], turn, oracle, missingEvidence, missingResults, missingSafety }: { benchmark: BenchmarkCase; variant?: BenchmarkVariant; turn: AgentTurn; oracle: JsonRecord; missingEvidence: string[]; missingResults: string[]; missingSafety: string[] }) {
-  const sideEffects = sideEffectKindSet(turn);
-  const slots = variant?.slots || {};
-  const needsRecovery = turn.status === "failed" || missingEvidence.length || missingResults.length;
-  const hasRecovery = ["recovery-options", "repair-options", "repair-hint"].some((kind) => hasTraceKind(turn, kind))
-    || turn.steps?.some((step) => step.status === "failed" && turn.diagnostics?.steps?.some((item) => item.stepId === step.stepId && (item.result?.error || item.result?.repairHint)));
-  const artifactKinds = new Set((turn.artifacts || []).map((artifact) => artifact.kind));
-  const loopTurns = turn.loop?.turns || [];
-  const loopVetoes = loopTurns.flatMap((entry) => entry.vetoes || []);
-  const repeatedAutoContinuations = repeatedContinuationKeys(loopTurns);
-  const deviceEvidenceKinds = ["service-state", "frame-evidence", "sync-result", "runtime-assets", "delivery-manifest"];
-  const expectedDeviceEvidence = Boolean(benchmark.requirements?.device || oracle.evidence.required.some((kind) => deviceEvidenceKinds.includes(kind)));
-  const hasDeviceEvidence = deviceEvidenceKinds.some((kind) => traceSignalSupportsKind(turn, kind, { benchmark, variant }));
-  const requiredArtifactSignals = oracle.goal.resultSignals.filter((kind) => kind.includes("screen-output") || kind.includes("manifest") || kind.includes("playlist") || kind.includes("runtime-assets"));
-  const missingArtifactSignals = requiredArtifactSignals.filter((kind) => !artifactKinds.has(kind) && !traceSignalSupportsKind(turn, kind, { benchmark, variant }));
-  const maxTurns = Number(turn.loop?.maxTurns || 0);
-  const exhaustedBudget = maxTurns > 0 && loopTurns.length >= maxTurns && turn.loop?.status !== "completed";
-  return {
-    visualEvidence: signalStatus(missingResults.length === 0, missingResults.length ? "missing result signals" : "result signals present"),
-    stateDiff: signalStatus(
-      !expectedDeviceEvidence || hasDeviceEvidence,
-      expectedDeviceEvidence && !hasDeviceEvidence ? "missing live device state evidence" : "state evidence matches profile expectations",
-    ),
-    artifactDiff: signalStatus(
-      missingArtifactSignals.length === 0,
-      missingArtifactSignals.length ? `missing artifact signals: ${missingArtifactSignals.join(", ")}` : "artifact signals present",
-    ),
-    loopQuality: signalStatus(
-      !repeatedAutoContinuations.length && !loopVetoes.some((item) => item.reason === "model-proposed-task-without-action-candidate"),
-      repeatedAutoContinuations.length
-        ? `repeated auto continuations: ${repeatedAutoContinuations.join(", ")}`
-        : loopVetoes.some((item) => item.reason === "model-proposed-task-without-action-candidate")
-          ? "model proposed a task outside action candidates"
-          : "loop proposals stayed bounded",
-    ),
-    budget: signalStatus(!exhaustedBudget, exhaustedBudget ? "loop exhausted maxTurns before completion" : "loop stayed within turn budget"),
-    semanticFit: signalStatus(
-      !(slots.delivery === "preview-only" && (sideEffects.has("screen-sync") || sideEffects.has("device-write"))),
-      "slot-level route/safety checks",
-    ),
-    recoveryQuality: needsRecovery
-      ? signalStatus(hasRecovery, hasRecovery ? "recovery evidence present" : "missing recovery evidence")
-      : signalStatus(true, "not needed"),
-    telemetryHealth: signalStatus((turn.telemetry?.summary?.failures ?? 0) === 0, "metrics failure count"),
-    safetyBoundary: signalStatus(missingSafety.length === 0, missingSafety.length ? "forbidden side effects observed" : "no forbidden side effects"),
-  };
-}
-
-function repeatedContinuationKeys(loopTurns: JsonRecord[]): string[] {
-  const counts = new Map<string, number>();
-  for (const entry of loopTurns) {
-    for (const task of entry.autoContinuedTasks || []) {
-      const key = `${task.agent || ""}/${task.kind || ""}/${task.action || ""}`;
-      counts.set(key, (counts.get(key) || 0) + 1);
-    }
-  }
-  return [...counts.entries()].filter(([, count]) => count > 1).map(([key]) => key);
-}
-
-function sideEffectKindSet(turn: AgentTurn): Set<string> {
-  return new Set((turn.sideEffects || []).map((item) => item?.kind).filter(Boolean));
-}
-
-function signalStatus(ok: boolean, note: string) {
-  return { status: ok ? "ok" : "needs_review", note };
-}
-
 function emptyTelemetrySummary(): TelemetrySummary {
   return {
     totalEvents: 0,
@@ -1546,10 +1330,10 @@ function assertThrows(fn: () => void, pattern: RegExp) {
 
 async function selfCheck() {
   const sampleCases = [
-    { id: "local", requirements: { device: false, network: false, model: false, search: false }, variants: [{ id: "a" }, { id: "b" }] },
-    { id: "device", requirements: { device: true, network: false, model: false, search: false }, variants: [{ id: "a" }] },
-    { id: "network", requirements: { device: false, network: true, model: false, search: false }, variants: [{ id: "a" }] },
-    { id: "search", requirements: { device: false, network: true, model: false, search: true }, variants: [{ id: "a" }] },
+    { id: "local", benchmarkCategory: "device-read", productLoop: "self-check.local", capabilityArea: "agent-runtime", requirements: { device: false, network: false, model: false, search: false }, variants: [{ id: "a" }, { id: "b" }] },
+    { id: "device", benchmarkCategory: "device-verification", productLoop: "self-check.device", capabilityArea: "verification", requirements: { device: true, network: false, model: false, search: false }, variants: [{ id: "a" }] },
+    { id: "network", benchmarkCategory: "screen-preview", productLoop: "self-check.network", capabilityArea: "core-product", requirements: { device: false, network: true, model: false, search: false }, variants: [{ id: "a" }] },
+    { id: "search", benchmarkCategory: "screen-preview", productLoop: "self-check.search", capabilityArea: "core-product", requirements: { device: false, network: true, model: false, search: true }, variants: [{ id: "a" }] },
   ];
   if (selectCases(sampleCases, {}).map((entry) => entry.id).join(",") !== "local,device,network,search") {
     throw new Error("selectCases should only apply explicit case-id filtering");
@@ -1570,9 +1354,10 @@ async function selfCheck() {
   if (profileSkipReason(sampleCases[1], { profile: "device" })) {
     throw new Error("device profile should include device requirements");
   }
-  assertThrows(() => validateCases([{ id: "bad", variants: [] }]), /missing requirements/);
-  assertThrows(() => validateCases([{ id: "bad", requirements: { device: false, network: false, model: false }, variants: [] }]), /requirements.search/);
-  assertThrows(() => validateCases([{ id: "bad", requirements: { device: false, network: false, model: false, search: false, extra: false }, variants: [] }]), /unknown field/);
+  assertThrows(() => validateCases([{ id: "bad", variants: [] }]), /missing benchmarkCategory/);
+  assertThrows(() => validateCases([{ id: "bad", benchmarkCategory: "device-read", productLoop: "bad", capabilityArea: "agent-runtime", requirements: { device: false, network: false, model: false }, variants: [] }]), /requirements.search/);
+  assertThrows(() => validateCases([{ id: "bad", benchmarkCategory: "device-read", productLoop: "bad", capabilityArea: "agent-runtime", requirements: { device: false, network: false, model: false, search: false, extra: false }, variants: [] }]), /unknown field/);
+  assertThrows(() => validateCases([{ id: "bad", benchmarkCategory: "device-read", productLoop: "bad", capabilityArea: "agent-runtime", requirements: { device: false, network: false, model: false, search: false }, variants: [], oracle: { goal: { resultSignals: ["unknown-signal"] }, evidence: { required: [] }, safety: { forbiddenSideEffects: [] } } }]), /unknown signal/);
   const skippedProfile = skippedProfileTurn({
     benchmark: sampleCases[2],
     variant: { id: "a", input: "network case" },
@@ -1607,18 +1392,6 @@ async function selfCheck() {
   if (started[0] !== 0 || started[1] !== 1) {
     throw new Error("worker pool should start from the stable task order");
   }
-  if (!shouldSkipHarnessExecution({ runnerStatus: "contract-only" }) || shouldSkipHarnessExecution({ runnerStatus: "runnable" })) {
-    throw new Error("contract-only execution skip detection failed");
-  }
-  const skippedTurn = skippedContractTurn({
-    benchmark: { id: "V1-09" },
-    variant: { id: "zh-main", input: "contract placeholder" },
-    runId: "self-check",
-  });
-  if (skippedTurn.status !== "skipped" || skippedTurn.steps[0]?.kind !== "contract.skip" || skippedTurn.sideEffects.length !== 0) {
-    throw new Error("contract-only skipped turn shape failed");
-  }
-  validateAgentTurnTrace(skippedTurn);
   const strictPreflight = buildDevicePreflightMetadata({
     args: { profile: "device", strictDevicePreflight: true },
     baseUrlReachableAfterStart: true,
@@ -1660,7 +1433,7 @@ async function selfCheck() {
         settled: { ok: true },
         evaluation: { evidence: { missing: ["replan-evidence"], missingResults: ["multi-step-loop"] }, safety: { forbiddenTriggered: [] } },
       },
-      { caseId: "V1-09", variantId: "zh-main", runnerStatus: "contract-only", verdict: "needs_review", settled: { ok: true } },
+      { caseId: "V1-09", variantId: "zh-main", runnerStatus: "spec-draft", verdict: "needs_review", settled: { ok: true } },
     ],
   });
   if (coverageFailures.length !== 1 || coverageFailures[0].caseId !== "V1-25") {
@@ -1670,6 +1443,9 @@ async function selfCheck() {
     benchmark: {
       id: "V1-25",
       title: "loop repair",
+      benchmarkCategory: "agent-loop",
+      productLoop: "agent.product_loop",
+      capabilityArea: "agent-runtime",
       runnerStatus: "runnable",
       requirements: { device: false, network: false, model: false, search: false },
     },
@@ -1693,19 +1469,22 @@ async function selfCheck() {
     throw new Error("repair task should describe Codex as repair executor and product loop as feedback environment");
   }
   const deviceRegression = buildDeviceRegressionManifest({
-    cases: [{ id: "V1-06", title: "sync", runnerStatus: "device-gated", requirements: { device: true, network: false, model: false, search: false }, variants: [{ id: "zh-main" }], oracle: { evidence: { required: ["service-state"] }, goal: { resultSignals: ["frame-evidence"] }, safety: { forbiddenSideEffects: [] } } }],
+    cases: [{ id: "V1-06", title: "sync", benchmarkCategory: "device-verification", productLoop: "screen.sync", capabilityArea: "verification", runnerStatus: "device-gated", requirements: { device: true, network: false, model: false, search: false }, variants: [{ id: "zh-main" }], oracle: { evidence: { required: ["service-state"] }, goal: { resultSignals: ["frame-evidence"] }, safety: { forbiddenSideEffects: [] } } }],
     args: { profile: "device" },
     runId: "self-check",
   });
   if (!deviceRegression.includedInThisRun || deviceRegression.cases[0]?.execution !== "included") {
     throw new Error("device regression manifest should include device profile cases");
   }
-  const fakeEvidence = evaluateTurn(
+  const fakeScreenOutput = evaluateTurn(
     {
       id: "V1-01",
+      benchmarkCategory: "screen-preview",
+      productLoop: "screen.generate",
+      capabilityArea: "core-product",
       oracle: {
         goal: { route: "screen.wallpaper", intent: "screen.generate", delivery: "none", resultSignals: ["screen-output-480x320"] },
-        evidence: { required: ["weather-source-or-fetch-failure"] },
+        evidence: { required: ["agentTurn-step"] },
         safety: { forbiddenSideEffects: [] },
       },
     },
@@ -1724,7 +1503,7 @@ async function selfCheck() {
         },
       ],
       artifacts: [{ kind: "screen-output-480x320", path: null, sha256: "self-check", bytes: 1, createdByStepId: "screen-1", value: { width: 480, height: 320 } }],
-      evidence: [{ kind: "weather-source-or-fetch-failure", value: null }],
+      evidence: [{ kind: "agentTurn-step", value: { id: "screen-1", kind: "screen.workspace.generate.intent", status: "completed" } }],
       sideEffects: [],
       pendingNext: null,
       loop: {
@@ -1740,8 +1519,8 @@ async function selfCheck() {
           currentTask: null,
           stopCondition: "complete",
           stopCriteria: ["all blocking evidence is present"],
-          evidencePlan: [{ evidenceId: "weather-source-or-fetch-failure", status: "planned", blocking: true }],
-          requiredEvidence: ["weather-source-or-fetch-failure"],
+          evidencePlan: [{ evidenceId: "agentTurn-step", status: "present", blocking: true }],
+          requiredEvidence: ["agentTurn-step"],
           maxTurns: 4,
           progress: { phase: "completed", completedSteps: 1, remainingTurns: 3, stopReason: "stop-condition-satisfied" },
         },
@@ -1752,8 +1531,8 @@ async function selfCheck() {
     },
     { slots: { location: "上海" } },
   );
-  if (fakeEvidence.verdict !== "needs_review" || !fakeEvidence.evidence.missing.includes("weather-source-or-fetch-failure")) {
-    throw new Error("oracle should reject trace signals whose content does not support the requested result");
+  if (fakeScreenOutput.verdict !== "needs_review" || !fakeScreenOutput.evidence.missingResults.includes("screen-output-480x320")) {
+    throw new Error("oracle should reject screen output artifacts without path/frame/hash evidence");
   }
   console.log("product capability agent harness self-check passed");
 }

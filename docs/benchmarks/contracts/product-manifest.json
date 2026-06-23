@@ -1,0 +1,19 @@
+{
+  "schema": "walnutpi.product-benchmark-manifest.v1",
+  "suite": "contracts-product",
+  "files": [
+    {
+      "category": "contract-only",
+      "path": "product-contract-only.jsonl",
+      "caseCount": 6,
+      "caseIds": [
+        "V1-07",
+        "V1-08",
+        "V1-09",
+        "V1-15",
+        "V1-16",
+        "V1-19"
+      ]
+    }
+  ]
+}

@@ -1,9 +1,10 @@
 #!/usr/bin/env bun
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import {
   currentRunCoverageFailures,
   evaluateTurn,
+  readBenchmarkCases,
   selectCases,
   variantsForCase,
 } from "./run-product-capability-agent-harness.ts";
@@ -11,12 +12,16 @@ import {
 type JsonRecord = Record<string, any>;
 
 const notesBenchmark = {
+  id: "self-check-notes",
+  benchmarkCategory: "memory-session",
+  productLoop: "memory.notes",
+  capabilityArea: "agent-runtime",
   oracle: {
     goal: { route: "memory.notes", intent: "device.notes.read", delivery: "none", resultSignals: ["notes-read-result"] },
     evidence: { required: ["intent-route", "agentTurn-step"] },
     safety: { forbiddenSideEffects: ["device-write", "daily-note-write"] },
   },
-  variants: [{ slots: { delivery: "preview-only" } }],
+  variants: [{ slots: { scope: "today" } }],
 };
 
 function trace(value: JsonRecord = {}): JsonRecord {
@@ -74,7 +79,7 @@ const pass = evaluateTurn(notesBenchmark, trace({
   status: "completed",
   route: { route: "memory.notes", intent: "device.notes.read", delivery: "none" },
   steps: [{ kind: "intent.classify" }],
-  artifacts: [{ kind: "notes-read-result", value: { entries: [{ text: "today" }] } }],
+  artifacts: [{ kind: "notes-read-result", value: { actionPolicyId: "notes", ok: true, entries: [{ text: "today" }] } }],
   evidence: [
     { kind: "intent-route", value: { route: "memory.notes", intent: "device.notes.read", delivery: "none" } },
     { kind: "agentTurn-step", value: { kind: "intent.classify", status: "completed" } },
@@ -297,10 +302,7 @@ assert.equal(variantsForCase(cases[0], {}).length, 2);
 assert.equal(variantsForCase(cases[0], { firstVariant: true }).length, 1);
 assert.equal(variantsForCase(cases[0], { allVariants: true }).length, 2);
 
-const benchmarkCases = (await readFile(new URL("../docs/product-capability-benchmarks.v2.jsonl", import.meta.url), "utf8"))
-  .split(/\r?\n/)
-  .filter((line) => line.trim())
-  .map((line) => JSON.parse(line));
+const benchmarkCases = await readBenchmarkCases(fileURLToPath(new URL("../docs/benchmarks/product/manifest.json", import.meta.url)));
 const v125 = benchmarkCases.find((entry) => entry.id === "V1-25");
 assert.equal(v125?.runnerStatus, "runnable");
 assert.deepEqual(v125?.oracle?.goal?.resultSignals, ["multi-step-loop"]);

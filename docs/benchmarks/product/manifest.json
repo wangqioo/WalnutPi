@@ -1,0 +1,75 @@
+{
+  "schema": "walnutpi.product-benchmark-manifest.v1",
+  "suite": "product",
+  "files": [
+    {
+      "category": "screen-preview",
+      "path": "screen-preview.jsonl",
+      "caseCount": 6,
+      "caseIds": [
+        "V1-01",
+        "V1-02",
+        "V1-03",
+        "V1-05",
+        "V1-10",
+        "V1-24"
+      ]
+    },
+    {
+      "category": "policy-boundary",
+      "path": "policy-boundary.jsonl",
+      "caseCount": 3,
+      "caseIds": [
+        "V1-17",
+        "V1-18",
+        "V1-20"
+      ]
+    },
+    {
+      "category": "agent-loop",
+      "path": "agent-loop.jsonl",
+      "caseCount": 2,
+      "caseIds": [
+        "V1-25",
+        "V1-30"
+      ]
+    },
+    {
+      "category": "device-verification",
+      "path": "device-verification.jsonl",
+      "caseCount": 2,
+      "caseIds": [
+        "V1-06",
+        "V1-11"
+      ]
+    },
+    {
+      "category": "device-read",
+      "path": "device-read.jsonl",
+      "caseCount": 2,
+      "caseIds": [
+        "V1-04",
+        "V1-23"
+      ]
+    },
+    {
+      "category": "memory-session",
+      "path": "memory-session.jsonl",
+      "caseCount": 4,
+      "caseIds": [
+        "V1-12",
+        "V1-13",
+        "V1-14",
+        "V1-21"
+      ]
+    },
+    {
+      "category": "diagnostic",
+      "path": "diagnostic.jsonl",
+      "caseCount": 1,
+      "caseIds": [
+        "V1-22"
+      ]
+    }
+  ]
+}

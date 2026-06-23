@@ -1,0 +1,38 @@
+{
+  "schema": "walnutpi.product-benchmark-manifest.v1",
+  "suite": "mutation",
+  "files": [
+    {
+      "category": "screen-preview",
+      "path": "screen-preview.jsonl",
+      "caseCount": 1,
+      "caseIds": [
+        "V1-26"
+      ]
+    },
+    {
+      "category": "agent-loop",
+      "path": "agent-loop.jsonl",
+      "caseCount": 1,
+      "caseIds": [
+        "V1-29"
+      ]
+    },
+    {
+      "category": "device-read",
+      "path": "device-read.jsonl",
+      "caseCount": 1,
+      "caseIds": [
+        "V1-27"
+      ]
+    },
+    {
+      "category": "memory-session",
+      "path": "memory-session.jsonl",
+      "caseCount": 1,
+      "caseIds": [
+        "V1-28"
+      ]
+    }
+  ]
+}
