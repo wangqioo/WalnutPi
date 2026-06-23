@@ -7,7 +7,7 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 PROJECT_ROOT="${WALNUT_PROJECT_ROOT:-/home/pi/projects/WalnutPi}"
-UNIT_SOURCE="$PROJECT_ROOT/achievement/framebuffer_ui/systemd/walnut-framebuffer-status.service"
+UNIT_SOURCE="$PROJECT_ROOT/archive/experiments/framebuffer_ui/systemd/walnut-framebuffer-status.service"
 UNIT_TARGET="/etc/systemd/system/walnut-framebuffer-status.service"
 
 install_lf() {

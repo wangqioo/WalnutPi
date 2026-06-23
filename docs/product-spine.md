@@ -84,9 +84,9 @@ and benchmark artifacts.
 Current paths:
 
 - `docs/product-capability-benchmarks.md`
-- `docs/product-capability-benchmarks.v2.jsonl`
-- `docs/product-capability-benchmarks.v2.holdout.jsonl`
-- `docs/product-capability-benchmarks.v2.mutations.jsonl`
+- `docs/benchmarks/product/manifest.json`
+- `docs/benchmarks/holdout/manifest.json`
+- `docs/benchmarks/mutation/manifest.json`
 - `scripts/run-product-capability-agent-harness.ts`
 - `scripts/run-product-capability-gate.ts`
 - `scripts/compare-product-capability-runs.ts`
@@ -103,14 +103,12 @@ Current paths:
 ### Experiments And Archive
 
 Playable demos, old terminal/UI experiments, imported app catalogs, gallery
-material, hardware experiments, and anything without a runnable product harness
-case.
+material, hardware experiments, third-party reference trees, and anything
+without a runnable product harness case.
 
 Current paths:
 
 - `archive/experiments/`
-- `achievement/`
-- `screen/ioccc-apps/`
 - `screen/lvgl-apps/`
 - `screen/apps/` entries that are not covered by product harness cases
 - `web-interface/widget-app-gallery.html`
@@ -120,6 +118,10 @@ Current paths:
 These may still be useful as Source Assets, demos, or research material. They
 must not become alternate product paths around `/api/agent/turn`, Action Policy,
 or Screen Workspace evidence.
+
+Third-party reference-only paths:
+
+- `screen/ioccc-apps/`
 
 ## Capability Registry
 
@@ -152,7 +154,6 @@ Status meanings:
 | `retrieval.hardware_guidance` | experimental | `/api/agent/turn` | `ai.chat` or `device.action` | retrieval corpus, optional read-only action | none | V1-15 is contract-only | contextUsed, retrieval sources |
 | `walnutai.one_shot` | experimental | `/api/agent/turn` delegates to action | `device.action` / `ai` | `walnut-ai {text}` | model/network as declared | V1-16 is contract-only | contextUsed, action output |
 | `screen.diagnostics` | diagnostic-only | diagnostics panel/API | none | records, frame, pixel diff, evidence ledgers | device only when capturing live frame | self-checks and device evidence scripts | buildId, hashes, command summaries |
-| `ioccc.gallery` | experimental | gallery/API | none | IOCCC app routes and downloads | none | no product case | source/gallery artifacts |
 | `archived.voice_keyboard` | archived | none | none | archived scripts | none | no product case | archive notes only |
 | `archived.console_chinese` | archived | none | none | archived console scripts | none | no product case | archive notes only |
 
@@ -214,7 +215,6 @@ Experimental APIs:
 
 - `/api/screen/widget-apps/*`
 - `/api/screen/lvgl-apps/*`
-- `/api/screen/ioccc-apps/*`
 - `/terminal`
 
 Do not remove these APIs just because they are not default product paths. First
@@ -268,8 +268,8 @@ Contract-only coverage that should be promoted before product expansion:
 6. Decide whether Widget App Mode is a beta product surface. Until then, keep it
    separate from Wallpaper Mode and do not treat Widget App sync as Screen
    Manifest success.
-7. Review `screen/apps/`, `screen/ioccc-apps/`, `screen/lvgl-apps/`, and
-   `achievement/` for archive candidates after benchmark coverage is promoted.
+7. Review `screen/apps/` and `screen/lvgl-apps/` for archive candidates after
+   benchmark coverage is promoted. Keep `screen/ioccc-apps/` reference-only.
 
 ## Four Questions For Every Feature
 

@@ -161,9 +161,8 @@ WalnutPi/
 ├── lvgl_app/                # Product spine: LVGL Screen App for Runtime Screen Assets
 ├── scripts/                 # Product spine scripts plus device install helpers
 ├── walnut-assistant/        # Device execution surface: walnut CLI and screen commands
-├── achievement/             # Retired achievements and proven experiments
 ├── walnut-ai-terminal/      # Support / memory / agent experiments
-├── archive/experiments/     # Archived playable tools, media, console, audio, voice, and brief experiments
+├── archive/experiments/     # Archived playable tools, framebuffer UI, media, console, audio, voice, and brief experiments
 ├── hardware/                # Support: observed hardware and screen records
 ├── third/                   # Reference projects only
 ├── third_party/             # Vendored or external reference material
@@ -326,7 +325,7 @@ sudo chown -R pi:pi /home/pi/projects/WalnutPi/build/lvgl_app
 
 ### Framebuffer UI
 
-路径：`achievement/framebuffer_ui/`
+路径：`archive/experiments/framebuffer_ui/`
 
 这是无桌面系统直接写 `/dev/fb0` 的屏幕 UI 实验，使用 Linux framebuffer 路径运行。
 

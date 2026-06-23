@@ -22,9 +22,9 @@ Walnut Agent Console
 - `web-interface/`: Walnut Agent Console, Screen Workspace UI, sync APIs, diagnostics.
 - `screen/`: Screen Workspace assets, manifests, outputs, playlists, runtime assets.
 - `lvgl_app/`: LVGL framebuffer runtime for Screen Playlist playback.
-- `scripts/screen-workspace-vocabulary.js`: Screen Manifest v2 / Playlist v1 validation and hash behavior.
-- `scripts/screen-workspace-pipeline.js`: Source Asset / Screen Content processing.
-- `scripts/generate-lvgl-screen-workspace-runtime-assets.js`: Runtime Screen Assets generator.
+- `scripts/screen-workspace-vocabulary.ts`: Screen Manifest v2 / Playlist v1 validation and hash behavior.
+- `scripts/screen-workspace-pipeline.ts`: Source Asset / Screen Content processing.
+- `scripts/generate-lvgl-screen-workspace-runtime-assets.ts`: Runtime Screen Assets generator.
 - `scripts/build-lvgl-app.sh`: LVGL runtime build helper.
 - `walnut-assistant/`: Device Execution Surface and `walnut` CLI.
 - `walnut-ai-terminal/`: WalnutAI runtime, Durable Memory, Retrieval Corpus, device skills.
