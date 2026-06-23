@@ -1,8 +1,3 @@
-import { Engine } from "json-rules-engine";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { extractIntentFacts } from "./facts.ts";
-
 type IntentRouteFields = {
   confidence?: number;
   delivery?: string;
@@ -10,7 +5,8 @@ type IntentRouteFields = {
   source?: string;
   subject?: string;
 };
-type IntentRoute = {
+
+export type IntentRoute = {
   action: string;
   actionPolicyId: string | null;
   confidence: number;
@@ -26,28 +22,29 @@ type IntentRoute = {
   subject: string;
 };
 
-let cachedEngine: Engine | null = null;
-let cachedRules: string | null = null;
-let cachedSubjectConfigPath: string | null = null;
-let cachedSubjectConfig: { noteWritePrefixes?: string[] } | null = null;
-
-export async function evaluateRuleIntent(text: string, { rulesPath = path.join(import.meta.dir, "rules.json") }: { rulesPath?: string } = {}) {
-  const facts = await extractIntentFacts(text);
-  const engine = await loadEngine(rulesPath);
-  const result = await engine.run(facts);
-  const event = result.events[0];
-  if (!event) return { classification: null, facts };
-  return {
-    facts,
-    classification: intentTypeToRoute(event.type, {
-      subject: await deriveSubject(text, event.type),
-      delivery: event.params?.delivery || "none",
-      confidence: Number(event.params?.confidence ?? 0.8),
-      source: "fallback-rule",
-      rule: event.params?.rule || event.type,
-    }),
-  };
-}
+export const CLASSIFIER_INTENTS = [
+  "screen.generate",
+  "screen.sync",
+  "screen.widget_app.create",
+  "device.status.read",
+  "device.snapshot.read",
+  "device.i2c.read",
+  "device.network.read",
+  "device.gpio.read",
+  "device.notes.read",
+  "device.note.write",
+  "memory.preference",
+  "memory.sensitive_skip",
+  "policy.system_write",
+  "policy.service_restart",
+  "policy.maintenance_guidance",
+  "diagnostics.recent_failure",
+  "screen.state_frame.read",
+  "session.summary",
+  "terminal.open",
+  "terminal.tool",
+  "ai.chat",
+];
 
 export function intentTypeToRoute(intent: string, fields: IntentRouteFields = {}): IntentRoute {
   const mapped = {
@@ -96,49 +93,5 @@ export function intentTypeToRoute(intent: string, fields: IntentRouteFields = {}
 
 function normalizeIntentSource(source?: string) {
   const normalized = String(source || "").trim();
-  return ["ai", "structured", "fallback-rule"].includes(normalized) ? normalized : "fallback-rule";
-}
-
-async function loadEngine(rulesPath: string) {
-  if (cachedEngine && cachedRules === rulesPath) return cachedEngine;
-  const rules = JSON.parse(await readFile(rulesPath, "utf8"));
-  const engine = new Engine([], { allowUndefinedFacts: true });
-  for (const rule of rules) {
-    engine.addRule({
-      ...rule,
-      event: {
-        ...rule.event,
-        params: {
-          ...(rule.event?.params || {}),
-          rule: rule.name || rule.event?.type,
-        },
-      },
-    });
-  }
-  cachedRules = rulesPath;
-  cachedEngine = engine;
-  return engine;
-}
-
-async function deriveSubject(text: string, intent: string) {
-  const value = String(text || "").trim();
-  if (intent === "device.note.write") {
-    for (const prefix of (await loadSubjectConfig()).noteWritePrefixes || []) {
-      if (value.toLowerCase().startsWith(prefix.toLowerCase())) {
-        return value.slice(prefix.length).replace(/^[:：\s]+/, "").trim() || value;
-      }
-    }
-  }
-  return value;
-}
-
-async function loadSubjectConfig(configPath = path.join(import.meta.dir, "subject.json")) {
-  if (cachedSubjectConfig && cachedSubjectConfigPath === configPath) return cachedSubjectConfig;
-  const parsed = JSON.parse(await readFile(configPath, "utf8"));
-  if (parsed.noteWritePrefixes !== undefined && (!Array.isArray(parsed.noteWritePrefixes) || parsed.noteWritePrefixes.some((item: any) => typeof item !== "string"))) {
-    throw new Error("subject noteWritePrefixes must be a string array");
-  }
-  cachedSubjectConfigPath = configPath;
-  cachedSubjectConfig = parsed;
-  return parsed;
+  return ["ai", "structured"].includes(normalized) ? normalized : "ai";
 }

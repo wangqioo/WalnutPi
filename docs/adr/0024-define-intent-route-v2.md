@@ -115,28 +115,22 @@ template instead of asking for title, colors, or layout.
 
 **Implementation shape**
 
-Keep the implementation as a small pure-function pipeline:
+Keep the implementation as a small product-routing pipeline:
 
 ```text
-extractIntentFacts(text, context)
--> ruleRoute(text, facts, context)
--> maybeAiRoute(text, ruleRoute, context)
--> allowAiRoute(aiRoute, ruleRoute, facts, context)
+structuredRoute(text, context)
+-> modelRoute(text, context)
 -> cleanRoute(route)
 ```
 
 Do not introduce a router framework, route provider interface, strategy class
 tree, plugin registry, or factory hierarchy for this.
 
-Continue using the existing `web-interface/intent-rules/rules.json`,
-`facts.ts`, and `evaluator.ts` path. Add Widget App facts and a few v2 route
-rules there. If a rule is awkward in JSON, use a small TypeScript predicate
-rather than expanding the rule DSL.
-
-The AI router only resolves ambiguity or low-confidence routes. It must not
-override high-confidence safety or product rules, including explicit high-risk
-device actions, explicit Wallpaper generation, explicit Widget App creation,
-or explicit AI chat.
+Do not keep JSON fixtures, facts, rules, or keyword fallbacks as a second
+classifier. Structured routes are only for explicit platform context such as a
+read-only continuation. Natural-language routing is handled by the model and
+normalized to this route contract; missing classifier configuration should fail
+clearly instead of guessing.
 
 **Consequences**
 

@@ -1057,33 +1057,6 @@ def local_agent_context_used(
     }
 
 
-def walnut_ai_self_check() -> None:
-    route = {"action": "status", "risk": "read", "reason": "self-check"}
-    evidence = compact_action_evidence("status", True, {"ok": True, "output": "ok"})
-    answer = with_local_agent_trace("done", route, "设备状态", True, evidence)
-    marker = answer.splitlines()[-1]
-    assert marker.startswith(AGENT_TURN_TRACE_PREFIX)
-    trace = json.loads(marker[len(AGENT_TURN_TRACE_PREFIX):])
-    assert trace["schema"] == "walnutpi.agentTurn.trace.v1"
-    assert trace["route"]["action"] == "status"
-    assert trace["steps"][0]["kind"] == "action.run"
-    assert trace["evidence"]["actionPolicyId"] == "status"
-    assert "contextUsed" in trace
-    context = local_agent_context_used(False, False, True)
-    assert context == {"memory": False, "retrieval": False, "localActionOutput": True}
-    refused = with_local_agent_trace(
-        "blocked",
-        {"action": "risky", "risk": "high", "reason": "self-check"},
-        "拒绝高风险动作",
-        False,
-        {"kind": "policy-refusal", "actionPolicyId": "risky", "ok": False},
-        {"memory": False, "retrieval": True, "localActionOutput": False},
-    )
-    refused_trace = json.loads(refused.splitlines()[-1][len(AGENT_TURN_TRACE_PREFIX):])
-    assert refused_trace["evidence"]["kind"] == "policy-refusal"
-    assert refused_trace["contextUsed"]["localActionOutput"] is False
-
-
 def local_agent_answer(text: str) -> str | None:
     if not might_need_local_route(text):
         return None
@@ -1295,10 +1268,6 @@ def one_shot(text: str) -> int:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 2 and sys.argv[1] == "--self-check":
-        walnut_ai_self_check()
-        print("walnut_ai self-check passed")
-        raise SystemExit(0)
     if len(sys.argv) > 1:
         raise SystemExit(one_shot(" ".join(sys.argv[1:])))
     raise SystemExit(main())

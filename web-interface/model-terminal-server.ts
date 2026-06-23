@@ -26,7 +26,7 @@ import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.ts";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.ts";
 import { createScreenCommandRunner } from "./screen-command-runner.ts";
 import { createStaticUiHost } from "./static-ui-host.ts";
-import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-rules/classifier.ts";
+import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-classifier.ts";
 import { compactRetrievalForPrompt, retrieveWalnutContext as retrieveWalnutContextWithOptions } from "./walnut-retrieval.ts";
 import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.ts";
 import { stableStringify } from "../scripts/screen-workspace-vocabulary.ts";
