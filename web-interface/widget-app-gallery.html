@@ -257,8 +257,8 @@
       }
 
       function sortApps(appList) {
-        const weight = { "ioccc-lvgl-app": 0, "official-demo": 1, "local-lvgl-app": 2 };
-        return [...appList].sort((a, b) => (weight[a.type] ?? 9) - (weight[b.type] ?? 9) || String(a.ioccc?.year || "").localeCompare(String(b.ioccc?.year || "")));
+        const weight = { "official-demo": 0, "local-lvgl-app": 1 };
+        return [...appList].sort((a, b) => (weight[a.type] ?? 9) - (weight[b.type] ?? 9) || String(a.title || "").localeCompare(String(b.title || "")));
       }
 
       function showImage() {
@@ -289,9 +289,9 @@
           card.querySelector("img").src = thumbnailUrl(app.id);
           card.querySelector(".app-title").textContent = app.title;
           const chips = card.querySelectorAll(".chip");
-          chips[0].textContent = app.type === "ioccc-lvgl-app" ? "IOCCC LVGL" : "LVGL";
-          chips[1].textContent = app.ioccc?.year || "480x320";
-          chips[2].textContent = app.ioccc?.name || app.type;
+          chips[0].textContent = "LVGL";
+          chips[1].textContent = "480x320";
+          chips[2].textContent = app.type;
           card.addEventListener("click", () => selectApp(app.id));
           appGrid.append(card);
         }
@@ -307,18 +307,13 @@
           card.classList.toggle("active", card.dataset.appId === appId);
         }
         previewTitle.textContent = selectedApp.title;
-        terminalLink.href = selectedApp.type === "ioccc-lvgl-app" ? iocccRunUrl(selectedApp) : "/ssh-terminal.html";
-        terminalLink.textContent = selectedApp.type === "ioccc-lvgl-app" ? "终端运行" : "打开终端";
+        terminalLink.href = "/ssh-terminal.html";
+        terminalLink.textContent = "打开终端";
         if (selectedApp.type === "official-demo") {
           showImage();
           activateButton.textContent = "设为当前屏幕";
           previewImage.src = thumbnailUrl(selectedApp.id);
           await previewOfficialDemo(selectedApp.demo, requestId);
-        } else if (selectedApp.type === "ioccc-lvgl-app") {
-          showImage();
-          activateButton.textContent = "终端运行";
-          previewImage.src = thumbnailUrl(appId);
-          setStatus("IOCCC app 直接在终端运行，不生成 PNG 预览。");
         } else {
           showImage();
           activateButton.textContent = "设为当前屏幕";
@@ -328,7 +323,7 @@
             activateAndPreview(appId, false, requestId).catch((error) => {
               if (requestId === previewRequestId) setStatus(error.message);
             });
-          }, selectedApp.type === "ioccc-lvgl-app" ? 500 : 0);
+          }, 0);
         }
       }
 
@@ -341,22 +336,8 @@
           const path = "outputs/lvgl-preview/lvgl-demo-widgets.png";
           return `/api/screen/workspace/assets/${encodeURIComponent(path)}?v=${Date.now()}`;
         }
-        if (appId.startsWith("ioccc-")) {
-          return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 480 320'%3E%3Crect width='480' height='320' fill='%23050605'/%3E%3Ctext x='32' y='82' fill='%23d7f7db' font-family='monospace' font-size='38'%3EIOCCC%3C/text%3E%3Ctext x='32' y='146' fill='%23ff9f0a' font-family='monospace' font-size='24'%3Eobfuscated C%3C/text%3E%3Ctext x='32' y='206' fill='%23a9aaa6' font-family='monospace' font-size='18'%3Eprog.c%3C/text%3E%3C/svg%3E";
-        }
         const path = `outputs/lvgl-preview/widget-${appId}-lvgl-00000ms.png`;
         return `/api/screen/workspace/assets/${encodeURIComponent(path)}?v=${Date.now()}`;
-      }
-
-      function iocccRunUrl(app) {
-        const source = app.ioccc?.source;
-        const name = app.ioccc?.name;
-        if (!source || !name) return "/ssh-terminal.html";
-        const runner = app.id === "ioccc-2024-tompng"
-          ? `printf "2024/tompng visual text stir\\n\\nSOURCE SAMPLE:\\n"; sed -n "1,16p" sample.txt; printf "\\nSTIRRED OUTPUT:\\n"; timeout 8s ./prog < sample.txt | sed -n "1,28p"`
-          : `if test -x ./try.sh; then timeout 20s bash ./try.sh < /dev/zero; elif test -x ./${name}.alt; then timeout 12s ./${name}.alt 20000; elif test -x ./prog.alt; then timeout 12s ./prog.alt; else timeout 12s ./prog; fi`;
-        const command = `clear; cd /home/pi/projects/WalnutPi/${source} && make -s all && ${runner}`;
-        return `/ssh-terminal.html?command=${encodeURIComponent(command)}`;
       }
 
       async function previewOfficialDemo(demo, requestId = previewRequestId) {
@@ -410,8 +391,6 @@
         try {
           if (selectedApp.type === "official-demo") {
             await activateOfficialDemo(selectedApp.id);
-          } else if (selectedApp.type === "ioccc-lvgl-app") {
-            window.location.href = iocccRunUrl(selectedApp);
           } else {
             await activateAndPreview(selectedApp.id, true);
           }
