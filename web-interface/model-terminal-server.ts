@@ -3,7 +3,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { createRouter } from "./router.ts";
 import { createScreenEvidenceLedger } from "./screen-evidence-ledger.ts";
 import { createSshLocalAgentAdapter } from "./screen-delivery-adapters/ssh-local-agent.ts";
 import { createScreenWorkspaceSyncWorkflow } from "./screen-workspace-sync-workflow.ts";
@@ -24,7 +23,11 @@ import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.ts";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.ts";
 import { createLvglRuntimePreviewRenderer } from "./lvgl-runtime-preview-renderer.ts";
 import { createScreenCommandRunner } from "./screen-command-runner.ts";
+import { createWalnutAiSdk } from "./ai-sdk-runtime.ts";
 import { createStaticUiHost } from "./static-ui-host.ts";
+import { createProductGatewayApp, createProductGatewayFetch } from "./gateway/mcp-server.ts";
+import { createOpaEnforcer } from "./gateway/opa-enforcer.ts";
+import { createToolDispatcher } from "./gateway/tool-dispatcher.ts";
 import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-classifier.ts";
 import { compactRetrievalForPrompt, retrieveWalnutContext as retrieveWalnutContextWithOptions } from "./walnut-retrieval.ts";
 import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.ts";
@@ -36,12 +39,8 @@ import {
   AGENT_HARNESS_SESSIONS_PATH,
   AGENT_TURNS_PATH,
   AGENT_TURN_EVENTS_PATH,
-  AI_BASE_URL,
   AI_CONTEXT_LIMIT,
   AI_CONTEXT_TEXT_LIMIT,
-  AI_MODEL,
-  AI_REASONING_EFFORT,
-  AI_TIMEOUT_SECONDS,
   BASE_DIR,
   CAPTURE_OUTPUT_LIMIT,
   CODEX_AUTH_PATH,
@@ -79,12 +78,8 @@ const WEB_CONFIG = {
   AGENT_HARNESS_SESSIONS_PATH,
   AGENT_TURNS_PATH,
   AGENT_TURN_EVENTS_PATH,
-  AI_BASE_URL,
   AI_CONTEXT_LIMIT,
   AI_CONTEXT_TEXT_LIMIT,
-  AI_MODEL,
-  AI_REASONING_EFFORT,
-  AI_TIMEOUT_SECONDS,
   BASE_DIR,
   CAPTURE_OUTPUT_LIMIT,
   CODEX_AUTH_PATH,
@@ -368,117 +363,11 @@ const screenDiagnosticsApi = createScreenDiagnosticsApi({
   json,
 });
 
-function parseResponsesOutput(data: any) {
-  if (typeof data?.output_text === "string" && data.output_text.trim()) return data.output_text.trim();
-  const chunks = [];
-  for (const item of data?.output || []) {
-    for (const content of item?.content || []) {
-      if ((content.type === "output_text" || content.type === "text") && content.text) {
-        chunks.push(content.text);
-      }
-    }
-  }
-  return chunks.join("\n").trim();
-}
-
-function parseJsonObjectText(text) {
-  const raw = String(text || "").trim();
-  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fenced ? fenced[1].trim() : raw.match(/\{[\s\S]*\}/)?.[0] || raw;
-  const parsed = JSON.parse(candidate);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("AI response must be a JSON object");
-  }
-  return parsed;
-}
-
-function aiFetchSignal() {
-  const timeoutMs = Math.max(1, AI_TIMEOUT_SECONDS) * 1000;
-  if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
-    return AbortSignal.timeout(timeoutMs);
-  }
-  return undefined;
-}
-
-function responsesRequestBody(body: JsonObject) {
-  return {
-    ...body,
-    model: body.model || AI_MODEL,
-    reasoning: body.reasoning || { effort: AI_REASONING_EFFORT },
-  };
-}
-
-async function callResponsesApi({ operation, body, signal = aiFetchSignal(), telemetry = {} }: { operation: string; body: JsonObject; signal?: AbortSignal; telemetry?: JsonObject }) {
-  const startedAt = Date.now();
-  let status = null;
-  let requestId = null;
-  try {
-    const response = await fetch(`${AI_BASE_URL}/responses`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${aiApiKey}`,
-        "Content-Type": "application/json",
-      },
-      signal,
-      body: JSON.stringify(responsesRequestBody(body)),
-    });
-    status = response.status;
-    requestId = response.headers.get("x-request-id") || response.headers.get("openai-request-id") || null;
-    if (!response.ok) {
-      const detail = await response.text();
-      const message = `API HTTP ${response.status}: ${detail.slice(0, 800)}`;
-      await webMetricsLedger.append({
-        kind: "openai.responses",
-        operation,
-        ok: false,
-        status,
-        model: body.model || AI_MODEL,
-        reasoningEffort: body.reasoning?.effort || AI_REASONING_EFFORT,
-        latencyMs: Date.now() - startedAt,
-        requestId,
-        sessionId: telemetry.sessionId,
-        turnId: telemetry.turnId,
-        error: message,
-      });
-      throw new Error(message);
-    }
-    const data: JsonObject = await response.json();
-    await webMetricsLedger.append({
-      kind: "openai.responses",
-      operation,
-      ok: true,
-      status,
-      model: body.model || AI_MODEL,
-      reasoningEffort: body.reasoning?.effort || AI_REASONING_EFFORT,
-      latencyMs: Date.now() - startedAt,
-      requestId: requestId || data.id || null,
-      sessionId: telemetry.sessionId,
-      turnId: telemetry.turnId,
-      usage: data.usage,
-    });
-    return data;
-  } catch (error) {
-    if (status === null) {
-      await webMetricsLedger.append({
-        kind: "openai.responses",
-        operation,
-        ok: false,
-        model: body.model || AI_MODEL,
-        reasoningEffort: body.reasoning?.effort || AI_REASONING_EFFORT,
-        latencyMs: Date.now() - startedAt,
-        requestId,
-        sessionId: telemetry.sessionId,
-        turnId: telemetry.turnId,
-        error: error.message,
-      });
-    }
-    throw error;
-  }
-}
+const walnutAi = createWalnutAiSdk();
 
 const intentClassifier = createWalnutIntentClassifier({
   aiEnabled: Boolean(aiApiKey),
-  classifyWithModel: classifyIntentWithModel,
+  classifyWithModel: async (text, telemetry) => walnutAi.classifyIntent(text, telemetry),
   async recordModelError(error, text, telemetry = {}) {
     await webMetricsLedger.append({
       kind: "web.intent.classify",
@@ -491,51 +380,6 @@ const intentClassifier = createWalnutIntentClassifier({
     });
   },
 });
-
-async function classifyIntentWithModel(text: string, telemetry: JsonObject = {}) {
-  const data = await callResponsesApi({
-    operation: "intent.classify",
-    telemetry,
-    body: {
-      model: AI_MODEL,
-      reasoning: { effort: "low" },
-      input: [
-        {
-          role: "system",
-          content: [
-            "You are the WalnutPi product router.",
-            "Return JSON only.",
-            "Choose exactly one supported intent.",
-            "Do not execute commands.",
-            "Do not infer evaluation oracle answers.",
-            "Route screen content creation to screen.generate unless the user asks to sync an existing playlist.",
-            "Route unsafe system writes, package installs, service restarts, reboots, and deletion/cleanup requests to policy intents.",
-            "Allowed intents: " + CLASSIFIER_INTENTS.join(", "),
-            "Allowed JSON fields: intent, subject, delivery, confidence.",
-          ].join("\n"),
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            text,
-            structuredContext: {
-              requirements: telemetry.requirements || null,
-              scenario: telemetry.scenario
-                ? {
-                    schema: telemetry.scenario.schema,
-                    goal: telemetry.scenario.goal,
-                    constraints: telemetry.scenario.constraints,
-                    allowedContinuations: telemetry.scenario.allowedContinuations,
-                  }
-                : null,
-            },
-          }, null, 2),
-        },
-      ],
-    },
-  });
-  return parseJsonObjectText(parseResponsesOutput(data));
-}
 
 async function classifyAgentIntent(text: string, {
   traceId = randomUUID(),
@@ -812,13 +656,15 @@ const screenWorkspaceSyncWorkflow = createScreenWorkspaceSyncWorkflow({
 const actionRegistry = createActionRegistry({
   manifestPath: ACTION_POLICY_MANIFEST_PATH,
   shellQuote,
-  aiTimeoutSeconds: AI_TIMEOUT_SECONDS,
+  aiTimeoutSeconds: Number(process.env.WALNUT_AI_TIMEOUT_SECONDS || 15),
 });
+const opaEnforcer = createOpaEnforcer({ policyManifest: ACTION_POLICY_MANIFEST });
 
 const agentActionsApi = createAgentActionsApi({
   policyManifest: ACTION_POLICY_MANIFEST,
   policyActions: WEB_ACTIONS,
   actionRegistry,
+  opaEnforcer,
   walnutRemote,
   runRemote,
   webSessionLedger,
@@ -895,10 +741,16 @@ const screenCommandRunner = createScreenCommandRunner({
   sha256,
 });
 
+const toolDispatcher = createToolDispatcher({
+  actionDispatcher: agentActionsApi,
+  screenCommandRunner,
+  turnLedger: agentTurnLedger,
+  metricsLedger: webMetricsLedger,
+});
+
 const agentPlatform = createAgentPlatformRuntime({
   classifyIntent: classifyAgentIntent,
-  runAction: agentActionsApi.runAction,
-  screenCommandRunner,
+  toolDispatcher,
   turnLedger: agentTurnLedger,
   eventLedger: agentTurnEventLedger,
   metricsLedger: webMetricsLedger,
@@ -908,61 +760,10 @@ const agentPlatform = createAgentPlatformRuntime({
 
 async function generateWidgetCatalog({ prompt, sessionId = null, turnId = null }) {
   if (!aiApiKey) return null;
-  const data = await callResponsesApi({
-    operation: "screen.widget.catalog.generate",
-    telemetry: { sessionId, turnId },
-    body: {
-      model: AI_MODEL,
-      input: [
-        {
-          role: "system",
-          content: [
-            "You design a playable 480x320 WalnutPi LVGL widget app as JSON.",
-            "Return JSON only.",
-            "Do not generate an image. Do not use markdown.",
-            "Schema must be walnutpi.lvgl-widget-catalog.v1.",
-            "Canvas is exactly 480x320. All layout rectangles must stay inside it.",
-            "Use a compact LVGL desktop/app composition with readable controls and status surfaces.",
-            "Allowed node kinds: container, rect, text, image, button, toggle, progress, gauge, list, status_tile.",
-            "Allowed style tokens: screen, panel, text, muted, muted2, primary, accent, danger, trace, chip, panelBorder, barTrack.",
-            "Root node id must exist and usually be a full-screen container.",
-            "Return useful actions as action names, never shell commands.",
-          ].join("\n"),
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            prompt,
-            outputSchema: {
-              schema: "walnutpi.lvgl-widget-catalog.v1",
-              id: "simple slug",
-              title: "1-80 chars",
-              size: { width: 480, height: 320 },
-              theme: "walnut-lvgl-default",
-              data: {},
-              root: "root",
-              nodes: [
-                {
-                  id: "unique slug",
-                  kind: "container|rect|text|button|progress|gauge|status_tile",
-                  parent: "root except root itself",
-                  layout: { x: "0..479", y: "0..319", w: "1..480", h: "1..320" },
-                  text: "optional display text",
-                  style: "style token",
-                  value: "optional number",
-                  action: { name: "optional.action.name", params: {} },
-                },
-              ],
-            },
-          }, null, 2),
-        },
-      ],
-    },
-  });
-  return parseJsonObjectText(parseResponsesOutput(data));
+  return walnutAi.generateWidgetCatalog(prompt, { sessionId, turnId });
 }
 
-const router = createRouter({
+const productGateway = createProductGatewayApp({
   json,
   previewOnly,
   previewOnlyJson,
@@ -974,6 +775,7 @@ const router = createRouter({
   webMetricsLedger,
   handleIntentClassify,
   agentPlatform,
+  handleAgentChat: (req) => walnutAi.handleChat(req),
   handleAgentEvents,
   agentHarnessSessionStore,
   readJsonRequest,
@@ -981,12 +783,13 @@ const router = createRouter({
   screenDiagnosticsApi,
   staticUiHost,
 });
+const gatewayFetch = createProductGatewayFetch(productGateway);
 
 const server = Bun.serve({
   hostname: HOST,
   port: PORT,
   idleTimeout: 255,
-  fetch: router,
+  fetch: gatewayFetch,
 });
 
 console.log(`Serving model terminal at http://${server.hostname}:${server.port}/`);

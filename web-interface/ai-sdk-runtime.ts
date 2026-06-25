@@ -1,21 +1,11 @@
-import { Mastra } from "@mastra/core";
-import { Agent } from "@mastra/core/agent";
 import type { UIMessage } from "ai";
 import { z } from "zod";
+import { getWalnutAgent } from "./mastra-registry.ts";
 
 type Telemetry = Record<string, any>;
 
-const modelConfig = {
-  providerId: "walnut-ai",
-  modelId: process.env.WALNUT_AI_MODEL || "gpt-5.4-mini",
-  url: (process.env.WALNUT_AI_BASE_URL || "https://rehdasu.cn/v1").replace(/\/+$/, ""),
-  apiKey: process.env.WALNUT_AI_API_KEY || process.env.OPENAI_API_KEY || "",
-};
-
-let mastraRegistry: Mastra | undefined;
-
 export function createWalnutAiSdk() {
-  return {
+  const api = {
     async classifyIntent(text: string, telemetry: Telemetry = {}) {
       const schema = z.object({
         intent: z.string(),
@@ -23,7 +13,7 @@ export function createWalnutAiSdk() {
         delivery: z.string().optional(),
         confidence: z.number().min(0).max(1),
       });
-      const agent = getAgent("router");
+      const agent = getWalnutAgent("router");
       const result = await agent.generate(buildStructuredPrompt([
         "You are the WalnutPi product router.",
         "Return JSON only.",
@@ -55,7 +45,7 @@ export function createWalnutAiSdk() {
         root: z.string(),
         nodes: z.array(z.record(z.string(), z.any())),
       });
-      const agent = getAgent("widget");
+      const agent = getWalnutAgent("widget");
       const result = await agent.generate(buildStructuredPrompt([
         "You design a playable 480x320 WalnutPi LVGL widget app as JSON.",
         "Return JSON only.",
@@ -78,7 +68,7 @@ export function createWalnutAiSdk() {
     async createChatResponse({ messages, telemetry = {} }: { messages: UIMessage[]; telemetry?: Telemetry }) {
       const lastUserMessage = [...messages].reverse().find((message) => message.role === "user");
       const userPrompt = uiMessageText(lastUserMessage).trim();
-      const agent = getAgent("chat");
+      const agent = getWalnutAgent("chat");
       const result = await agent.generate(buildStructuredPrompt([
         "You are WalnutAI for WalnutPi.",
         "Answer in Chinese.",
@@ -100,58 +90,27 @@ export function createWalnutAiSdk() {
         text: result.text || "",
       });
     },
-  };
-}
 
-function getMastraRegistry() {
-  mastraRegistry ??= new Mastra({
-    agents: {
-      router: new Agent({
-        id: "router",
-        name: "WalnutPi Router",
-        instructions: [
-          "You are the WalnutPi product router.",
-          "Return only the requested JSON object.",
-          "Do not execute commands.",
-          "Do not infer evaluation oracle answers.",
-        ].join("\n"),
-        model: modelConfig,
-      }),
-      widget: new Agent({
-        id: "widget",
-        name: "WalnutPi Widget Catalog Generator",
-        instructions: [
-          "You design a playable 480x320 WalnutPi LVGL widget app as JSON.",
-          "Return only the requested JSON object.",
-          "Do not generate an image.",
-          "Do not use markdown.",
-        ].join("\n"),
-        model: modelConfig,
-      }),
-      chat: new Agent({
-        id: "chat",
-        name: "WalnutPi Chat Assistant",
-        instructions: [
-          "You are WalnutAI for WalnutPi.",
-          "Answer in Chinese.",
-          "Be concise and concrete.",
-          "If the request needs device state, tell the user to use the structured turn endpoint.",
-        ].join("\n"),
-        model: modelConfig,
-      }),
+    async handleChat(req: Request) {
+      let body: any;
+      try {
+        body = await req.json();
+      } catch (error: any) {
+        return Response.json({ ok: false, error: error.message }, { status: 400 });
+      }
+
+      const messages = Array.isArray(body?.messages) ? body.messages : [];
+      return api.createChatResponse({
+        messages,
+        telemetry: {
+          sessionId: body?.sessionId || null,
+          turnId: body?.turnId || null,
+        },
+      });
     },
-  });
+  };
 
-  return mastraRegistry;
-}
-
-function getAgent(agentId: "router" | "widget" | "chat") {
-  const registry = getMastraRegistry();
-  const agent = registry.getAgentById(agentId);
-  if (!agent) {
-    throw new Error(`WalnutAiSdk agent not found: ${agentId}`);
-  }
-  return agent;
+  return api;
 }
 
 function buildStructuredPrompt(lines: string[]) {
@@ -160,15 +119,11 @@ function buildStructuredPrompt(lines: string[]) {
 
 function normalizeStructuredOutput<T>(output: T | undefined, schema: z.ZodType<T>) {
   const parsed = schema.safeParse(output);
-  if (parsed.success) {
-    return parsed.data;
-  }
+  if (parsed.success) return parsed.data;
   if (typeof output === "string") {
     const textParsed = tryParseJson(output);
     const parsedFromText = schema.safeParse(textParsed);
-    if (parsedFromText.success) {
-      return parsedFromText.data;
-    }
+    if (parsedFromText.success) return parsedFromText.data;
   }
   return output as T;
 }
