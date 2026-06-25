@@ -26,7 +26,6 @@ export type ProductGatewayAppDeps = {
   };
   projectMemoryApi: GatewayService;
   webMetricsLedger: GatewayService;
-  handleIntentClassify: (req: Request) => Promise<Response> | Response;
   agentPlatform: GatewayService;
   handleAgentChat: (req: Request) => Promise<Response> | Response;
   handleAgentEvents: (req: Request, url: URL) => Promise<Response> | Response;
@@ -49,7 +48,6 @@ export function createProductGatewayApp({
   actionPolicyManifest,
   projectMemoryApi,
   webMetricsLedger,
-  handleIntentClassify,
   agentPlatform,
   handleAgentChat,
   handleAgentEvents,
@@ -69,7 +67,6 @@ export function createProductGatewayApp({
     actionPolicyManifest,
     projectMemoryApi,
     webMetricsLedger,
-    handleIntentClassify,
   });
   registerAgentRoutes(app, {
     json,

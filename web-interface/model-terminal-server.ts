@@ -773,7 +773,6 @@ const productGateway = createProductGatewayApp({
   actionPolicyManifest: ACTION_POLICY_MANIFEST,
   projectMemoryApi,
   webMetricsLedger,
-  handleIntentClassify,
   agentPlatform,
   handleAgentChat: (req) => walnutAi.handleChat(req),
   handleAgentEvents,
