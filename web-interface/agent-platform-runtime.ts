@@ -15,6 +15,7 @@ export function createAgentPlatformRuntime({
   json,
 }: JsonObject) {
   return {
+    toolDispatcher,
     async handleTurn(req: Request) {
       let body: JsonObject;
       try {

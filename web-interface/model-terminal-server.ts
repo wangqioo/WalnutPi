@@ -28,6 +28,7 @@ import { createStaticUiHost } from "./static-ui-host.ts";
 import { createProductGatewayApp, createProductGatewayFetch } from "./gateway/mcp-server.ts";
 import { createOpaEnforcer } from "./gateway/opa-enforcer.ts";
 import { createToolDispatcher } from "./gateway/tool-dispatcher.ts";
+import { createGatewayAuditLedger } from "./gateway/audit-ledger.ts";
 import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-classifier.ts";
 import { compactRetrievalForPrompt, retrieveWalnutContext as retrieveWalnutContextWithOptions } from "./walnut-retrieval.ts";
 import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.ts";
@@ -132,6 +133,9 @@ const agentTurnEventLedger = createAgentTurnEventLedger({
   eventsPath: AGENT_TURN_EVENTS_PATH,
   eventBus: agentEventBus,
   limit: Number(process.env.WALNUT_AGENT_TURN_EVENT_LIMIT || 500),
+});
+const gatewayAuditLedger = createGatewayAuditLedger({
+  auditPath: path.join(BASE_DIR, "data", "gateway-audit.jsonl"),
 });
 const agentHarnessSessionStore = createAgentHarnessSessionStore({
   filePath: AGENT_HARNESS_SESSIONS_PATH,
@@ -746,6 +750,9 @@ const toolDispatcher = createToolDispatcher({
   screenCommandRunner,
   turnLedger: agentTurnLedger,
   metricsLedger: webMetricsLedger,
+  policyManifest: ACTION_POLICY_MANIFEST,
+  opaEnforcer,
+  auditLedger: gatewayAuditLedger,
 });
 
 const agentPlatform = createAgentPlatformRuntime({
@@ -757,6 +764,7 @@ const agentPlatform = createAgentPlatformRuntime({
   readJsonRequest,
   json,
 });
+agentPlatform.toolDispatcher = toolDispatcher;
 
 async function generateWidgetCatalog({ prompt, sessionId = null, turnId = null }) {
   if (!aiApiKey) return null;
@@ -780,6 +788,7 @@ const productGateway = createProductGatewayApp({
   readJsonRequest,
   screenWorkspaceApi,
   screenDiagnosticsApi,
+  auditLedger: gatewayAuditLedger,
   staticUiHost,
 });
 const gatewayFetch = createProductGatewayFetch(productGateway);

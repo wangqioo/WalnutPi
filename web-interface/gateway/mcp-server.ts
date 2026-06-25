@@ -1,11 +1,13 @@
 import { Hono } from "hono";
-import path from "node:path";
+import { relative } from "node:path";
+import { createGatewayToolCatalog } from "./tool-catalog.ts";
 import type { GatewayJson } from "./gateway-interfaces.ts";
 
 type JsonObject = Record<string, any>;
 type GatewayService = Record<string, any>;
 type PathLike = {
   relative(from: string, to: string): string;
+  join(...parts: string[]): string;
 };
 
 export type ProductGatewayAppDeps = {
@@ -33,6 +35,7 @@ export type ProductGatewayAppDeps = {
   readJsonRequest: (req: Request) => Promise<any>;
   screenWorkspaceApi: GatewayService;
   screenDiagnosticsApi: GatewayService;
+  auditLedger: GatewayService;
   staticUiHost: {
     handle(pathname: string): Promise<Response | undefined> | Response | undefined;
   };
@@ -55,9 +58,13 @@ export function createProductGatewayApp({
   readJsonRequest,
   screenWorkspaceApi,
   screenDiagnosticsApi,
+  auditLedger,
   staticUiHost,
 }: ProductGatewayAppDeps) {
   const app = new Hono();
+  const gatewayTools = createGatewayToolCatalog({
+    policyActions: actionPolicyManifest.actions || {},
+  });
 
   registerProductRoutes(app, {
     json,
@@ -67,6 +74,9 @@ export function createProductGatewayApp({
     actionPolicyManifest,
     projectMemoryApi,
     webMetricsLedger,
+    gatewayTools,
+    auditLedger,
+    readJsonRequest,
   });
   registerAgentRoutes(app, {
     json,
@@ -76,6 +86,13 @@ export function createProductGatewayApp({
     handleAgentChat,
     handleAgentEvents,
     agentHarnessSessionStore,
+    readJsonRequest,
+  });
+  registerGatewayRoutes(app, {
+    json,
+    agentPlatform,
+    gatewayTools,
+    auditLedger,
     readJsonRequest,
   });
   registerScreenRoutes(app, {
@@ -99,7 +116,8 @@ function registerProductRoutes(app: Hono, {
   actionPolicyManifest,
   projectMemoryApi,
   webMetricsLedger,
-  handleIntentClassify,
+  gatewayTools,
+  auditLedger,
 }: JsonObject) {
   app.get("/api/actions", () =>
     json(agentActionsApi.actionPolicyView({
@@ -107,11 +125,10 @@ function registerProductRoutes(app: Hono, {
       manifest: {
         schema: actionPolicyManifest.schema,
         version: actionPolicyManifest.version,
-        path: path.relative(config.PROJECT_ROOT, config.ACTION_POLICY_MANIFEST_PATH).replaceAll("\\", "/"),
+        path: relative(config.PROJECT_ROOT, config.ACTION_POLICY_MANIFEST_PATH).replaceAll("\\", "/"),
       },
     })),
   );
-
   app.get("/api/memory", () => projectMemoryApi.handleMemory());
   app.get("/api/retrieval", (c) => projectMemoryApi.handleRetrieval(new URL(c.req.url)));
   app.get("/api/project-memory", (c) => projectMemoryApi.handleProjectMemory(new URL(c.req.url)));
@@ -125,6 +142,82 @@ function registerProductRoutes(app: Hono, {
   });
 
   app.all("/api/session", (c) => projectMemoryApi.handleSession(c.req, new URL(c.req.url)));
+}
+
+function registerGatewayRoutes(app: Hono, {
+  json,
+  agentPlatform,
+  gatewayTools,
+  auditLedger,
+  readJsonRequest,
+}: JsonObject) {
+  app.get("/api/gateway/tools", () => json(gatewayTools.listTools()));
+  app.post("/api/gateway/mcp", async (c) => {
+    let body;
+    try {
+      body = await readJsonRequest(c.req);
+    } catch (error: any) {
+      return json({
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32700, message: error.message || "Parse error" },
+      }, 400);
+    }
+    const method = String(body.method || "").trim();
+    const id = body.id ?? null;
+
+    if (method === "tools/list") {
+      const result = gatewayTools.listTools();
+      await auditLedger.append({
+        kind: "gateway.tool",
+        operation: "tools/list",
+        ok: true,
+        requestId: id ? String(id) : null,
+        result,
+      });
+      return json({ jsonrpc: "2.0", id, result });
+    }
+
+    if (method !== "tools/call") {
+      return json({
+        jsonrpc: "2.0",
+        id,
+        error: { code: -32601, message: `Unknown method ${method}` },
+      }, 400);
+    }
+
+    const params = objectOrEmpty(body.params);
+    const toolName = String(params.name || params.tool || "").trim();
+    const turn = {
+      turnId: params.turnId || null,
+      sessionId: params.sessionId || null,
+      input: params.input || { text: String(params.text || "") },
+    };
+    const result = await agentPlatform.toolDispatcher.callTool(toolName, params.arguments || params.params || params, turn);
+    await auditLedger.append({
+      kind: "gateway.tool",
+      operation: "tools/call",
+      ok: Boolean(result?.ok),
+      requestId: id ? String(id) : null,
+      toolName,
+      turnId: turn.turnId,
+      sessionId: turn.sessionId,
+      result,
+    });
+    return json({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        content: [
+          {
+            type: "text",
+            text: result?.summary || "",
+          },
+        ],
+        structuredContent: result,
+      },
+    }, Boolean(result?.ok) ? 200 : 400);
+  });
 }
 
 function registerAgentRoutes(app: Hono, {
@@ -151,10 +244,13 @@ function registerAgentRoutes(app: Hono, {
   app.all("/api/agent/harness-session", (c) => handleHarnessSession(c.req, new URL(c.req.url), agentHarnessSessionStore, readJsonRequest, json));
 }
 
+function objectOrEmpty(value: any) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
 function registerScreenRoutes(app: Hono, {
   previewOnly,
   previewOnlyJson,
-  agentActionsApi,
   screenWorkspaceApi,
   screenDiagnosticsApi,
   readJsonRequest,
@@ -185,10 +281,6 @@ function registerScreenRoutes(app: Hono, {
   app.get("/api/screen/frame/:buildId", (c) => {
     const url = new URL(c.req.url);
     return previewOnly(url) ? previewOnlyJson() : screenDiagnosticsApi.handleScreenFrame(c.req.param("buildId"));
-  });
-  app.post("/api/action", (c) => {
-    const url = new URL(c.req.url);
-    return previewOnly(url) ? previewOnlyJson() : agentActionsApi.handleAction(c.req);
   });
 }
 

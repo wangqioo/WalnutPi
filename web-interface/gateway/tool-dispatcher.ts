@@ -8,6 +8,9 @@ export function createToolDispatcher({
   screenCommandRunner,
   turnLedger,
   metricsLedger,
+  policyManifest,
+  opaEnforcer,
+  auditLedger,
 }: JsonObject) {
   async function dispatchIntent({
     classification,
@@ -22,7 +25,7 @@ export function createToolDispatcher({
     const specialHandler = SPECIAL_INTENT_HANDLERS[intent];
     if (specialHandler) return specialHandler({ body, turn, classification, intent });
 
-    if (intent.startsWith("policy.")) return handlePolicyIntent(intent, body);
+    if (intent.startsWith("policy.")) return handlePolicyIntent(intent, body, turn);
 
     const actionId = actionIdForIntent(intent) || (classification?.route === "ai.chat" ? "ai" : null);
     if (!actionId) {
@@ -31,28 +34,32 @@ export function createToolDispatcher({
       });
     }
 
-    const response = await actionDispatcher.runAction({
-      ...body,
-      action: actionId,
-      sessionId: turn.sessionId,
-      turnId: turn.turnId,
-      text: body.text,
-      requirements: body.requirements,
+    const result = await runPolicyGatedAction({
+      actionId,
+      body,
+      turn,
+      operation: actionId === "ai" ? "chat.reply" : "device.action",
     });
-    const payload = objectOrEmpty(response.body);
-    return toolResult(actionId === "ai" ? "chat" : "device", {
-      ok: Boolean(payload.ok),
-      summary: payload.summary || payload.reply || payload.output || "",
-      result: {
-        operation: actionId === "ai" ? "chat.reply" : "device.action",
-        actionId,
-        status: response.status || 500,
-        payload,
-      },
-      evidence: objectOrEmpty(payload.evidence || payload.actionEvidence),
-      sideEffects: normalizeActionSideEffects(payload.sideEffects),
-      diagnostics: objectOrEmpty(payload.diagnostics),
-    });
+    return result;
+  }
+
+  async function callTool(toolName: string, params: JsonObject, turn: JsonObject) {
+    if (!toolName) return failedToolResult("diagnostics", "Tool name is required");
+    if (toolName.startsWith("policy.")) {
+      return handlePolicyIntent(toolName, params, turn);
+    }
+    if (toolName.startsWith("screen.")) return handleScreenTool(toolName, params);
+    if (toolName.startsWith("memory.")) return handleMemoryTool(toolName, params, turn);
+    if (toolName.startsWith("diagnostics.")) return handleDiagnosticsTool(toolName, params, turn);
+    if (toolName.startsWith("device.")) {
+      return runPolicyGatedAction({
+        actionId: mapToolToActionId(toolName),
+        body: params,
+        turn,
+        operation: "device.action",
+      });
+    }
+    return failedToolResult("diagnostics", `Unsupported tool group for ${toolName}`);
   }
 
   async function readScreenFrame() {
@@ -111,7 +118,82 @@ export function createToolDispatcher({
     "screen.widget_app.create": ({ intent }) => screenGenerationRequiresDslSource(intent),
   };
 
-  function handlePolicyIntent(intent: string, body: JsonObject) {
+  async function runPolicyGatedAction({
+    actionId,
+    body,
+    turn,
+    operation,
+  }: {
+    actionId: string;
+    body: JsonObject;
+    turn: JsonObject;
+    operation: string;
+  }) {
+    const decision = opaEnforcer.decideAction({
+      manifest: policyManifest,
+      executor: "web",
+      actionId,
+      params: body,
+    });
+    await auditLedger?.append?.({
+      kind: "gateway.policy",
+      operation: "gateway.policy",
+      ok: Boolean(decision?.allow),
+      status: decision?.status === "pending" ? 409 : decision?.allow ? 200 : 400,
+      decisionId: decision?.decisionId || null,
+      actionId,
+      turnId: turn.turnId || null,
+      sessionId: turn.sessionId || null,
+      decision,
+    });
+    if (decision?.status === "refused") {
+      return failedToolResult("policy", "Action refused by policy.", {
+        actionId,
+        reason: decision.reason,
+        policyDecision: opaEnforcer.publicDecision(decision),
+      });
+    }
+    if (decision?.status === "pending") {
+      return toolResult("policy", {
+        ok: true,
+        summary: "Action requires explicit confirmation.",
+        result: {
+          operation: "policy.decision",
+          decision: opaEnforcer.publicDecision(decision),
+        },
+        evidence: {
+          pendingLocalAction: true,
+          noCommandExecution: true,
+          policyDecision: opaEnforcer.publicDecision(decision),
+        },
+      });
+    }
+    const response = await actionDispatcher.runAction({
+      ...body,
+      action: actionId,
+      sessionId: turn.sessionId,
+      turnId: turn.turnId,
+      text: body.text,
+      requirements: body.requirements,
+      policyDecision: decision,
+    });
+    const payload = objectOrEmpty(response.body);
+    return toolResult(actionId === "ai" ? "chat" : "device", {
+      ok: Boolean(payload.ok),
+      summary: payload.summary || payload.reply || payload.output || "",
+      result: {
+        operation,
+        actionId,
+        status: response.status || 500,
+        payload,
+      },
+      evidence: objectOrEmpty(payload.evidence || payload.actionEvidence),
+      sideEffects: normalizeActionSideEffects(payload.sideEffects),
+      diagnostics: objectOrEmpty(payload.diagnostics),
+    });
+  }
+
+  async function handlePolicyIntent(intent: string, body: JsonObject, turn: JsonObject) {
     const actionIds = policyActionIdsForIntent(intent) || [];
     const pending = actionIds.map((actionId: string) => ({
       schema: "walnutpi.action-policy-decision.v1",
@@ -130,6 +212,16 @@ export function createToolDispatcher({
         actionId,
       },
     }));
+    await auditLedger?.append?.({
+      kind: "gateway.policy",
+      operation: "gateway.policy",
+      ok: true,
+      status: 409,
+      actionId: intent,
+      turnId: turn.turnId || null,
+      sessionId: turn.sessionId || null,
+      result: pending,
+    });
     return toolResult("policy", {
       ok: true,
       summary: "Policy requests are pending until the OPA decision layer is wired.",
@@ -237,28 +329,58 @@ export function createToolDispatcher({
     });
   }
 
+  async function handleScreenTool(toolName: string, params: JsonObject) {
+    if (toolName === "screen.readPlaylist") {
+      return screenCommandRunner.run({ kind: "screen.readPlaylist", playlistId: params.playlistId || "default" });
+    }
+    if (toolName === "screen.captureFrame") {
+      return screenCommandRunner.run({ kind: "screen.captureFrame", buildId: params.buildId || undefined });
+    }
+    if (toolName === "screen.syncPlaylist") {
+      return syncScreen(params);
+    }
+    return failedToolResult("screen", `Unknown screen tool ${toolName}`);
+  }
+
+  async function handleMemoryTool(toolName: string, params: JsonObject, turn: JsonObject) {
+    if (toolName === "memory.sessionSummary") return sessionSummary(turn);
+    if (toolName === "memory.preference") return memoryPreference(params, turn);
+    if (toolName === "memory.sensitiveSkip") return memorySensitiveSkip(params, turn);
+    return failedToolResult("memory", `Unknown memory tool ${toolName}`);
+  }
+
+  async function handleDiagnosticsTool(toolName: string, _params: JsonObject, turn: JsonObject) {
+    if (toolName === "diagnostics.recentFailure") return recentFailure(turn);
+    return failedToolResult("diagnostics", `Unknown diagnostics tool ${toolName}`);
+  }
+
+  function mapToolToActionId(toolName: string) {
+    if (toolName === "device.status.read") return "status";
+    if (toolName === "device.network.read") return "network";
+    if (toolName === "device.snapshot.read") return "snapshot";
+    if (toolName === "device.gpio.read") return "gpio";
+    if (toolName === "device.notes.read") return "notes";
+    if (toolName === "device.note.write") return "note";
+    return toolName;
+  }
+
+  function objectOrEmpty(value: any): JsonObject {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  }
+
+  function normalizeActionSideEffects(value: any) {
+    const sideEffects = Array.isArray(value) ? value : value ? [value] : [];
+    return sideEffects
+      .map((item: JsonObject) => ({
+        kind: String(item?.kind || "").trim(),
+        target: String(item?.target || "unknown").trim() || "unknown",
+        status: String(item?.status || "observed").trim() || "observed",
+      }))
+      .filter((item: JsonObject) => item.kind);
+  }
+
   return {
     dispatchIntent,
-    readScreenFrame,
-    syncScreen,
-    memoryPreference,
-    memorySensitiveSkip,
-    sessionSummary,
-    recentFailure,
+    callTool,
   };
-}
-
-function objectOrEmpty(value: any): JsonObject {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-
-function normalizeActionSideEffects(value: any) {
-  const sideEffects = Array.isArray(value) ? value : value ? [value] : [];
-  return sideEffects
-    .map((item: JsonObject) => ({
-      kind: String(item?.kind || "").trim(),
-      target: String(item?.target || "unknown").trim() || "unknown",
-      status: String(item?.status || "observed").trim() || "observed",
-    }))
-    .filter((item: JsonObject) => item.kind);
 }
