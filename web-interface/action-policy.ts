@@ -5,7 +5,7 @@ const RISKS = new Set(["read", "write-low", "interactive", "high"]);
 const MODES = new Set(["remote", "terminal", "confirmable", "refused"]);
 
 type JsonObject = Record<string, any>;
-type ActionPolicyAction = JsonObject & {
+export type ActionPolicyAction = JsonObject & {
   allowedExecutors: string[];
   confirmationRequired: boolean;
   evidence: JsonObject;
@@ -15,7 +15,7 @@ type ActionPolicyAction = JsonObject & {
   title: string;
   web?: { reply?: string };
 };
-type ActionPolicyManifest = JsonObject & {
+export type ActionPolicyManifest = JsonObject & {
   actions: Record<string, ActionPolicyAction>;
   schema: typeof MANIFEST_SCHEMA;
   version: number;
