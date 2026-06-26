@@ -117,6 +117,10 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   device before entering MCP/OPA. If that binding path cannot be persisted or
   read, the signed session path fails instead of falling back to a
   client-controlled role.
+- The default local WalnutPi device binding is server-owned. Request
+  environment values cannot initialize or overwrite the default device
+  `target` or `deviceProfile`; signed better-auth subjects resolve those fields
+  from Postgres binding state before MCP/OPA.
 - The Next/Tailwind console now has a compact session panel for email sign-up,
   sign-in, sign-out, and server-derived subject display. It does not submit
   client-controlled subject or role headers.
@@ -246,6 +250,8 @@ local-only or mock verification.
 - `bun run verify:platform` verifies signed better-auth users resolve through
   Postgres-backed org/device/owner bindings, and that OPA receives matching
   subject and environment binding ids.
+- `bun run verify:platform` verifies signed subject device target/profile stay
+  server-owned even when request environment attempts to spoof them.
 - `bun run verify:platform` verifies the `/api/agent/turn` Mastra MCP workflow
   path uses request-derived auth context, reaches the `policy.action.prepare`
   no-command boundary, and does not admit spoofed subject/role headers into the

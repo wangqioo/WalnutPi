@@ -15,18 +15,20 @@ export type WalnutSubjectBinding = {
 
 const LOCAL_ORG_ID = "local-control-plane";
 const LOCAL_DEVICE_ID = "default-walnutpi";
+const LOCAL_DEVICE_PROFILE = "device";
+const LOCAL_DEVICE_TARGET = "local-walnutpi-device";
 const OWNER_ROLE = "owner";
 
 export async function resolveWalnutSubjectBinding(
   userId: string,
-  environment: JsonObject = {},
+  _environment: JsonObject = {},
 ): Promise<WalnutSubjectBinding> {
   const client = createWalnutPostgresClient();
   if (!client.ok || !client.db || !client.sql) {
     throw new Error(`auth subject binding database unavailable: ${client.reason || "unknown"}`);
   }
   try {
-    await ensureLocalBinding(client.db, userId, environment);
+    await ensureLocalBinding(client.db, userId);
     const rows = await client.db
       .select({
         role: schema.walnutUserBindings.role,
@@ -59,9 +61,7 @@ export async function resolveWalnutSubjectBinding(
   }
 }
 
-async function ensureLocalBinding(db: JsonObject, userId: string, environment: JsonObject) {
-  const target = cleanText(environment.target) || "local-walnutpi-device";
-  const deviceProfile = cleanText(environment.deviceProfile) || "device";
+async function ensureLocalBinding(db: JsonObject, userId: string) {
   await db
     .insert(schema.walnutOrgs)
     .values({
@@ -81,8 +81,8 @@ async function ensureLocalBinding(db: JsonObject, userId: string, environment: J
       id: LOCAL_DEVICE_ID,
       orgId: LOCAL_ORG_ID,
       label: "Default WalnutPi Device",
-      deviceProfile,
-      target,
+      deviceProfile: LOCAL_DEVICE_PROFILE,
+      target: LOCAL_DEVICE_TARGET,
       active: true,
     })
     .onConflictDoUpdate({
@@ -90,8 +90,8 @@ async function ensureLocalBinding(db: JsonObject, userId: string, environment: J
       set: {
         orgId: LOCAL_ORG_ID,
         label: "Default WalnutPi Device",
-        deviceProfile,
-        target,
+        deviceProfile: LOCAL_DEVICE_PROFILE,
+        target: LOCAL_DEVICE_TARGET,
         active: true,
         updatedAt: new Date(),
       },
@@ -117,8 +117,4 @@ async function ensureLocalBinding(db: JsonObject, userId: string, environment: J
         updatedAt: new Date(),
       },
     });
-}
-
-function cleanText(value: any) {
-  return String(value || "").trim();
 }

@@ -700,7 +700,7 @@ try {
       && signedAuthSubject.orgId === "local-control-plane"
       && signedAuthSubject.deviceId === "default-walnutpi"
       && signedAuthSubject.deviceProfile === "device"
-      && signedAuthSubject.target === "verify@walnutpi"
+      && signedAuthSubject.target === "local-walnutpi-device"
       && Boolean(signedAuthSubject.userId)
       && Boolean(signedAuthSubject.sessionId),
     signUpStatus: signUpResponse.status,
@@ -713,8 +713,27 @@ try {
     deviceId: signedAuthSubject.deviceId || null,
     bindingSource: signedAuthSubject.bindingSource || null,
   });
+  const signedSpoofedBindingSubject = await resolveWalnutSubjectFromRequest(new Request("http://127.0.0.1:4173/mcp", {
+    headers: signedAuthCookie ? { cookie: signedAuthCookie } : {},
+  }), {
+    deviceProfile: "attacker-profile",
+    target: "attacker@device",
+  });
+  record("auth.subject-binding-server-owned-target", {
+    ok: signedSpoofedBindingSubject.kind === "better-auth-user"
+      && signedSpoofedBindingSubject.deviceProfile === "device"
+      && signedSpoofedBindingSubject.target === "local-walnutpi-device"
+      && signedSpoofedBindingSubject.orgId === "local-control-plane"
+      && signedSpoofedBindingSubject.deviceId === "default-walnutpi",
+    subjectKind: signedSpoofedBindingSubject.kind || null,
+    deviceProfile: signedSpoofedBindingSubject.deviceProfile || null,
+    target: signedSpoofedBindingSubject.target || null,
+    orgId: signedSpoofedBindingSubject.orgId || null,
+    deviceId: signedSpoofedBindingSubject.deviceId || null,
+  });
 } catch (error: any) {
   record("auth.better-auth-session-subject", { ok: false, error: error.message });
+  record("auth.subject-binding-server-owned-target", { ok: false, error: error.message });
 }
 
 if (signedAuthCookie) {
