@@ -51,7 +51,6 @@ export const WEB_SESSIONS_DIR = process.env.WALNUT_WEB_SESSIONS_DIR || path.join
 export const WEB_METRICS_PATH = process.env.WALNUT_WEB_METRICS_PATH || path.join(BASE_DIR, "data", "metrics.jsonl");
 export const AGENT_TURNS_PATH = process.env.WALNUT_AGENT_TURNS_PATH || path.join(BASE_DIR, "data", "agent-turns.jsonl");
 export const AGENT_TURN_EVENTS_PATH = process.env.WALNUT_AGENT_TURN_EVENTS_PATH || path.join(BASE_DIR, "data", "agent-turn-events.jsonl");
-export const AGENT_HARNESS_SESSIONS_PATH = process.env.WALNUT_AGENT_HARNESS_SESSIONS_PATH || path.join(BASE_DIR, "data", "agent-harness-sessions.json");
 
 // ── Limits ───────────────────────────────────────────────────────────
 export const ACTION_OUTPUT_LIMIT = 24_000;

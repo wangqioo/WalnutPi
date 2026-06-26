@@ -1,5 +1,6 @@
 import { type WalnutToolResult, failedToolResult, toolResult } from "../walnut-tool-results.ts";
 import { createMemoryProductStateStore } from "../platform/memory/product-state-store.ts";
+import { createActionApprovalService } from "../platform/policy/action-approval-service.ts";
 
 type JsonObject = Record<string, any>;
 
@@ -12,6 +13,11 @@ export function createToolDispatcher({
   opaEnforcer,
   auditLedger,
   memoryStore = createMemoryProductStateStore(),
+  actionApprovalService = createActionApprovalService({
+    auditLedger,
+    opaEnforcer,
+    policyManifest,
+  }),
 }: JsonObject) {
   async function callTool(toolName: string, params: JsonObject, turn: JsonObject) {
     if (!toolName) return failedToolResult("diagnostics", "Tool name is required");
@@ -177,13 +183,15 @@ export function createToolDispatcher({
     body,
     turn,
     operation,
+    committedPolicyDecision = null,
   }: {
     actionId: string;
     body: JsonObject;
     turn: JsonObject;
     operation: string;
+    committedPolicyDecision?: JsonObject | null;
   }) {
-    const decision = await (opaEnforcer.decideActionAsync?.({
+    const decision = committedPolicyDecision || await (opaEnforcer.decideActionAsync?.({
       manifest: policyManifest,
       executor: "web",
       actionId,
@@ -266,49 +274,45 @@ export function createToolDispatcher({
   }
 
   async function handlePolicyTool(toolName: string, body: JsonObject, turn: JsonObject) {
-    const actionIds = POLICY_TOOL_ACTIONS[toolName] || [];
-    const pending = actionIds.map((actionId: string) => ({
-      schema: "walnutpi.action-policy-decision.v1",
-      actionId,
-      allow: false,
-      status: "pending",
-      reason: "opa-policy-not-wired",
-      requirements: {
-        approval: {
-          required: true,
-          kind: "explicit-user-confirmation",
-        },
-      },
-      evidence: {
-        kind: "pending-local-action",
+    if (toolName === "policy.action.prepare") return actionApprovalService.prepare(body, turn);
+    if (toolName === "policy.action.commit") {
+      const committed = await actionApprovalService.commitForExecution(body, turn);
+      const committedResult = committed.toolResult;
+      if (!committedResult.ok || committedResult.result?.committed !== true) return committedResult;
+      if (body.execute !== true) return committedResult;
+      if (!committed.executionDecision?.allow) return committedResult;
+      const actionId = committedResult.result.actionId;
+      if (isHighRiskAction(actionId)) {
+        return toolResult("policy", {
+          ok: false,
+          summary: "High-risk approved action commit recorded; direct web execution remains blocked.",
+          result: {
+            operation: "policy.action.commit",
+            actionId,
+            committed: true,
+            executed: false,
+            reason: "high-risk-direct-execution-blocked",
+            decision: committedResult.result.decision,
+          },
+          evidence: {
+            approvalCommitted: true,
+            highRiskDirectExecutionBlocked: true,
+            noCommandExecution: true,
+            noRemoteCommandExecution: true,
+            policyDecision: committedResult.result.decision,
+          },
+          diagnostics: committedResult.diagnostics,
+        });
+      }
+      return runPolicyGatedAction({
         actionId,
-      },
-    }));
-    await auditLedger?.append?.({
-      kind: "gateway.policy",
-      operation: "gateway.policy",
-      ok: true,
-      status: 409,
-      actionId: toolName,
-      turnId: turn.turnId || null,
-      sessionId: turn.sessionId || null,
-      result: pending,
-    });
-    return toolResult("policy", {
-      ok: true,
-      summary: "Policy requests are pending until the OPA decision layer is wired.",
-      result: {
-        operation: "policy.decision",
-        decisions: pending,
-      },
-      evidence: {
-        policyDecisionEvidence: pending,
-        pendingLocalAction: pending.length > 0,
-        noCommandExecution: true,
-        noRemoteCommandExecution: true,
-        userRequest: body.text,
-      },
-    });
+        body: objectOrEmpty(committedResult.result.params),
+        turn,
+        operation: "device.action",
+        committedPolicyDecision: committed.executionDecision,
+      });
+    }
+    return failedToolResult("policy", `Unknown policy tool ${toolName}`);
   }
 
   async function memoryPreference(body: JsonObject, turn: JsonObject) {
@@ -488,6 +492,14 @@ export function createToolDispatcher({
     return toolName;
   }
 
+  function isHighRiskAction(actionId: string) {
+    const action = policyManifest?.actions?.[actionId];
+    return action?.risk === "high"
+      || action?.confirmationRequired === true
+      || action?.mode === "confirmable"
+      || ["restart_walnut_screen_service", "reboot", "reboot_device", "shutdown", "package-install", "storage-delete", "image-flash"].includes(actionId);
+  }
+
   function objectOrEmpty(value: any): JsonObject {
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
   }
@@ -519,9 +531,3 @@ export function createToolDispatcher({
     callTool,
   };
 }
-
-const POLICY_TOOL_ACTIONS: Record<string, string[]> = {
-  "policy.system_write": ["package-install", "reboot"],
-  "policy.service_restart": ["restart_walnut_screen_service"],
-  "policy.maintenance_guidance": ["storage-delete"],
-};

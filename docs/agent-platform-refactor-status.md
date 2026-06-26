@@ -67,8 +67,8 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `device.network.read`, `device.snapshot.read`, `device.i2c.read`,
   `device.gpio.read`, `device.notes.read`, `memory.sessionSummary`,
   `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
-  `screen.writePlaylist`, `memory.preference`, `memory.sensitiveSkip`, and
-  `device.note.write`.
+  `screen.writePlaylist`, `memory.preference`, `memory.sensitiveSkip`,
+  `device.note.write`, `policy.action.prepare`, and `policy.action.commit`.
 - `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
   `screen.writePlaylist` are registered as real MCP SDK tools with explicit
   read/write/destructive annotations and dispatch only through the Screen
@@ -89,6 +89,22 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `environment.deviceProfile`, `environment.target`, and request
   `sessionId`/`turnId`/`traceId`; tool arguments may set preview mode and
   approval token but cannot override subject or device target.
+- The MCP subject resolver now attempts the better-auth session API first and
+  then falls back to the server-derived local-owner subject for the current
+  local control-plane profile. Client headers cannot declare subject or roles.
+- `policy.action.prepare` and `policy.action.commit` are real MCP/Mastra tools.
+  Prepare records decision id, action id, normalized params hash, command
+  binding id, subject, expiry, explanation, OPA decision, and approval token
+  hash in an append-only local approval ledger. Commit requires matching
+  decision id, normalized params hash, subject, approval token, and a fresh OPA
+  allow decision before any execution path can be reached.
+- High-risk service restart/reboot/shutdown/package install/storage
+  delete/overlay/image flash actions still do not directly execute through Web
+  commit. The commit can be recorded, but the dispatcher blocks direct high-risk
+  execution before command construction.
+- `web-interface/agent-harness-session-store.ts`,
+  `WALNUT_AGENT_HARNESS_SESSIONS_PATH`, and the public
+  `/api/agent/harness-session` route have been removed.
 - Public MCP, Mastra, agent-turn, action, screen-sync, and session projections
   no longer expose raw shell, SSH, or Walnut CLI command strings. Command
   construction remains inside the dispatcher/adapter boundary and raw command
@@ -138,14 +154,19 @@ local-only or mock verification.
   surface through `@mastra/mcp`.
 - Live `POST /api/agent/turn` with a structured `device.status.read`
   continuation completed through `mastra.mcp.device.status.read`.
-- `bun run verify:platform` now verifies at least 16 `/mcp` tools/list
-  entries, 16 MCP tools/call invocations, and 12 structured
+- `bun run verify:platform` now verifies at least 18 `/mcp` tools/list
+  entries, 17 MCP tools/call invocations, and 13 structured
   `/api/agent/turn` slices through Mastra MCP workflow dispatch.
 - `bun run verify:platform` also verifies OPA-unavailable degraded behavior:
   read actions may local-allow, while write-low actions fail closed with
   `noCommandExecution`.
 - `bun run verify:platform` verifies MCP auth/device context reaches gateway
   policy audit for an OPA-gated tool call.
+- `bun run verify:platform` verifies spoofed subject/role headers are ignored
+  by the MCP subject resolver.
+- `bun run verify:platform` verifies `policy.action.prepare` produces no command
+  execution, `policy.action.commit` requires the approval proof, and high-risk
+  direct Web execution remains blocked without exposing command strings.
 - `bun run verify:platform` injects a stub raw command into the device action
   dispatcher and recursively verifies MCP/Mastra/agent-turn results do not
   expose raw command fields.
@@ -201,10 +222,10 @@ device-profile verification, not offline verification.
 
 ## Next Work
 
-- Move policy prepare/commit and remaining approved action capabilities into
-  Mastra-owned workflows without reintroducing local dispatcher fallback.
-- Replace the current local-owner MCP subject fallback with a full better-auth
-  session resolver and bind approval tokens to that subject.
+- Add the approval UI and durable approval/audit storage around
+  `policy.action.prepare`/`policy.action.commit`.
+- Replace the current better-auth-first/local-owner subject resolver with real
+  signed-in user flows once the Next.js console owns login/session creation.
 - Add managed DB migrations for memory product-state tables and then move
   approved durable memory/retrieval to the curated DB path.
 - Extend device-profile verification for the platform `screen.syncPlaylist`

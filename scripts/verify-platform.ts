@@ -22,7 +22,7 @@ import { createWalnutPostgresClient, schema } from "../web-interface/platform/db
 import { loadActionPolicyManifest } from "../web-interface/action-policy.ts";
 import { createOpaEnforcer } from "../web-interface/gateway/opa-enforcer.ts";
 import { handleWalnutMcpRequest } from "../web-interface/platform/mcp/server.ts";
-import { createLocalOwnerAuthContext } from "../web-interface/platform/auth/auth.ts";
+import { createLocalOwnerAuthContext, resolveWalnutSubjectFromRequest } from "../web-interface/platform/auth/auth.ts";
 import { createScreenCommandRunner } from "../web-interface/screen-command-runner.ts";
 import { createScreenWorkspaceStore } from "../web-interface/screen-workspace-store.ts";
 import { createToolDispatcher } from "../web-interface/gateway/tool-dispatcher.ts";
@@ -302,6 +302,8 @@ try {
     "walnutpi_device.note.write",
     "walnutpi_memory.preference",
     "walnutpi_memory.sensitiveSkip",
+    "walnutpi_policy.action.prepare",
+    "walnutpi_policy.action.commit",
   ];
   record("mastra.mcp-client-list-tools", {
     ok: expectedMcpTools.every((toolName) => toolNames.includes(toolName)),
@@ -342,6 +344,7 @@ try {
     ["device.note.write", "walnutpi_device.note.write", { text: "verify-platform note boundary" }],
     ["memory.preference", "walnutpi_memory.preference", { text: "prefer concise device evidence" }],
     ["memory.sensitiveSkip", "walnutpi_memory.sensitiveSkip", { text: "temporary secret-like value" }],
+    ["policy.action.prepare", "walnutpi_policy.action.prepare", { actionId: "restart_walnut_screen_service", params: {} }],
   ] as const;
   let mcpCallOkCount = 0;
   const mcpMemoryResults: Record<string, JsonObject> = {};
@@ -360,6 +363,34 @@ try {
       rawCommandExposure: commandExposure,
     });
   }
+  const preparedPolicy = await tools["walnutpi_policy.action.prepare"]?.execute?.({
+    actionId: "restart_walnut_screen_service",
+    params: {},
+    sessionId: "verify-platform",
+    turnId: "verify-policy-prepare",
+  } as any, {} as any);
+  const committedPolicy = await tools["walnutpi_policy.action.commit"]?.execute?.({
+    decisionId: preparedPolicy?.result?.decisionId,
+    actionId: "restart_walnut_screen_service",
+    params: {},
+    approvalToken: preparedPolicy?.result?.approvalToken,
+    execute: true,
+    sessionId: "verify-platform",
+    turnId: "verify-policy-commit",
+  } as any, {} as any);
+  record("policy.prepare-commit-approval-flow", {
+    ok: preparedPolicy?.ok === true
+      && preparedPolicy?.evidence?.noCommandExecution === true
+      && committedPolicy?.ok === false
+      && committedPolicy?.evidence?.highRiskDirectExecutionBlocked === true
+      && !findRawCommandExposure(preparedPolicy)
+      && !findRawCommandExposure(committedPolicy),
+    prepareOperation: preparedPolicy?.result?.operation || null,
+    commitOperation: committedPolicy?.result?.operation || null,
+    highRiskBlocked: Boolean(committedPolicy?.evidence?.highRiskDirectExecutionBlocked),
+    prepareRawCommandExposure: findRawCommandExposure(preparedPolicy),
+    commitRawCommandExposure: findRawCommandExposure(committedPolicy),
+  });
   record("mcp.tools-call-platform-count", {
     ok: mcpCallOkCount >= 5,
     passed: mcpCallOkCount,
@@ -417,6 +448,7 @@ const turnCapabilities = [
   "memory.preference",
   "memory.sensitiveSkip",
   "device.note.write",
+  "policy.action.prepare",
 ] satisfies MastraAgentTurnCapability[];
 let platformTurnOkCount = 0;
 for (const capability of turnCapabilities) {
@@ -430,6 +462,7 @@ for (const capability of turnCapabilities) {
       ...(capability === "memory.preference" ? { text: "prefer concise device evidence" } : {}),
       ...(capability === "memory.sensitiveSkip" ? { text: "temporary secret-like value" } : {}),
       ...(capability === "device.note.write" ? { text: "verify-platform note boundary" } : {}),
+      ...(capability === "policy.action.prepare" ? { actionId: "restart_walnut_screen_service", params: {} } : {}),
     },
     classifyIntent: async () => {
       throw new Error(`structured capability ${capability} unexpectedly called the classifier`);
@@ -473,6 +506,23 @@ record("policy.mcp-auth-context", {
   deviceProfile: policyAuditWithContext?.deviceProfile || null,
   sessionId: policyAuditWithContext?.sessionId || null,
   turnId: policyAuditWithContext?.turnId || null,
+});
+
+const spoofedSubject = await resolveWalnutSubjectFromRequest(new Request("http://127.0.0.1:4173/mcp", {
+  headers: {
+    "x-walnut-subject": "attacker",
+    "x-walnut-roles": "admin",
+  },
+}));
+record("auth.subject-server-derived", {
+  ok: spoofedSubject.kind === "local-user"
+    && spoofedSubject.userId === "local-owner"
+    && Array.isArray(spoofedSubject.roles)
+    && spoofedSubject.roles.includes("owner")
+    && !spoofedSubject.roles.includes("admin"),
+  subjectKind: spoofedSubject.kind,
+  userId: spoofedSubject.userId || null,
+  roles: spoofedSubject.roles || [],
 });
 
 try {

@@ -266,10 +266,11 @@ function failClosedDecision({ local, actionId, action, reason }: JsonObject): Op
 function defaultSubject() {
   return {
     kind: "local-user",
-    authenticated: true,
-    roles: ["owner"],
-    approvalToken: null,
-  };
+      authenticated: true,
+      roles: ["owner"],
+      approvalToken: null,
+      approvalTokenProof: null,
+    };
 }
 
 function defaultEnvironment() {

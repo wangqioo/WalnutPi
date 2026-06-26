@@ -21,6 +21,8 @@ export const MASTRA_AGENT_TURN_CAPABILITIES = [
   "memory.sessionSummary",
   "memory.preference",
   "memory.sensitiveSkip",
+  "policy.action.prepare",
+  "policy.action.commit",
 ] as const;
 
 export type MastraAgentTurnCapability = (typeof MASTRA_AGENT_TURN_CAPABILITIES)[number];
@@ -49,6 +51,8 @@ const MCP_TOOL_BY_CAPABILITY: Record<MastraAgentTurnCapability, string> = {
   "memory.sessionSummary": "walnutpi_memory.sessionSummary",
   "memory.preference": "walnutpi_memory.preference",
   "memory.sensitiveSkip": "walnutpi_memory.sensitiveSkip",
+  "policy.action.prepare": "walnutpi_policy.action.prepare",
+  "policy.action.commit": "walnutpi_policy.action.commit",
 };
 
 const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["family"]> = {
@@ -68,6 +72,8 @@ const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["
   "memory.sessionSummary": "memory",
   "memory.preference": "memory",
   "memory.sensitiveSkip": "memory",
+  "policy.action.prepare": "policy",
+  "policy.action.commit": "policy",
 };
 
 export function capabilityFromIntent(intent: string): MastraAgentTurnCapability | null {
@@ -203,6 +209,23 @@ function paramsForCapability(
     return {
       ...parameters,
       text: body.text || parameters.text || "",
+    };
+  }
+  if (capability === "policy.action.prepare") {
+    return {
+      ...parameters,
+      actionId: body.actionId || body.action || parameters.actionId,
+      params: body.params || parameters.params || {},
+    };
+  }
+  if (capability === "policy.action.commit") {
+    return {
+      ...parameters,
+      decisionId: body.decisionId || parameters.decisionId,
+      actionId: body.actionId || body.action || parameters.actionId,
+      params: body.params || parameters.params || {},
+      approvalToken: body.approvalToken || parameters.approvalToken,
+      execute: body.execute === true || parameters.execute === true,
     };
   }
   return parameters;

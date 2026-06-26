@@ -13,7 +13,6 @@ import { createScreenWorkspaceStore, workspaceErrorResponse } from "./screen-wor
 import { actionsForExecutor, loadActionPolicyManifest } from "./action-policy.ts";
 import { createAgentActionsApi } from "./agent-actions-api.ts";
 import { createAgentEventBus } from "./agent-event-bus.ts";
-import { createAgentHarnessSessionStore } from "./agent-harness-session-store.ts";
 import { createAgentTurnEventLedger } from "./agent-turn-event-ledger.ts";
 import { createAgentTurnLedger } from "./agent-turn-ledger.ts";
 import { createAgentPlatformTurnRoute } from "./agent-platform-turn-route.ts";
@@ -43,7 +42,6 @@ import { generateLvglScreenWorkspaceRuntimeAssets } from "../scripts/generate-lv
 import {
   ACTION_OUTPUT_LIMIT,
   ACTION_POLICY_MANIFEST_PATH,
-  AGENT_HARNESS_SESSIONS_PATH,
   AGENT_TURNS_PATH,
   AGENT_TURN_EVENTS_PATH,
   AI_CONTEXT_LIMIT,
@@ -81,7 +79,6 @@ import {
 const WEB_CONFIG = {
   ACTION_OUTPUT_LIMIT,
   ACTION_POLICY_MANIFEST_PATH,
-  AGENT_HARNESS_SESSIONS_PATH,
   AGENT_TURNS_PATH,
   AGENT_TURN_EVENTS_PATH,
   AI_CONTEXT_LIMIT,
@@ -141,10 +138,6 @@ const agentTurnEventLedger = createAgentTurnEventLedger({
 const gatewayAuditLedger = createGatewayAuditLedger({
   auditPath: path.join(BASE_DIR, "data", "gateway-audit.jsonl"),
 });
-const agentHarnessSessionStore = createAgentHarnessSessionStore({
-  filePath: AGENT_HARNESS_SESSIONS_PATH,
-});
-
 const files = new Map([
   ["/", "walnut-agent-console.html"],
   ["/apps.html", "widget-app-gallery.html"],
@@ -793,7 +786,6 @@ const productGateway = createProductGatewayApp({
   agentPlatform,
   handleAgentChat: (req) => walnutMastraAgentApi.handleChat(req),
   handleAgentEvents,
-  agentHarnessSessionStore,
   readJsonRequest,
   screenWorkspaceApi,
   screenDiagnosticsApi,

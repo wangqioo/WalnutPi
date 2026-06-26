@@ -377,7 +377,7 @@
       "risk": "high",
       "mode": "confirmable",
       "confirmationRequired": true,
-      "allowedExecutors": ["walnut-cli"],
+      "allowedExecutors": ["web", "walnut-cli"],
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -398,7 +398,7 @@
       "risk": "high",
       "mode": "confirmable",
       "confirmationRequired": true,
-      "allowedExecutors": ["walnut-cli"],
+      "allowedExecutors": ["web", "walnut-cli"],
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -419,7 +419,7 @@
       "risk": "high",
       "mode": "confirmable",
       "confirmationRequired": true,
-      "allowedExecutors": ["walnut-cli"],
+      "allowedExecutors": ["web", "walnut-cli"],
       "parameters": {
         "type": "object",
         "additionalProperties": false,

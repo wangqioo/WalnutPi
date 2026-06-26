@@ -67,14 +67,16 @@ export function createGatewayToolCatalog({
     tool("diagnostics.recentFailure", "diagnostics", "Summarize the latest local failure evidence.", "/api/metrics", {
       sessionId: optionalStringSchema(),
     }),
-    tool("policy.system_write", "policy", "Review high-risk system write actions before command construction.", "/api/actions", {
-      text: stringSchema(),
+    tool("policy.action.prepare", "policy", "Prepare a catalog action through OPA before command construction.", "/mcp", {
+      actionId: stringSchema(),
+      params: objectSchema(),
     }),
-    tool("policy.service_restart", "policy", "Review service restart actions before command construction.", "/api/actions", {
-      text: stringSchema(),
-    }),
-    tool("policy.maintenance_guidance", "policy", "Review maintenance guidance before command construction.", "/api/actions", {
-      text: stringSchema(),
+    tool("policy.action.commit", "policy", "Commit a prepared catalog action with approval proof and a fresh OPA decision.", "/mcp", {
+      decisionId: stringSchema(),
+      actionId: stringSchema(),
+      params: objectSchema(),
+      approvalToken: stringSchema(),
+      execute: booleanSchema(false),
     }),
   ];
 

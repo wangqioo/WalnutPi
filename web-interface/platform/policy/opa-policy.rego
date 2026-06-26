@@ -11,16 +11,34 @@ allow if {
 	input.executor_allowed
 }
 
+allow if {
+	input.request.operation == "tools/call"
+	input.subject.approvalTokenProof == true
+	input.action.confirmationRequired
+	input.action.mode == "confirmable"
+	input.executor_allowed
+}
+
 status := "allow" if allow
 
 status := "pending" if {
+	not allow
 	input.action.confirmationRequired
 	input.executor_allowed
 }
 
-reason := "local-action-allowed" if allow
+reason := "local-action-allowed" if {
+	allow
+	not input.action.confirmationRequired
+}
+
+reason := "approved-confirmable-action" if {
+	allow
+	input.action.confirmationRequired
+}
 
 reason := "explicit-confirmation-required" if {
+	not allow
 	status == "pending"
 }
 

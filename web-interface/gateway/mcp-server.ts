@@ -31,7 +31,6 @@ export type ProductGatewayAppDeps = {
   agentPlatform: GatewayService;
   handleAgentChat: (req: Request) => Promise<Response> | Response;
   handleAgentEvents: (req: Request, url: URL) => Promise<Response> | Response;
-  agentHarnessSessionStore: GatewayService;
   readJsonRequest: (req: Request) => Promise<any>;
   screenWorkspaceApi: GatewayService;
   screenDiagnosticsApi: GatewayService;
@@ -54,7 +53,6 @@ export function createProductGatewayApp({
   agentPlatform,
   handleAgentChat,
   handleAgentEvents,
-  agentHarnessSessionStore,
   readJsonRequest,
   screenWorkspaceApi,
   screenDiagnosticsApi,
@@ -85,8 +83,6 @@ export function createProductGatewayApp({
     agentPlatform,
     handleAgentChat,
     handleAgentEvents,
-    agentHarnessSessionStore,
-    readJsonRequest,
   });
   registerGatewayRoutes(app, {
     json,
@@ -155,7 +151,7 @@ function registerGatewayRoutes(app: Hono, {
   app.get("/api/gateway/tools", () => json(gatewayTools.listTools()));
   app.all("/mcp", async (c) => handleWalnutMcpRequest(c.req.raw, {
     auditLedger,
-    authContext: createMcpAuthContext(c.req.raw, {
+    authContext: await createMcpAuthContext(c.req.raw, {
       deviceProfile: "device",
       target: `${config.SSH_USER}@${config.SSH_HOST}`,
     }),
@@ -171,8 +167,6 @@ function registerAgentRoutes(app: Hono, {
   agentPlatform,
   handleAgentChat,
   handleAgentEvents,
-  agentHarnessSessionStore,
-  readJsonRequest,
 }: JsonObject) {
   app.post("/api/agent/chat", (c) => {
     const url = new URL(c.req.url);
@@ -185,7 +179,6 @@ function registerAgentRoutes(app: Hono, {
   app.get("/api/agent/turns", (c) => agentPlatform.handleTurns(new URL(c.req.url)));
   app.get("/api/agent/turn-events", (c) => agentPlatform.handleTurnEvents(new URL(c.req.url)));
   app.get("/api/agent/events", (c) => handleAgentEvents(c.req, new URL(c.req.url)));
-  app.all("/api/agent/harness-session", (c) => handleHarnessSession(c.req, new URL(c.req.url), agentHarnessSessionStore, readJsonRequest, json));
 }
 
 function registerScreenRoutes(app: Hono, {
@@ -233,23 +226,4 @@ function registerStaticUiFallback(app: Hono, staticUiHost: JsonObject) {
 
 export function createProductGatewayFetch(app: Hono) {
   return (req: Request, server: any) => app.fetch(req, server);
-}
-
-async function handleHarnessSession(req: Request | any, url: URL, store: any, readJsonRequest: any, json: any) {
-  if (req.method === "GET") {
-    const sessionId = url.searchParams.get("sessionId");
-    return json({ ok: true, session: await store.readSession(sessionId) });
-  }
-  if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
-  let body;
-  try {
-    body = req.json ? await req.json() : await readJsonRequest(req);
-  } catch (error: any) {
-    return json({ ok: false, error: error.message }, 400);
-  }
-  try {
-    return json({ ok: true, session: await store.upsertSession(body) });
-  } catch (error: any) {
-    return json({ ok: false, error: error.message }, 400);
-  }
 }

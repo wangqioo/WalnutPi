@@ -128,6 +128,33 @@ const TOOL_POLICIES: Record<string, {
       turnId: z.string().optional(),
     },
   },
+  "policy.action.prepare": {
+    readOnly: false,
+    destructive: false,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      actionId: z.string().min(1),
+      params: z.record(z.string(), z.any()).optional(),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
+  "policy.action.commit": {
+    readOnly: false,
+    destructive: true,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      decisionId: z.string().min(1),
+      actionId: z.string().min(1),
+      params: z.record(z.string(), z.any()).optional(),
+      approvalToken: z.string().min(1),
+      execute: z.boolean().optional(),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
 };
 
 export type WalnutMcpServerDeps = {

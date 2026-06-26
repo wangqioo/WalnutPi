@@ -1,10 +1,10 @@
-import { createLocalOwnerAuthContext } from "../platform/auth/auth.ts";
+import { resolveWalnutSubjectFromRequest } from "../platform/auth/auth.ts";
 
 type JsonObject = Record<string, any>;
 
-export function createMcpAuthContext(req: Request, environment: JsonObject = {}): JsonObject {
+export async function createMcpAuthContext(req: Request, environment: JsonObject = {}): Promise<JsonObject> {
   const url = new URL(req.url);
-  const subject = createLocalOwnerAuthContext();
+  const subject = await resolveWalnutSubjectFromRequest(req);
   return {
     subject: {
       ...subject,

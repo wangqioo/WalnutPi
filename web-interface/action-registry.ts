@@ -1,12 +1,9 @@
 /**
- * Action Registry — one source of truth for action definitions.
+ * Action Registry — action catalog and command binding helper.
  *
- * Consolidates:
- * 1. Action metadata (from action-policy-manifest.json via action-policy.ts)
- * 2. Intent-to-action mapping (replaces ACTION_BY_INTENT hardcoding)
- * 3. Command builders (replaces webActionCommandBuilder special cases)
- *
- * Adding a new action = manifest entry + intent mapping here.
+ * It reads action metadata from action-policy-manifest.json and builds command
+ * bindings only after OPA has allowed execution. It is not an intent router and
+ * must not decide whether an action may run.
  */
 
 import { readFile } from "node:fs/promises";
@@ -73,8 +70,6 @@ export function createActionRegistry({ manifestPath, shellQuote, aiTimeoutSecond
     cachedManifest = normalizeActionPolicyManifest(data);
     return cachedManifest;
   }
-
-  // -- Intent routing -------------------------------------------------------
 
   // -- Action metadata (from manifest) --------------------------------------
 
