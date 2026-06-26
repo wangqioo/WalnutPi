@@ -80,6 +80,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - Structured continuation routing no longer treats all `device.*` intents as
   read-only; write continuations require an explicit `write-continuation`
   constraint.
+- MCP requests now attach server-derived subject and device environment context
+  to internal tool turns. OPA policy input receives `subject`,
+  `environment.deviceProfile`, `environment.target`, and request
+  `sessionId`/`turnId`/`traceId`; tool arguments may set preview mode and
+  approval token but cannot override subject or device target.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -126,6 +131,8 @@ local-only or mock verification.
 - `bun run verify:platform` also verifies OPA-unavailable degraded behavior:
   read actions may local-allow, while write-low actions fail closed with
   `noCommandExecution`.
+- `bun run verify:platform` verifies MCP auth/device context reaches gateway
+  policy audit for an OPA-gated tool call.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
 tool results.
 - Policy pending smoke returned `noCommandExecution` evidence.
@@ -177,8 +184,8 @@ device-profile verification, not offline verification.
 
 - Move policy prepare/commit and remaining approved action capabilities into
   Mastra-owned workflows without reintroducing local dispatcher fallback.
-- Add better-auth subject and device binding to each MCP tools/call policy
-  input.
+- Replace the current local-owner MCP subject fallback with a full better-auth
+  session resolver and bind approval tokens to that subject.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.

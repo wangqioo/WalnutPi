@@ -98,6 +98,7 @@ export function createToolDispatcher({
       executor: "web",
       actionId,
       params,
+      ...policyContextForTurn(turn),
     }) || opaEnforcer.decideAction({
       manifest: policyManifest,
       executor: "web",
@@ -114,6 +115,9 @@ export function createToolDispatcher({
       toolOperation: operation,
       turnId: turn.turnId || null,
       sessionId: turn.sessionId || null,
+      traceId: turn.traceId || null,
+      subjectKind: turn.auth?.subject?.kind || null,
+      deviceProfile: turn.auth?.environment?.deviceProfile || null,
       decision,
     });
     if (decision?.status === "refused") {
@@ -182,6 +186,7 @@ export function createToolDispatcher({
       executor: "web",
       actionId,
       params: body,
+      ...policyContextForTurn(turn),
     }) || opaEnforcer.decideAction({
       manifest: policyManifest,
       executor: "web",
@@ -197,6 +202,9 @@ export function createToolDispatcher({
       actionId,
       turnId: turn.turnId || null,
       sessionId: turn.sessionId || null,
+      traceId: turn.traceId || null,
+      subjectKind: turn.auth?.subject?.kind || null,
+      deviceProfile: turn.auth?.environment?.deviceProfile || null,
       decision,
     });
     if (decision?.status === "refused") {
@@ -444,6 +452,18 @@ export function createToolDispatcher({
         status: String(item?.status || "observed").trim() || "observed",
       }))
       .filter((item: JsonObject) => item.kind);
+  }
+
+  function policyContextForTurn(turn: JsonObject) {
+    return {
+      subject: objectOrEmpty(turn.auth?.subject),
+      environment: objectOrEmpty(turn.auth?.environment),
+      requestContext: {
+        sessionId: turn.sessionId || null,
+        turnId: turn.turnId || null,
+        traceId: turn.traceId || null,
+      },
+    };
   }
 
   return {

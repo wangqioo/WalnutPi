@@ -35,12 +35,14 @@ export function createOpaPolicyBoundary({
     params = {},
     subject = defaultSubject(),
     environment = defaultEnvironment(),
+    requestContext = {},
   }: {
     actionId: string;
     executor: string;
     params?: JsonObject;
     subject?: JsonObject;
     environment?: JsonObject;
+    requestContext?: JsonObject;
   }): Promise<OpaActionPolicyDecision> {
     const resolved = resolveAction(manifest, { executor, actionId, params });
     const local = decideActionPolicy({ manifest, executor, actionId, params });
@@ -51,6 +53,7 @@ export function createOpaPolicyBoundary({
       params: resolved.parameterValues || params,
       subject,
       environment,
+      requestContext,
       executorAllowed: Boolean(resolved.action?.allowedExecutors?.includes?.(executor)),
     });
 
@@ -110,6 +113,7 @@ function buildPolicyInput({
   params,
   subject,
   environment,
+  requestContext,
   executorAllowed,
 }: JsonObject) {
   return {
@@ -120,9 +124,9 @@ function buildPolicyInput({
       executor,
       surface: "mcp",
       operation: "tools/call",
-      sessionId: null,
-      turnId: null,
-      traceId: null,
+      sessionId: requestContext?.sessionId || null,
+      turnId: requestContext?.turnId || null,
+      traceId: requestContext?.traceId || null,
     },
     subject,
     action: {

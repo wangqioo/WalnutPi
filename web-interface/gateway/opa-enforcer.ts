@@ -13,12 +13,15 @@ export function createOpaEnforcer({ policyManifest, opaBoundary = null }: JsonOb
       });
     },
 
-    async decideActionAsync({ actionId, executor, params }: JsonObject) {
+    async decideActionAsync({ actionId, executor, params, subject, environment, requestContext }: JsonObject) {
       if (opaBoundary?.decideAction) {
         return opaBoundary.decideAction({
           actionId,
           executor,
           params,
+          subject,
+          environment,
+          requestContext,
         });
       }
       return this.decideAction({ actionId, executor, params });

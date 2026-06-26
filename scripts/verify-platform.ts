@@ -22,6 +22,7 @@ import { createWalnutPostgresClient, schema } from "../web-interface/platform/db
 import { loadActionPolicyManifest } from "../web-interface/action-policy.ts";
 import { createOpaEnforcer } from "../web-interface/gateway/opa-enforcer.ts";
 import { handleWalnutMcpRequest } from "../web-interface/platform/mcp/server.ts";
+import { createLocalOwnerAuthContext } from "../web-interface/platform/auth/auth.ts";
 import { createScreenCommandRunner } from "../web-interface/screen-command-runner.ts";
 import { createScreenWorkspaceStore } from "../web-interface/screen-workspace-store.ts";
 import { createToolDispatcher } from "../web-interface/gateway/tool-dispatcher.ts";
@@ -187,15 +188,36 @@ const toolDispatcher = createToolDispatcher({
   metricsLedger,
   policyManifest: manifest,
   opaEnforcer,
-  auditLedger: { async append() {} },
+  auditLedger: {
+    async append(record: JsonObject) {
+      auditEvents.push(record);
+    },
+  },
 });
+const auditEvents: JsonObject[] = [];
 
 const mcpServer = createWalnutMcpServer({ toolCatalog, toolDispatcher });
 record("mcp.sdk-server-init", { ok: Boolean(mcpServer) });
 
 const mcpFetch = async (url: string | URL, init?: RequestInit) => {
   const request = new Request(url, init);
-  return handleWalnutMcpRequest(request, { toolCatalog, toolDispatcher });
+  return handleWalnutMcpRequest(request, {
+    authContext: {
+      subject: createLocalOwnerAuthContext(),
+      environment: {
+        previewOnly: false,
+        deviceProfile: "device",
+        target: "verify@walnutpi",
+      },
+    },
+    toolCatalog,
+    toolDispatcher,
+    auditLedger: {
+      async append(record: JsonObject) {
+        auditEvents.push(record);
+      },
+    },
+  });
 };
 
 const mcpClient = createWalnutMastraMcpClient({
@@ -365,6 +387,22 @@ record("agent-turn-structured-mastra-count", {
   passed: platformTurnOkCount,
   required: 5,
   registeredCapabilities: [...MASTRA_AGENT_TURN_CAPABILITIES],
+});
+
+const policyAuditWithContext = auditEvents.find((event) =>
+  event.kind === "gateway.policy"
+  && event.subjectKind === "local-user"
+  && event.deviceProfile === "device"
+  && event.sessionId
+  && event.turnId
+  && event.decision?.schema === "walnutpi.action-policy-decision.v1"
+);
+record("policy.mcp-auth-context", {
+  ok: Boolean(policyAuditWithContext),
+  subjectKind: policyAuditWithContext?.subjectKind || null,
+  deviceProfile: policyAuditWithContext?.deviceProfile || null,
+  sessionId: policyAuditWithContext?.sessionId || null,
+  turnId: policyAuditWithContext?.turnId || null,
 });
 
 try {

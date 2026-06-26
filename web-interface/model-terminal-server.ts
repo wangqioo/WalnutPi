@@ -33,6 +33,7 @@ import { createOpaEnforcer } from "./gateway/opa-enforcer.ts";
 import { createToolDispatcher } from "./gateway/tool-dispatcher.ts";
 import { createGatewayAuditLedger } from "./gateway/audit-ledger.ts";
 import { createOpaPolicyBoundary } from "./platform/policy/opa-boundary.ts";
+import { createLocalOwnerAuthContext } from "./platform/auth/auth.ts";
 import { getAiModelConfig } from "./platform/config/platform-config.ts";
 import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-classifier.ts";
 import { compactRetrievalForPrompt, retrieveWalnutContext as retrieveWalnutContextWithOptions } from "./walnut-retrieval.ts";
@@ -755,6 +756,14 @@ const agentPlatform = createAgentPlatformTurnRoute({
       endpoint: "http://127.0.0.1:4173/mcp",
       fetchImpl: ((url, init) => handleWalnutMcpRequest(new Request(url, init), {
         auditLedger: gatewayAuditLedger,
+        authContext: {
+          subject: createLocalOwnerAuthContext(),
+          environment: {
+            previewOnly: false,
+            deviceProfile: "device",
+            target: `${SSH_USER}@${SSH_HOST}`,
+          },
+        },
         toolCatalog: createGatewayToolCatalog({ policyActions: ACTION_POLICY_MANIFEST.actions || {} }),
         toolDispatcher,
       })) as any,

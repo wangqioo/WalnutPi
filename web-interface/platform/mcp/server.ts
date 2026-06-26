@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
+import { mergeToolAuthContext } from "../../gateway/auth-context.ts";
 
 type JsonObject = Record<string, any>;
 
@@ -131,6 +132,7 @@ const TOOL_POLICIES: Record<string, {
 
 export type WalnutMcpServerDeps = {
   auditLedger?: JsonObject;
+  authContext?: JsonObject;
   toolCatalog: {
     listTools(): JsonObject;
     toolForName(name: string): JsonObject | null;
@@ -142,6 +144,7 @@ export type WalnutMcpServerDeps = {
 
 export function createWalnutMcpServer({
   auditLedger,
+  authContext = {},
   toolCatalog,
   toolDispatcher,
 }: WalnutMcpServerDeps) {
@@ -168,9 +171,12 @@ export function createWalnutMcpServer({
       },
       async (args) => {
         const params = objectOrEmpty(args);
+        const mergedAuthContext = mergeToolAuthContext(authContext, params);
         const turn = {
           turnId: params.turnId || null,
           sessionId: params.sessionId || null,
+          traceId: params.traceId || null,
+          auth: mergedAuthContext,
           input: { text: `${tool.name} via MCP SDK` },
         };
         const result = await toolDispatcher.callTool(tool.name, params, turn);
@@ -181,6 +187,8 @@ export function createWalnutMcpServer({
           toolName: tool.name,
           turnId: turn.turnId,
           sessionId: turn.sessionId,
+          traceId: turn.traceId,
+          subjectKind: mergedAuthContext.subject?.kind || null,
           result,
         });
         return {

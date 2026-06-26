@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { relative } from "node:path";
 import { createGatewayToolCatalog } from "./tool-catalog.ts";
 import { handleWalnutMcpRequest } from "../platform/mcp/server.ts";
+import { createMcpAuthContext } from "./auth-context.ts";
 import type { ActionPolicyManifest } from "../action-policy.ts";
 import type { GatewayJson } from "./gateway-interfaces.ts";
 
@@ -89,6 +90,7 @@ export function createProductGatewayApp({
   });
   registerGatewayRoutes(app, {
     json,
+    config,
     agentPlatform,
     gatewayTools,
     auditLedger,
@@ -145,6 +147,7 @@ function registerProductRoutes(app: Hono, {
 
 function registerGatewayRoutes(app: Hono, {
   json,
+  config,
   agentPlatform,
   gatewayTools,
   auditLedger,
@@ -152,6 +155,10 @@ function registerGatewayRoutes(app: Hono, {
   app.get("/api/gateway/tools", () => json(gatewayTools.listTools()));
   app.all("/mcp", async (c) => handleWalnutMcpRequest(c.req.raw, {
     auditLedger,
+    authContext: createMcpAuthContext(c.req.raw, {
+      deviceProfile: "device",
+      target: `${config.SSH_USER}@${config.SSH_HOST}`,
+    }),
     toolCatalog: gatewayTools,
     toolDispatcher: agentPlatform.toolDispatcher(),
   }));
