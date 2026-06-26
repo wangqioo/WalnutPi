@@ -177,6 +177,10 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   constraints enforcing those source kinds. Raw session logs and raw daily
   notes are rejected before index writes and cannot satisfy the table
   constraints.
+- `web-interface/platform/memory/retrieval-reindex-workflow.ts` owns the
+  retrieval reindex workflow. The Inngest function
+  `walnut/retrieval.reindex.requested` runs that workflow, so retrieval reads
+  no longer write embeddings as a GET side effect.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -270,7 +274,8 @@ local-only or mock verification.
   session-log and raw daily-note rows.
 - `bun run verify:platform` verifies pgvector-backed
   `retrieval_embedding_records` are written for approved durable memory and
-  curated corpus only, and that a raw session-log embedding attempt is refused.
+  curated corpus only through the reindex workflow, and that a raw session-log
+  embedding attempt is refused.
 - `bun run verify:platform` verifies the Drizzle schema exports for
   `agentTurnSnapshots`, `agentTurnEvents`, and `webSessionEvents`.
 - `bun run verify:platform` verifies the Drizzle schema exports and live
@@ -381,7 +386,7 @@ device-profile verification, not offline verification.
 - Add multi-org/device management and role-assignment UI/API on top of the
   current Postgres-backed better-auth subject binding tables.
 - Replace the deterministic local embedding seam with an approved embedding
-  provider or Inngest reindex workflow without sending raw/private content.
+  provider without sending raw/private content.
 - Move Screen Workspace, artifact panels, and device diagnostics into the
   Next/Tailwind console, then retire the static HTML console.
 - Extend device-profile verification for the platform `screen.syncPlaylist`

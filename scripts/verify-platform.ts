@@ -31,6 +31,7 @@ import { publicGatewayAuditEventFromRecord } from "../web-interface/gateway/audi
 import { createMemoryActionApprovalStore } from "../web-interface/platform/policy/action-approval-store.ts";
 import { createCuratedRetrievalStore } from "../web-interface/platform/memory/curated-retrieval-store.ts";
 import { createRetrievalEmbeddingIndex } from "../web-interface/platform/memory/retrieval-embedding-index.ts";
+import { createRetrievalReindexWorkflow } from "../web-interface/platform/memory/retrieval-reindex-workflow.ts";
 import { getAiModelConfig, getAuthConfig, getDbConfig, getLangfuseConfig } from "../web-interface/platform/config/platform-config.ts";
 import { processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "./screen-workspace-pipeline.ts";
 import { createMcpAuthContext } from "../web-interface/gateway/auth-context.ts";
@@ -954,6 +955,7 @@ if (retrievalClient.db && retrievalClient.sql) {
     await retrievalClient.sql.end({ timeout: 1 });
   }
 }
+const retrievalReindex = await createRetrievalReindexWorkflow({ batchLimit: 500 }).run({ limit: 500 });
 const curatedRetrieval = await createCuratedRetrievalStore({ resultLimit: 10 }).retrieve(retrievalSeedToken);
 const retrievalJson = JSON.stringify(curatedRetrieval.results);
 record("retrieval.curated-db-path", {
@@ -963,8 +965,10 @@ record("retrieval.curated-db-path", {
     && !retrievalJson.includes("raw_session_log")
     && !retrievalJson.includes("raw_daily_note")
     && !retrievalJson.includes("Raw session forbidden")
-    && !retrievalJson.includes("Raw daily forbidden"),
+    && !retrievalJson.includes("Raw daily forbidden")
+    && curatedRetrieval.index?.writePath === "inngest.retrieval.reindex",
   resultKinds: curatedRetrieval.results.map((item: JsonObject) => item.sourceKind),
+  index: curatedRetrieval.index || null,
   rawSessionExposure: retrievalJson.includes("raw_session_log") || retrievalJson.includes("Raw session forbidden"),
   rawDailyNoteExposure: retrievalJson.includes("raw_daily_note") || retrievalJson.includes("Raw daily forbidden"),
   skipped: curatedRetrieval.skipped || false,
@@ -993,8 +997,10 @@ if (retrievalEmbeddingClient.sql) {
     const embeddingJson = JSON.stringify(embeddingRows);
     record("retrieval.pgvector-approved-curated-only", {
       ok: curatedRetrieval.ok === true
+        && retrievalReindex.ok === true
+        && retrievalReindex.indexed >= 2
         && curatedRetrieval.index?.source === "pgvector"
-        && curatedRetrieval.index?.indexed >= 2
+        && curatedRetrieval.index?.writePath === "inngest.retrieval.reindex"
         && rawEmbeddingAttempt.indexed === false
         && rawEmbeddingAttempt.reason === "source kind is not indexable"
         && embeddingRows.some((row: JsonObject) => row.source_kind === "approved_memory")
@@ -1003,6 +1009,7 @@ if (retrievalEmbeddingClient.sql) {
         && !embeddingJson.includes("raw_daily_note")
         && !embeddingJson.includes("Raw embedding forbidden"),
       index: curatedRetrieval.index,
+      reindex: retrievalReindex,
       sourceKinds: embeddingRows.map((row: JsonObject) => row.source_kind),
       rawEmbeddingRefused: rawEmbeddingAttempt.indexed === false,
       rawEmbeddingReason: rawEmbeddingAttempt.reason || null,
