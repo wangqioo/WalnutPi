@@ -30,6 +30,7 @@ import { createToolDispatcher } from "../web-interface/gateway/tool-dispatcher.t
 import { publicGatewayAuditEventFromRecord } from "../web-interface/gateway/audit-ledger.ts";
 import { createMemoryActionApprovalStore } from "../web-interface/platform/policy/action-approval-store.ts";
 import { createCuratedRetrievalStore } from "../web-interface/platform/memory/curated-retrieval-store.ts";
+import { createRetrievalEmbeddingIndex } from "../web-interface/platform/memory/retrieval-embedding-index.ts";
 import { getAiModelConfig, getAuthConfig, getDbConfig, getLangfuseConfig } from "../web-interface/platform/config/platform-config.ts";
 import { processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "./screen-workspace-pipeline.ts";
 import { createMcpAuthContext } from "../web-interface/gateway/auth-context.ts";
@@ -969,6 +970,49 @@ record("retrieval.curated-db-path", {
   skipped: curatedRetrieval.skipped || false,
   reason: curatedRetrieval.reason || null,
 });
+const rawEmbeddingAttempt = await createRetrievalEmbeddingIndex().upsertSource({
+  sourceKind: "raw_session_log",
+  sourceTable: "retrieval_documents",
+  sourceId: randomUUID(),
+  source: `verify-raw-embedding:${retrievalSeedToken}`,
+  text: `Raw embedding forbidden ${retrievalSeedToken}`,
+  metadata: { documentKind: "raw-session-log" },
+});
+const retrievalEmbeddingClient = createWalnutPostgresClient();
+if (retrievalEmbeddingClient.sql) {
+  try {
+    const embeddingSourceIds = curatedRetrieval.results
+      .filter((item: JsonObject) => item.sourceKind === "approved_memory" || item.sourceKind === "curated_corpus")
+      .map((item: JsonObject) => item.id);
+    const embeddingRows = await retrievalEmbeddingClient.sql`
+      select source_kind, source, embedding_model, text_hash
+      from retrieval_embedding_records
+      where source_id in ${retrievalEmbeddingClient.sql(embeddingSourceIds)}
+      order by source_kind
+    `;
+    const embeddingJson = JSON.stringify(embeddingRows);
+    record("retrieval.pgvector-approved-curated-only", {
+      ok: curatedRetrieval.ok === true
+        && curatedRetrieval.index?.source === "pgvector"
+        && curatedRetrieval.index?.indexed >= 2
+        && rawEmbeddingAttempt.indexed === false
+        && rawEmbeddingAttempt.reason === "source kind is not indexable"
+        && embeddingRows.some((row: JsonObject) => row.source_kind === "approved_memory")
+        && embeddingRows.some((row: JsonObject) => row.source_kind === "curated_corpus")
+        && !embeddingJson.includes("raw_session_log")
+        && !embeddingJson.includes("raw_daily_note")
+        && !embeddingJson.includes("Raw embedding forbidden"),
+      index: curatedRetrieval.index,
+      sourceKinds: embeddingRows.map((row: JsonObject) => row.source_kind),
+      rawEmbeddingRefused: rawEmbeddingAttempt.indexed === false,
+      rawEmbeddingReason: rawEmbeddingAttempt.reason || null,
+    });
+  } catch (error: any) {
+    record("retrieval.pgvector-approved-curated-only", { ok: false, error: error.message });
+  } finally {
+    await retrievalEmbeddingClient.sql.end({ timeout: 1 });
+  }
+}
 
 const db = createWalnutPostgresClient();
 record("db.drizzle-postgres", {
@@ -982,8 +1026,11 @@ record("db.memory-product-state-schema", {
   tables: Object.keys(schema).filter((table) => table.toLowerCase().includes("memory")),
 });
 record("db.curated-retrieval-schema", {
-  ok: Boolean(schema.retrievalDocuments),
-  tables: Object.keys(schema).filter((table) => table === "retrievalDocuments"),
+  ok: Boolean(schema.retrievalDocuments && schema.retrievalEmbeddingRecords),
+  tables: Object.keys(schema).filter((table) =>
+    table === "retrievalDocuments"
+    || table === "retrievalEmbeddingRecords"
+  ),
 });
 record("db.action-approval-schema", {
   ok: Boolean(schema.actionApprovalRecords),
@@ -1083,6 +1130,58 @@ if (db.sql) {
       });
     } catch (error: any) {
       record("db.curated-retrieval-postgres-columns", { ok: false, error: error.message });
+    }
+    try {
+      const rows = await db.sql`
+        select installed_version
+        from pg_available_extensions
+        where name = 'vector'
+      `;
+      record("db.pgvector-extension", {
+        ok: Boolean(rows[0]?.installed_version),
+        installedVersion: rows[0]?.installed_version || null,
+      });
+    } catch (error: any) {
+      record("db.pgvector-extension", { ok: false, error: error.message });
+    }
+    try {
+      const rows = await db.sql`
+        select column_name
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'retrieval_embedding_records'
+          and column_name in ('source_kind', 'source_table', 'source_id', 'text_hash', 'embedding_model', 'embedding')
+        order by column_name
+      `;
+      const columns = rows.map((row: JsonObject) => row.column_name);
+      record("db.retrieval-embedding-postgres-columns", {
+        ok: ["embedding", "embedding_model", "source_id", "source_kind", "source_table", "text_hash"].every((column) => columns.includes(column)),
+        columns,
+      });
+    } catch (error: any) {
+      record("db.retrieval-embedding-postgres-columns", { ok: false, error: error.message });
+    }
+    try {
+      const rows = await db.sql`
+        select conname
+        from pg_constraint
+        where conrelid = 'retrieval_embedding_records'::regclass
+          and conname in (
+            'retrieval_embedding_records_allowed_source_kind',
+            'retrieval_embedding_records_allowed_source_table'
+          )
+        order by conname
+      `;
+      const constraints = rows.map((row: JsonObject) => row.conname);
+      record("db.retrieval-embedding-policy-constraints", {
+        ok: [
+          "retrieval_embedding_records_allowed_source_kind",
+          "retrieval_embedding_records_allowed_source_table",
+        ].every((constraint) => constraints.includes(constraint)),
+        constraints,
+      });
+    } catch (error: any) {
+      record("db.retrieval-embedding-policy-constraints", { ok: false, error: error.message });
     }
     try {
       const rows = await db.sql`

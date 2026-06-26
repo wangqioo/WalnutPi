@@ -1,4 +1,4 @@
-import { bigserial, boolean, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigserial, boolean, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid, vector } from "drizzle-orm/pg-core";
 
 export const platformMigrations = pgTable("platform_migrations", {
   id: text("id").primaryKey(),
@@ -171,6 +171,22 @@ export const retrievalDocuments = pgTable("retrieval_documents", {
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const retrievalEmbeddingRecords = pgTable("retrieval_embedding_records", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sourceKind: text("source_kind").notNull(),
+  sourceTable: text("source_table").notNull(),
+  sourceId: uuid("source_id").notNull(),
+  source: text("source").notNull(),
+  textHash: text("text_hash").notNull(),
+  embeddingModel: text("embedding_model").notNull(),
+  embedding: vector("embedding", { dimensions: 384 }).notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("retrieval_embedding_records_source_idx").on(table.sourceKind, table.sourceId),
+]);
 
 export const memoryCandidates = pgTable("memory_candidates", {
   id: uuid("id").primaryKey().defaultRandom(),

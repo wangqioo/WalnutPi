@@ -171,6 +171,12 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   excluded by `source_kind`/`status`. The old Web file-backed skills/corpus
   scanner was removed; `walnut-ai-terminal/skills` and `walnut-ai-terminal/corpus`
   remain archived/prototype seed material only.
+- `web-interface/platform/memory/retrieval-embedding-index.ts` owns the
+  pgvector indexing seam. It writes `retrieval_embedding_records` only for
+  `approved_memory` and `curated_corpus` source kinds, with DB check
+  constraints enforcing those source kinds. Raw session logs and raw daily
+  notes are rejected before index writes and cannot satisfy the table
+  constraints.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -262,6 +268,9 @@ local-only or mock verification.
 - `bun run verify:platform` verifies the curated DB retrieval path returns
   approved durable memory and curated corpus documents while refusing raw
   session-log and raw daily-note rows.
+- `bun run verify:platform` verifies pgvector-backed
+  `retrieval_embedding_records` are written for approved durable memory and
+  curated corpus only, and that a raw session-log embedding attempt is refused.
 - `bun run verify:platform` verifies the Drizzle schema exports for
   `agentTurnSnapshots`, `agentTurnEvents`, and `webSessionEvents`.
 - `bun run verify:platform` verifies the Drizzle schema exports and live
@@ -272,6 +281,8 @@ local-only or mock verification.
   `durable_memory_records`, and `memory_sensitive_skips`.
 - `bun run verify:platform` verifies `retrieval_documents` has
   `source_kind` and `status` columns for curated retrieval filtering.
+- `bun run verify:platform` verifies the `vector` extension plus
+  `retrieval_embedding_records` columns and policy check constraints.
 - `bun run verify:platform` verifies the Drizzle schema exports and live
   Postgres tables for WalnutPi auth subject binding: `walnut_orgs`,
   `walnut_devices`, and `walnut_user_bindings`.
@@ -369,8 +380,8 @@ device-profile verification, not offline verification.
 
 - Add multi-org/device management and role-assignment UI/API on top of the
   current Postgres-backed better-auth subject binding tables.
-- Add pgvector embeddings for approved durable memory and curated corpus
-  documents only.
+- Replace the deterministic local embedding seam with an approved embedding
+  provider or Inngest reindex workflow without sending raw/private content.
 - Move Screen Workspace, artifact panels, and device diagnostics into the
   Next/Tailwind console, then retire the static HTML console.
 - Extend device-profile verification for the platform `screen.syncPlaylist`

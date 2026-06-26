@@ -1,11 +1,13 @@
 import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { createWalnutPostgresClient } from "../db/client.ts";
 import { durableMemoryRecords, retrievalDocuments } from "../db/schema.ts";
+import { createRetrievalEmbeddingIndex } from "./retrieval-embedding-index.ts";
 
 type JsonObject = Record<string, any>;
 
 export function createCuratedRetrievalStore({
   postgresClientFactory = createWalnutPostgresClient,
+  embeddingIndex = createRetrievalEmbeddingIndex({ postgresClientFactory }),
   resultLimit = 8,
 }: JsonObject = {}) {
   async function retrieve(query: string, options: JsonObject = {}) {
@@ -25,6 +27,30 @@ export function createCuratedRetrievalStore({
         readApprovedMemory(client.db, terms, limit),
         readCuratedDocuments(client.db, terms, limit),
       ]);
+      const indexSources = [
+        ...memoryRows.map((row: JsonObject) => ({
+          sourceKind: "approved_memory",
+          sourceTable: "durable_memory_records",
+          sourceId: row.id,
+          source: `durable-memory:${row.id}`,
+          text: row.memoryText,
+          metadata: {
+            ...(row.metadata || {}),
+            categoryKey: row.categoryKey,
+            sourceTool: row.sourceTool,
+            approvedAt: row.approvedAt,
+          },
+        })),
+        ...documentRows.map((row: JsonObject) => ({
+          sourceKind: row.sourceKind,
+          sourceTable: "retrieval_documents",
+          sourceId: row.id,
+          source: row.source,
+          text: `${row.title}\n${row.body}`,
+          metadata: row.metadata,
+        })),
+      ];
+      const embeddingIndexResult = await embeddingIndex.upsertSources(indexSources);
       const results = [
         ...memoryRows.map((row: JsonObject) => retrievalResult({
           id: row.id,
@@ -54,6 +80,12 @@ export function createCuratedRetrievalStore({
         ok: true,
         skipped: false,
         reason: null,
+        index: {
+          source: "pgvector",
+          embeddingModel: "walnutpi.local-hash.384",
+          indexed: embeddingIndexResult.indexed,
+          refused: embeddingIndexResult.refused.length,
+        },
         results,
       };
     } finally {
