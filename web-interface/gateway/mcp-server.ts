@@ -148,80 +148,13 @@ function registerGatewayRoutes(app: Hono, {
   agentPlatform,
   gatewayTools,
   auditLedger,
-  readJsonRequest,
 }: JsonObject) {
   app.get("/api/gateway/tools", () => json(gatewayTools.listTools()));
   app.all("/mcp", async (c) => handleWalnutMcpRequest(c.req.raw, {
     auditLedger,
     toolCatalog: gatewayTools,
-    toolDispatcher: agentPlatform.toolDispatcher,
+    toolDispatcher: agentPlatform.toolDispatcher(),
   }));
-  app.post("/api/gateway/mcp", async (c) => {
-    let body;
-    try {
-      body = await readJsonRequest(c.req);
-    } catch (error: any) {
-      return json({
-        jsonrpc: "2.0",
-        id: null,
-        error: { code: -32700, message: error.message || "Parse error" },
-      }, 400);
-    }
-    const method = String(body.method || "").trim();
-    const id = body.id ?? null;
-
-    if (method === "tools/list") {
-      const result = gatewayTools.listTools();
-      await auditLedger.append({
-        kind: "gateway.tool",
-        operation: "tools/list",
-        ok: true,
-        requestId: id ? String(id) : null,
-        result,
-      });
-      return json({ jsonrpc: "2.0", id, result });
-    }
-
-    if (method !== "tools/call") {
-      return json({
-        jsonrpc: "2.0",
-        id,
-        error: { code: -32601, message: `Unknown method ${method}` },
-      }, 400);
-    }
-
-    const params = objectOrEmpty(body.params);
-    const toolName = String(params.name || params.tool || "").trim();
-    const turn = {
-      turnId: params.turnId || null,
-      sessionId: params.sessionId || null,
-      input: params.input || { text: String(params.text || "") },
-    };
-    const result = await agentPlatform.toolDispatcher.callTool(toolName, params.arguments || params.params || params, turn);
-    await auditLedger.append({
-      kind: "gateway.tool",
-      operation: "tools/call",
-      ok: Boolean(result?.ok),
-      requestId: id ? String(id) : null,
-      toolName,
-      turnId: turn.turnId,
-      sessionId: turn.sessionId,
-      result,
-    });
-    return json({
-      jsonrpc: "2.0",
-      id,
-      result: {
-        content: [
-          {
-            type: "text",
-            text: result?.summary || "",
-          },
-        ],
-        structuredContent: result,
-      },
-    }, Boolean(result?.ok) ? 200 : 400);
-  });
 }
 
 function registerAgentRoutes(app: Hono, {
@@ -246,10 +179,6 @@ function registerAgentRoutes(app: Hono, {
   app.get("/api/agent/turn-events", (c) => agentPlatform.handleTurnEvents(new URL(c.req.url)));
   app.get("/api/agent/events", (c) => handleAgentEvents(c.req, new URL(c.req.url)));
   app.all("/api/agent/harness-session", (c) => handleHarnessSession(c.req, new URL(c.req.url), agentHarnessSessionStore, readJsonRequest, json));
-}
-
-function objectOrEmpty(value: any) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
 function registerScreenRoutes(app: Hono, {

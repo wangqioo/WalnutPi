@@ -12,8 +12,13 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   removed from the production codebase.
 - `web-interface/router.ts` has been deleted and the Hono gateway seam now lives
   in `web-interface/gateway/mcp-server.ts`.
-- `/api/agent/turn` still routes through `web-interface/agent-platform-runtime.ts`
-  and returns `walnutpi.agentPlatformTurn.v1`.
+- `/api/agent/turn` now routes through `web-interface/agent-platform-turn-route.ts`
+  for request handling, ledger writes, and typed-result projection only. It no
+  longer dispatches unsupported capabilities to the old local dispatcher.
+- Supported structured read-only capabilities enter
+  `web-interface/platform/mastra/agent-turn-workflows.ts`, call `@mastra/mcp`
+  against `/mcp`, then project typed tool results into
+  `walnutpi.agentPlatformTurn.v1`.
 - Tool outputs now use typed result contracts from
   `web-interface/walnut-tool-results.ts`.
 - Screen work now has a first Screen Command DSL surface:
@@ -47,17 +52,18 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   and drizzle-kit. `web-interface/platform/` now owns the first module
   boundaries for those packages.
 - `web-interface/gateway/mcp-server.ts` exposes a real MCP SDK Streamable HTTP
-  endpoint at `/mcp` beside the older JSON-RPC-shaped `/api/gateway/mcp` route.
-  The first SDK tools are read-only: `screen.readPlaylist`,
-  `device.status.read`, and `diagnostics.recentFailure`.
+  endpoint at `/mcp`. The old JSON-RPC-shaped `/api/gateway/mcp` route has been
+  removed.
+- The SDK tool surface now exposes the read-only platform slice:
+  `screen.readPlaylist`, `diagnostics.recentFailure`, `device.status.read`,
+  `device.network.read`, `device.snapshot.read`, `device.gpio.read`, and
+  `device.notes.read`.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
-- `device.status.read` now has the first `/api/agent/turn` vertical slice
-  through `web-interface/platform/mastra/device-status-workflow.ts`: structured
-  read-only routing enters a Mastra MCPClient workflow, calls the SDK `/mcp`
-  tool, then projects the typed tool result back into
-  `walnutpi.agentPlatformTurn.v1`.
+- The read-only `/api/agent/turn` slices above share the same Mastra MCP
+  workflow dispatcher. Final tool result diagnostics use
+  `mastra.mcp.<capability>`.
 - `web-interface/platform/policy/opa-boundary.ts` runs OPA CLI decisions for
   the active tool-dispatch policy gate, with local manifest fail-closed behavior
   when OPA is unavailable.
@@ -88,11 +94,13 @@ local-only or mock verification.
 - `bun run check`
 - `bun run verify:platform`
 - OPA CLI `version` and minimal Rego eval pass on the local control plane.
-- Live `bun run web` `/mcp` verification listed
-  `walnutpi_screen.readPlaylist`, `walnutpi_device.status.read`, and
-  `walnutpi_diagnostics.recentFailure` through `@mastra/mcp`.
+- Live `bun run web` `/mcp` verification listed the migrated read-only tool
+  surface through `@mastra/mcp`.
 - Live `POST /api/agent/turn` with a structured `device.status.read`
   continuation completed through `mastra.mcp.device.status.read`.
+- `bun run verify:platform` now verifies at least seven `/mcp` tools/list
+  entries, seven MCP tools/call invocations, and five structured
+  `/api/agent/turn` slices through Mastra MCP workflow dispatch.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
 tool results.
 - Policy pending smoke returned `noCommandExecution` evidence.
@@ -128,10 +136,10 @@ device-profile verification, not offline verification.
 
 ## Next Work
 
-- Move the remaining `/api/agent/turn` capabilities from direct dispatcher
-  paths into Mastra-owned workflows, using `device.status.read` as the first
-  proven slice.
-- Add per-call OPA enforcement to the active Hono gateway.
+- Move the remaining `/api/agent/turn` capabilities into Mastra-owned workflows
+  without reintroducing local dispatcher fallback.
+- Add better-auth subject and device binding to each MCP tools/call policy
+  input.
 - Expose and verify the already-implemented `screen.renderWallpaper` and
   `screen.writePlaylist` command-runner paths through the product agent
   runtime/Mastra path. Remote sync, stale hash refusal, preview no-write, frame

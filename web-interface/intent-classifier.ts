@@ -4,6 +4,14 @@ type JsonObject = Record<string, any>;
 
 export { CLASSIFIER_INTENTS };
 
+const READ_ONLY_CONTINUATION_INTENTS = new Set([
+  "screen.readPlaylist",
+  "screen.state_frame.read",
+  "diagnostics.recentFailure",
+  "diagnostics.recent_failure",
+  "session.summary",
+]);
+
 export function createWalnutIntentClassifier({
   aiEnabled,
   classifyWithModel,
@@ -84,7 +92,5 @@ function clamp(value: number, min: number, max: number) {
 
 function readOnlyContinuationIntent(intent: string) {
   return intent.startsWith("device.")
-    || intent.startsWith("diagnostics.")
-    || intent === "screen.state_frame.read"
-    || intent === "session.summary";
+    || READ_ONLY_CONTINUATION_INTENTS.has(intent);
 }

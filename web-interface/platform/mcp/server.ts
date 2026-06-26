@@ -8,6 +8,10 @@ const READ_ONLY_TOOLS = new Set([
   "screen.readPlaylist",
   "device.status.read",
   "diagnostics.recentFailure",
+  "device.network.read",
+  "device.snapshot.read",
+  "device.gpio.read",
+  "device.notes.read",
 ]);
 
 export type WalnutMcpServerDeps = {

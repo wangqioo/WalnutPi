@@ -16,7 +16,7 @@ import { createAgentEventBus } from "./agent-event-bus.ts";
 import { createAgentHarnessSessionStore } from "./agent-harness-session-store.ts";
 import { createAgentTurnEventLedger } from "./agent-turn-event-ledger.ts";
 import { createAgentTurnLedger } from "./agent-turn-ledger.ts";
-import { createAgentPlatformRuntime } from "./agent-platform-runtime.ts";
+import { createAgentPlatformTurnRoute } from "./agent-platform-turn-route.ts";
 import { createActionRegistry } from "./action-registry.ts";
 import { createProjectMemoryApi } from "./project-memory-api.ts";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.ts";
@@ -28,7 +28,7 @@ import { createStaticUiHost } from "./static-ui-host.ts";
 import { createProductGatewayApp, createProductGatewayFetch } from "./gateway/mcp-server.ts";
 import { createGatewayToolCatalog } from "./gateway/tool-catalog.ts";
 import { handleWalnutMcpRequest } from "./platform/mcp/server.ts";
-import { runDeviceStatusReadWorkflow } from "./platform/mastra/device-status-workflow.ts";
+import { createMastraAgentTurnWorkflowDispatcher } from "./platform/mastra/agent-turn-workflows.ts";
 import { createOpaEnforcer } from "./gateway/opa-enforcer.ts";
 import { createToolDispatcher } from "./gateway/tool-dispatcher.ts";
 import { createGatewayAuditLedger } from "./gateway/audit-ledger.ts";
@@ -745,29 +745,26 @@ const toolDispatcher = createToolDispatcher({
   auditLedger: gatewayAuditLedger,
 });
 
-const agentPlatform = createAgentPlatformRuntime({
+const agentPlatform = createAgentPlatformTurnRoute({
   classifyIntent: classifyAgentIntent,
-  toolDispatcher,
   turnLedger: agentTurnLedger,
   eventLedger: agentTurnEventLedger,
   metricsLedger: webMetricsLedger,
   mastraWorkflows: {
-    deviceStatusRead: ({ sessionId = null, turnId = null } = {}) => runDeviceStatusReadWorkflow({
+    dispatch: createMastraAgentTurnWorkflowDispatcher({
       endpoint: "http://127.0.0.1:4173/mcp",
       fetchImpl: ((url, init) => handleWalnutMcpRequest(new Request(url, init), {
         auditLedger: gatewayAuditLedger,
         toolCatalog: createGatewayToolCatalog({ policyActions: ACTION_POLICY_MANIFEST.actions || {} }),
         toolDispatcher,
       })) as any,
-      sessionId,
-      turnId,
-      id: `agent-turn-${turnId || "status"}`,
+      id: "agent-turn-workflow",
     }),
   },
   readJsonRequest,
   json,
 });
-agentPlatform.toolDispatcher = toolDispatcher;
+(agentPlatform as any).toolDispatcher = () => toolDispatcher;
 
 async function generateWidgetCatalog({ prompt, sessionId = null, turnId = null }) {
   if (!aiApiKey) return null;

@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { runDeviceStatusReadWorkflow } from "./platform/mastra/device-status-workflow.ts";
+import { capabilityFromIntent, runMastraAgentTurnWorkflow } from "./platform/mastra/agent-turn-workflows.ts";
 import { failedToolResult, toolResult, type WalnutToolResult } from "./walnut-tool-results.ts";
 
 type JsonObject = Record<string, any>;
 
 const TURN_SCHEMA = "walnutpi.agentPlatformTurn.v1";
 
-export function createAgentPlatformRuntime({
+export function createAgentPlatformTurnRoute({
   classifyIntent,
-  toolDispatcher,
   turnLedger,
   eventLedger,
   metricsLedger,
@@ -17,7 +16,6 @@ export function createAgentPlatformRuntime({
   json,
 }: JsonObject) {
   return {
-    toolDispatcher,
     async handleTurn(req: Request) {
       let body: JsonObject;
       try {
@@ -26,10 +24,9 @@ export function createAgentPlatformRuntime({
         return json({ ok: false, error: error.message }, 400);
       }
 
-      const outcome = await runPlatformTurn({
+      const outcome = await runAgentPlatformTurn({
         body,
         classifyIntent,
-        toolDispatcher,
         turnLedger,
         eventLedger,
         metricsLedger,
@@ -61,10 +58,9 @@ export function createAgentPlatformRuntime({
   };
 }
 
-export async function runPlatformTurn({
+export async function runAgentPlatformTurn({
   body,
   classifyIntent,
-  toolDispatcher,
   turnLedger,
   eventLedger,
   metricsLedger,
@@ -120,7 +116,6 @@ export async function runPlatformTurn({
       classification: classified.classification,
       body,
       turn,
-      toolDispatcher,
       mastraWorkflows,
     });
     pushStep(turn, result.family, result.result?.operation || result.diagnostics?.operation || result.family, result);
@@ -144,19 +139,25 @@ async function dispatchPlatformCapability({
   classification,
   body,
   turn,
-  toolDispatcher,
   mastraWorkflows,
 }: JsonObject): Promise<WalnutToolResult> {
-  if (classification?.intent === "device.status.read") {
-    return (mastraWorkflows?.deviceStatusRead || runDeviceStatusReadWorkflow)({
+  const capability = capabilityFromIntent(String(classification?.intent || ""));
+  if (!capability) {
+    throw statusError(400, `No Mastra workflow is registered for intent ${classification?.intent || "(missing)"}`);
+  }
+  if (mastraWorkflows?.dispatch) {
+    return mastraWorkflows.dispatch({
+      classification,
+      body,
       sessionId: turn.sessionId,
       turnId: turn.turnId,
     });
   }
-  return toolDispatcher.dispatchIntent({
-    classification,
-    body,
-    turn,
+  return runMastraAgentTurnWorkflow({
+    capability,
+    params: objectOrNull(classification?.parameters) || {},
+    sessionId: turn.sessionId,
+    turnId: turn.turnId,
   });
 }
 

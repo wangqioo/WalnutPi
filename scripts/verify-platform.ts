@@ -4,9 +4,14 @@ import { createGatewayToolCatalog } from "../web-interface/gateway/tool-catalog.
 import { createOpaPolicyBoundary } from "../web-interface/platform/policy/opa-boundary.ts";
 import { createWalnutMcpServer } from "../web-interface/platform/mcp/server.ts";
 import { createWalnutMastraMcpClient } from "../web-interface/platform/mastra/mcp-client.ts";
-import { runDeviceStatusReadWorkflow } from "../web-interface/platform/mastra/device-status-workflow.ts";
+import {
+  MASTRA_AGENT_TURN_CAPABILITIES,
+  createMastraAgentTurnWorkflowDispatcher,
+  runMastraAgentTurnWorkflow,
+  type MastraAgentTurnCapability,
+} from "../web-interface/platform/mastra/agent-turn-workflows.ts";
 import { getWalnutMastraRegistry } from "../web-interface/platform/mastra/runtime.ts";
-import { runPlatformTurn } from "../web-interface/agent-platform-runtime.ts";
+import { runAgentPlatformTurn } from "../web-interface/agent-platform-turn-route.ts";
 import { createWalnutAiSdkProvider } from "../web-interface/platform/ai-sdk/server.ts";
 import { createWalnutAuth } from "../web-interface/platform/auth/auth.ts";
 import { walnutInngest, walnutInngestFunctions } from "../web-interface/platform/inngest/client.ts";
@@ -17,7 +22,9 @@ import { createOpaEnforcer } from "../web-interface/gateway/opa-enforcer.ts";
 import { handleWalnutMcpRequest } from "../web-interface/platform/mcp/server.ts";
 import { createScreenCommandRunner } from "../web-interface/screen-command-runner.ts";
 import { createScreenWorkspaceStore } from "../web-interface/screen-workspace-store.ts";
+import { createToolDispatcher } from "../web-interface/gateway/tool-dispatcher.ts";
 import { getAiModelConfig, getAuthConfig, getDbConfig, getLangfuseConfig } from "../web-interface/platform/config/platform-config.ts";
+import { intentTypeToRoute } from "../web-interface/intent-route.ts";
 
 type JsonObject = Record<string, any>;
 
@@ -93,45 +100,32 @@ const metricsLedger = {
     return { events: [] };
   },
 };
-const toolDispatcher = {
-  async callTool(toolName: string, params: JsonObject, turn: JsonObject) {
-    if (toolName === "screen.readPlaylist") {
-      return screenCommandRunner.run({ kind: "screen.readPlaylist", playlistId: params.playlistId || "default" });
-    }
-    if (toolName === "diagnostics.recentFailure") {
-      const metricsReport = await metricsLedger.report();
-      return {
+const actionDispatcher = {
+  async runAction({ action, policyDecision }: JsonObject) {
+    return {
+      status: 200,
+      body: {
         ok: true,
-        summary: "No recent failure found in local ledgers.",
-        result: { operation: "diagnostics.recent_failure" },
+        summary: `${action} reached the policy-gated dispatcher boundary.`,
+        output: `${action} boundary reached`,
         evidence: {
-          diagnosticSummary: "No recent failure found in local ledgers.",
-          traceIdOrBuildId: "not-found",
-          failedOperation: "none-found",
-          errorMessage: "none",
-          metricsEventsRead: metricsReport.events.length,
+          policyDecision: opaEnforcer.publicDecision(policyDecision),
+          dispatcherBoundaryReached: true,
+          noRawShellExposed: true,
         },
-      };
-    }
-    if (toolName === "device.status.read") {
-      const decision = await opaEnforcer.decideActionAsync({ actionId: "status", executor: "web", params });
-      if (!decision.allow) {
-        return {
-          ok: false,
-          summary: "Device status read was not allowed by policy.",
-          evidence: { policyDecision: opaEnforcer.publicDecision(decision), noCommandExecution: true },
-        };
-      }
-      return {
-        ok: true,
-        summary: "Device status read reached the policy-gated dispatcher boundary.",
-        result: { operation: "device.action", actionId: "status", status: "boundary-only" },
-        evidence: { policyDecision: opaEnforcer.publicDecision(decision), noRawShellExposed: true },
-      };
-    }
-    return { ok: false, summary: `Unsupported verification tool ${toolName}` };
+      },
+    };
   },
 };
+const toolDispatcher = createToolDispatcher({
+  actionDispatcher,
+  screenCommandRunner,
+  turnLedger,
+  metricsLedger,
+  policyManifest: manifest,
+  opaEnforcer,
+  auditLedger: { async append() {} },
+});
 
 const mcpServer = createWalnutMcpServer({ toolCatalog, toolDispatcher });
 record("mcp.sdk-server-init", { ok: Boolean(mcpServer) });
@@ -149,17 +143,48 @@ const mcpClient = createWalnutMastraMcpClient({
 try {
   const tools = await mcpClient.listTools();
   const toolNames = Object.keys(tools).sort();
+  const expectedMcpTools = [
+    "walnutpi_screen.readPlaylist",
+    "walnutpi_diagnostics.recentFailure",
+    "walnutpi_device.status.read",
+    "walnutpi_device.network.read",
+    "walnutpi_device.snapshot.read",
+    "walnutpi_device.gpio.read",
+    "walnutpi_device.notes.read",
+  ];
   record("mastra.mcp-client-list-tools", {
-    ok: toolNames.length >= 3 && toolNames.includes("walnutpi_screen.readPlaylist"),
+    ok: expectedMcpTools.every((toolName) => toolNames.includes(toolName)),
     toolNames,
   });
-  const screenRead = await tools["walnutpi_screen.readPlaylist"]?.execute?.({ playlistId: "default" } as any, {} as any);
-  record("mcp.tools-call-screen-readPlaylist", {
-    ok: Boolean(screenRead?.ok),
-    playlistHash: screenRead?.result?.playlistHash || screenRead?.evidence?.playlistHash || null,
-    dispatcherReached: Boolean(screenRead?.result?.command?.kind === "screen.readPlaylist"),
+  const mcpCallTargets = [
+    ["screen.readPlaylist", "walnutpi_screen.readPlaylist", { playlistId: "default" }],
+    ["diagnostics.recentFailure", "walnutpi_diagnostics.recentFailure", {}],
+    ["device.status.read", "walnutpi_device.status.read", {}],
+    ["device.network.read", "walnutpi_device.network.read", {}],
+    ["device.snapshot.read", "walnutpi_device.snapshot.read", {}],
+    ["device.gpio.read", "walnutpi_device.gpio.read", {}],
+    ["device.notes.read", "walnutpi_device.notes.read", {}],
+  ] as const;
+  let mcpCallOkCount = 0;
+  for (const [capability, mcpToolName, args] of mcpCallTargets) {
+    const result = await tools[mcpToolName]?.execute?.(args as any, {} as any);
+    const ok = Boolean(result?.ok);
+    if (ok) mcpCallOkCount += 1;
+    record(`mcp.tools-call-${capability}`, {
+      ok,
+      family: result?.family || null,
+      operation: result?.result?.operation || null,
+      policyEngine: result?.evidence?.policyDecision?.engine || null,
+      boundaryReached: Boolean(result?.evidence?.dispatcherBoundaryReached || result?.result?.command?.kind === capability),
+    });
+  }
+  record("mcp.tools-call-read-only-count", {
+    ok: mcpCallOkCount >= 5,
+    passed: mcpCallOkCount,
+    required: 5,
   });
-  const deviceStatus = await runDeviceStatusReadWorkflow({
+  const deviceStatus = await runMastraAgentTurnWorkflow({
+    capability: "device.status.read",
     endpoint: "http://127.0.0.1:4173/mcp",
     fetchImpl: mcpFetch as any,
     id: `verify-status-${randomUUID()}`,
@@ -178,44 +203,54 @@ try {
   await mcpClient.disconnect();
 }
 
-const platformTurn = await runPlatformTurn({
-  body: { text: "status", sessionId: "verify-platform" },
-  classifyIntent: async () => ({
-    ok: true,
-    status: 200,
-    classification: {
-      schema: "walnutpi.intent.route.v2",
-      route: "device.action",
-      action: "read",
-      subject: "status",
-      delivery: "none",
-      riskHint: "read",
-      exposure: ["internal", "agent_action"],
-      actionPolicyId: null,
-      parameters: {},
-      confidence: 1,
-      source: "structured",
-      intent: "device.status.read",
-    },
-  }),
-  toolDispatcher,
-  turnLedger: { async appendTurn() {} },
-  eventLedger: { async appendEvent() {} },
-  metricsLedger,
-  mastraWorkflows: {
-    deviceStatusRead: (args: JsonObject) => runDeviceStatusReadWorkflow({
+const mastraDispatch = createMastraAgentTurnWorkflowDispatcher({
       endpoint: "http://127.0.0.1:4173/mcp",
       fetchImpl: mcpFetch as any,
       id: `verify-turn-${randomUUID()}`,
-      ...args,
-    }),
-  },
 });
-record("agent-turn-device-status-mastra-path", {
-  ok: platformTurn.turn?.ok === true
-    && platformTurn.turn?.toolResults?.some((item: JsonObject) => item.diagnostics?.operation === "mastra.mcp.device.status.read"),
-  status: platformTurn.status,
-  userSummary: platformTurn.turn?.userSummary || null,
+
+const turnCapabilities = [
+  "device.status.read",
+  "screen.readPlaylist",
+  "device.network.read",
+  "device.snapshot.read",
+  "device.gpio.read",
+] satisfies MastraAgentTurnCapability[];
+let platformTurnOkCount = 0;
+for (const capability of turnCapabilities) {
+  const platformTurn = await runAgentPlatformTurn({
+    body: { text: capability, sessionId: "verify-platform", playlistId: "default" },
+    classifyIntent: async () => ({
+      ok: true,
+      status: 200,
+      classification: intentTypeToRoute(capability, {
+        subject: capability,
+        delivery: "none",
+        confidence: 1,
+        source: "structured",
+      }),
+    }),
+    turnLedger: { async appendTurn() {} },
+    eventLedger: { async appendEvent() {} },
+    metricsLedger,
+    mastraWorkflows: { dispatch: mastraDispatch },
+  });
+  const expectedOperation = `mastra.mcp.${capability}`;
+  const ok = platformTurn.turn?.ok === true
+    && platformTurn.turn?.toolResults?.some((item: JsonObject) => item.diagnostics?.operation === expectedOperation);
+  if (ok) platformTurnOkCount += 1;
+  record(`agent-turn-${capability}-mastra-path`, {
+    ok,
+    status: platformTurn.status,
+    operation: expectedOperation,
+    userSummary: platformTurn.turn?.userSummary || null,
+  });
+}
+record("agent-turn-structured-mastra-count", {
+  ok: platformTurnOkCount >= 5,
+  passed: platformTurnOkCount,
+  required: 5,
+  registeredCapabilities: [...MASTRA_AGENT_TURN_CAPABILITIES],
 });
 
 try {

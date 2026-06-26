@@ -25,6 +25,7 @@ export type IntentRoute = {
 export const CLASSIFIER_INTENTS = [
   "screen.generate",
   "screen.sync",
+  "screen.readPlaylist",
   "screen.widget_app.create",
   "device.status.read",
   "device.snapshot.read",
@@ -38,6 +39,7 @@ export const CLASSIFIER_INTENTS = [
   "policy.system_write",
   "policy.service_restart",
   "policy.maintenance_guidance",
+  "diagnostics.recentFailure",
   "diagnostics.recent_failure",
   "screen.state_frame.read",
   "session.summary",
@@ -49,6 +51,7 @@ export function intentTypeToRoute(intent: string, fields: IntentRouteFields = {}
     "screen.generate": ["screen.wallpaper", "generate"],
     "screen.wallpaper.generate": ["screen.wallpaper", "generate"],
     "screen.sync": ["screen.wallpaper", "sync"],
+    "screen.readPlaylist": ["screen.wallpaper", "read"],
     "screen.widget_app.create": ["screen.widget_app", "create"],
     "device.status.read": ["device.action", "read"],
     "device.snapshot.read": ["device.action", "read"],
@@ -62,6 +65,7 @@ export function intentTypeToRoute(intent: string, fields: IntentRouteFields = {}
     "policy.system_write": ["device.action", "refuse"],
     "policy.service_restart": ["device.action", "confirm"],
     "policy.maintenance_guidance": ["device.action", "refuse"],
+    "diagnostics.recentFailure": ["device.action", "read"],
     "diagnostics.recent_failure": ["device.action", "read"],
     "screen.state_frame.read": ["device.action", "read"],
     "session.summary": ["ai.chat", "answer"],
@@ -73,8 +77,8 @@ export function intentTypeToRoute(intent: string, fields: IntentRouteFields = {}
     action: mapped[1],
     subject: String(fields.subject || "").trim(),
     delivery: fields.delivery || "none",
-    riskHint: intent?.startsWith("policy.") ? "high" : intent?.startsWith("device.note.") ? "write" : intent?.startsWith("device.") || intent?.startsWith("diagnostics.") || intent?.startsWith("screen.state_") ? "read" : "none",
-    exposure: intent?.startsWith("policy.") ? ["internal", "human_cli"] : intent?.startsWith("device.") || intent?.startsWith("diagnostics.") || intent?.startsWith("screen.state_") ? ["internal", "agent_action"] : ["internal"],
+    riskHint: intent?.startsWith("policy.") ? "high" : intent?.startsWith("device.note.") ? "write" : readOnlyIntent(intent) ? "read" : "none",
+    exposure: intent?.startsWith("policy.") ? ["internal", "human_cli"] : readOnlyIntent(intent) ? ["internal", "agent_action"] : ["internal"],
     actionPolicyId: null,
     parameters: {},
     confidence: Number(fields.confidence ?? 0.5),
@@ -85,6 +89,13 @@ export function intentTypeToRoute(intent: string, fields: IntentRouteFields = {}
   };
   if (fields.rule) route.rule = fields.rule;
   return route;
+}
+
+function readOnlyIntent(intent: string) {
+  return intent?.startsWith("device.")
+    || intent?.startsWith("diagnostics.")
+    || intent === "screen.state_frame.read"
+    || intent === "screen.readPlaylist";
 }
 
 function normalizeIntentSource(source?: string) {
