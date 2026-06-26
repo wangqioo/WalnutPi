@@ -93,7 +93,40 @@ const TOOL_POLICIES: Record<string, {
   "device.i2c.read": readOnlyToolSchema(),
   "device.gpio.read": readOnlyToolSchema(),
   "device.notes.read": readOnlyToolSchema(),
+  "device.note.write": {
+    readOnly: false,
+    destructive: false,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      text: z.string().min(1).max(1000),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
   "memory.sessionSummary": readOnlyToolSchema(),
+  "memory.preference": {
+    readOnly: false,
+    destructive: false,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      text: z.string().min(1).max(1000),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
+  "memory.sensitiveSkip": {
+    readOnly: false,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+    inputSchema: {
+      text: z.string().min(1).max(1000),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
 };
 
 export type WalnutMcpServerDeps = {

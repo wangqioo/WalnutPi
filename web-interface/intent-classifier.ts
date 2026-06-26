@@ -14,6 +14,12 @@ const READ_ONLY_CONTINUATION_INTENTS = new Set([
   "session.summary",
 ]);
 
+const WRITE_CONTINUATION_INTENTS = new Set([
+  "device.note.write",
+  "memory.preference",
+  "memory.sensitive_skip",
+]);
+
 export function createWalnutIntentClassifier({
   aiEnabled,
   classifyWithModel,
@@ -52,10 +58,10 @@ function classifyStructuredIntent(text: string, telemetry: JsonObject = {}) {
   const scenario = telemetry?.scenario && typeof telemetry.scenario === "object" ? telemetry.scenario : null;
   const continuations = Array.isArray(scenario?.allowedContinuations) ? scenario.allowedContinuations : [];
   const constraints = Array.isArray(scenario?.constraints) ? scenario.constraints.map((item: any) => String(item || "")) : [];
-  if (!continuations.length || !constraints.includes("read-only-continuation")) return null;
+  if (!continuations.length) return null;
   const intent = continuations
     .map((item: any) => String(item || "").trim())
-    .find((item: string) => CLASSIFIER_INTENTS.includes(item) && readOnlyContinuationIntent(item));
+    .find((item: string) => CLASSIFIER_INTENTS.includes(item) && structuredContinuationAllowed(item, constraints));
   if (!intent) return null;
   return {
     classification: intentTypeToRoute(intent, {
@@ -92,7 +98,16 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function readOnlyContinuationIntent(intent: string) {
-  return intent.startsWith("device.")
-    || READ_ONLY_CONTINUATION_INTENTS.has(intent);
+function structuredContinuationAllowed(intent: string, constraints: string[]) {
+  if (READ_ONLY_CONTINUATION_INTENTS.has(intent) || readOnlyDeviceIntent(intent)) {
+    return constraints.includes("read-only-continuation");
+  }
+  if (WRITE_CONTINUATION_INTENTS.has(intent)) {
+    return constraints.includes("write-continuation");
+  }
+  return false;
+}
+
+function readOnlyDeviceIntent(intent: string) {
+  return intent.startsWith("device.") && intent.endsWith(".read");
 }

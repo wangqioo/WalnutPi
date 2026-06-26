@@ -16,7 +16,10 @@ export const MASTRA_AGENT_TURN_CAPABILITIES = [
   "device.i2c.read",
   "device.gpio.read",
   "device.notes.read",
+  "device.note.write",
   "memory.sessionSummary",
+  "memory.preference",
+  "memory.sensitiveSkip",
 ] as const;
 
 export type MastraAgentTurnCapability = (typeof MASTRA_AGENT_TURN_CAPABILITIES)[number];
@@ -41,7 +44,10 @@ const MCP_TOOL_BY_CAPABILITY: Record<MastraAgentTurnCapability, string> = {
   "device.i2c.read": "walnutpi_device.i2c.read",
   "device.gpio.read": "walnutpi_device.gpio.read",
   "device.notes.read": "walnutpi_device.notes.read",
+  "device.note.write": "walnutpi_device.note.write",
   "memory.sessionSummary": "walnutpi_memory.sessionSummary",
+  "memory.preference": "walnutpi_memory.preference",
+  "memory.sensitiveSkip": "walnutpi_memory.sensitiveSkip",
 };
 
 const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["family"]> = {
@@ -57,7 +63,10 @@ const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["
   "device.i2c.read": "device",
   "device.gpio.read": "device",
   "device.notes.read": "device",
+  "device.note.write": "device",
   "memory.sessionSummary": "memory",
+  "memory.preference": "memory",
+  "memory.sensitiveSkip": "memory",
 };
 
 export function capabilityFromIntent(intent: string): MastraAgentTurnCapability | null {
@@ -178,6 +187,12 @@ function paramsForCapability(
       loop: body.loop !== undefined ? body.loop : parameters.loop !== undefined ? parameters.loop : true,
     };
   }
+  if (capability === "device.note.write" || capability === "memory.preference" || capability === "memory.sensitiveSkip") {
+    return {
+      ...parameters,
+      text: body.text || parameters.text || "",
+    };
+  }
   return parameters;
 }
 
@@ -211,6 +226,7 @@ function normalizeCapabilityName(intent: string) {
   if (intent === "screen.generate") return "screen.renderWallpaper";
   if (intent === "screen.state_frame.read") return "screen.captureFrame";
   if (intent === "session.summary") return "memory.sessionSummary";
+  if (intent === "memory.sensitive_skip") return "memory.sensitiveSkip";
   return intent;
 }
 

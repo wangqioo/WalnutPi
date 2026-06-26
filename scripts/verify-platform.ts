@@ -81,6 +81,31 @@ record("policy.opa-boundary", {
   engine: policyDecision.engine,
 });
 
+const degradedOpaBoundary = createOpaPolicyBoundary({
+  manifest,
+  opaPath: "walnutpi-missing-opa-for-verify",
+  policyPath,
+});
+const degradedReadDecision = await degradedOpaBoundary.decideAction({
+  actionId: "status",
+  executor: "web",
+  params: {},
+});
+const degradedWriteDecision = await degradedOpaBoundary.decideAction({
+  actionId: "note",
+  executor: "web",
+  params: { text: "verify-platform fail closed" },
+});
+record("policy.opa-unavailable-fail-closed", {
+  ok: degradedReadDecision.allow === true
+    && degradedWriteDecision.allow === false
+    && degradedWriteDecision.status === "refused"
+    && degradedWriteDecision.evidence?.noCommandExecution === true,
+  readStatus: degradedReadDecision.status,
+  writeStatus: degradedWriteDecision.status,
+  writeReason: degradedWriteDecision.reason,
+});
+
 const toolCatalog = createGatewayToolCatalog({ policyActions: manifest.actions });
 const screenWorkspaceStore = createScreenWorkspaceStore({ workspaceRoot: screenRoot });
 const screenCommandRunner = createScreenCommandRunner({
@@ -195,6 +220,9 @@ try {
     "walnutpi_device.i2c.read",
     "walnutpi_device.gpio.read",
     "walnutpi_device.notes.read",
+    "walnutpi_device.note.write",
+    "walnutpi_memory.preference",
+    "walnutpi_memory.sensitiveSkip",
   ];
   record("mastra.mcp-client-list-tools", {
     ok: expectedMcpTools.every((toolName) => toolNames.includes(toolName)),
@@ -232,6 +260,9 @@ try {
     ["device.i2c.read", "walnutpi_device.i2c.read", {}],
     ["device.gpio.read", "walnutpi_device.gpio.read", {}],
     ["device.notes.read", "walnutpi_device.notes.read", {}],
+    ["device.note.write", "walnutpi_device.note.write", { text: "verify-platform note boundary" }],
+    ["memory.preference", "walnutpi_memory.preference", { text: "prefer concise device evidence" }],
+    ["memory.sensitiveSkip", "walnutpi_memory.sensitiveSkip", { text: "temporary secret-like value" }],
   ] as const;
   let mcpCallOkCount = 0;
   for (const [capability, mcpToolName, args] of mcpCallTargets) {
@@ -287,6 +318,9 @@ const turnCapabilities = [
   "device.i2c.read",
   "device.gpio.read",
   "memory.sessionSummary",
+  "memory.preference",
+  "memory.sensitiveSkip",
+  "device.note.write",
 ] satisfies MastraAgentTurnCapability[];
 let platformTurnOkCount = 0;
 for (const capability of turnCapabilities) {
@@ -296,6 +330,9 @@ for (const capability of turnCapabilities) {
       sessionId: "verify-platform",
       playlistId: "default",
       ...(capability === "screen.syncPlaylist" ? { mode: "preview", evidenceMode: "fast" } : {}),
+      ...(capability === "memory.preference" ? { text: "prefer concise device evidence" } : {}),
+      ...(capability === "memory.sensitiveSkip" ? { text: "temporary secret-like value" } : {}),
+      ...(capability === "device.note.write" ? { text: "verify-platform note boundary" } : {}),
     },
     classifyIntent: async () => ({
       ok: true,

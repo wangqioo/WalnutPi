@@ -63,7 +63,8 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `device.network.read`, `device.snapshot.read`, `device.i2c.read`,
   `device.gpio.read`, `device.notes.read`, `memory.sessionSummary`,
   `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
-  `screen.writePlaylist`.
+  `screen.writePlaylist`, `memory.preference`, `memory.sensitiveSkip`, and
+  `device.note.write`.
 - `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
   `screen.writePlaylist` are registered as real MCP SDK tools with explicit
   read/write/destructive annotations and dispatch only through the Screen
@@ -72,6 +73,13 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   action ids and pass through the OPA policy gate before Screen Command DSL
   execution. OPA-unavailable degraded decisions fail closed for write-low and
   high-risk actions.
+- `device.note.write` is exposed as an MCP/Mastra tool and remains an
+  OPA-gated Agent Action Command. `memory.preference` and
+  `memory.sensitiveSkip` are exposed as typed MCP/Mastra memory tools that
+  produce candidates or skip evidence without committing durable memory.
+- Structured continuation routing no longer treats all `device.*` intents as
+  read-only; write continuations require an explicit `write-continuation`
+  constraint.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -112,9 +120,12 @@ local-only or mock verification.
   surface through `@mastra/mcp`.
 - Live `POST /api/agent/turn` with a structured `device.status.read`
   continuation completed through `mastra.mcp.device.status.read`.
-- `bun run verify:platform` now verifies at least 13 `/mcp` tools/list
-  entries, 13 MCP tools/call invocations, and nine structured
+- `bun run verify:platform` now verifies at least 16 `/mcp` tools/list
+  entries, 16 MCP tools/call invocations, and 12 structured
   `/api/agent/turn` slices through Mastra MCP workflow dispatch.
+- `bun run verify:platform` also verifies OPA-unavailable degraded behavior:
+  read actions may local-allow, while write-low actions fail closed with
+  `noCommandExecution`.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
 tool results.
 - Policy pending smoke returned `noCommandExecution` evidence.
@@ -164,9 +175,8 @@ device-profile verification, not offline verification.
 
 ## Next Work
 
-- Move the remaining memory write, policy prepare/commit, and approved action
-  capabilities into Mastra-owned workflows without reintroducing local
-  dispatcher fallback.
+- Move policy prepare/commit and remaining approved action capabilities into
+  Mastra-owned workflows without reintroducing local dispatcher fallback.
 - Add better-auth subject and device binding to each MCP tools/call policy
   input.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
