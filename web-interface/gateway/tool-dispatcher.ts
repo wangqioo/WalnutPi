@@ -13,7 +13,9 @@ export function createToolDispatcher({
   opaEnforcer,
   auditLedger,
   memoryStore = createMemoryProductStateStore(),
+  actionApprovalStore,
   actionApprovalService = createActionApprovalService({
+    approvalStore: actionApprovalStore,
     auditLedger,
     opaEnforcer,
     policyManifest,

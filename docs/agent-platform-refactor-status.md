@@ -95,9 +95,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - `policy.action.prepare` and `policy.action.commit` are real MCP/Mastra tools.
   Prepare records decision id, action id, normalized params hash, command
   binding id, subject, expiry, explanation, OPA decision, and approval token
-  hash in an append-only local approval ledger. Commit requires matching
+  hash in the DB-backed `action_approval_records` product-state table. Commit requires matching
   decision id, normalized params hash, subject, approval token, and a fresh OPA
   allow decision before any execution path can be reached.
+- If approval record persistence fails, prepare does not issue an approval
+  token and commit does not reach command construction.
 - High-risk service restart/reboot/shutdown/package install/storage
   delete/overlay/image flash actions still do not directly execute through Web
   commit. The commit can be recorded, but the dispatcher blocks direct high-risk
@@ -167,6 +169,8 @@ local-only or mock verification.
 - `bun run verify:platform` verifies `policy.action.prepare` produces no command
   execution, `policy.action.commit` requires the approval proof, and high-risk
   direct Web execution remains blocked without exposing command strings.
+- `bun run verify:platform` verifies the `actionApprovalRecords` Drizzle schema
+  is present.
 - `bun run verify:platform` injects a stub raw command into the device action
   dispatcher and recursively verifies MCP/Mastra/agent-turn results do not
   expose raw command fields.
@@ -212,6 +216,14 @@ tool results.
   `bitsPerFrameUnit` and `frameFormat` in the Device Execution Surface. The
   only remaining lower-level reference to `bits_per_pixel` is the Linux sysfs
   filename read by the device CLI.
+- The local control-plane Postgres container was migrated with `bun run
+  db:migrate`, using
+  `web-interface/platform/db/migrations/0001_platform_product_state.sql` and
+  `0002_action_approval_records.sql`. A live `policy.action.prepare` call through
+  `/api/agent/turn` completed via `mastra.mcp.policy.action.prepare`, returned
+  `dbProductState.persisted: true`, exposed no raw command, and produced an
+  `action_approval_records` row for decision
+  `b22e6760-605e-4b83-b7bd-69021b71e402`.
 - Device-profile sync evidence was rerun after deleting the current
   `agent-freeform-*` generated artifacts. The script rebuilt the default
   playlist and completed with `ok: True`, `visualMatch: captured`, and
@@ -222,8 +234,7 @@ device-profile verification, not offline verification.
 
 ## Next Work
 
-- Add the approval UI and durable approval/audit storage around
-  `policy.action.prepare`/`policy.action.commit`.
+- Add the approval UI around `policy.action.prepare`/`policy.action.commit`.
 - Replace the current better-auth-first/local-owner subject resolver with real
   signed-in user flows once the Next.js console owns login/session creation.
 - Add managed DB migrations for memory product-state tables and then move

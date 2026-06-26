@@ -1,5 +1,11 @@
 import { integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
+export const platformMigrations = pgTable("platform_migrations", {
+  id: text("id").primaryKey(),
+  checksum: text("checksum").notNull(),
+  appliedAt: timestamp("applied_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const agentTurns = pgTable("agent_turns", {
   id: uuid("id").primaryKey().defaultRandom(),
   sessionId: text("session_id"),
@@ -47,6 +53,24 @@ export const memorySensitiveSkips = pgTable("memory_sensitive_skips", {
   textHash: text("text_hash").notNull(),
   textLength: integer("text_length").notNull(),
   sourceTool: text("source_tool").notNull(),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const actionApprovalRecords = pgTable("action_approval_records", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  decisionId: text("decision_id").notNull(),
+  actionId: text("action_id").notNull(),
+  status: text("status").notNull(),
+  paramsHash: text("params_hash").notNull(),
+  commandBindingId: text("command_binding_id").notNull(),
+  subjectHash: text("subject_hash").notNull(),
+  approvalTokenHash: text("approval_token_hash").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  committedAt: timestamp("committed_at", { withTimezone: true }),
+  commitDecisionId: text("commit_decision_id"),
+  subject: jsonb("subject").notNull(),
+  decision: jsonb("decision").notNull(),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });

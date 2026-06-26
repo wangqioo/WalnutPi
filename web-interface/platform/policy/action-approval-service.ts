@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { stableStringify } from "../../../scripts/screen-workspace-vocabulary.ts";
 import { toolResult, failedToolResult } from "../../walnut-tool-results.ts";
-import { createActionApprovalLedger } from "./action-approval-ledger.ts";
+import { createDbActionApprovalStore } from "./action-approval-store.ts";
 import { withWalnutSpan } from "../observability/tracing.ts";
 
 type JsonObject = Record<string, any>;
@@ -9,7 +9,7 @@ type JsonObject = Record<string, any>;
 const APPROVAL_TTL_MS = 5 * 60 * 1000;
 
 export function createActionApprovalService({
-  approvalLedger = createActionApprovalLedger(),
+  approvalStore = createDbActionApprovalStore(),
   auditLedger,
   opaEnforcer,
   policyManifest,
@@ -74,7 +74,43 @@ export function createActionApprovalService({
       approvalTokenHash: hashToken(approvalToken),
       createdAt: new Date().toISOString(),
     };
-    await approvalLedger.append(record);
+    const write = await approvalStore.append(record);
+    if (!write.persisted) {
+      await audit("policy.action.prepare.persistence_failed", turn, {
+        ok: false,
+        status: 503,
+        actionId,
+        decisionId: policy.decisionId,
+        reason: write.reason,
+        noCommandExecution: true,
+      });
+      return toolResult("policy", {
+        ok: false,
+        summary: "Action approval could not be persisted; approval token was not issued.",
+        result: {
+          operation: "policy.action.prepare",
+          actionId,
+          decision: publicDecision,
+          persisted: false,
+          reason: write.reason,
+        },
+        evidence: {
+          approvalPrepareRejected: true,
+          noCommandExecution: true,
+          noRemoteCommandExecution: true,
+          policyDecision: publicDecision,
+          dbProductState: {
+            boundaryReached: true,
+            persisted: false,
+            skipped: Boolean(write.skipped),
+            reason: write.reason,
+          },
+        },
+        diagnostics: {
+          policyDecisionId: policy.decisionId,
+        },
+      });
+    }
     await audit("policy.action.prepare.recorded", turn, {
       ok: true,
       status: policy.status === "pending" ? 409 : 200,
@@ -103,6 +139,7 @@ export function createActionApprovalService({
         explanation: record.explanation,
         decision: publicDecision,
         approvalToken,
+        persisted: true,
       },
       evidence: {
         pendingLocalAction: policy.status === "pending",
@@ -110,6 +147,12 @@ export function createActionApprovalService({
         noCommandExecution: true,
         noRemoteCommandExecution: true,
         policyDecision: publicDecision,
+        dbProductState: {
+          boundaryReached: true,
+          persisted: true,
+          skipped: false,
+          reason: null,
+        },
       },
       diagnostics: {
         policyDecisionId: policy.decisionId,
@@ -135,7 +178,7 @@ export function createActionApprovalService({
     if (!actionId) return { toolResult: failedToolResult("policy", "actionId is required for policy.action.commit"), executionDecision: null };
     if (!approvalToken) return { toolResult: failedToolResult("policy", "approvalToken is required for policy.action.commit"), executionDecision: null };
 
-    const record = await approvalLedger.latestByDecisionId(decisionId);
+    const record = await approvalStore.latestByDecisionId(decisionId);
     const subjectHash = hashJson(subjectForTurn(turn));
     const freshDecision = await decide(actionId, params, turnWithApprovalProof(turn, Boolean(record)), "commit");
     const publicDecision = opaEnforcer.publicDecision(freshDecision);
@@ -198,13 +241,55 @@ export function createActionApprovalService({
       };
     }
 
-    await approvalLedger.append({
+    const commitWrite = await approvalStore.append({
       ...record,
       schema: "walnutpi.action-approval-record.v1",
       status: "committed",
       committedAt: new Date().toISOString(),
       commitDecisionId: freshDecision.decisionId,
     });
+    if (!commitWrite.persisted) {
+      await audit("policy.action.commit.persistence_failed", turn, {
+        ok: false,
+        status: 503,
+        actionId,
+        decisionId,
+        freshDecisionId: freshDecision.decisionId,
+        paramsHash,
+        reason: commitWrite.reason,
+        noCommandExecution: true,
+      });
+      return {
+        executionDecision: null,
+        toolResult: toolResult("policy", {
+          ok: false,
+          summary: "Approval commit could not be persisted; command construction remains blocked.",
+          result: {
+            operation: "policy.action.commit",
+            actionId,
+            decisionId,
+            committed: false,
+            reason: commitWrite.reason,
+            decision: publicDecision,
+          },
+          evidence: {
+            approvalCommitRejected: true,
+            noCommandExecution: true,
+            noRemoteCommandExecution: true,
+            policyDecision: publicDecision,
+            dbProductState: {
+              boundaryReached: true,
+              persisted: false,
+              skipped: Boolean(commitWrite.skipped),
+              reason: commitWrite.reason,
+            },
+          },
+          diagnostics: {
+            policyDecisionId: freshDecision.decisionId,
+          },
+        }),
+      };
+    }
     await audit("policy.action.commit.accepted", turn, {
       ok: true,
       status: 200,
@@ -229,10 +314,17 @@ export function createActionApprovalService({
           paramsHash,
           commandBindingId: record.commandBindingId,
           decision: publicDecision,
+          persisted: Boolean(commitWrite.persisted),
         },
         evidence: {
           approvalCommitted: true,
           policyDecision: publicDecision,
+          dbProductState: {
+            boundaryReached: true,
+            persisted: Boolean(commitWrite.persisted),
+            skipped: Boolean(commitWrite.skipped),
+            reason: commitWrite.reason || null,
+          },
         },
         diagnostics: {
           policyDecisionId: freshDecision.decisionId,

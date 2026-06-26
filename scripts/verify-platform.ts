@@ -26,6 +26,7 @@ import { createLocalOwnerAuthContext, resolveWalnutSubjectFromRequest } from "..
 import { createScreenCommandRunner } from "../web-interface/screen-command-runner.ts";
 import { createScreenWorkspaceStore } from "../web-interface/screen-workspace-store.ts";
 import { createToolDispatcher } from "../web-interface/gateway/tool-dispatcher.ts";
+import { createMemoryActionApprovalStore } from "../web-interface/platform/policy/action-approval-store.ts";
 import { getAiModelConfig, getAuthConfig, getDbConfig, getLangfuseConfig } from "../web-interface/platform/config/platform-config.ts";
 import { processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "./screen-workspace-pipeline.ts";
 
@@ -164,6 +165,7 @@ const metricsLedger = {
   },
 };
 const memoryWrites: JsonObject[] = [];
+const actionApprovalStore = createMemoryActionApprovalStore();
 const memoryStore = {
   async capturePreferenceCandidate({ text, sessionId, turnId }: JsonObject) {
     const record = {
@@ -250,6 +252,7 @@ const toolDispatcher = createToolDispatcher({
     },
   },
   memoryStore,
+  actionApprovalStore,
 });
 const auditEvents: JsonObject[] = [];
 
@@ -576,6 +579,10 @@ record("db.drizzle-postgres", {
 record("db.memory-product-state-schema", {
   ok: Boolean(schema.memoryCandidates && schema.memorySensitiveSkips),
   tables: Object.keys(schema).filter((table) => table.toLowerCase().includes("memory")),
+});
+record("db.action-approval-schema", {
+  ok: Boolean(schema.actionApprovalRecords),
+  tables: Object.keys(schema).filter((table) => table.toLowerCase().includes("approval")),
 });
 if (db.sql) await db.sql.end({ timeout: 1 });
 

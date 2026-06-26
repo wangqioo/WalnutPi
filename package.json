@@ -6,6 +6,7 @@
     "screen:workspace:process": "bun scripts/process-screen-workspace-source.ts",
     "screen:workspace:lvgl-build": "bun scripts/build-lvgl-app.ts",
     "web": "bun web-interface/model-terminal-server.ts",
+    "db:migrate": "bun scripts/db-migrate.ts",
     "check": "bunx tsc --noEmit",
     "verify:platform": "bun scripts/verify-platform.ts"
   },
