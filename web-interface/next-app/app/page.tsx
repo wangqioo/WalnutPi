@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 type JsonObject = Record<string, any>;
 
@@ -116,10 +116,11 @@ export default function WalnutConsolePage() {
   const [screenBusy, setScreenBusy] = useState(false);
   const [error, setError] = useState("");
 
-  const sessionId = useMemo(() => getSessionId(), []);
+  const [sessionId, setSessionId] = useState("server");
   const latestTool = lastTurn?.toolResults?.at(-1) || null;
 
   useEffect(() => {
+    setSessionId(getSessionId());
     refreshAuthSubject();
     refreshAuditEvents();
     refreshScreenWorkspace();
