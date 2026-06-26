@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { createWalnutPostgresClient } from "../db/client.ts";
-import { memoryCandidates, memorySensitiveSkips } from "../db/schema.ts";
+import { durableMemoryRecords, memoryCandidates, memorySensitiveSkips } from "../db/schema.ts";
 
 type JsonObject = Record<string, any>;
 
@@ -15,7 +16,9 @@ export function createMemoryProductStateStore({
     categoryKey = "preferences.screen_generation",
   }: JsonObject) {
     const candidateText = String(text || "").trim();
+    const candidateId = randomUUID();
     const record = {
+      id: candidateId,
       sourceSessionId: cleanNullableText(sessionId),
       sourceTurnId: cleanNullableText(turnId),
       categoryKey,
@@ -28,12 +31,110 @@ export function createMemoryProductStateStore({
     return {
       ok: true,
       writeState: "candidate",
+      candidateId,
       categoryKey,
       candidateText,
       persisted: write.persisted,
       skipped: write.skipped,
       reason: write.reason,
     };
+  }
+
+  async function approveCandidate({
+    candidateId,
+    subject = {},
+  }: JsonObject) {
+    const normalizedCandidateId = cleanNullableText(candidateId);
+    if (!normalizedCandidateId) {
+      return {
+        ok: false,
+        persisted: false,
+        skipped: false,
+        reason: "candidateId is required",
+      };
+    }
+    const client = postgresClientFactory();
+    if (!client?.ok || !client.db) {
+      return {
+        ok: false,
+        persisted: false,
+        skipped: true,
+        reason: client?.reason || "database url is not configured",
+      };
+    }
+    try {
+      const rows = await client.db
+        .select()
+        .from(memoryCandidates)
+        .where(eq(memoryCandidates.id, normalizedCandidateId))
+        .limit(1);
+      const candidate = rows[0];
+      if (!candidate) {
+        return {
+          ok: false,
+          persisted: false,
+          skipped: false,
+          reason: "candidate-not-found",
+        };
+      }
+      if (candidate.status !== "candidate") {
+        return {
+          ok: false,
+          persisted: false,
+          skipped: false,
+          reason: "candidate-not-approvable",
+        };
+      }
+      const recordId = randomUUID();
+      await client.db.insert(durableMemoryRecords).values({
+        id: recordId,
+        sourceCandidateId: candidate.id,
+        categoryKey: candidate.categoryKey,
+        memoryText: candidate.candidateText,
+        status: "approved",
+        approvedBySubjectKind: cleanNullableText(subject.kind),
+        approvedByUserId: cleanNullableText(subject.userId),
+        approvedByOrgId: cleanNullableText(subject.orgId),
+        approvedByDeviceId: cleanNullableText(subject.deviceId),
+        sourceTool: "memory.approve",
+        metadata: {
+          approvedAt: now().toISOString(),
+          sourceTool: candidate.sourceTool,
+          sourceSessionId: candidate.sourceSessionId,
+          sourceTurnId: candidate.sourceTurnId,
+        },
+      });
+      await client.db
+        .update(memoryCandidates)
+        .set({
+          status: "approved",
+          metadata: {
+            ...(objectOrEmpty(candidate.metadata)),
+            approvedMemoryRecordId: recordId,
+            approvedAt: now().toISOString(),
+          },
+        })
+        .where(eq(memoryCandidates.id, candidate.id));
+      return {
+        ok: true,
+        recordId,
+        candidateId: candidate.id,
+        categoryKey: candidate.categoryKey,
+        memoryText: candidate.candidateText,
+        persisted: true,
+        skipped: false,
+        reason: null,
+      };
+    } catch (error: any) {
+      return {
+        ok: false,
+        persisted: false,
+        skipped: true,
+        reason: `db-write-unavailable:${error.message}`,
+      };
+    } finally {
+      await client.sql?.end?.({ timeout: 1 });
+    }
   }
 
   async function recordSensitiveSkip({
@@ -103,6 +204,7 @@ export function createMemoryProductStateStore({
   }
 
   return {
+    approveCandidate,
     capturePreferenceCandidate,
     recordSensitiveSkip,
     summarizeSession,
@@ -112,4 +214,8 @@ export function createMemoryProductStateStore({
 function cleanNullableText(value: any) {
   const text = String(value || "").trim();
   return text || null;
+}
+
+function objectOrEmpty(value: any): JsonObject {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }

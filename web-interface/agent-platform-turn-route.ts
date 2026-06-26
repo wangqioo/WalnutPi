@@ -209,7 +209,7 @@ function structuredCapabilityRoute(capability: string, body: JsonObject) {
     action: "call",
     subject: cleanOptionalText(body.text || capability),
     delivery: "none",
-    riskHint: capability.includes(".write") || capability === "memory.preference" ? "write" : "read",
+    riskHint: capability.includes(".write") || capability === "memory.preference" || capability === "memory.approve" ? "write" : "read",
     exposure: ["internal", "agent_action"],
     actionPolicyId: null,
     parameters: objectOrNull(body.parameters) || {},

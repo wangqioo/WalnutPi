@@ -17,6 +17,7 @@ const READ_ONLY_CONTINUATION_INTENTS = new Set([
 const WRITE_CONTINUATION_INTENTS = new Set([
   "device.note.write",
   "memory.preference",
+  "memory.approve",
   "memory.sensitive_skip",
 ]);
 

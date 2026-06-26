@@ -61,6 +61,9 @@ export function createGatewayToolCatalog({
     tool("memory.preference", "memory", "Capture a durable memory candidate without committing a write.", "/api/session", {
       text: stringSchema(),
     }),
+    tool("memory.approve", "memory", "Approve an existing memory candidate into durable memory.", "/api/session", {
+      candidateId: stringSchema(),
+    }),
     tool("memory.sensitiveSkip", "memory", "Reject sensitive content from durable memory.", "/api/session", {
       text: stringSchema(),
     }),

@@ -327,6 +327,7 @@ export function createToolDispatcher({
       summary: "Captured a durable memory candidate. No write was committed.",
       result: {
         operation: "memory.preference",
+        candidateId: captured.candidateId || null,
         candidate: captured.candidateText,
         persisted: Boolean(captured.persisted),
       },
@@ -334,6 +335,7 @@ export function createToolDispatcher({
         memoryUpdateCandidateOrConfirmation: {
           ok: true,
           writeState: "candidate",
+          candidateId: captured.candidateId || null,
           text: captured.candidateText,
           persisted: Boolean(captured.persisted),
         },
@@ -346,6 +348,65 @@ export function createToolDispatcher({
           persisted: Boolean(captured.persisted),
           skipped: Boolean(captured.skipped),
           reason: captured.reason || null,
+        },
+      },
+    });
+  }
+
+  async function memoryApprove(body: JsonObject, turn: JsonObject) {
+    const approved = await memoryStore.approveCandidate({
+      candidateId: body.candidateId,
+      subject: objectOrEmpty(turn.auth?.subject),
+    });
+    if (!approved.ok) {
+      return toolResult("memory", {
+        ok: false,
+        summary: `Durable memory approval failed: ${approved.reason || "unknown"}.`,
+        result: {
+          operation: "memory.approve",
+          candidateId: body.candidateId || null,
+          persisted: Boolean(approved.persisted),
+          reason: approved.reason || null,
+        },
+        evidence: {
+          durableMemoryApprovalRejected: true,
+          noRawSessionIndexing: true,
+          noRawDailyNotesIndexing: true,
+          dbProductState: {
+            boundaryReached: true,
+            persisted: Boolean(approved.persisted),
+            skipped: Boolean(approved.skipped),
+            reason: approved.reason || null,
+          },
+        },
+      });
+    }
+    return toolResult("memory", {
+      summary: "Approved durable memory was persisted through the DB product-state path.",
+      result: {
+        operation: "memory.approve",
+        recordId: approved.recordId,
+        candidateId: approved.candidateId,
+        categoryKey: approved.categoryKey,
+        memoryText: approved.memoryText,
+        persisted: Boolean(approved.persisted),
+      },
+      evidence: {
+        durableMemoryWrite: {
+          ok: true,
+          writeState: "approved",
+          recordId: approved.recordId,
+          candidateId: approved.candidateId,
+          categoryKey: approved.categoryKey,
+          persisted: Boolean(approved.persisted),
+        },
+        noRawSessionIndexing: true,
+        noRawDailyNotesIndexing: true,
+        dbProductState: {
+          boundaryReached: true,
+          persisted: Boolean(approved.persisted),
+          skipped: false,
+          reason: null,
         },
       },
     });
@@ -474,6 +535,7 @@ export function createToolDispatcher({
   async function handleMemoryTool(toolName: string, params: JsonObject, turn: JsonObject) {
     if (toolName === "memory.sessionSummary") return sessionSummary(turn);
     if (toolName === "memory.preference") return memoryPreference(params, turn);
+    if (toolName === "memory.approve") return memoryApprove(params, turn);
     if (toolName === "memory.sensitiveSkip") return memorySensitiveSkip(params, turn);
     return failedToolResult("memory", `Unknown memory tool ${toolName}`);
   }

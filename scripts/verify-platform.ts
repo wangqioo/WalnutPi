@@ -168,11 +168,14 @@ const metricsLedger = {
   },
 };
 const memoryWrites: JsonObject[] = [];
+const memoryCandidatesById = new Map<string, JsonObject>();
 const actionApprovalStore = createMemoryActionApprovalStore();
 const memoryStore = {
   async capturePreferenceCandidate({ text, sessionId, turnId }: JsonObject) {
+    const candidateId = randomUUID();
     const record = {
       kind: "memory.candidate",
+      candidateId,
       candidateText: String(text || "").trim(),
       sourceSessionId: sessionId || null,
       sourceTurnId: turnId || null,
@@ -180,12 +183,41 @@ const memoryStore = {
       persisted: true,
     };
     memoryWrites.push(record);
+    memoryCandidatesById.set(candidateId, record);
     return {
       ok: true,
       writeState: "candidate",
+      candidateId,
       categoryKey: record.categoryKey,
       candidateText: record.candidateText,
       persisted: true,
+      skipped: false,
+      reason: null,
+    };
+  },
+  async approveCandidate({ candidateId, subject }: JsonObject) {
+    const candidate = memoryCandidatesById.get(String(candidateId || ""));
+    if (!candidate) {
+      return {
+        ok: false,
+        persisted: false,
+        skipped: false,
+        reason: "candidate-not-found",
+      };
+    }
+    const record = {
+      kind: "durable_memory.approved",
+      recordId: randomUUID(),
+      candidateId: candidate.candidateId,
+      categoryKey: candidate.categoryKey,
+      memoryText: candidate.candidateText,
+      approvedBySubjectKind: subject?.kind || null,
+      persisted: true,
+    };
+    memoryWrites.push(record);
+    return {
+      ok: true,
+      ...record,
       skipped: false,
       reason: null,
     };
@@ -290,6 +322,7 @@ const mcpClient = createWalnutMastraMcpClient({
   fetchImpl: mcpFetch as any,
   id: `verify-${randomUUID()}`,
 });
+const mcpMemoryResults: Record<string, JsonObject> = {};
 try {
   const tools = await mcpClient.listTools();
   const toolNames = Object.keys(tools).sort();
@@ -309,6 +342,7 @@ try {
     "walnutpi_device.notes.read",
     "walnutpi_device.note.write",
     "walnutpi_memory.preference",
+    "walnutpi_memory.approve",
     "walnutpi_memory.sensitiveSkip",
     "walnutpi_policy.action.prepare",
     "walnutpi_policy.action.commit",
@@ -355,7 +389,6 @@ try {
     ["policy.action.prepare", "walnutpi_policy.action.prepare", { actionId: "restart_walnut_screen_service", params: {} }],
   ] as const;
   let mcpCallOkCount = 0;
-  const mcpMemoryResults: Record<string, JsonObject> = {};
   for (const [capability, mcpToolName, args] of mcpCallTargets) {
     const result = await tools[mcpToolName]?.execute?.(args as any, {} as any);
     if (capability.startsWith("memory.")) mcpMemoryResults[capability] = result;
@@ -371,6 +404,25 @@ try {
       rawCommandExposure: commandExposure,
     });
   }
+  const approveCandidateId = mcpMemoryResults["memory.preference"]?.result?.candidateId;
+  const approvedMemory = await tools["walnutpi_memory.approve"]?.execute?.({
+    candidateId: approveCandidateId,
+    sessionId: "verify-platform",
+    turnId: "verify-memory-approve",
+  } as any, {} as any);
+  mcpMemoryResults["memory.approve"] = approvedMemory;
+  const approveCommandExposure = findRawCommandExposure(approvedMemory);
+  record("mcp.tools-call-memory.approve", {
+    ok: approvedMemory?.ok === true
+      && approvedMemory?.evidence?.durableMemoryWrite?.writeState === "approved"
+      && approvedMemory?.evidence?.noRawSessionIndexing === true
+      && approvedMemory?.evidence?.noRawDailyNotesIndexing === true
+      && !approveCommandExposure,
+    family: approvedMemory?.family || null,
+    operation: approvedMemory?.result?.operation || null,
+    recordId: approvedMemory?.result?.recordId || null,
+    rawCommandExposure: approveCommandExposure,
+  });
   const preparedPolicy = await tools["walnutpi_policy.action.prepare"]?.execute?.({
     actionId: "restart_walnut_screen_service",
     params: {},
@@ -407,11 +459,14 @@ try {
   const sensitiveSkipTextExposure = JSON.stringify(mcpMemoryResults["memory.sensitiveSkip"] || {}).includes("temporary secret-like value");
   record("memory.product-state-tools", {
     ok: memoryWrites.some((item) => item.kind === "memory.candidate" && item.persisted === true)
+      && memoryWrites.some((item) => item.kind === "durable_memory.approved" && item.persisted === true)
       && memoryWrites.some((item) => item.kind === "memory.sensitive_skip" && item.persisted === true)
       && mcpMemoryResults["memory.preference"]?.evidence?.dbProductState?.boundaryReached === true
+      && mcpMemoryResults["memory.approve"]?.evidence?.dbProductState?.persisted === true
       && mcpMemoryResults["memory.sensitiveSkip"]?.evidence?.memorySkipEvidence?.textHash?.startsWith("sha256:")
       && !sensitiveSkipTextExposure,
     candidateWrites: memoryWrites.filter((item) => item.kind === "memory.candidate").length,
+    durableMemoryWrites: memoryWrites.filter((item) => item.kind === "durable_memory.approved").length,
     sensitiveSkipWrites: memoryWrites.filter((item) => item.kind === "memory.sensitive_skip").length,
     sensitiveSkipTextExposure,
   });
@@ -525,6 +580,7 @@ const turnCapabilities = [
   "device.gpio.read",
   "memory.sessionSummary",
   "memory.preference",
+  "memory.approve",
   "memory.sensitiveSkip",
   "device.note.write",
   "policy.action.prepare",
@@ -539,6 +595,7 @@ for (const capability of turnCapabilities) {
       playlistId: "default",
       ...(capability === "screen.syncPlaylist" ? { mode: "preview", evidenceMode: "fast" } : {}),
       ...(capability === "memory.preference" ? { text: "prefer concise device evidence" } : {}),
+      ...(capability === "memory.approve" ? { candidateId: mcpMemoryResults["memory.preference"]?.result?.candidateId || randomUUID() } : {}),
       ...(capability === "memory.sensitiveSkip" ? { text: "temporary secret-like value" } : {}),
       ...(capability === "device.note.write" ? { text: "verify-platform note boundary" } : {}),
       ...(capability === "policy.action.prepare" ? { actionId: "restart_walnut_screen_service", params: {} } : {}),
@@ -862,7 +919,7 @@ record("db.drizzle-postgres", {
   tables: Object.keys(schema),
 });
 record("db.memory-product-state-schema", {
-  ok: Boolean(schema.memoryCandidates && schema.memorySensitiveSkips),
+  ok: Boolean(schema.memoryCandidates && schema.durableMemoryRecords && schema.memorySensitiveSkips),
   tables: Object.keys(schema).filter((table) => table.toLowerCase().includes("memory")),
 });
 record("db.action-approval-schema", {
@@ -931,6 +988,22 @@ if (db.sql) {
   } catch (error: any) {
     record("db.better-auth-postgres-tables", { ok: false, error: error.message });
   } finally {
+    try {
+      const rows = await db.sql`
+        select table_name
+        from information_schema.tables
+        where table_schema = 'public'
+          and table_name in ('memory_candidates', 'durable_memory_records', 'memory_sensitive_skips')
+        order by table_name
+      `;
+      const tableNames = rows.map((row: JsonObject) => row.table_name);
+      record("db.memory-product-state-postgres-tables", {
+        ok: ["durable_memory_records", "memory_candidates", "memory_sensitive_skips"].every((table) => tableNames.includes(table)),
+        tables: tableNames,
+      });
+    } catch (error: any) {
+      record("db.memory-product-state-postgres-tables", { ok: false, error: error.message });
+    }
     try {
       const rows = await db.sql`
         select table_name

@@ -71,8 +71,9 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `device.network.read`, `device.snapshot.read`, `device.i2c.read`,
   `device.gpio.read`, `device.notes.read`, `memory.sessionSummary`,
   `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
-  `screen.writePlaylist`, `memory.preference`, `memory.sensitiveSkip`,
-  `device.note.write`, `policy.action.prepare`, and `policy.action.commit`.
+  `screen.writePlaylist`, `memory.preference`, `memory.approve`,
+  `memory.sensitiveSkip`, `device.note.write`, `policy.action.prepare`, and
+  `policy.action.commit`.
 - `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
   `screen.writePlaylist` are registered as real MCP SDK tools with explicit
   read/write/destructive annotations and dispatch only through the Screen
@@ -82,9 +83,10 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   execution. OPA-unavailable degraded decisions fail closed for write-low and
   high-risk actions.
 - `device.note.write` is exposed as an MCP/Mastra tool and remains an
-  OPA-gated Agent Action Command. `memory.preference` and
-  `memory.sensitiveSkip` are exposed as typed MCP/Mastra memory tools that
-  produce candidates or skip evidence without committing durable memory.
+  OPA-gated Agent Action Command. `memory.preference`, `memory.approve`, and
+  `memory.sensitiveSkip` are exposed as typed MCP/Mastra memory tools.
+  Preference capture produces a candidate, approval persists durable memory by
+  candidate id, and sensitive skip records hash/length evidence only.
 - Structured continuation routing no longer treats all `device.*` intents as
   read-only; write continuations require an explicit `write-continuation`
   constraint.
@@ -155,11 +157,13 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - Local JSONL and smoke-log residues under `web-interface/` are explicitly
   ignored. The active Web session, agent-turn, approval, auth, and audit paths
   are Postgres-backed rather than file-backed ledgers.
-- `memory.preference` and `memory.sensitiveSkip` now route through a DB
-  product-state store seam. Preference captures create candidate records when
-  Postgres is available; sensitive skips store only a SHA-256 text hash and
-  length. If the DB table/config is unavailable, the tool reports the boundary
-  as reached and skipped instead of falling back to file writes.
+- `memory.preference`, `memory.approve`, and `memory.sensitiveSkip` now route
+  through a DB product-state store seam. Preference captures create candidate
+  records when Postgres is available; `memory.approve` accepts an explicit
+  `candidateId` and writes an approved durable memory record to
+  `durable_memory_records`; sensitive skips store only a SHA-256 text hash and
+  length. None of these tools scans raw session logs or raw daily notes, and
+  no retrieval/vector index entry is created.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -208,8 +212,8 @@ local-only or mock verification.
   surface through `@mastra/mcp`.
 - Live `POST /api/agent/turn` with a structured `device.status.read`
   continuation completed through `mastra.mcp.device.status.read`.
-- `bun run verify:platform` now verifies at least 18 `/mcp` tools/list
-  entries, 17 MCP tools/call invocations, and 13 structured
+- `bun run verify:platform` now verifies at least 19 `/mcp` tools/list
+  entries, 18 MCP tools/call invocations, and 14 structured
   `/api/agent/turn` slices through Mastra MCP workflow dispatch.
 - `bun run verify:platform` also verifies OPA-unavailable degraded behavior:
   read actions may local-allow, while write-low actions fail closed with
@@ -245,13 +249,17 @@ local-only or mock verification.
   dispatcher and recursively verifies MCP/Mastra/agent-turn results do not
   expose raw command fields.
 - `bun run verify:platform` verifies the memory product-state schema and the
-  memory tool seam, including that `memory.sensitiveSkip` does not expose raw
-  sensitive text.
+  memory tool seam, including candidate capture, explicit approved durable
+  memory writes by candidate id, and that `memory.sensitiveSkip` does not
+  expose raw sensitive text.
 - `bun run verify:platform` verifies the Drizzle schema exports for
   `agentTurnSnapshots`, `agentTurnEvents`, and `webSessionEvents`.
 - `bun run verify:platform` verifies the Drizzle schema exports and live
   Postgres tables for better-auth `auth_user`, `auth_session`, `auth_account`,
   and `auth_verification`.
+- `bun run verify:platform` verifies the Drizzle schema exports and live
+  Postgres tables for DB-backed memory product state: `memory_candidates`,
+  `durable_memory_records`, and `memory_sensitive_skips`.
 - `bun run verify:platform` verifies the Drizzle schema exports and live
   Postgres tables for WalnutPi auth subject binding: `walnut_orgs`,
   `walnut_devices`, and `walnut_user_bindings`.
@@ -349,7 +357,8 @@ device-profile verification, not offline verification.
 
 - Add multi-org/device management and role-assignment UI/API on top of the
   current Postgres-backed better-auth subject binding tables.
-- Move approved durable memory/retrieval to the curated DB path.
+- Move curated retrieval/pgvector indexing to approved durable memory and
+  curated corpus only.
 - Move Screen Workspace, artifact panels, and device diagnostics into the
   Next/Tailwind console, then retire the static HTML console.
 - Extend device-profile verification for the platform `screen.syncPlaylist`

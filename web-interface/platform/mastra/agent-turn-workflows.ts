@@ -20,6 +20,7 @@ export const MASTRA_AGENT_TURN_CAPABILITIES = [
   "device.note.write",
   "memory.sessionSummary",
   "memory.preference",
+  "memory.approve",
   "memory.sensitiveSkip",
   "policy.action.prepare",
   "policy.action.commit",
@@ -50,6 +51,7 @@ const MCP_TOOL_BY_CAPABILITY: Record<MastraAgentTurnCapability, string> = {
   "device.note.write": "walnutpi_device.note.write",
   "memory.sessionSummary": "walnutpi_memory.sessionSummary",
   "memory.preference": "walnutpi_memory.preference",
+  "memory.approve": "walnutpi_memory.approve",
   "memory.sensitiveSkip": "walnutpi_memory.sensitiveSkip",
   "policy.action.prepare": "walnutpi_policy.action.prepare",
   "policy.action.commit": "walnutpi_policy.action.commit",
@@ -71,6 +73,7 @@ const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["
   "device.note.write": "device",
   "memory.sessionSummary": "memory",
   "memory.preference": "memory",
+  "memory.approve": "memory",
   "memory.sensitiveSkip": "memory",
   "policy.action.prepare": "policy",
   "policy.action.commit": "policy",
@@ -211,6 +214,12 @@ function paramsForCapability(
       text: body.text || parameters.text || "",
     };
   }
+  if (capability === "memory.approve") {
+    return {
+      ...parameters,
+      candidateId: body.candidateId || parameters.candidateId,
+    };
+  }
   if (capability === "policy.action.prepare") {
     return {
       ...parameters,
@@ -261,6 +270,7 @@ function normalizeCapabilityName(intent: string) {
   if (intent === "screen.generate") return "screen.renderWallpaper";
   if (intent === "screen.state_frame.read") return "screen.captureFrame";
   if (intent === "session.summary") return "memory.sessionSummary";
+  if (intent === "memory.approve_candidate") return "memory.approve";
   if (intent === "memory.sensitive_skip") return "memory.sensitiveSkip";
   return intent;
 }

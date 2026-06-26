@@ -117,6 +117,17 @@ const TOOL_POLICIES: Record<string, {
       turnId: z.string().optional(),
     },
   },
+  "memory.approve": {
+    readOnly: false,
+    destructive: false,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      candidateId: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
   "memory.sensitiveSkip": {
     readOnly: false,
     destructive: false,

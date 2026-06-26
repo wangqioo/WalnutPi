@@ -182,6 +182,22 @@ export const memoryCandidates = pgTable("memory_candidates", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const durableMemoryRecords = pgTable("durable_memory_records", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sourceCandidateId: uuid("source_candidate_id").references(() => memoryCandidates.id, { onDelete: "set null" }),
+  categoryKey: text("category_key").notNull(),
+  memoryText: text("memory_text").notNull(),
+  status: text("status").notNull(),
+  approvedBySubjectKind: text("approved_by_subject_kind"),
+  approvedByUserId: text("approved_by_user_id"),
+  approvedByOrgId: text("approved_by_org_id"),
+  approvedByDeviceId: text("approved_by_device_id"),
+  sourceTool: text("source_tool").notNull(),
+  metadata: jsonb("metadata"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const memorySensitiveSkips = pgTable("memory_sensitive_skips", {
   id: uuid("id").primaryKey().defaultRandom(),
   sourceSessionId: text("source_session_id"),
