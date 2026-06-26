@@ -29,6 +29,7 @@ import { createScreenWorkspaceStore } from "../web-interface/screen-workspace-st
 import { createToolDispatcher } from "../web-interface/gateway/tool-dispatcher.ts";
 import { publicGatewayAuditEventFromRecord } from "../web-interface/gateway/audit-ledger.ts";
 import { createMemoryActionApprovalStore } from "../web-interface/platform/policy/action-approval-store.ts";
+import { createCuratedRetrievalStore } from "../web-interface/platform/memory/curated-retrieval-store.ts";
 import { getAiModelConfig, getAuthConfig, getDbConfig, getLangfuseConfig } from "../web-interface/platform/config/platform-config.ts";
 import { processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "./screen-workspace-pipeline.ts";
 import { createMcpAuthContext } from "../web-interface/gateway/auth-context.ts";
@@ -911,6 +912,64 @@ record("observability.langfuse", {
   reason: langfuse.reason || null,
 });
 
+const retrievalSeedToken = `verify-retrieval-${randomUUID()}`;
+const retrievalClient = createWalnutPostgresClient();
+if (retrievalClient.db && retrievalClient.sql) {
+  try {
+    await retrievalClient.db.insert(schema.durableMemoryRecords).values({
+      categoryKey: "preferences.screen_generation",
+      memoryText: `Approved durable memory ${retrievalSeedToken}`,
+      status: "approved",
+      sourceTool: "verify:platform",
+      metadata: { approvedAt: new Date().toISOString() },
+    });
+    await retrievalClient.db.insert(schema.retrievalDocuments).values([
+      {
+        source: `verify-curated:${retrievalSeedToken}`,
+        sourceKind: "curated_corpus",
+        status: "curated",
+        title: "Verify curated retrieval document",
+        body: `Curated corpus document ${retrievalSeedToken}`,
+        metadata: { documentKind: "verify" },
+      },
+      {
+        source: `verify-raw-session:${retrievalSeedToken}`,
+        sourceKind: "raw_session_log",
+        status: "raw",
+        title: "Raw session log must not index",
+        body: `Raw session forbidden ${retrievalSeedToken}`,
+        metadata: { documentKind: "raw-session-log" },
+      },
+      {
+        source: `verify-raw-daily-note:${retrievalSeedToken}`,
+        sourceKind: "raw_daily_note",
+        status: "raw",
+        title: "Raw daily note must not index",
+        body: `Raw daily forbidden ${retrievalSeedToken}`,
+        metadata: { documentKind: "raw-daily-note" },
+      },
+    ]);
+  } finally {
+    await retrievalClient.sql.end({ timeout: 1 });
+  }
+}
+const curatedRetrieval = await createCuratedRetrievalStore({ resultLimit: 10 }).retrieve(retrievalSeedToken);
+const retrievalJson = JSON.stringify(curatedRetrieval.results);
+record("retrieval.curated-db-path", {
+  ok: curatedRetrieval.ok === true
+    && curatedRetrieval.results.some((item: JsonObject) => item.sourceKind === "approved_memory")
+    && curatedRetrieval.results.some((item: JsonObject) => item.sourceKind === "curated_corpus")
+    && !retrievalJson.includes("raw_session_log")
+    && !retrievalJson.includes("raw_daily_note")
+    && !retrievalJson.includes("Raw session forbidden")
+    && !retrievalJson.includes("Raw daily forbidden"),
+  resultKinds: curatedRetrieval.results.map((item: JsonObject) => item.sourceKind),
+  rawSessionExposure: retrievalJson.includes("raw_session_log") || retrievalJson.includes("Raw session forbidden"),
+  rawDailyNoteExposure: retrievalJson.includes("raw_daily_note") || retrievalJson.includes("Raw daily forbidden"),
+  skipped: curatedRetrieval.skipped || false,
+  reason: curatedRetrieval.reason || null,
+});
+
 const db = createWalnutPostgresClient();
 record("db.drizzle-postgres", {
   ok: db.ok || db.skipped,
@@ -921,6 +980,10 @@ record("db.drizzle-postgres", {
 record("db.memory-product-state-schema", {
   ok: Boolean(schema.memoryCandidates && schema.durableMemoryRecords && schema.memorySensitiveSkips),
   tables: Object.keys(schema).filter((table) => table.toLowerCase().includes("memory")),
+});
+record("db.curated-retrieval-schema", {
+  ok: Boolean(schema.retrievalDocuments),
+  tables: Object.keys(schema).filter((table) => table === "retrievalDocuments"),
 });
 record("db.action-approval-schema", {
   ok: Boolean(schema.actionApprovalRecords),
@@ -1003,6 +1066,23 @@ if (db.sql) {
       });
     } catch (error: any) {
       record("db.memory-product-state-postgres-tables", { ok: false, error: error.message });
+    }
+    try {
+      const rows = await db.sql`
+        select column_name
+        from information_schema.columns
+        where table_schema = 'public'
+          and table_name = 'retrieval_documents'
+          and column_name in ('source_kind', 'status')
+        order by column_name
+      `;
+      const columns = rows.map((row: JsonObject) => row.column_name);
+      record("db.curated-retrieval-postgres-columns", {
+        ok: ["source_kind", "status"].every((column) => columns.includes(column)),
+        columns,
+      });
+    } catch (error: any) {
+      record("db.curated-retrieval-postgres-columns", { ok: false, error: error.message });
     }
     try {
       const rows = await db.sql`

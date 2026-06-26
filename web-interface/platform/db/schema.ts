@@ -164,6 +164,8 @@ export const walnutUserBindings = pgTable("walnut_user_bindings", {
 export const retrievalDocuments = pgTable("retrieval_documents", {
   id: uuid("id").primaryKey().defaultRandom(),
   source: text("source").notNull(),
+  sourceKind: text("source_kind").default("curated_corpus").notNull(),
+  status: text("status").default("curated").notNull(),
   title: text("title").notNull(),
   body: text("body").notNull(),
   metadata: jsonb("metadata"),

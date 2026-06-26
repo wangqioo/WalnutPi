@@ -164,6 +164,12 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `durable_memory_records`; sensitive skips store only a SHA-256 text hash and
   length. None of these tools scans raw session logs or raw daily notes, and
   no retrieval/vector index entry is created.
+- `/api/retrieval` now uses
+  `web-interface/platform/memory/curated-retrieval-store.ts` as the active
+  control-plane retrieval path. It reads approved durable memory and curated
+  `retrieval_documents` rows only. Raw session logs and raw daily notes are
+  excluded by `source_kind`/`status`, and the old file-backed skills/corpus
+  scanner is no longer the Web retrieval main path.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -252,6 +258,9 @@ local-only or mock verification.
   memory tool seam, including candidate capture, explicit approved durable
   memory writes by candidate id, and that `memory.sensitiveSkip` does not
   expose raw sensitive text.
+- `bun run verify:platform` verifies the curated DB retrieval path returns
+  approved durable memory and curated corpus documents while refusing raw
+  session-log and raw daily-note rows.
 - `bun run verify:platform` verifies the Drizzle schema exports for
   `agentTurnSnapshots`, `agentTurnEvents`, and `webSessionEvents`.
 - `bun run verify:platform` verifies the Drizzle schema exports and live
@@ -260,6 +269,8 @@ local-only or mock verification.
 - `bun run verify:platform` verifies the Drizzle schema exports and live
   Postgres tables for DB-backed memory product state: `memory_candidates`,
   `durable_memory_records`, and `memory_sensitive_skips`.
+- `bun run verify:platform` verifies `retrieval_documents` has
+  `source_kind` and `status` columns for curated retrieval filtering.
 - `bun run verify:platform` verifies the Drizzle schema exports and live
   Postgres tables for WalnutPi auth subject binding: `walnut_orgs`,
   `walnut_devices`, and `walnut_user_bindings`.
@@ -357,8 +368,8 @@ device-profile verification, not offline verification.
 
 - Add multi-org/device management and role-assignment UI/API on top of the
   current Postgres-backed better-auth subject binding tables.
-- Move curated retrieval/pgvector indexing to approved durable memory and
-  curated corpus only.
+- Add pgvector embeddings for approved durable memory and curated corpus
+  documents only.
 - Move Screen Workspace, artifact panels, and device diagnostics into the
   Next/Tailwind console, then retire the static HTML console.
 - Extend device-profile verification for the platform `screen.syncPlaylist`

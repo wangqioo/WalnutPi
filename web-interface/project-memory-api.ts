@@ -1,10 +1,8 @@
 export function createProjectMemoryApi({
   webSessionLedger,
   readWalnutMemory,
-  retrieveWalnutContext,
+  retrieveWalnutContextView,
   memoryFile,
-  skillsDir,
-  corpusDir,
   eventLimit,
   readJsonRequest,
   json,
@@ -59,14 +57,29 @@ export function createProjectMemoryApi({
 
     async handleRetrieval(url) {
       const query = url.searchParams.get("query") || "";
-      const results = await retrieveWalnutContext(query);
+      const retrieval = await retrieveWalnutContextView(query);
+      if (!retrieval.ok) {
+        return json({
+          ok: false,
+          schema: "walnutpi.retrievalView.v1",
+          query,
+          source: "postgres-curated",
+          error: "curated retrieval is unavailable",
+          reason: retrieval.reason || null,
+        }, 503);
+      }
       return json({
         ok: true,
         schema: "walnutpi.retrievalView.v1",
         query,
-        skillsDir,
-        corpusDir,
-        results,
+        source: "postgres-curated",
+        policy: {
+          approvedDurableMemory: true,
+          curatedCorpus: true,
+          rawSessionLogs: false,
+          rawDailyNotes: false,
+        },
+        results: retrieval.results,
       });
     },
 
@@ -74,17 +87,28 @@ export function createProjectMemoryApi({
       const query = url.searchParams.get("query") || "";
       const [memory, retrieval] = await Promise.all([
         readWalnutMemory(),
-        retrieveWalnutContext(query),
+        retrieveWalnutContextView(query),
       ]);
+      if (!retrieval.ok) {
+        return json({
+          ok: false,
+          schema: "walnutpi.projectMemoryView.v1",
+          query,
+          memoryFile,
+          retrievalSource: "postgres-curated",
+          error: "curated retrieval is unavailable",
+          reason: retrieval.reason || null,
+          memory,
+        }, 503);
+      }
       return json({
         ok: true,
         schema: "walnutpi.projectMemoryView.v1",
         query,
         memoryFile,
-        skillsDir,
-        corpusDir,
+        retrievalSource: "postgres-curated",
         memory,
-        retrieval,
+        retrieval: retrieval.results,
       });
     },
   };

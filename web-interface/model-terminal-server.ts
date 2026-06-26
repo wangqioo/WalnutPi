@@ -35,7 +35,8 @@ import { createGatewayAuditLedger } from "./gateway/audit-ledger.ts";
 import { createOpaPolicyBoundary } from "./platform/policy/opa-boundary.ts";
 import { getAiModelConfig } from "./platform/config/platform-config.ts";
 import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-classifier.ts";
-import { compactRetrievalForPrompt, retrieveWalnutContext as retrieveWalnutContextWithOptions } from "./walnut-retrieval.ts";
+import { compactRetrievalForPrompt } from "./walnut-retrieval.ts";
+import { createCuratedRetrievalStore } from "./platform/memory/curated-retrieval-store.ts";
 import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.ts";
 import { stableStringify } from "../scripts/screen-workspace-vocabulary.ts";
 import { generateLvglScreenWorkspaceRuntimeAssets } from "../scripts/generate-lvgl-screen-workspace-runtime-assets.ts";
@@ -127,6 +128,9 @@ const agentTurnEventLedger = createAgentTurnEventLedger({
   limit: Number(process.env.WALNUT_AGENT_TURN_EVENT_LIMIT || 500),
 });
 const gatewayAuditLedger = createGatewayAuditLedger();
+const curatedRetrievalStore = createCuratedRetrievalStore({
+  resultLimit: RETRIEVAL_RESULT_LIMIT,
+});
 const files = new Map([
   ["/", "walnut-agent-console.html"],
   ["/apps.html", "widget-app-gallery.html"],
@@ -192,13 +196,15 @@ async function readWalnutMemory() {
 }
 
 async function retrieveWalnutContext(query) {
-  return retrieveWalnutContextWithOptions(query, {
-    corpusDir: WALNUT_AI_CORPUS_DIR,
-    fileLimit: RETRIEVAL_FILE_LIMIT,
-    primarySkill: WALNUT_AI_PRIMARY_SKILL,
-    projectRoot: PROJECT_ROOT,
+  const retrieved = await curatedRetrievalStore.retrieve(query, {
     resultLimit: RETRIEVAL_RESULT_LIMIT,
-    skillsDir: WALNUT_AI_SKILLS_DIR,
+  });
+  return retrieved.results;
+}
+
+async function retrieveWalnutContextView(query) {
+  return curatedRetrievalStore.retrieve(query, {
+    resultLimit: RETRIEVAL_RESULT_LIMIT,
   });
 }
 
@@ -661,10 +667,8 @@ async function readJsonRequest(req) {
 const projectMemoryApi = createProjectMemoryApi({
   webSessionLedger,
   readWalnutMemory,
-  retrieveWalnutContext,
+  retrieveWalnutContextView,
   memoryFile: WALNUT_AI_MEMORY_FILE,
-  skillsDir: WALNUT_AI_SKILLS_DIR,
-  corpusDir: WALNUT_AI_CORPUS_DIR,
   eventLimit: WEB_SESSION_EVENT_LIMIT,
   readJsonRequest,
   json,
