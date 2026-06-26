@@ -1,38 +1,87 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { desc } from "drizzle-orm";
+import { createWalnutPostgresClient } from "../platform/db/client.ts";
+import { auditEvents } from "../platform/db/schema.ts";
 
 const DEFAULT_LIMIT = 1000;
 
 type JsonObject = Record<string, any>;
 
-export function createGatewayAuditLedger({ auditPath, limit = DEFAULT_LIMIT }: { auditPath: string; limit?: number }) {
+export function createGatewayAuditLedger({
+  limit = DEFAULT_LIMIT,
+  postgresClientFactory = createWalnutPostgresClient,
+}: { limit?: number; postgresClientFactory?: typeof createWalnutPostgresClient } = {}) {
   async function append(event: JsonObject) {
     const record = normalizeAuditEvent(event);
-    try {
-      await mkdir(path.dirname(auditPath), { recursive: true });
-      await writeFile(auditPath, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "a" });
-    } catch {
-      // Audit must not break user workflows.
+    const client = postgresClientFactory();
+    if (!client?.ok || !client.db) {
+      return {
+        ...record,
+        persisted: false,
+        skipped: true,
+        persistenceReason: client?.reason || "database url is not configured",
+      };
     }
-    return record;
+    try {
+      await client.db.insert(auditEvents).values({
+        kind: record.kind,
+        operation: record.operation,
+        ok: record.ok,
+        status: record.status,
+        decisionId: record.decisionId,
+        freshDecisionId: record.freshDecisionId,
+        toolName: record.toolName,
+        toolGroup: record.toolGroup,
+        toolOperation: record.toolOperation,
+        actionId: record.actionId,
+        action: record.action,
+        route: record.route,
+        reason: record.reason,
+        sessionId: record.sessionId,
+        turnId: record.turnId,
+        traceId: record.traceId,
+        requestId: record.requestId,
+        subjectKind: record.subjectKind,
+        deviceProfile: record.deviceProfile,
+        paramsHash: record.paramsHash,
+        commandBindingId: record.commandBindingId,
+        subjectHash: record.subjectHash,
+        params: record.params,
+        decision: record.decision,
+        evidence: record.evidence,
+        result: record.result,
+        error: record.error,
+      });
+      return {
+        ...record,
+        persisted: true,
+        skipped: false,
+        persistenceReason: null,
+      };
+    } catch (error: any) {
+      return {
+        ...record,
+        persisted: false,
+        skipped: true,
+        persistenceReason: `db-write-unavailable:${error.message}`,
+      };
+    } finally {
+      await client.sql?.end?.({ timeout: 1 });
+    }
   }
 
   async function readRecent(requestedLimit = limit) {
+    const client = postgresClientFactory();
+    if (!client?.ok || !client.db) return [];
     try {
-      const data = await readFile(auditPath, "utf8");
-      return data
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .slice(-Math.max(1, requestedLimit))
-        .flatMap((line) => {
-          try {
-            return [JSON.parse(line)];
-          } catch {
-            return [];
-          }
-        });
+      const rows = await client.db.select()
+        .from(auditEvents)
+        .orderBy(desc(auditEvents.createdAt))
+        .limit(Math.max(1, requestedLimit));
+      return rows.reverse().map(recordFromRow);
     } catch {
       return [];
+    } finally {
+      await client.sql?.end?.({ timeout: 1 });
     }
   }
 
@@ -46,33 +95,85 @@ function normalizeAuditEvent(event: JsonObject) {
   return {
     schema: "walnutpi.gatewayAuditEvent.v1",
     timestamp: new Date().toISOString(),
-    kind: String(event.kind || "event").slice(0, 80),
-    operation: String(event.operation || "").slice(0, 120),
+    kind: clippedText(event.kind || "event", 80) || "event",
+    operation: stringOrNull(event.operation || event.toolOperation, 120),
     ok: typeof event.ok === "boolean" ? event.ok : null,
     status: typeof event.status === "number" ? event.status : null,
     decisionId: stringOrNull(event.decisionId, 120),
+    freshDecisionId: stringOrNull(event.freshDecisionId, 120),
     toolName: stringOrNull(event.toolName, 120),
     toolGroup: stringOrNull(event.toolGroup, 40),
+    toolOperation: stringOrNull(event.toolOperation, 120),
     actionId: stringOrNull(event.actionId, 120),
     action: stringOrNull(event.action, 120),
     route: stringOrNull(event.route, 120),
-    reason: stringOrNull(event.reason, 200),
+    reason: stringOrNull(event.reason, 300),
     sessionId: stringOrNull(event.sessionId, 120),
     turnId: stringOrNull(event.turnId, 120),
     traceId: stringOrNull(event.traceId, 120),
     requestId: stringOrNull(event.requestId, 120),
+    subjectKind: stringOrNull(event.subjectKind, 80),
+    deviceProfile: stringOrNull(event.deviceProfile, 80),
+    paramsHash: stringOrNull(event.paramsHash, 120),
+    commandBindingId: stringOrNull(event.commandBindingId, 160),
+    subjectHash: stringOrNull(event.subjectHash, 120),
     params: objectOrNull(event.params),
     decision: objectOrNull(event.decision),
+    evidence: objectOrNull(event.evidence),
     result: objectOrNull(event.result),
-    error: stringOrNull(event.error, 500),
+    error: stringOrNull(event.error, 1000),
+  };
+}
+
+function recordFromRow(row: JsonObject) {
+  return {
+    schema: "walnutpi.gatewayAuditEvent.v1",
+    timestamp: dateIso(row.createdAt),
+    kind: row.kind,
+    operation: row.operation,
+    ok: row.ok,
+    status: row.status,
+    decisionId: row.decisionId,
+    freshDecisionId: row.freshDecisionId,
+    toolName: row.toolName,
+    toolGroup: row.toolGroup,
+    toolOperation: row.toolOperation,
+    actionId: row.actionId,
+    action: row.action,
+    route: row.route,
+    reason: row.reason,
+    sessionId: row.sessionId,
+    turnId: row.turnId,
+    traceId: row.traceId,
+    requestId: row.requestId,
+    subjectKind: row.subjectKind,
+    deviceProfile: row.deviceProfile,
+    paramsHash: row.paramsHash,
+    commandBindingId: row.commandBindingId,
+    subjectHash: row.subjectHash,
+    params: row.params,
+    decision: row.decision,
+    evidence: row.evidence,
+    result: row.result,
+    error: row.error,
+    persisted: true,
+    skipped: false,
   };
 }
 
 function stringOrNull(value: any, limit = 120) {
   if (value === null || value === undefined || value === "") return null;
-  return String(value).slice(0, limit);
+  return clippedText(value, limit) || null;
+}
+
+function clippedText(value: any, limit: number) {
+  return String(value || "").slice(0, limit);
 }
 
 function objectOrNull(value: any) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function dateIso(value: any) {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }

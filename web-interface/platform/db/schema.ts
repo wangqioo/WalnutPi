@@ -1,4 +1,4 @@
-import { integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const platformMigrations = pgTable("platform_migrations", {
   id: text("id").primaryKey(),
@@ -18,9 +18,32 @@ export const agentTurns = pgTable("agent_turns", {
 export const auditEvents = pgTable("audit_events", {
   id: uuid("id").primaryKey().defaultRandom(),
   kind: text("kind").notNull(),
+  operation: text("operation"),
+  ok: boolean("ok"),
+  status: integer("status"),
+  decisionId: text("decision_id"),
+  freshDecisionId: text("fresh_decision_id"),
+  toolName: text("tool_name"),
+  toolGroup: text("tool_group"),
+  toolOperation: text("tool_operation"),
   actionId: text("action_id"),
+  action: text("action"),
+  route: text("route"),
+  reason: text("reason"),
+  sessionId: text("session_id"),
+  turnId: text("turn_id"),
+  traceId: text("trace_id"),
+  requestId: text("request_id"),
+  subjectKind: text("subject_kind"),
+  deviceProfile: text("device_profile"),
+  paramsHash: text("params_hash"),
+  commandBindingId: text("command_binding_id"),
+  subjectHash: text("subject_hash"),
+  params: jsonb("params"),
   decision: jsonb("decision"),
   evidence: jsonb("evidence"),
+  result: jsonb("result"),
+  error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

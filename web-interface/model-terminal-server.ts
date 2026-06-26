@@ -135,9 +135,7 @@ const agentTurnEventLedger = createAgentTurnEventLedger({
   eventBus: agentEventBus,
   limit: Number(process.env.WALNUT_AGENT_TURN_EVENT_LIMIT || 500),
 });
-const gatewayAuditLedger = createGatewayAuditLedger({
-  auditPath: path.join(BASE_DIR, "data", "gateway-audit.jsonl"),
-});
+const gatewayAuditLedger = createGatewayAuditLedger();
 const files = new Map([
   ["/", "walnut-agent-console.html"],
   ["/apps.html", "widget-app-gallery.html"],

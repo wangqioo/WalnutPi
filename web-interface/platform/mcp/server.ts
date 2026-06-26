@@ -216,6 +216,7 @@ export function createWalnutMcpServer({
           sessionId: turn.sessionId,
           traceId: turn.traceId,
           subjectKind: mergedAuthContext.subject?.kind || null,
+          deviceProfile: mergedAuthContext.environment?.deviceProfile || null,
           result,
         });
         return {

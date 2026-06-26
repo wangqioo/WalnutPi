@@ -584,6 +584,10 @@ record("db.action-approval-schema", {
   ok: Boolean(schema.actionApprovalRecords),
   tables: Object.keys(schema).filter((table) => table.toLowerCase().includes("approval")),
 });
+record("db.audit-event-schema", {
+  ok: Boolean(schema.auditEvents),
+  tables: Object.keys(schema).filter((table) => table.toLowerCase().includes("audit")),
+});
 if (db.sql) await db.sql.end({ timeout: 1 });
 
 const failed = results.filter((item) => !item.ok);

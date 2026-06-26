@@ -110,7 +110,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - Public MCP, Mastra, agent-turn, action, screen-sync, and session projections
   no longer expose raw shell, SSH, or Walnut CLI command strings. Command
   construction remains inside the dispatcher/adapter boundary and raw command
-  records stay limited to internal diagnostic/audit ledgers.
+  records stay limited to internal diagnostic/audit boundaries.
+- Gateway policy/action/MCP audit events now persist through the control-plane
+  Postgres `audit_events` table. `web-interface/gateway/audit-ledger.ts` no
+  longer writes `data/gateway-audit.jsonl`; DB-unavailable writes report an
+  explicit skipped persistence result instead of falling back to JSONL.
 - `memory.preference` and `memory.sensitiveSkip` now route through a DB
   product-state store seam. Preference captures create candidate records when
   Postgres is available; sensitive skips store only a SHA-256 text hash and
@@ -218,12 +222,18 @@ tool results.
   filename read by the device CLI.
 - The local control-plane Postgres container was migrated with `bun run
   db:migrate`, using
-  `web-interface/platform/db/migrations/0001_platform_product_state.sql` and
-  `0002_action_approval_records.sql`. A live `policy.action.prepare` call through
+  `web-interface/platform/db/migrations/0001_platform_product_state.sql`,
+  `0002_action_approval_records.sql`, and
+  `0003_expand_audit_events.sql`. A live `policy.action.prepare` call through
   `/api/agent/turn` completed via `mastra.mcp.policy.action.prepare`, returned
   `dbProductState.persisted: true`, exposed no raw command, and produced an
   `action_approval_records` row for decision
   `b22e6760-605e-4b83-b7bd-69021b71e402`.
+- Live `/api/agent/turn` calls for `policy.action.prepare` and
+  `device.status.read` wrote gateway audit rows into `audit_events`, including
+  OPA decision ids, action ids, server-derived subject kind, session/turn ids,
+  and device profile context. The final tool result diagnostics still use
+  `mastra.mcp.*` operations.
 - Device-profile sync evidence was rerun after deleting the current
   `agent-freeform-*` generated artifacts. The script rebuilt the default
   playlist and completed with `ok: True`, `visualMatch: captured`, and
@@ -237,8 +247,10 @@ device-profile verification, not offline verification.
 - Add the approval UI around `policy.action.prepare`/`policy.action.commit`.
 - Replace the current better-auth-first/local-owner subject resolver with real
   signed-in user flows once the Next.js console owns login/session creation.
-- Add managed DB migrations for memory product-state tables and then move
-  approved durable memory/retrieval to the curated DB path.
+- Move approved durable memory/retrieval to the curated DB path.
+- Decide the next ledger migration target: agent turns/session events are still
+  file-backed append-only ledgers, while gateway audit and approval records are
+  now Postgres-backed product state.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.
