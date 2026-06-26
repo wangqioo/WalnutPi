@@ -15,6 +15,11 @@ config/platform.local.json
 --advance-ms
 build/
 web-interface/data/
+web-interface/**/*.jsonl
+web-interface/**/gateway-audit*.jsonl
+web-interface/**/agent-turn*.jsonl
+web-interface/**/live-smoke*.json
+web-interface/**/live-smoke*.log
 web-interface/screen-sync-records/
 third_party/lvgl/
 third/

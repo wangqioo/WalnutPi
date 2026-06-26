@@ -100,6 +100,13 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - The MCP subject resolver now attempts the better-auth session API first and
   then falls back to the server-derived local-owner subject for the current
   local control-plane profile. Client headers cannot declare subject or roles.
+- The Hono gateway now mounts better-auth at `/api/auth/*` plus a redacted
+  `/api/auth/subject` projection. better-auth uses the control-plane Postgres
+  tables `auth_user`, `auth_session`, `auth_account`, and `auth_verification`;
+  DB-unavailable auth startup is an honest failure, not an in-memory fallback.
+- The Next/Tailwind console now has a compact session panel for email sign-up,
+  sign-in, sign-out, and server-derived subject display. It does not submit
+  client-controlled subject or role headers.
 - `policy.action.prepare` and `policy.action.commit` are real MCP/Mastra tools.
   Prepare records decision id, action id, normalized params hash, command
   binding id, subject, expiry, explanation, OPA decision, and approval token
@@ -134,6 +141,9 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   write JSONL fallback files; DB-unconfigured reads report empty ledgers and
   public read APIs expose skipped persistence status, while DB write failures
   are surfaced as persistence failures.
+- Local JSONL and smoke-log residues under `web-interface/` are explicitly
+  ignored. The active Web session, agent-turn, approval, auth, and audit paths
+  are Postgres-backed rather than file-backed ledgers.
 - `memory.preference` and `memory.sensitiveSkip` now route through a DB
   product-state store seam. Preference captures create candidate records when
   Postgres is available; sensitive skips store only a SHA-256 text hash and
@@ -197,6 +207,10 @@ local-only or mock verification.
   policy audit for an OPA-gated tool call.
 - `bun run verify:platform` verifies spoofed subject/role headers are ignored
   by the MCP subject resolver.
+- `bun run verify:platform` verifies better-auth is Postgres-backed, creates a
+  real signed-in test session, resolves it as `better-auth-user`, and carries
+  that signed subject through the `/api/agent/turn` -> Mastra MCP ->
+  OPA/audit path without accepting spoofed subject/role headers.
 - `bun run verify:platform` verifies the `/api/agent/turn` Mastra MCP workflow
   path uses request-derived auth context, reaches the `policy.action.prepare`
   no-command boundary, and does not admit spoofed subject/role headers into the
@@ -221,6 +235,9 @@ local-only or mock verification.
   sensitive text.
 - `bun run verify:platform` verifies the Drizzle schema exports for
   `agentTurnSnapshots`, `agentTurnEvents`, and `webSessionEvents`.
+- `bun run verify:platform` verifies the Drizzle schema exports and live
+  Postgres tables for better-auth `auth_user`, `auth_session`, `auth_account`,
+  and `auth_verification`.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
 tool results.
 - Policy pending smoke returned `noCommandExecution` evidence.
@@ -307,9 +324,8 @@ device-profile verification, not offline verification.
 
 ## Next Work
 
-- Add real signed-in user flows once the Next.js console owns login/session
-  creation; the active MCP and agent-turn tool paths already use the
-  better-auth-first/server-derived subject resolver.
+- Add org/device binding and role assignment on top of the current
+  Postgres-backed better-auth user/session path.
 - Move approved durable memory/retrieval to the curated DB path.
 - Move Screen Workspace, artifact panels, and device diagnostics into the
   Next/Tailwind console, then retire the static HTML console.

@@ -15,7 +15,7 @@ import {
 import { getWalnutMastraRegistry } from "../web-interface/platform/mastra/runtime.ts";
 import { runAgentPlatformTurn } from "../web-interface/agent-platform-turn-route.ts";
 import { createWalnutAiSdkProvider } from "../web-interface/platform/ai-sdk/server.ts";
-import { createWalnutAuth } from "../web-interface/platform/auth/auth.ts";
+import { closeWalnutAuthForTests, createWalnutAuth } from "../web-interface/platform/auth/auth.ts";
 import { walnutInngest, walnutInngestFunctions } from "../web-interface/platform/inngest/client.ts";
 import { createWalnutLangfuseClient, createWalnutOpenTelemetrySdk, getWalnutTracer } from "../web-interface/platform/observability/tracing.ts";
 import { createWalnutPostgresClient, schema } from "../web-interface/platform/db/client.ts";
@@ -602,6 +602,118 @@ record("auth.subject-server-derived", {
   roles: spoofedSubject.roles || [],
 });
 
+let signedAuthCookie = "";
+let signedAuthSubject: JsonObject | null = null;
+try {
+  const auth = createWalnutAuth();
+  const email = `verify-${randomUUID()}@walnutpi.local`;
+  const signUpResponse = await auth.handler(new Request("http://127.0.0.1:4173/api/auth/sign-up/email", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      email,
+      password: `verify-${randomUUID()}-password`,
+      name: "Verify Walnut Owner",
+    }),
+  }));
+  signedAuthCookie = cookieHeaderFromSetCookie(signUpResponse.headers.get("set-cookie") || "");
+  signedAuthSubject = await resolveWalnutSubjectFromRequest(new Request("http://127.0.0.1:4173/mcp", {
+    headers: signedAuthCookie ? { cookie: signedAuthCookie } : {},
+  }));
+  record("auth.better-auth-session-subject", {
+    ok: signUpResponse.ok
+      && signedAuthSubject.kind === "better-auth-user"
+      && signedAuthSubject.authenticated === true
+      && Boolean(signedAuthSubject.userId)
+      && Boolean(signedAuthSubject.sessionId),
+    signUpStatus: signUpResponse.status,
+    subjectKind: signedAuthSubject.kind || null,
+    authenticated: signedAuthSubject.authenticated || false,
+    hasUserId: Boolean(signedAuthSubject.userId),
+    hasSessionId: Boolean(signedAuthSubject.sessionId),
+  });
+} catch (error: any) {
+  record("auth.better-auth-session-subject", { ok: false, error: error.message });
+}
+
+if (signedAuthCookie) {
+  const signedAgentTurnAuditEvents: JsonObject[] = [];
+  const signedAgentTurnRequest = new Request("http://127.0.0.1:4173/api/agent/turn?previewOnly=1", {
+    headers: {
+      cookie: signedAuthCookie,
+      "x-walnut-subject": "attacker",
+      "x-walnut-roles": "admin",
+    },
+  });
+  const signedAgentTurnAuthContext = await createMcpAuthContext(signedAgentTurnRequest, {
+    deviceProfile: "device",
+    target: "verify@walnutpi",
+  });
+  const signedMastraDispatch = createMastraAgentTurnWorkflowDispatcher({
+    endpoint: "http://127.0.0.1:4173/mcp",
+    fetchImpl: ((url, init) => {
+      const request = new Request(url, init);
+      return handleWalnutMcpRequest(request, {
+        authContext: signedAgentTurnAuthContext,
+        toolCatalog,
+        toolDispatcher,
+        auditLedger: {
+          async append(record: JsonObject) {
+            signedAgentTurnAuditEvents.push(record);
+          },
+        },
+      });
+    }) as any,
+    id: `verify-turn-signed-auth-${randomUUID()}`,
+  });
+  const signedSessionId = "verify-agent-turn-signed-auth";
+  const signedPlatformTurn = await runAgentPlatformTurn({
+    body: {
+      capability: "policy.action.prepare",
+      text: "policy.action.prepare",
+      sessionId: signedSessionId,
+      actionId: "restart_walnut_screen_service",
+      params: {},
+    },
+    classifyIntent: async () => {
+      throw new Error("signed structured capability unexpectedly called the classifier");
+    },
+    turnLedger: { async appendTurn() {} },
+    eventLedger: { async appendEvent() {} },
+    metricsLedger,
+    mastraWorkflows: { dispatch: signedMastraDispatch },
+  });
+  const signedMcpAudit = signedAgentTurnAuditEvents.find((event) =>
+    event.kind === "mcp.sdk.tool"
+    && event.sessionId === signedSessionId
+    && event.toolName === "policy.action.prepare"
+  );
+  const signedPolicyAudit = auditEvents.find((event) =>
+    event.kind === "policy.action.prepare.recorded"
+    && event.sessionId === signedSessionId
+  );
+  record("agent-turn-mcp-better-auth-context", {
+    ok: signedPlatformTurn.turn?.ok === true
+      && signedMcpAudit?.subjectKind === "better-auth-user"
+      && signedMcpAudit?.deviceProfile === "device"
+      && signedPolicyAudit?.subjectKind === "better-auth-user"
+      && signedPolicyAudit?.noCommandExecution === true
+      && !JSON.stringify({ signedMcpAudit, signedPolicyAudit }).includes("admin")
+      && signedPlatformTurn.turn?.toolResults?.some((item: JsonObject) =>
+        item.diagnostics?.operation === "mastra.mcp.policy.action.prepare"
+      ),
+    subjectKind: signedMcpAudit?.subjectKind || null,
+    policySubjectKind: signedPolicyAudit?.subjectKind || null,
+    deviceProfile: signedMcpAudit?.deviceProfile || null,
+    spoofedRoleExposure: JSON.stringify({ signedMcpAudit, signedPolicyAudit }).includes("admin"),
+  });
+} else {
+  record("agent-turn-mcp-better-auth-context", {
+    ok: false,
+    error: "better-auth sign-up did not return a session cookie",
+  });
+}
+
 const publicAuditProjection = publicGatewayAuditEventFromRecord({
   timestamp: new Date().toISOString(),
   kind: "mcp.sdk.tool",
@@ -740,6 +852,15 @@ record("db.agent-session-ledger-schema", {
     || table === "webSessionEvents"
   ),
 });
+record("db.better-auth-schema", {
+  ok: Boolean(schema.user && schema.session && schema.account && schema.verification),
+  tables: Object.keys(schema).filter((table) =>
+    table === "user"
+    || table === "session"
+    || table === "account"
+    || table === "verification"
+  ),
+});
 if (db.sql) {
   try {
     const rows = await db.sql`
@@ -756,6 +877,22 @@ if (db.sql) {
     });
   } catch (error: any) {
     record("db.mastra-postgres-storage", { ok: false, error: error.message });
+  }
+  try {
+    const rows = await db.sql`
+      select table_name
+      from information_schema.tables
+      where table_schema = 'public'
+        and table_name in ('auth_user', 'auth_session', 'auth_account', 'auth_verification')
+      order by table_name
+    `;
+    const tableNames = rows.map((row: JsonObject) => row.table_name);
+    record("db.better-auth-postgres-tables", {
+      ok: ["auth_account", "auth_session", "auth_user", "auth_verification"].every((table) => tableNames.includes(table)),
+      tables: tableNames,
+    });
+  } catch (error: any) {
+    record("db.better-auth-postgres-tables", { ok: false, error: error.message });
   } finally {
     await db.sql.end({ timeout: 1 });
   }
@@ -770,6 +907,8 @@ console.log(jsonSummary({
 if (failed.length) {
   process.exitCode = 1;
 }
+
+await closeWalnutAuthForTests();
 
 async function createVerifyScreenWorkspace(projectRoot: string) {
   const sourceScreenRoot = path.join(projectRoot, "screen");
@@ -848,4 +987,18 @@ function findRawCommandExposure(value: any, pathParts: string[] = []): string | 
 
 function isRawCommandKey(key: string) {
   return /^(commands?|commandLine|remoteCommand|rawCommand|sshCommand)$/i.test(key);
+}
+
+function cookieHeaderFromSetCookie(value: string) {
+  const pairs: string[] = [];
+  for (const chunk of splitSetCookieHeader(value)) {
+    const pair = chunk.split(";")[0]?.trim();
+    if (pair) pairs.push(pair);
+  }
+  return pairs.join("; ");
+}
+
+function splitSetCookieHeader(value: string) {
+  if (!value) return [];
+  return value.split(/,(?=\s*[^;,=\s]+=[^;,]*)/g).map((item) => item.trim()).filter(Boolean);
 }

@@ -3,6 +3,7 @@ import { relative } from "node:path";
 import { createGatewayToolCatalog } from "./tool-catalog.ts";
 import { handleWalnutMcpRequest } from "../platform/mcp/server.ts";
 import { createMcpAuthContext } from "./auth-context.ts";
+import { createWalnutAuth, resolveWalnutSubjectFromRequest } from "../platform/auth/auth.ts";
 import type { ActionPolicyManifest } from "../action-policy.ts";
 import type { GatewayJson } from "./gateway-interfaces.ts";
 
@@ -92,6 +93,7 @@ export function createProductGatewayApp({
     auditLedger,
     readJsonRequest,
   });
+  registerAuthRoutes(app, { json });
   registerScreenRoutes(app, {
     json,
     previewOnly,
@@ -141,6 +143,18 @@ function registerProductRoutes(app: Hono, {
   app.all("/api/session", (c) => projectMemoryApi.handleSession(c.req, new URL(c.req.url)));
 }
 
+function registerAuthRoutes(app: Hono, { json }: JsonObject) {
+  app.get("/api/auth/subject", async (c) => {
+    const subject = await resolveWalnutSubjectFromRequest(c.req.raw);
+    return json({
+      ok: true,
+      schema: "walnutpi.authSubject.v1",
+      subject: publicSubject(subject),
+    });
+  });
+  app.all("/api/auth/*", (c) => createWalnutAuth().handler(c.req.raw));
+}
+
 function registerGatewayRoutes(app: Hono, {
   json,
   config,
@@ -174,6 +188,16 @@ function registerGatewayRoutes(app: Hono, {
     toolCatalog: gatewayTools,
     toolDispatcher: agentPlatform.toolDispatcher(),
   }));
+}
+
+function publicSubject(subject: JsonObject) {
+  return {
+    kind: subject.kind || null,
+    authenticated: Boolean(subject.authenticated),
+    roles: Array.isArray(subject.roles) ? subject.roles.map(String) : [],
+    userId: subject.userId || null,
+    sessionId: subject.sessionId || null,
+  };
 }
 
 function registerAgentRoutes(app: Hono, {

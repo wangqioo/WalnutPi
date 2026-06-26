@@ -49,6 +49,14 @@ type AuditEvent = {
   turnId?: string | null;
 };
 
+type AuthSubject = {
+  authenticated: boolean;
+  kind: string | null;
+  roles: string[];
+  sessionId: string | null;
+  userId: string | null;
+};
+
 const QUICK_CAPABILITIES = [
   { label: "Device status", capability: "device.status.read", text: "device.status.read" },
   { label: "Screen playlist", capability: "screen.readPlaylist", text: "screen.readPlaylist" },
@@ -64,12 +72,18 @@ export default function WalnutConsolePage() {
   const [lastTurn, setLastTurn] = useState<PlatformTurn | null>(null);
   const [approvals, setApprovals] = useState<PreparedApproval[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [authSubject, setAuthSubject] = useState<AuthSubject | null>(null);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
   const [error, setError] = useState("");
 
   const sessionId = useMemo(() => getSessionId(), []);
   const latestTool = lastTurn?.toolResults?.at(-1) || null;
 
   useEffect(() => {
+    refreshAuthSubject();
     refreshAuditEvents();
   }, []);
 
@@ -88,6 +102,7 @@ export default function WalnutConsolePage() {
     try {
       const turn = await postTurn({ text, sessionId });
       acceptTurn(turn);
+      await refreshAuthSubject();
       await refreshAuditEvents();
     } catch (caught: any) {
       setError(caught.message);
@@ -104,6 +119,7 @@ export default function WalnutConsolePage() {
     try {
       const turn = await postTurn({ sessionId, ...input });
       acceptTurn(turn);
+      await refreshAuthSubject();
       await refreshAuditEvents();
     } catch (caught: any) {
       setError(caught.message);
@@ -131,6 +147,7 @@ export default function WalnutConsolePage() {
       acceptTurn(turn);
       const ok = Boolean(turn.toolResults?.at(-1)?.ok);
       setApprovals((items) => items.map((item) => item.decisionId === approval.decisionId ? { ...item, status: ok ? "committed" : "failed" } : item));
+      await refreshAuthSubject();
       await refreshAuditEvents();
     } catch (caught: any) {
       setError(caught.message);
@@ -164,6 +181,65 @@ export default function WalnutConsolePage() {
     }
   }
 
+  async function refreshAuthSubject() {
+    try {
+      const response = await fetch("/api/auth/subject", { cache: "no-store" });
+      const data = await response.json();
+      setAuthSubject(data.subject || null);
+    } catch {
+      setAuthSubject(null);
+    }
+  }
+
+  async function submitAuth(mode: "sign-up" | "sign-in") {
+    const email = authEmail.trim();
+    const password = authPassword;
+    if (!email || !password) {
+      setAuthNotice("Email and password are required.");
+      return;
+    }
+    setAuthBusy(true);
+    setAuthNotice("");
+    setError("");
+    try {
+      const response = await fetch(`/api/auth/${mode}/email`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email,
+          password,
+          name: email.split("@")[0] || "Walnut Owner",
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || data.error || `${mode} failed`);
+      }
+      setAuthPassword("");
+      setAuthNotice(mode === "sign-up" ? "Signed up with a server-issued session." : "Signed in with a server-issued session.");
+      await refreshAuthSubject();
+      await refreshAuditEvents();
+    } catch (caught: any) {
+      setAuthNotice(caught.message);
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function signOut() {
+    setAuthBusy(true);
+    setAuthNotice("");
+    try {
+      await fetch("/api/auth/sign-out", { method: "POST" });
+      setAuthNotice("Signed out. Local owner profile remains server-derived for development.");
+      await refreshAuthSubject();
+    } catch (caught: any) {
+      setAuthNotice(caught.message);
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#0f1111] text-[#ece7db]">
       <div className="grid min-h-screen grid-cols-1 xl:grid-cols-[minmax(0,1.12fr)_420px]">
@@ -175,7 +251,7 @@ export default function WalnutConsolePage() {
                 <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#f4efe2] md:text-5xl">Walnut Agent Console</h1>
               </div>
               <div className="rounded-none border border-[#3a4140] bg-[#151818] px-3 py-2 font-mono text-xs text-[#9eb7b2]">
-                session {sessionId.slice(0, 8)}
+                session {sessionId.slice(0, 8)} / {authSubject?.kind || "subject unknown"}
               </div>
             </div>
           </header>
@@ -226,6 +302,50 @@ export default function WalnutConsolePage() {
         </section>
 
         <aside className="grid content-start gap-4 bg-[#151818] p-4 md:p-6">
+          <Panel title="Session">
+            <div className="grid gap-3">
+              <div className="grid gap-2 font-mono text-xs text-[#aeb8b3]">
+                <KeyValue label="subject" value={authSubject?.kind || "-"} />
+                <KeyValue label="auth" value={authSubject?.authenticated ? "true" : "false"} />
+                <KeyValue label="user" value={authSubject?.userId ? shortId(authSubject.userId) : "-"} />
+                <KeyValue label="session" value={authSubject?.sessionId ? shortId(authSubject.sessionId) : "-"} />
+                <KeyValue label="roles" value={authSubject?.roles?.join(", ") || "-"} />
+              </div>
+              <div className="grid gap-2">
+                <input
+                  autoComplete="email"
+                  className="border border-[#35403f] bg-[#0e1111] px-3 py-2 text-sm text-[#f4efe2]"
+                  disabled={authBusy}
+                  onChange={(event) => setAuthEmail(event.target.value)}
+                  placeholder="owner@walnutpi.local"
+                  type="email"
+                  value={authEmail}
+                />
+                <input
+                  autoComplete="current-password"
+                  className="border border-[#35403f] bg-[#0e1111] px-3 py-2 text-sm text-[#f4efe2]"
+                  disabled={authBusy}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                  placeholder="Password"
+                  type="password"
+                  value={authPassword}
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <button className="border border-[#5f827d] bg-[#142523] px-2 py-2 text-xs font-semibold text-[#eafffb] disabled:opacity-50" disabled={authBusy} onClick={() => submitAuth("sign-up")} type="button">
+                    Sign up
+                  </button>
+                  <button className="border border-[#5f827d] bg-[#142523] px-2 py-2 text-xs font-semibold text-[#eafffb] disabled:opacity-50" disabled={authBusy} onClick={() => submitAuth("sign-in")} type="button">
+                    Sign in
+                  </button>
+                  <button className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] disabled:opacity-50" disabled={authBusy} onClick={signOut} type="button">
+                    Sign out
+                  </button>
+                </div>
+                {authNotice ? <div className="border border-[#35403f] bg-[#0d0f0f] px-3 py-2 text-xs leading-5 text-[#bfc8c3]">{authNotice}</div> : null}
+              </div>
+            </div>
+          </Panel>
+
           <Panel title="Approval queue">
             <div className="grid gap-3">
               {approvals.length ? approvals.map((approval) => (
