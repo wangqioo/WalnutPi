@@ -1,14 +1,15 @@
 import { Mastra } from "@mastra/core";
 import { Agent } from "@mastra/core/agent";
+import { getAiModelConfig } from "./platform/config/platform-config.ts";
 
-const REGISTRY_MODEL = {
-  providerId: "walnut-ai",
-  modelId: process.env.WALNUT_AI_MODEL || "gpt-5.4-mini",
-  url: (process.env.WALNUT_AI_BASE_URL || "https://rehdasu.cn/v1").replace(/\/+$/, ""),
-  apiKey: process.env.WALNUT_AI_API_KEY || process.env.OPENAI_API_KEY || "",
+const REGISTRY_MODEL = getAiModelConfig();
+
+type WalnutAgentId = "router" | "widget" | "chat";
+type WalnutMastraRegistry = {
+  getAgentById(agentId: WalnutAgentId): any;
 };
 
-let mastraRegistry: Mastra | undefined;
+let mastraRegistry: WalnutMastraRegistry | undefined;
 
 export function getWalnutMastraRegistry() {
   mastraRegistry ??= new Mastra({
@@ -48,15 +49,14 @@ export function getWalnutMastraRegistry() {
       }),
     },
   });
-
   return mastraRegistry;
 }
 
-export function getWalnutAgent(agentId: "router" | "widget" | "chat") {
+export function getWalnutAgent(agentId: WalnutAgentId) {
   const registry = getWalnutMastraRegistry();
   const agent = registry.getAgentById(agentId);
   if (!agent) {
-    throw new Error(`WalnutAiSdk agent not found: ${agentId}`);
+    throw new Error(`Walnut Mastra agent not found: ${agentId}`);
   }
   return agent;
 }

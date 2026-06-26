@@ -741,6 +741,19 @@
       }
 
       async function runTurn(mode, text) {
+        if (mode === "ai") {
+          const response = await fetch("/api/agent/chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              sessionId,
+              messages: [{ role: "user", content: text }],
+            }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(data.error || "chat failed");
+          return data;
+        }
         const response = await fetch("/api/agent/turn", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -817,11 +830,15 @@
             appendMessage("assistant", localAssistantInfoReply());
           } else {
             const turn = await runTurn(mode, text);
-            const classification = turn.route;
-            if (mode !== "ai") updateRoute(classification);
             removeMessage(pendingMessage);
-            appendMessage("assistant", platformTurnText(turn) || "无输出。");
-            if (turn.recovery && turn.recovery.status !== "not-needed") showRecoveryCard(turn);
+            if (mode === "ai") {
+              appendMessage("assistant", turn.text || "无输出。");
+            } else {
+              const classification = turn.route;
+              updateRoute(classification);
+              appendMessage("assistant", platformTurnText(turn) || "无输出。");
+              if (turn.recovery && turn.recovery.status !== "not-needed") showRecoveryCard(turn);
+            }
           }
           promptEl.value = "";
         } catch (error) {

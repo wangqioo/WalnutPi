@@ -1,10 +1,14 @@
-import type { UIMessage } from "ai";
 import { z } from "zod";
 import { getWalnutAgent } from "./mastra-registry.ts";
 
 type Telemetry = Record<string, any>;
+type WalnutChatMessage = {
+  role?: string;
+  content?: string;
+  parts?: Array<{ text?: string; content?: string }>;
+};
 
-export function createWalnutAiSdk() {
+export function createWalnutMastraAgentApi() {
   const api = {
     async classifyIntent(text: string, telemetry: Telemetry = {}) {
       const schema = z.object({
@@ -65,7 +69,7 @@ export function createWalnutAiSdk() {
       return normalizeStructuredOutput(result.object, schema);
     },
 
-    async createChatResponse({ messages, telemetry = {} }: { messages: UIMessage[]; telemetry?: Telemetry }) {
+    async createChatResponse({ messages, telemetry = {} }: { messages: WalnutChatMessage[]; telemetry?: Telemetry }) {
       const lastUserMessage = [...messages].reverse().find((message) => message.role === "user");
       const userPrompt = uiMessageText(lastUserMessage).trim();
       const agent = getWalnutAgent("chat");
@@ -136,7 +140,7 @@ function tryParseJson(value: string) {
   }
 }
 
-function uiMessageText(message: UIMessage | undefined) {
+function uiMessageText(message: WalnutChatMessage | undefined) {
   if (!message) return "";
   const anyMessage = message as any;
   if (typeof anyMessage.content === "string") return anyMessage.content;

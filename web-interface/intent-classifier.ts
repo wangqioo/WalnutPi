@@ -43,8 +43,12 @@ function classifyStructuredIntent(text: string, telemetry: JsonObject = {}) {
   const continuations = Array.isArray(scenario?.allowedContinuations) ? scenario.allowedContinuations : [];
   const constraints = Array.isArray(scenario?.constraints) ? scenario.constraints.map((item: any) => String(item || "")) : [];
   if (!continuations.length || !constraints.includes("read-only-continuation")) return null;
+  const intent = continuations
+    .map((item: any) => String(item || "").trim())
+    .find((item: string) => CLASSIFIER_INTENTS.includes(item) && readOnlyContinuationIntent(item));
+  if (!intent) return null;
   return {
-    classification: intentTypeToRoute("device.snapshot.read", {
+    classification: intentTypeToRoute(intent, {
       subject: text,
       delivery: "none",
       confidence: 0.98,
@@ -76,4 +80,11 @@ function normalizeClassifierRoute(raw: JsonObject, text: string) {
 function clamp(value: number, min: number, max: number) {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
+}
+
+function readOnlyContinuationIntent(intent: string) {
+  return intent.startsWith("device.")
+    || intent.startsWith("diagnostics.")
+    || intent === "screen.state_frame.read"
+    || intent === "session.summary";
 }

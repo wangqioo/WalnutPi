@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { relative } from "node:path";
 import { createGatewayToolCatalog } from "./tool-catalog.ts";
+import { handleWalnutMcpRequest } from "../platform/mcp/server.ts";
+import type { ActionPolicyManifest } from "../action-policy.ts";
 import type { GatewayJson } from "./gateway-interfaces.ts";
 
 type JsonObject = Record<string, any>;
@@ -22,10 +24,7 @@ export type ProductGatewayAppDeps = {
   };
   path: PathLike;
   agentActionsApi: GatewayService;
-  actionPolicyManifest: {
-    schema: string;
-    version: string | number;
-  };
+  actionPolicyManifest: ActionPolicyManifest;
   projectMemoryApi: GatewayService;
   webMetricsLedger: GatewayService;
   agentPlatform: GatewayService;
@@ -152,6 +151,11 @@ function registerGatewayRoutes(app: Hono, {
   readJsonRequest,
 }: JsonObject) {
   app.get("/api/gateway/tools", () => json(gatewayTools.listTools()));
+  app.all("/mcp", async (c) => handleWalnutMcpRequest(c.req.raw, {
+    auditLedger,
+    toolCatalog: gatewayTools,
+    toolDispatcher: agentPlatform.toolDispatcher,
+  }));
   app.post("/api/gateway/mcp", async (c) => {
     let body;
     try {

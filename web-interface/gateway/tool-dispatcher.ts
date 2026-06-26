@@ -129,12 +129,17 @@ export function createToolDispatcher({
     turn: JsonObject;
     operation: string;
   }) {
-    const decision = opaEnforcer.decideAction({
+    const decision = await (opaEnforcer.decideActionAsync?.({
       manifest: policyManifest,
       executor: "web",
       actionId,
       params: body,
-    });
+    }) || opaEnforcer.decideAction({
+      manifest: policyManifest,
+      executor: "web",
+      actionId,
+      params: body,
+    }));
     await auditLedger?.append?.({
       kind: "gateway.policy",
       operation: "gateway.policy",

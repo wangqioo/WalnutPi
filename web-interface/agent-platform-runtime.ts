@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { runDeviceStatusReadWorkflow } from "./platform/mastra/device-status-workflow.ts";
 import { failedToolResult, toolResult, type WalnutToolResult } from "./walnut-tool-results.ts";
 
 type JsonObject = Record<string, any>;
@@ -11,6 +12,7 @@ export function createAgentPlatformRuntime({
   turnLedger,
   eventLedger,
   metricsLedger,
+  mastraWorkflows,
   readJsonRequest,
   json,
 }: JsonObject) {
@@ -31,6 +33,7 @@ export function createAgentPlatformRuntime({
         turnLedger,
         eventLedger,
         metricsLedger,
+        mastraWorkflows,
       });
       return json(outcome.turn, outcome.status);
     },
@@ -65,6 +68,7 @@ export async function runPlatformTurn({
   turnLedger,
   eventLedger,
   metricsLedger,
+  mastraWorkflows,
 }: JsonObject) {
   const startedAt = new Date().toISOString();
   const turn = {
@@ -100,6 +104,7 @@ export async function runPlatformTurn({
     const classified = await classifyIntent(turn.input.text, {
       sessionId: turn.sessionId,
       turnId: turn.turnId,
+      scenario: objectOrNull(body.scenario),
       requirements: turn.input.requirements,
     });
     if (!classified.ok) throw statusError(classified.status || 500, classified.error || "intent classification failed");
@@ -111,12 +116,14 @@ export async function runPlatformTurn({
       evidence: { intentRoute: classified.classification },
     }));
 
-    const result = await toolDispatcher.dispatchIntent({
+    const result = await dispatchPlatformCapability({
       classification: classified.classification,
       body,
       turn,
+      toolDispatcher,
+      mastraWorkflows,
     });
-    pushStep(turn, result.family, result.result?.operation || result.family, result);
+    pushStep(turn, result.family, result.result?.operation || result.diagnostics?.operation || result.family, result);
     finishTurn(turn);
     await appendEvent(eventLedger, turn, { kind: "turn.completed", status: turn.status, data: { result } });
     await turnLedger.appendTurn(turn);
@@ -131,6 +138,26 @@ export async function runPlatformTurn({
     await turnLedger.appendTurn(turn);
     return { turn, status: error.status || 500 };
   }
+}
+
+async function dispatchPlatformCapability({
+  classification,
+  body,
+  turn,
+  toolDispatcher,
+  mastraWorkflows,
+}: JsonObject): Promise<WalnutToolResult> {
+  if (classification?.intent === "device.status.read") {
+    return (mastraWorkflows?.deviceStatusRead || runDeviceStatusReadWorkflow)({
+      sessionId: turn.sessionId,
+      turnId: turn.turnId,
+    });
+  }
+  return toolDispatcher.dispatchIntent({
+    classification,
+    body,
+    turn,
+  });
 }
 
 function pushStep(turn: JsonObject, agent: string, kind: string, result: WalnutToolResult) {

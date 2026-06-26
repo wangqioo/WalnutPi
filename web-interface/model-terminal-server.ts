@@ -1,6 +1,6 @@
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createScreenEvidenceLedger } from "./screen-evidence-ledger.ts";
@@ -23,12 +23,17 @@ import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.ts";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.ts";
 import { createLvglRuntimePreviewRenderer } from "./lvgl-runtime-preview-renderer.ts";
 import { createScreenCommandRunner } from "./screen-command-runner.ts";
-import { createWalnutAiSdk } from "./ai-sdk-runtime.ts";
+import { createWalnutMastraAgentApi } from "./mastra-agent-api.ts";
 import { createStaticUiHost } from "./static-ui-host.ts";
 import { createProductGatewayApp, createProductGatewayFetch } from "./gateway/mcp-server.ts";
+import { createGatewayToolCatalog } from "./gateway/tool-catalog.ts";
+import { handleWalnutMcpRequest } from "./platform/mcp/server.ts";
+import { runDeviceStatusReadWorkflow } from "./platform/mastra/device-status-workflow.ts";
 import { createOpaEnforcer } from "./gateway/opa-enforcer.ts";
 import { createToolDispatcher } from "./gateway/tool-dispatcher.ts";
 import { createGatewayAuditLedger } from "./gateway/audit-ledger.ts";
+import { createOpaPolicyBoundary } from "./platform/policy/opa-boundary.ts";
+import { getAiModelConfig } from "./platform/config/platform-config.ts";
 import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-classifier.ts";
 import { compactRetrievalForPrompt, retrieveWalnutContext as retrieveWalnutContextWithOptions } from "./walnut-retrieval.ts";
 import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.ts";
@@ -44,7 +49,6 @@ import {
   AI_CONTEXT_TEXT_LIMIT,
   BASE_DIR,
   CAPTURE_OUTPUT_LIMIT,
-  CODEX_AUTH_PATH,
   HOST,
   MEMORY_FIELDS,
   MODEL_FILE,
@@ -83,7 +87,6 @@ const WEB_CONFIG = {
   AI_CONTEXT_TEXT_LIMIT,
   BASE_DIR,
   CAPTURE_OUTPUT_LIMIT,
-  CODEX_AUTH_PATH,
   HOST,
   MEMORY_FIELDS,
   MODEL_FILE,
@@ -114,7 +117,7 @@ const WEB_CONFIG = {
 type JsonObject = Record<string, any>;
 const ACTION_POLICY_MANIFEST = await loadActionPolicyManifest(ACTION_POLICY_MANIFEST_PATH);
 const WEB_ACTIONS = actionsForExecutor(ACTION_POLICY_MANIFEST, "web");
-const aiApiKey = resolveAiApiKey();
+const aiApiKey = getAiModelConfig().apiKey;
 const screenFrameTickets = new Map();
 const webSessionLedger = createWebSessionLedger({
   sessionsDir: WEB_SESSIONS_DIR,
@@ -157,23 +160,6 @@ function json(data, status = 200) {
 
 function sseFrame(event) {
   return `id: ${event.seq}\nevent: ${event.kind}\ndata: ${JSON.stringify(event)}\n\n`;
-}
-
-function readCodexAuthApiKey() {
-  try {
-    if (!CODEX_AUTH_PATH) return "";
-    const parsed = JSON.parse(readFileSync(CODEX_AUTH_PATH, "utf8"));
-    if (typeof parsed?.OPENAI_API_KEY === "string" && parsed.OPENAI_API_KEY.trim()) return parsed.OPENAI_API_KEY;
-    return "";
-  } catch {
-    return "";
-  }
-}
-
-function resolveAiApiKey() {
-  if (Object.hasOwn(process.env, "WALNUT_AI_API_KEY")) return String(process.env.WALNUT_AI_API_KEY || "").trim();
-  if (Object.hasOwn(process.env, "OPENAI_API_KEY")) return String(process.env.OPENAI_API_KEY || "").trim();
-  return String(readCodexAuthApiKey() || "").trim();
 }
 
 function previewOnly(url) {
@@ -367,11 +353,11 @@ const screenDiagnosticsApi = createScreenDiagnosticsApi({
   json,
 });
 
-const walnutAi = createWalnutAiSdk();
+const walnutMastraAgentApi = createWalnutMastraAgentApi();
 
 const intentClassifier = createWalnutIntentClassifier({
   aiEnabled: Boolean(aiApiKey),
-  classifyWithModel: async (text, telemetry) => walnutAi.classifyIntent(text, telemetry),
+  classifyWithModel: async (text, telemetry) => walnutMastraAgentApi.classifyIntent(text, telemetry),
   async recordModelError(error, text, telemetry = {}) {
     await webMetricsLedger.append({
       kind: "web.intent.classify",
@@ -662,7 +648,11 @@ const actionRegistry = createActionRegistry({
   shellQuote,
   aiTimeoutSeconds: Number(process.env.WALNUT_AI_TIMEOUT_SECONDS || 15),
 });
-const opaEnforcer = createOpaEnforcer({ policyManifest: ACTION_POLICY_MANIFEST });
+const opaBoundary = createOpaPolicyBoundary({
+  manifest: ACTION_POLICY_MANIFEST,
+  policyPath: path.join(BASE_DIR, "platform", "policy", "opa-policy.rego"),
+});
+const opaEnforcer = createOpaEnforcer({ policyManifest: ACTION_POLICY_MANIFEST, opaBoundary });
 
 const agentActionsApi = createAgentActionsApi({
   policyManifest: ACTION_POLICY_MANIFEST,
@@ -761,6 +751,19 @@ const agentPlatform = createAgentPlatformRuntime({
   turnLedger: agentTurnLedger,
   eventLedger: agentTurnEventLedger,
   metricsLedger: webMetricsLedger,
+  mastraWorkflows: {
+    deviceStatusRead: ({ sessionId = null, turnId = null } = {}) => runDeviceStatusReadWorkflow({
+      endpoint: "http://127.0.0.1:4173/mcp",
+      fetchImpl: ((url, init) => handleWalnutMcpRequest(new Request(url, init), {
+        auditLedger: gatewayAuditLedger,
+        toolCatalog: createGatewayToolCatalog({ policyActions: ACTION_POLICY_MANIFEST.actions || {} }),
+        toolDispatcher,
+      })) as any,
+      sessionId,
+      turnId,
+      id: `agent-turn-${turnId || "status"}`,
+    }),
+  },
   readJsonRequest,
   json,
 });
@@ -768,7 +771,7 @@ agentPlatform.toolDispatcher = toolDispatcher;
 
 async function generateWidgetCatalog({ prompt, sessionId = null, turnId = null }) {
   if (!aiApiKey) return null;
-  return walnutAi.generateWidgetCatalog(prompt, { sessionId, turnId });
+  return walnutMastraAgentApi.generateWidgetCatalog(prompt, { sessionId, turnId });
 }
 
 const productGateway = createProductGatewayApp({
@@ -782,7 +785,7 @@ const productGateway = createProductGatewayApp({
   projectMemoryApi,
   webMetricsLedger,
   agentPlatform,
-  handleAgentChat: (req) => walnutAi.handleChat(req),
+  handleAgentChat: (req) => walnutMastraAgentApi.handleChat(req),
   handleAgentEvents,
   agentHarnessSessionStore,
   readJsonRequest,
