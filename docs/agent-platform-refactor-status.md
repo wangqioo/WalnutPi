@@ -197,14 +197,15 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - `web-interface/next-app/` now contains the first Tailwind-based Next.js
   Walnut Agent Console slice. It provides chat/tool result panels, route and
   evidence diagnostics, a redacted Postgres audit trail, quick Mastra/MCP
-  capability actions, and an approval queue around
+  capability actions, read-only device diagnostics buttons, and an approval queue around
   `policy.action.prepare`/`policy.action.commit`. The approval UI approves only
   prepared catalog actions plus normalized params and approval proof; it does
   not display or submit raw command strings. It also includes a Screen
   Workspace panel for the default playlist, manifest/output artifact summaries,
-  and recent screen evidence records without exposing raw device output. Next
-  rewrites `/api/*` and `/mcp` to the Hono platform server during local
-  development.
+  recent screen evidence records, read/capture actions, and preview no-write
+  sync through top-level Mastra/MCP capabilities without exposing raw device
+  output. Next rewrites `/api/*` and `/mcp` to the Hono platform server during
+  local development.
 - `web-interface/platform/policy/opa-boundary.ts` runs OPA CLI decisions for
   the active tool-dispatch policy gate, with local manifest fail-closed behavior
   when OPA is unavailable.
@@ -401,7 +402,7 @@ device-profile verification, not offline verification.
   current Postgres-backed better-auth subject binding tables.
 - Replace the deterministic local embedding seam with an approved embedding
   provider without sending raw/private content.
-- Move Screen Workspace, artifact panels, and device diagnostics into the
+- Move Screen Workspace authoring and artifact detail panels into the
   Next/Tailwind console, then retire the static HTML console.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,

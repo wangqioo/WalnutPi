@@ -88,6 +88,15 @@ const QUICK_CAPABILITIES = [
   { label: "Prepare restart", capability: "policy.action.prepare", text: "prepare restart_walnut_screen_service", actionId: "restart_walnut_screen_service", params: {} },
 ];
 
+const DEVICE_DIAGNOSTIC_CAPABILITIES = [
+  { label: "Network", capability: "device.network.read", text: "device.network.read" },
+  { label: "Snapshot", capability: "device.snapshot.read", text: "device.snapshot.read" },
+  { label: "GPIO", capability: "device.gpio.read", text: "device.gpio.read" },
+  { label: "I2C", capability: "device.i2c.read", text: "device.i2c.read" },
+  { label: "Notes", capability: "device.notes.read", text: "device.notes.read" },
+  { label: "Recent failure", capability: "diagnostics.recentFailure", text: "diagnostics.recentFailure" },
+];
+
 export default function WalnutConsolePage() {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
@@ -150,6 +159,9 @@ export default function WalnutConsolePage() {
       acceptTurn(turn);
       await refreshAuthSubject();
       await refreshAuditEvents();
+      if (String(input.capability || "").startsWith("screen.")) {
+        await refreshScreenWorkspace();
+      }
     } catch (caught: any) {
       setError(caught.message);
       addMessage("assistant", caught.message);
@@ -418,6 +430,22 @@ export default function WalnutConsolePage() {
             ) : <EmptyLine text="No tool call yet." />}
           </Panel>
 
+          <Panel title="Device diagnostics">
+            <div className="grid grid-cols-2 gap-2">
+              {DEVICE_DIAGNOSTIC_CAPABILITIES.map((item) => (
+                <button
+                  className="border border-[#35403f] bg-[#101313] px-3 py-2 text-left text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
+                  disabled={busy}
+                  key={item.capability}
+                  onClick={() => runCapability(item)}
+                  type="button"
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </Panel>
+
           <Panel title="Screen workspace">
             <div className="grid gap-3">
               <div className="flex items-center justify-between gap-2">
@@ -429,6 +457,39 @@ export default function WalnutConsolePage() {
                   type="button"
                 >
                   Refresh
+                </button>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
+                  disabled={busy}
+                  onClick={() => runCapability({ capability: "screen.readPlaylist", text: "screen.readPlaylist", playlistId: "default" })}
+                  type="button"
+                >
+                  Read
+                </button>
+                <button
+                  className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
+                  disabled={busy}
+                  onClick={() => runCapability({ capability: "screen.captureFrame", text: "screen.captureFrame" })}
+                  type="button"
+                >
+                  Capture
+                </button>
+                <button
+                  className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
+                  disabled={busy || !screenPlaylist?.playlistHash}
+                  onClick={() => runCapability({
+                    capability: "screen.syncPlaylist",
+                    text: "screen.syncPlaylist preview",
+                    playlistHash: screenPlaylist?.playlistHash,
+                    mode: "preview",
+                    evidenceMode: "fast",
+                    previewOnly: true,
+                  })}
+                  type="button"
+                >
+                  Preview sync
                 </button>
               </div>
               {screenPlaylist ? <ScreenPlaylistPanel playlist={screenPlaylist} /> : <EmptyLine text="Playlist unavailable." />}
@@ -608,10 +669,16 @@ async function postTurn(body: JsonObject): Promise<PlatformTurn> {
     body: JSON.stringify(body),
   });
   const data = await response.json();
-  if (!response.ok || data.status === "failed") {
+  if ((!response.ok || data.status === "failed") && !isTypedPlatformTurn(data)) {
     throw new Error(platformTurnText(data) || data.error || "Agent turn failed");
   }
   return data;
+}
+
+function isTypedPlatformTurn(value: JsonObject) {
+  return value?.schema === "walnutpi.agentPlatformTurn.v1"
+    && Array.isArray(value.toolResults)
+    && Boolean(value.toolResults.at(-1)?.diagnostics?.operation);
 }
 
 function approvalFromTurn(turn: PlatformTurn): PreparedApproval | null {
