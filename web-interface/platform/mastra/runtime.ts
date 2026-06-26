@@ -1,4 +1,5 @@
 export { getWalnutAgent, getWalnutMastraRegistry } from "../../mastra-registry.ts";
+export { getWalnutMastraStorage } from "./storage.ts";
 export { createWalnutMastraMcpClient, listWalnutMastraMcpTools } from "./mcp-client.ts";
 export {
   createMastraAgentTurnWorkflowDispatcher,

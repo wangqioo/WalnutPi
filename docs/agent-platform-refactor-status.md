@@ -57,8 +57,12 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   version supports that provider generation directly.
 - The platform dependency set has been installed for Mastra MCP, MCP SDK, Next
   16, React 19, AI SDK, better-auth, Inngest, OTel, Langfuse, Drizzle/Postgres,
-  and drizzle-kit. `web-interface/platform/` now owns the first module
+  `@mastra/pg`, and drizzle-kit. `web-interface/platform/` now owns the first module
   boundaries for those packages.
+- Mastra registry storage now uses `@mastra/pg` `PostgresStore` through
+  `web-interface/platform/mastra/storage.ts`. The local control-plane database
+  owns Mastra-managed `mastra_*` tables; the platform no longer accepts the
+  Mastra in-memory storage warning as a valid state.
 - `web-interface/gateway/mcp-server.ts` exposes a real MCP SDK Streamable HTTP
   endpoint at `/mcp`. The old JSON-RPC-shaped `/api/gateway/mcp` route has been
   removed.
@@ -175,6 +179,10 @@ local-only or mock verification.
   direct Web execution remains blocked without exposing command strings.
 - `bun run verify:platform` verifies the `actionApprovalRecords` Drizzle schema
   is present.
+- `bun run verify:platform` verifies Mastra registry storage is a
+  `PostgresStore` and that the control-plane Postgres database contains
+  Mastra-managed tables including `mastra_agents`, `mastra_messages`, and
+  `mastra_threads`.
 - `bun run verify:platform` injects a stub raw command into the device action
   dispatcher and recursively verifies MCP/Mastra/agent-turn results do not
   expose raw command fields.
@@ -234,6 +242,9 @@ tool results.
   OPA decision ids, action ids, server-derived subject kind, session/turn ids,
   and device profile context. The final tool result diagnostics still use
   `mastra.mcp.*` operations.
+- `@mastra/pg` was installed and the Mastra registry was rebound to
+  Postgres-backed storage. `verify:platform` now fails if Mastra storage is not
+  `PostgresStore`; the previous in-memory storage warning is gone.
 - Device-profile sync evidence was rerun after deleting the current
   `agent-freeform-*` generated artifacts. The script rebuilt the default
   playlist and completed with `ok: True`, `visualMatch: captured`, and
@@ -248,9 +259,9 @@ device-profile verification, not offline verification.
 - Replace the current better-auth-first/local-owner subject resolver with real
   signed-in user flows once the Next.js console owns login/session creation.
 - Move approved durable memory/retrieval to the curated DB path.
-- Decide the next ledger migration target: agent turns/session events are still
-  file-backed append-only ledgers, while gateway audit and approval records are
-  now Postgres-backed product state.
+- Decide the next Walnut-owned ledger migration target: agent turns/session
+  events are still file-backed append-only ledgers, while Mastra runtime
+  storage, gateway audit, and approval records are now Postgres-backed.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.

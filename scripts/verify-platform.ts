@@ -19,6 +19,7 @@ import { createWalnutAuth } from "../web-interface/platform/auth/auth.ts";
 import { walnutInngest, walnutInngestFunctions } from "../web-interface/platform/inngest/client.ts";
 import { createWalnutLangfuseClient, createWalnutOpenTelemetrySdk, getWalnutTracer } from "../web-interface/platform/observability/tracing.ts";
 import { createWalnutPostgresClient, schema } from "../web-interface/platform/db/client.ts";
+import { getWalnutMastraStorage } from "../web-interface/platform/mastra/storage.ts";
 import { loadActionPolicyManifest } from "../web-interface/action-policy.ts";
 import { createOpaEnforcer } from "../web-interface/gateway/opa-enforcer.ts";
 import { handleWalnutMcpRequest } from "../web-interface/platform/mcp/server.ts";
@@ -530,7 +531,12 @@ record("auth.subject-server-derived", {
 
 try {
   const registry = getWalnutMastraRegistry();
-  record("mastra.registry", { ok: Boolean(registry.getAgentById("router")) });
+  const storage = getWalnutMastraStorage();
+  await storage?.init?.();
+  record("mastra.registry", {
+    ok: Boolean(registry.getAgentById("router")) && storage.constructor.name === "PostgresStore",
+    storage: storage?.constructor?.name || null,
+  });
 } catch (error: any) {
   record("mastra.registry", { ok: false, error: error.message });
 }
@@ -588,7 +594,26 @@ record("db.audit-event-schema", {
   ok: Boolean(schema.auditEvents),
   tables: Object.keys(schema).filter((table) => table.toLowerCase().includes("audit")),
 });
-if (db.sql) await db.sql.end({ timeout: 1 });
+if (db.sql) {
+  try {
+    const rows = await db.sql`
+      select table_name
+      from information_schema.tables
+      where table_schema = 'public'
+        and table_name in ('mastra_threads', 'mastra_messages', 'mastra_agents')
+      order by table_name
+    `;
+    const tableNames = rows.map((row: JsonObject) => row.table_name);
+    record("db.mastra-postgres-storage", {
+      ok: ["mastra_agents", "mastra_messages", "mastra_threads"].every((table) => tableNames.includes(table)),
+      tables: tableNames,
+    });
+  } catch (error: any) {
+    record("db.mastra-postgres-storage", { ok: false, error: error.message });
+  } finally {
+    await db.sql.end({ timeout: 1 });
+  }
+}
 
 const failed = results.filter((item) => !item.ok);
 console.log(jsonSummary({
