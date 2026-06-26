@@ -1,6 +1,10 @@
 __pycache__/
 *.pyc
 node_modules/
+web-interface/next-app/.next/
+web-interface/next-app/node_modules/
+web-interface/next-app/package-lock.json
+web-interface/next-app/tsconfig.tsbuildinfo
 .vs/
 .env
 .env.*

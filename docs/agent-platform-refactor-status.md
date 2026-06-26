@@ -136,6 +136,13 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - The `/api/agent/turn` slices above share the same Mastra MCP
   workflow dispatcher. Final tool result diagnostics use
   `mastra.mcp.<capability>`.
+- `web-interface/next-app/` now contains the first Tailwind-based Next.js
+  Walnut Agent Console slice. It provides chat/tool result panels, route and
+  evidence diagnostics, quick Mastra/MCP capability actions, and an approval
+  queue around `policy.action.prepare`/`policy.action.commit`. The approval UI
+  approves only prepared catalog actions plus normalized params and approval
+  proof; it does not display or submit raw command strings. Next rewrites
+  `/api/*` and `/mcp` to the Hono platform server during local development.
 - `web-interface/platform/policy/opa-boundary.ts` runs OPA CLI decisions for
   the active tool-dispatch policy gate, with local manifest fail-closed behavior
   when OPA is unavailable.
@@ -260,6 +267,15 @@ tool results.
   `/api/agent/turns` returned two Postgres-backed turn snapshots,
   `/api/agent/turn-events` returned four Postgres-backed events, and neither
   response exposed raw command fields.
+- `bun run next:build` passes for the Next/Tailwind console.
+- Live Next proxy smoke through `http://127.0.0.1:3000/api/agent/turn` verified
+  `device.status.read`, `policy.action.prepare`, and `policy.action.commit`
+  all reach final `mastra.mcp.*` operations. The prepare result issued an
+  approval token without raw command exposure; commit returned the expected
+  high-risk direct Web execution block without raw command exposure.
+- Playwright smoke rendered the Next console, clicked `Prepare restart`,
+  observed the approval queue button, and found no raw command string in the
+  visible UI.
 - Device-profile sync evidence was rerun after deleting the current
   `agent-freeform-*` generated artifacts. The script rebuilt the default
   playlist and completed with `ok: True`, `visualMatch: captured`, and
@@ -270,15 +286,14 @@ device-profile verification, not offline verification.
 
 ## Next Work
 
-- Add the approval UI around `policy.action.prepare`/`policy.action.commit`.
 - Replace the current better-auth-first/local-owner subject resolver with real
   signed-in user flows once the Next.js console owns login/session creation.
 - Move approved durable memory/retrieval to the curated DB path.
+- Move Screen Workspace, artifact panels, and device diagnostics into the
+  Next/Tailwind console, then retire the static HTML console.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.
-- Replace static console with Next.js only after the new platform paths are
-  stable enough to expose.
 - Add curated eval scaffolding without restoring deleted generated benchmark
   harnesses.
 
