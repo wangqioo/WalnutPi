@@ -1,6 +1,6 @@
 # Agent Platform Refactor Status
 
-Date: 2026-06-24
+Date: 2026-06-26
 
 This status note records the current destructive refactor checkpoint. The
 source of truth remains `docs/agent-platform-refactor-spec.md`.
@@ -10,7 +10,9 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - The old custom agent loop, registry, runtime agents, loop-model contract,
   scenario harness contract, and `agentTurn.v2` projector/validator have been
   removed from the production codebase.
-- `/api/agent/turn` now routes through `web-interface/agent-platform-runtime.ts`
+- `web-interface/router.ts` has been deleted and the Hono gateway seam now lives
+  in `web-interface/gateway/mcp-server.ts`.
+- `/api/agent/turn` still routes through `web-interface/agent-platform-runtime.ts`
   and returns `walnutpi.agentPlatformTurn.v1`.
 - Tool outputs now use typed result contracts from
   `web-interface/walnut-tool-results.ts`.
@@ -31,6 +33,42 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - ADR 0026 records the three generation chains: Wallpaper/GIF, LVGL Widget App
   desktop, and Terminal Print Source. Widget App generation is catalog-first
   and no longer falls back to `TerminalPrintSource`.
+- `@mastra/core` is now a direct dependency because `web-interface/mastra-registry.ts`
+  imports it directly.
+- `ai` is the Vercel AI SDK Core package used by the web/API surface, not a
+  separate local AI abstraction.
+- `@mastra/ai-sdk` is not a production dependency yet; the current code does not
+  import it. It should be added only when the route/UI adapter is actually used.
+- Mastra agents currently use Mastra's OpenAI-compatible model config shape. Do
+  not pass AI SDK v7 provider objects into Mastra until the selected Mastra
+  version supports that provider generation directly.
+- The platform dependency set has been installed for Mastra MCP, MCP SDK, Next
+  16, React 19, AI SDK, better-auth, Inngest, OTel, Langfuse, Drizzle/Postgres,
+  and drizzle-kit. `web-interface/platform/` now owns the first module
+  boundaries for those packages.
+- `web-interface/gateway/mcp-server.ts` exposes a real MCP SDK Streamable HTTP
+  endpoint at `/mcp` beside the older JSON-RPC-shaped `/api/gateway/mcp` route.
+  The first SDK tools are read-only: `screen.readPlaylist`,
+  `device.status.read`, and `diagnostics.recentFailure`.
+- `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
+  `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
+  future Mastra agent attachment.
+- `device.status.read` now has the first `/api/agent/turn` vertical slice
+  through `web-interface/platform/mastra/device-status-workflow.ts`: structured
+  read-only routing enters a Mastra MCPClient workflow, calls the SDK `/mcp`
+  tool, then projects the typed tool result back into
+  `walnutpi.agentPlatformTurn.v1`.
+- `web-interface/platform/policy/opa-boundary.ts` runs OPA CLI decisions for
+  the active tool-dispatch policy gate, with local manifest fail-closed behavior
+  when OPA is unavailable.
+- TypeScript stays on 5.9.x. Mastra's published declaration bundle currently
+  includes provider compatibility declarations that do not typecheck cleanly
+  under TS5, so third-party library declaration checking is skipped while
+  WalnutPi source remains typechecked.
+- `docs/mastra-ai-sdk-mcp-dependency-note.md` records why `ProviderV3`-style
+  declaration errors are a dependency-boundary signal, not a WalnutPi source
+  error.
+- `typescript` remains pinned to `5.9.3`.
 
 ## Refactor Rule
 
@@ -48,8 +86,15 @@ local-only or mock verification.
 ## Verified
 
 - `bun run check`
+- `bun run verify:platform`
+- OPA CLI `version` and minimal Rego eval pass on the local control plane.
+- Live `bun run web` `/mcp` verification listed
+  `walnutpi_screen.readPlaylist`, `walnutpi_device.status.read`, and
+  `walnutpi_diagnostics.recentFailure` through `@mastra/mcp`.
+- Live `POST /api/agent/turn` with a structured `device.status.read`
+  continuation completed through `mastra.mcp.device.status.read`.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
-  tool results.
+tool results.
 - Policy pending smoke returned `noCommandExecution` evidence.
 - Screen DSL contract probe covered preview no-write, stale hash refusal, and
   capture evidence shape without adding a legacy local probe file.
@@ -60,14 +105,15 @@ local-only or mock verification.
   without embedding PNG base64 in the turn ledger.
 - ADR 0025 and `CONTEXT.md` record the split between generated Widget App
   Artifacts and Screen Playlist playback.
-- `bun run check` passes after removing the old generated-source-to-Widget-App path.
+- `bun run check` passes after removing the old generated-source-to-Widget-App
+  path.
 - `scripts/collect-screen-sync-evidence.ps1 -Sync` now preflights the tracked
   default playlist before sync. If the playlist references missing or old
   generated manifests that do not satisfy the frame hash schema, the script
   explicitly reports that ignored generated artifacts must be cleaned and
-  rebuilt, removes only `git check-ignore` approved generated artifacts, rebuilds
-  a Wallpaper default playlist through the current Web API, then continues the
-  device-profile sync path.
+  rebuilt, removes only `git check-ignore` approved generated artifacts,
+  rebuilds a Wallpaper default playlist through the current Web API, then
+  continues the device-profile sync path.
 - `walnut screen frame` and `walnut screen capture` now expose
   `bitsPerFrameUnit` and `frameFormat` in the Device Execution Surface. The
   only remaining lower-level reference to `bits_per_pixel` is the Linux sysfs
@@ -82,8 +128,10 @@ device-profile verification, not offline verification.
 
 ## Next Work
 
-- Wire real Mastra runtime over the new platform turn contract.
-- Add MCP/Hono gateway with per-call OPA enforcement.
+- Move the remaining `/api/agent/turn` capabilities from direct dispatcher
+  paths into Mastra-owned workflows, using `device.status.read` as the first
+  proven slice.
+- Add per-call OPA enforcement to the active Hono gateway.
 - Expose and verify the already-implemented `screen.renderWallpaper` and
   `screen.writePlaylist` command-runner paths through the product agent
   runtime/Mastra path. Remote sync, stale hash refusal, preview no-write, frame
@@ -93,3 +141,9 @@ device-profile verification, not offline verification.
   stable enough to expose.
 - Add curated eval scaffolding without restoring deleted generated benchmark
   harnesses.
+
+For a compact keep / replace / delete view with priority, see
+`docs/agent-platform-refactor-gap-matrix.md`.
+
+For the Mastra, Vercel AI SDK, MCP, and TS5 dependency boundary, see
+`docs/mastra-ai-sdk-mcp-dependency-note.md`.
