@@ -59,14 +59,14 @@ export function buildScreenSyncEvidence({
     },
     state: {
       kind: "screen-state",
-      command: stateCommand || "hot-reload service-active check",
+      capability: stateCommand ? "screen.state.read" : "screen.state.hot_reload_check",
       output: stateResult.output,
       capturedAt: new Date().toISOString(),
     },
     frame: validFrameEvidence(frameEvidence, validSha256)
       ? { ...frameEvidence, url: frameImageUrl }
       : {
-          command: frameCommand || "skipped: fast sync evidence",
+          capability: frameCommand ? "screen.frame.read" : "screen.frame.fast_evidence_skipped",
           output: frameResult.output,
           capturedAt: new Date().toISOString(),
         },

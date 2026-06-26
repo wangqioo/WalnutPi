@@ -85,6 +85,10 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `environment.deviceProfile`, `environment.target`, and request
   `sessionId`/`turnId`/`traceId`; tool arguments may set preview mode and
   approval token but cannot override subject or device target.
+- Public MCP, Mastra, agent-turn, action, screen-sync, and session projections
+  no longer expose raw shell, SSH, or Walnut CLI command strings. Command
+  construction remains inside the dispatcher/adapter boundary and raw command
+  records stay limited to internal diagnostic/audit ledgers.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -133,6 +137,9 @@ local-only or mock verification.
   `noCommandExecution`.
 - `bun run verify:platform` verifies MCP auth/device context reaches gateway
   policy audit for an OPA-gated tool call.
+- `bun run verify:platform` injects a stub raw command into the device action
+  dispatcher and recursively verifies MCP/Mastra/agent-turn results do not
+  expose raw command fields.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
 tool results.
 - Policy pending smoke returned `noCommandExecution` evidence.

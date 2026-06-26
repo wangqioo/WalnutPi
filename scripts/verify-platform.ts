@@ -171,6 +171,7 @@ const actionDispatcher = {
       body: {
         ok: true,
         summary: `${action} reached the policy-gated dispatcher boundary.`,
+        command: `sudo -n walnut ${action}`,
         output: `${action} boundary reached`,
         evidence: {
           policyDecision: opaEnforcer.publicDecision(policyDecision),
@@ -289,14 +290,16 @@ try {
   let mcpCallOkCount = 0;
   for (const [capability, mcpToolName, args] of mcpCallTargets) {
     const result = await tools[mcpToolName]?.execute?.(args as any, {} as any);
+    const commandExposure = findRawCommandExposure(result);
     const ok = Boolean(result?.ok);
     if (ok) mcpCallOkCount += 1;
     record(`mcp.tools-call-${capability}`, {
-      ok,
+      ok: ok && !commandExposure,
       family: result?.family || null,
       operation: result?.result?.operation || null,
       policyEngine: result?.evidence?.policyDecision?.engine || null,
       boundaryReached: Boolean(result?.evidence?.dispatcherBoundaryReached || result?.result?.command?.kind === capability),
+      rawCommandExposure: commandExposure,
     });
   }
   record("mcp.tools-call-platform-count", {
@@ -312,11 +315,13 @@ try {
     sessionId: "verify-platform",
     turnId: "verify-platform-status",
   });
+  const deviceStatusCommandExposure = findRawCommandExposure(deviceStatus);
   record("mastra.workflow-device-status-read", {
-    ok: Boolean(deviceStatus.ok),
+    ok: Boolean(deviceStatus.ok) && !deviceStatusCommandExposure,
     family: deviceStatus.family,
     actionId: deviceStatus.result?.actionId || deviceStatus.result?.operation || null,
     policyEngine: deviceStatus.evidence?.policyDecision?.engine || null,
+    rawCommandExposure: deviceStatusCommandExposure,
   });
 } catch (error: any) {
   record("mastra.mcp-client-list-tools", { ok: false, error: error.message });
@@ -374,12 +379,14 @@ for (const capability of turnCapabilities) {
   const expectedOperation = `mastra.mcp.${capability}`;
   const ok = platformTurn.turn?.ok === true
     && platformTurn.turn?.toolResults?.some((item: JsonObject) => item.diagnostics?.operation === expectedOperation);
+  const commandExposure = findRawCommandExposure(platformTurn);
   if (ok) platformTurnOkCount += 1;
   record(`agent-turn-${capability}-mastra-path`, {
-    ok,
+    ok: ok && !commandExposure,
     status: platformTurn.status,
     operation: expectedOperation,
     userSummary: platformTurn.turn?.userSummary || null,
+    rawCommandExposure: commandExposure,
   });
 }
 record("agent-turn-structured-mastra-count", {
@@ -517,4 +524,29 @@ async function createVerifyScreenWorkspace(projectRoot: string) {
     "utf8",
   );
   return workspaceRoot;
+}
+
+function findRawCommandExposure(value: any, pathParts: string[] = []): string | null {
+  if (value === null || value === undefined) return null;
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const found = findRawCommandExposure(value[index], [...pathParts, String(index)]);
+      if (found) return found;
+    }
+    return null;
+  }
+  if (typeof value !== "object") return null;
+  for (const [key, child] of Object.entries(value)) {
+    const path = [...pathParts, key];
+    if (isRawCommandKey(key) && typeof child === "string") {
+      return `${path.join(".")}: ${child.slice(0, 80)}`;
+    }
+    const found = findRawCommandExposure(child, path);
+    if (found) return found;
+  }
+  return null;
+}
+
+function isRawCommandKey(key: string) {
+  return /^(commands?|commandLine|remoteCommand|rawCommand|sshCommand)$/i.test(key);
 }

@@ -239,6 +239,7 @@ export function createToolDispatcher({
       policyDecision: decision,
     });
     const payload = objectOrEmpty(response.body);
+    const diagnostics = objectOrEmpty(payload.diagnostics);
     return toolResult(actionId === "ai" ? "chat" : "device", {
       ok: Boolean(payload.ok),
       summary: payload.summary || payload.reply || payload.output || "",
@@ -246,11 +247,19 @@ export function createToolDispatcher({
         operation,
         actionId,
         status: response.status || 500,
-        payload,
+        code: payload.code ?? null,
+        remoteOk: typeof payload.remoteOk === "boolean" ? payload.remoteOk : null,
+        output: payload.output || null,
+        policyDecision: objectOrEmpty(payload.policyDecision),
+        contextUsed: payload.contextUsed || null,
+        diagnostics: {
+          traceId: diagnostics.traceId || null,
+          policyDecisionId: diagnostics.policyDecisionId || null,
+        },
       },
       evidence: objectOrEmpty(payload.evidence || payload.actionEvidence),
       sideEffects: normalizeActionSideEffects(payload.sideEffects),
-      diagnostics: objectOrEmpty(payload.diagnostics),
+      diagnostics,
     });
   }
 

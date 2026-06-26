@@ -17,7 +17,6 @@ export function createWebSessionLedger({
   sessionsDir,
   eventLimit = 300,
   actionLimit = 120,
-  commandLimit = 1000,
 }) {
   function safeSessionId(value) {
     const text = String(value || "").trim();
@@ -44,7 +43,6 @@ export function createWebSessionLedger({
       content,
       action: value.action ? clippedText(value.action, actionLimit) : null,
       ok: typeof value.ok === "boolean" ? value.ok : null,
-      command: value.command ? clippedText(value.command, commandLimit) : null,
       contextUsed: value.contextUsed && typeof value.contextUsed === "object" ? value.contextUsed : null,
     };
   }

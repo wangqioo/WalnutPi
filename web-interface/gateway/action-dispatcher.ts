@@ -273,7 +273,6 @@ export function createActionDispatcher({
       const responseBody: ActionResponseBody = {
         ok: remoteOk && !outputFailed,
         ...actionSummary(action, id),
-        command,
         policyDecision: opaEnforcer.publicDecision(decision),
         code: result.code,
         remoteOk,
@@ -303,7 +302,6 @@ export function createActionDispatcher({
           role: "action",
           action: id,
           content: output || result.output || "",
-          command,
           ok: responseBody.ok,
           contextUsed,
         });
@@ -422,7 +420,6 @@ async function runTerminalAction({
       body: {
         ok: false,
         ...decisionActionSummary(policyDecision),
-        command,
         policyDecision: opaPublicDecision(policyDecision),
         code: ensure.code,
         remoteOk: false,
@@ -431,7 +428,6 @@ async function runTerminalAction({
           ensure.output,
           "",
           "[terminal command skipped]",
-          command,
         ].join("\n")),
         diagnostics: {
           traceId,
@@ -448,7 +444,6 @@ async function runTerminalAction({
   const responseBody = {
     ok: true,
     ...decisionActionSummary(policyDecision),
-    command,
     policyDecision: opaPublicDecision(policyDecision),
     preflightOutput: ensure.ensured ? ensure.output : "",
     sideEffects: sideEffectsForAction(id, action),
@@ -459,7 +454,6 @@ async function runTerminalAction({
       role: "action",
       action: id,
       content: action.reply || "",
-      command,
       ok: true,
     });
     segments.sessionLogMs = elapsedSince(sessionLogStartedAt);
