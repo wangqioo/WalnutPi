@@ -16,7 +16,7 @@ export function createToolDispatcher({
     if (toolName.startsWith("policy.")) {
       return handlePolicyTool(toolName, params, turn);
     }
-    if (toolName.startsWith("screen.")) return handleScreenTool(toolName, params);
+    if (toolName.startsWith("screen.")) return handleScreenTool(toolName, params, turn);
     if (toolName.startsWith("memory.")) return handleMemoryTool(toolName, params, turn);
     if (toolName.startsWith("diagnostics.")) return handleDiagnosticsTool(toolName, params, turn);
     if (toolName.startsWith("device.")) {
@@ -36,9 +36,9 @@ export function createToolDispatcher({
       ok: capture.ok,
       summary: capture.ok
         ? "Read-only screen frame evidence captured through the Screen Command DSL."
-        : capture.summary,
+      : capture.summary,
       result: {
-        operation: "screen.state_frame.read",
+        operation: "screen.captureFrame",
         capture: capture.result?.capture || null,
       },
       evidence: {
@@ -51,28 +51,119 @@ export function createToolDispatcher({
     });
   }
 
-  async function syncScreen(body: JsonObject) {
+  async function syncScreen(body: JsonObject, turn: JsonObject) {
+    const policy = await decideToolPolicy({
+      actionId: "screen_sync_playlist",
+      params: body,
+      turn,
+      operation: "screen.syncPlaylist",
+    });
+    if (!policy.allow) return policy.result;
     const playlistHash = String(body.playlistHash || "").trim();
     const mode = body.mode === "preview" || body.previewOnly === true ? "preview" : "remote";
     if (!playlistHash) {
       const read = await screenCommandRunner.run({ kind: "screen.readPlaylist", playlistId: "default" });
       const hash = read.result?.playlistHash || read.evidence?.playlistHash;
       if (!hash) return failedToolResult("screen", "Current playlist hash is unavailable.");
-      return screenCommandRunner.run({
+      return withPolicyDecision(await screenCommandRunner.run({
         kind: "screen.syncPlaylist",
         playlistId: "default",
         playlistHash: hash,
         evidenceMode: body.evidenceMode === "full" ? "full" : "fast",
         mode,
-      });
+      }), policy.decision);
     }
-    return screenCommandRunner.run({
+    return withPolicyDecision(await screenCommandRunner.run({
       kind: "screen.syncPlaylist",
       playlistId: "default",
       playlistHash,
       evidenceMode: body.evidenceMode === "full" ? "full" : "fast",
       mode,
+    }), policy.decision);
+  }
+
+  async function decideToolPolicy({
+    actionId,
+    params,
+    turn,
+    operation,
+  }: {
+    actionId: string;
+    params: JsonObject;
+    turn: JsonObject;
+    operation: string;
+  }) {
+    const decision = await (opaEnforcer.decideActionAsync?.({
+      manifest: policyManifest,
+      executor: "web",
+      actionId,
+      params,
+    }) || opaEnforcer.decideAction({
+      manifest: policyManifest,
+      executor: "web",
+      actionId,
+      params,
+    }));
+    await auditLedger?.append?.({
+      kind: "gateway.policy",
+      operation: "gateway.policy",
+      ok: Boolean(decision?.allow),
+      status: decision?.status === "pending" ? 409 : decision?.allow ? 200 : 400,
+      decisionId: decision?.decisionId || null,
+      actionId,
+      toolOperation: operation,
+      turnId: turn.turnId || null,
+      sessionId: turn.sessionId || null,
+      decision,
     });
+    if (decision?.status === "refused") {
+      return {
+        allow: false,
+        result: failedToolResult("policy", "Tool call refused by policy.", {
+          actionId,
+          operation,
+          reason: decision.reason,
+          policyDecision: opaEnforcer.publicDecision(decision),
+        }),
+      };
+    }
+    if (decision?.status === "pending") {
+      return {
+        allow: false,
+        result: toolResult("policy", {
+          ok: true,
+          summary: "Tool call requires explicit confirmation.",
+          result: {
+            operation: "policy.decision",
+            decision: opaEnforcer.publicDecision(decision),
+          },
+          evidence: {
+            pendingLocalAction: true,
+            noCommandExecution: true,
+            noRemoteCommandExecution: true,
+            policyDecision: opaEnforcer.publicDecision(decision),
+          },
+        }),
+      };
+    }
+    return {
+      allow: true,
+      decision,
+    };
+  }
+
+  function withPolicyDecision(result: WalnutToolResult, decision: JsonObject) {
+    return {
+      ...result,
+      evidence: {
+        ...objectOrEmpty(result.evidence),
+        policyDecision: opaEnforcer.publicDecision(decision),
+      },
+      diagnostics: {
+        ...objectOrEmpty(result.diagnostics),
+        policyDecisionId: decision?.decisionId || null,
+      },
+    };
   }
 
   async function runPolicyGatedAction({
@@ -276,7 +367,7 @@ export function createToolDispatcher({
     });
   }
 
-  async function handleScreenTool(toolName: string, params: JsonObject) {
+  async function handleScreenTool(toolName: string, params: JsonObject, turn: JsonObject) {
     if (toolName === "screen.readPlaylist") {
       return screenCommandRunner.run({ kind: "screen.readPlaylist", playlistId: params.playlistId || "default" });
     }
@@ -284,7 +375,35 @@ export function createToolDispatcher({
       return screenCommandRunner.run({ kind: "screen.captureFrame", buildId: params.buildId || undefined });
     }
     if (toolName === "screen.syncPlaylist") {
-      return syncScreen(params);
+      return syncScreen(params, turn);
+    }
+    if (toolName === "screen.renderWallpaper") {
+      return screenCommandRunner.run({
+        kind: "screen.renderWallpaper",
+        source: objectOrEmpty(params.source),
+        screenId: params.screenId,
+        preset: params.preset || "fit-cover:480x320",
+        outputType: params.outputType || "static",
+        title: params.title || undefined,
+        description: params.description || undefined,
+      });
+    }
+    if (toolName === "screen.writePlaylist") {
+      const policy = await decideToolPolicy({
+        actionId: "screen_write_playlist",
+        params,
+        turn,
+        operation: "screen.writePlaylist",
+      });
+      if (!policy.allow) return policy.result;
+      return withPolicyDecision(await screenCommandRunner.run({
+        kind: "screen.writePlaylist",
+        playlistId: params.playlistId || "default",
+        manifestId: params.manifestId,
+        mode: params.mode,
+        durationMs: Number(params.durationMs || 8000),
+        loop: params.loop !== undefined ? Boolean(params.loop) : true,
+      }), policy.decision);
     }
     return failedToolResult("screen", `Unknown screen tool ${toolName}`);
   }

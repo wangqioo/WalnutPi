@@ -26,6 +26,10 @@ export const CLASSIFIER_INTENTS = [
   "screen.generate",
   "screen.sync",
   "screen.readPlaylist",
+  "screen.captureFrame",
+  "screen.syncPlaylist",
+  "screen.renderWallpaper",
+  "screen.writePlaylist",
   "screen.widget_app.create",
   "device.status.read",
   "device.snapshot.read",
@@ -53,6 +57,10 @@ export function intentTypeToRoute(intent: string, fields: IntentRouteFields = {}
     "screen.wallpaper.generate": ["screen.wallpaper", "generate"],
     "screen.sync": ["screen.wallpaper", "sync"],
     "screen.readPlaylist": ["screen.wallpaper", "read"],
+    "screen.captureFrame": ["screen.wallpaper", "read"],
+    "screen.syncPlaylist": ["screen.wallpaper", "sync"],
+    "screen.renderWallpaper": ["screen.wallpaper", "generate"],
+    "screen.writePlaylist": ["screen.wallpaper", "write"],
     "screen.widget_app.create": ["screen.widget_app", "create"],
     "device.status.read": ["device.action", "read"],
     "device.snapshot.read": ["device.action", "read"],
@@ -96,6 +104,7 @@ export function intentTypeToRoute(intent: string, fields: IntentRouteFields = {}
 function readOnlyIntent(intent: string) {
   return intent?.startsWith("device.")
     || intent?.startsWith("diagnostics.")
+    || intent === "screen.captureFrame"
     || intent === "screen.state_frame.read"
     || intent === "screen.readPlaylist"
     || intent === "memory.sessionSummary"

@@ -225,7 +225,12 @@ function normalizeOpaDecision({ actionId, action, parameterValues, regoDecision 
 }
 
 function failClosedDecision({ local, actionId, action, reason }: JsonObject): OpaActionPolicyDecision {
-  const mustFailClosed = !action || action.risk === "high" || action.confirmationRequired || action.mode === "confirmable" || action.mode === "refused";
+  const mustFailClosed = !action
+    || action.risk === "high"
+    || action.risk === "write-low"
+    || action.confirmationRequired
+    || action.mode === "confirmable"
+    || action.mode === "refused";
   if (!mustFailClosed && local.allow) {
     return {
       ...local,

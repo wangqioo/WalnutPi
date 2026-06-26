@@ -1,4 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { copyFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { createGatewayToolCatalog } from "../web-interface/gateway/tool-catalog.ts";
 import { createOpaPolicyBoundary } from "../web-interface/platform/policy/opa-boundary.ts";
@@ -25,13 +27,14 @@ import { createScreenWorkspaceStore } from "../web-interface/screen-workspace-st
 import { createToolDispatcher } from "../web-interface/gateway/tool-dispatcher.ts";
 import { getAiModelConfig, getAuthConfig, getDbConfig, getLangfuseConfig } from "../web-interface/platform/config/platform-config.ts";
 import { intentTypeToRoute } from "../web-interface/intent-route.ts";
+import { processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "./screen-workspace-pipeline.ts";
 
 type JsonObject = Record<string, any>;
 
 const projectRoot = path.resolve(import.meta.dir, "..");
 const manifestPath = path.join(projectRoot, "action-policy-manifest.json");
 const policyPath = path.join(projectRoot, "web-interface", "platform", "policy", "opa-policy.rego");
-const screenRoot = path.join(projectRoot, "screen");
+const screenRoot = await createVerifyScreenWorkspace(projectRoot);
 
 const results: JsonObject[] = [];
 
@@ -84,11 +87,46 @@ const screenCommandRunner = createScreenCommandRunner({
   projectRoot,
   workspaceRoot: screenRoot,
   screenWorkspaceStore,
-  screenWorkspaceSyncWorkflow: null,
-  processSourceAssetToScreenOutput: null,
+  screenWorkspaceSyncWorkflow: {
+    async run({ requestJson, mode }: JsonObject) {
+      const request = await requestJson();
+      return {
+        status: mode === "preview" ? 200 : 400,
+        result: {
+          ok: mode === "preview",
+          summary: mode === "preview"
+            ? "Preview sync reached the Screen Command DSL no-write boundary."
+            : "Remote sync requires the real device profile.",
+          playlistHash: request.playlistHash,
+          evidence: {
+            previewNoWrite: mode === "preview",
+            dispatcherBoundaryReached: true,
+          },
+        },
+      };
+    },
+  },
+  processSourceAssetToScreenOutput,
   appendScreenPlaylistItem: null,
-  writeDefaultScreenPlaylist: null,
-  walnutRemote: null,
+  writeDefaultScreenPlaylist,
+  walnutRemote: {
+    async capturePngBase64() {
+      const pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+      const pngBytes = Buffer.from(pngBase64, "base64");
+      return {
+        ok: true,
+        code: 0,
+        output: JSON.stringify({
+          width: 1,
+          height: 1,
+          isBlank: false,
+          pngSha256: createHash("sha256").update(pngBytes).digest("hex"),
+          rawSha256: createHash("sha256").update("verify-platform-capture-boundary").digest("hex"),
+          pngBase64,
+        }),
+      };
+    },
+  },
 });
 const turnLedger = {
   async readTurns() {
@@ -145,6 +183,10 @@ try {
   const toolNames = Object.keys(tools).sort();
   const expectedMcpTools = [
     "walnutpi_screen.readPlaylist",
+    "walnutpi_screen.captureFrame",
+    "walnutpi_screen.syncPlaylist",
+    "walnutpi_screen.renderWallpaper",
+    "walnutpi_screen.writePlaylist",
     "walnutpi_diagnostics.recentFailure",
     "walnutpi_memory.sessionSummary",
     "walnutpi_device.status.read",
@@ -160,6 +202,28 @@ try {
   });
   const mcpCallTargets = [
     ["screen.readPlaylist", "walnutpi_screen.readPlaylist", { playlistId: "default" }],
+    ["screen.captureFrame", "walnutpi_screen.captureFrame", {}],
+    ["screen.syncPlaylist", "walnutpi_screen.syncPlaylist", { mode: "preview", evidenceMode: "fast" }],
+    ["screen.renderWallpaper", "walnutpi_screen.renderWallpaper", {
+      source: {
+        kind: "local",
+        path: path.join(projectRoot, "screen", "outputs", "seed-terminal-ops.png"),
+        sourceId: "verify-platform-source",
+        mediaType: "image/png",
+        license: "project-local",
+      },
+      screenId: "verify-platform-render",
+      preset: "fit-cover:480x320",
+      outputType: "static",
+      title: "Verify Platform Render",
+    }],
+    ["screen.writePlaylist", "walnutpi_screen.writePlaylist", {
+      playlistId: "verify-platform",
+      manifestId: "verify-platform-render",
+      mode: "replace",
+      durationMs: 8000,
+      loop: true,
+    }],
     ["diagnostics.recentFailure", "walnutpi_diagnostics.recentFailure", {}],
     ["memory.sessionSummary", "walnutpi_memory.sessionSummary", {}],
     ["device.status.read", "walnutpi_device.status.read", {}],
@@ -182,7 +246,7 @@ try {
       boundaryReached: Boolean(result?.evidence?.dispatcherBoundaryReached || result?.result?.command?.kind === capability),
     });
   }
-  record("mcp.tools-call-read-only-count", {
+  record("mcp.tools-call-platform-count", {
     ok: mcpCallOkCount >= 5,
     passed: mcpCallOkCount,
     required: 5,
@@ -216,6 +280,8 @@ const mastraDispatch = createMastraAgentTurnWorkflowDispatcher({
 const turnCapabilities = [
   "device.status.read",
   "screen.readPlaylist",
+  "screen.captureFrame",
+  "screen.syncPlaylist",
   "device.network.read",
   "device.snapshot.read",
   "device.i2c.read",
@@ -225,7 +291,12 @@ const turnCapabilities = [
 let platformTurnOkCount = 0;
 for (const capability of turnCapabilities) {
   const platformTurn = await runAgentPlatformTurn({
-    body: { text: capability, sessionId: "verify-platform", playlistId: "default" },
+    body: {
+      text: capability,
+      sessionId: "verify-platform",
+      playlistId: "default",
+      ...(capability === "screen.syncPlaylist" ? { mode: "preview", evidenceMode: "fast" } : {}),
+    },
     classifyIntent: async () => ({
       ok: true,
       status: 200,
@@ -317,4 +388,58 @@ console.log(jsonSummary({
 
 if (failed.length) {
   process.exitCode = 1;
+}
+
+async function createVerifyScreenWorkspace(projectRoot: string) {
+  const sourceScreenRoot = path.join(projectRoot, "screen");
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "walnutpi-verify-screen-"));
+  await mkdir(path.join(workspaceRoot, "manifests"), { recursive: true });
+  await mkdir(path.join(workspaceRoot, "outputs"), { recursive: true });
+  await mkdir(path.join(workspaceRoot, "playlists"), { recursive: true });
+  await copyFile(
+    path.join(sourceScreenRoot, "outputs", "seed-terminal-ops.png"),
+    path.join(workspaceRoot, "outputs", "seed-terminal-ops.png"),
+  );
+  await writeFile(
+    path.join(workspaceRoot, "manifests", "seed-terminal-ops.json"),
+    `${JSON.stringify({
+      schema: "walnutpi.screen-manifest.v2",
+      id: "seed-terminal-ops",
+      title: "WalnutPi Terminal Ops Seed",
+      description: "Verify-platform seed copied into a temporary Screen Workspace.",
+      output: {
+        type: "static",
+        path: "../outputs/seed-terminal-ops.png",
+        width: 480,
+        height: 320,
+        fileSha256: "25e92e240278d7f05b70ca26bf898588f6e553546438adef64a3ebe76a40241b",
+        rgbaFrameSha256: "9e6262d8113761db7c3513add3f448d8663eea15e0e11c3df4146e526193a2b7",
+        rgb565FrameSha256: "e3fbf800e5918d0edc07ed7a805c7eb2bf17f57f74a99057d45e98e39186c13f",
+      },
+      provenance: {
+        processing: {
+          preset: "fit-cover:480x320",
+        },
+      },
+    }, null, 2)}\n`,
+    "utf8",
+  );
+  await writeFile(
+    path.join(workspaceRoot, "playlists", "default.json"),
+    `${JSON.stringify({
+      schema: "walnutpi.screen-playlist.v1",
+      id: "default",
+      loop: true,
+      items: [
+        {
+          manifest: "../manifests/seed-terminal-ops.json",
+          durationMs: 8000,
+          repeat: 1,
+          transition: "cut",
+        },
+      ],
+    }, null, 2)}\n`,
+    "utf8",
+  );
+  return workspaceRoot;
 }

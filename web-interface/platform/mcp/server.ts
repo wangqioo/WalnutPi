@@ -4,17 +4,97 @@ import { z } from "zod";
 
 type JsonObject = Record<string, any>;
 
-const READ_ONLY_TOOLS = new Set([
-  "screen.readPlaylist",
-  "device.status.read",
-  "diagnostics.recentFailure",
-  "device.network.read",
-  "device.snapshot.read",
-  "device.i2c.read",
-  "device.gpio.read",
-  "device.notes.read",
-  "memory.sessionSummary",
-]);
+const TOOL_POLICIES: Record<string, {
+  destructive: boolean;
+  idempotent: boolean;
+  inputSchema: Record<string, z.ZodTypeAny>;
+  openWorld: boolean;
+  readOnly: boolean;
+}> = {
+  "screen.readPlaylist": {
+    readOnly: true,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+    inputSchema: {
+      playlistId: z.string().optional(),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
+  "screen.captureFrame": {
+    readOnly: true,
+    destructive: false,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      buildId: z.string().optional(),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
+  "screen.syncPlaylist": {
+    readOnly: false,
+    destructive: false,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      playlistHash: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
+      evidenceMode: z.enum(["fast", "full"]).optional(),
+      mode: z.enum(["remote", "preview"]).optional(),
+      previewOnly: z.boolean().optional(),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
+  "screen.renderWallpaper": {
+    readOnly: false,
+    destructive: false,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      source: z.object({
+        kind: z.enum(["local", "generated"]),
+        path: z.string().min(1),
+        sourceId: z.string().optional(),
+        title: z.string().optional(),
+        prompt: z.string().optional(),
+        mediaType: z.string().optional(),
+        license: z.string().optional(),
+      }),
+      screenId: z.string().min(1),
+      preset: z.enum(["fit-cover:480x320", "fit-contain:480x320"]).optional(),
+      outputType: z.enum(["static", "animated"]).optional(),
+      title: z.string().optional(),
+      description: z.string().optional(),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
+  "screen.writePlaylist": {
+    readOnly: false,
+    destructive: true,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      playlistId: z.string().optional(),
+      manifestId: z.string().min(1),
+      mode: z.enum(["replace", "append"]),
+      durationMs: z.number().int().positive().optional(),
+      loop: z.boolean().optional(),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
+  "device.status.read": readOnlyToolSchema(),
+  "diagnostics.recentFailure": readOnlyToolSchema(),
+  "device.network.read": readOnlyToolSchema(),
+  "device.snapshot.read": readOnlyToolSchema(),
+  "device.i2c.read": readOnlyToolSchema(),
+  "device.gpio.read": readOnlyToolSchema(),
+  "device.notes.read": readOnlyToolSchema(),
+  "memory.sessionSummary": readOnlyToolSchema(),
+};
 
 export type WalnutMcpServerDeps = {
   auditLedger?: JsonObject;
@@ -38,22 +118,19 @@ export function createWalnutMcpServer({
   });
 
   for (const tool of safeTools(toolCatalog.listTools())) {
-    if (!READ_ONLY_TOOLS.has(tool.name)) continue;
+    const policy = TOOL_POLICIES[tool.name];
+    if (!policy) continue;
     server.registerTool(
       tool.name,
       {
         title: tool.name,
         description: tool.description,
-        inputSchema: {
-          playlistId: z.string().optional(),
-          sessionId: z.string().optional(),
-          turnId: z.string().optional(),
-        },
+        inputSchema: policy.inputSchema,
         annotations: {
-          readOnlyHint: true,
-          destructiveHint: false,
-          idempotentHint: true,
-          openWorldHint: false,
+          readOnlyHint: policy.readOnly,
+          destructiveHint: policy.destructive,
+          idempotentHint: policy.idempotent,
+          openWorldHint: policy.openWorld,
         },
       },
       async (args) => {
@@ -105,4 +182,17 @@ function safeTools(list: JsonObject) {
 
 function objectOrEmpty(value: any): JsonObject {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function readOnlyToolSchema() {
+  return {
+    readOnly: true,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+    inputSchema: {
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  };
 }

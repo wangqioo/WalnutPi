@@ -7,6 +7,10 @@ export const MASTRA_AGENT_TURN_CAPABILITIES = [
   "device.status.read",
   "diagnostics.recentFailure",
   "screen.readPlaylist",
+  "screen.captureFrame",
+  "screen.syncPlaylist",
+  "screen.renderWallpaper",
+  "screen.writePlaylist",
   "device.network.read",
   "device.snapshot.read",
   "device.i2c.read",
@@ -28,6 +32,10 @@ const MCP_TOOL_BY_CAPABILITY: Record<MastraAgentTurnCapability, string> = {
   "device.status.read": "walnutpi_device.status.read",
   "diagnostics.recentFailure": "walnutpi_diagnostics.recentFailure",
   "screen.readPlaylist": "walnutpi_screen.readPlaylist",
+  "screen.captureFrame": "walnutpi_screen.captureFrame",
+  "screen.syncPlaylist": "walnutpi_screen.syncPlaylist",
+  "screen.renderWallpaper": "walnutpi_screen.renderWallpaper",
+  "screen.writePlaylist": "walnutpi_screen.writePlaylist",
   "device.network.read": "walnutpi_device.network.read",
   "device.snapshot.read": "walnutpi_device.snapshot.read",
   "device.i2c.read": "walnutpi_device.i2c.read",
@@ -40,6 +48,10 @@ const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["
   "device.status.read": "device",
   "diagnostics.recentFailure": "diagnostics",
   "screen.readPlaylist": "screen",
+  "screen.captureFrame": "screen",
+  "screen.syncPlaylist": "screen",
+  "screen.renderWallpaper": "screen",
+  "screen.writePlaylist": "screen",
   "device.network.read": "device",
   "device.snapshot.read": "device",
   "device.i2c.read": "device",
@@ -130,6 +142,42 @@ function paramsForCapability(
       playlistId: body.playlistId || parameters.playlistId || "default",
     };
   }
+  if (capability === "screen.captureFrame") {
+    return {
+      ...parameters,
+      buildId: body.buildId || parameters.buildId || undefined,
+    };
+  }
+  if (capability === "screen.syncPlaylist") {
+    return {
+      ...parameters,
+      playlistHash: body.playlistHash || parameters.playlistHash || undefined,
+      evidenceMode: body.evidenceMode || parameters.evidenceMode || "fast",
+      mode: body.mode || parameters.mode || (body.previewOnly === true ? "preview" : "remote"),
+      previewOnly: body.previewOnly === true || parameters.previewOnly === true,
+    };
+  }
+  if (capability === "screen.renderWallpaper") {
+    return {
+      ...parameters,
+      source: body.source || parameters.source,
+      screenId: body.screenId || parameters.screenId,
+      preset: body.preset || parameters.preset || "fit-cover:480x320",
+      outputType: body.outputType || parameters.outputType || "static",
+      title: body.title || parameters.title || undefined,
+      description: body.description || parameters.description || undefined,
+    };
+  }
+  if (capability === "screen.writePlaylist") {
+    return {
+      ...parameters,
+      playlistId: body.playlistId || parameters.playlistId || "default",
+      manifestId: body.manifestId || parameters.manifestId,
+      mode: body.mode || parameters.mode,
+      durationMs: body.durationMs || parameters.durationMs || 8000,
+      loop: body.loop !== undefined ? body.loop : parameters.loop !== undefined ? parameters.loop : true,
+    };
+  }
   return parameters;
 }
 
@@ -159,6 +207,9 @@ function normalizeToolResult(value: any, diagnostics: JsonObject): WalnutToolRes
 function normalizeCapabilityName(intent: string) {
   if (intent === "diagnostics.recent_failure") return "diagnostics.recentFailure";
   if (intent === "screen.read_playlist") return "screen.readPlaylist";
+  if (intent === "screen.sync") return "screen.syncPlaylist";
+  if (intent === "screen.generate") return "screen.renderWallpaper";
+  if (intent === "screen.state_frame.read") return "screen.captureFrame";
   if (intent === "session.summary") return "memory.sessionSummary";
   return intent;
 }

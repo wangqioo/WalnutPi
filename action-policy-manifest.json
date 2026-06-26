@@ -211,6 +211,86 @@
         "timeoutSeconds": 10
       }
     },
+    "screen_sync_playlist": {
+      "title": "同步屏幕播放列表",
+      "description": "Run Screen Command DSL playlist sync with playlist hash freshness and preview no-write support.",
+      "risk": "write-low",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "playlistHash": {
+            "type": "string",
+            "pattern": "^[a-fA-F0-9]{64}$"
+          },
+          "evidenceMode": {
+            "type": "string",
+            "enum": ["fast", "full"]
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["remote", "preview"]
+          },
+          "previewOnly": {
+            "type": "boolean"
+          }
+        }
+      },
+      "evidence": {
+        "schema": "walnutpi.toolResult.screen.v1",
+        "fields": ["ok", "family", "summary", "result", "evidence", "sideEffects", "diagnostics"]
+      },
+      "web": {
+        "reply": "我会通过 Screen Command DSL 同步当前播放列表；preview 模式不会写入设备。",
+        "timeoutMs": 90000
+      }
+    },
+    "screen_write_playlist": {
+      "title": "写入屏幕播放列表",
+      "description": "Write a Screen Playlist v1 entry for an existing Screen Manifest through the Screen Command DSL.",
+      "risk": "write-low",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["manifestId", "mode"],
+        "properties": {
+          "playlistId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+          },
+          "manifestId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]*$"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["replace", "append"]
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400000
+          },
+          "loop": {
+            "type": "boolean"
+          }
+        }
+      },
+      "evidence": {
+        "schema": "walnutpi.toolResult.screen.v1",
+        "fields": ["ok", "family", "summary", "result", "evidence", "sideEffects", "diagnostics"]
+      },
+      "web": {
+        "reply": "我会通过 Screen Command DSL 写入播放列表，不直接修改 LVGL runtime。",
+        "timeoutMs": 15000
+      }
+    },
     "ai": {
       "title": "WalnutAI Agent",
       "description": "Delegate a user question to the WalnutAI device-side agent.",

@@ -19,7 +19,7 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   dispatch entry. It is now the MCP/domain tool dispatcher used by `/mcp`, and
   executable device tools still pass through the OPA policy gate before command
   construction.
-- Supported structured read-only capabilities enter
+- Supported structured capabilities enter
   `web-interface/platform/mastra/agent-turn-workflows.ts`, call `@mastra/mcp`
   against `/mcp`, then project typed tool results into
   `walnutpi.agentPlatformTurn.v1`.
@@ -58,14 +58,24 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - `web-interface/gateway/mcp-server.ts` exposes a real MCP SDK Streamable HTTP
   endpoint at `/mcp`. The old JSON-RPC-shaped `/api/gateway/mcp` route has been
   removed.
-- The SDK tool surface now exposes the read-only platform slice:
+- The SDK tool surface now exposes the platform slice:
   `screen.readPlaylist`, `diagnostics.recentFailure`, `device.status.read`,
   `device.network.read`, `device.snapshot.read`, `device.i2c.read`,
-  `device.gpio.read`, `device.notes.read`, and `memory.sessionSummary`.
+  `device.gpio.read`, `device.notes.read`, `memory.sessionSummary`,
+  `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
+  `screen.writePlaylist`.
+- `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
+  `screen.writePlaylist` are registered as real MCP SDK tools with explicit
+  read/write/destructive annotations and dispatch only through the Screen
+  Command DSL runner.
+- `screen.syncPlaylist` and `screen.writePlaylist` have Action Policy Manifest
+  action ids and pass through the OPA policy gate before Screen Command DSL
+  execution. OPA-unavailable degraded decisions fail closed for write-low and
+  high-risk actions.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
-- The read-only `/api/agent/turn` slices above share the same Mastra MCP
+- The `/api/agent/turn` slices above share the same Mastra MCP
   workflow dispatcher. Final tool result diagnostics use
   `mastra.mcp.<capability>`.
 - `web-interface/platform/policy/opa-boundary.ts` runs OPA CLI decisions for
@@ -102,8 +112,8 @@ local-only or mock verification.
   surface through `@mastra/mcp`.
 - Live `POST /api/agent/turn` with a structured `device.status.read`
   continuation completed through `mastra.mcp.device.status.read`.
-- `bun run verify:platform` now verifies at least nine `/mcp` tools/list
-  entries, nine MCP tools/call invocations, and seven structured
+- `bun run verify:platform` now verifies at least 13 `/mcp` tools/list
+  entries, 13 MCP tools/call invocations, and nine structured
   `/api/agent/turn` slices through Mastra MCP workflow dispatch.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
 tool results.
@@ -115,6 +125,20 @@ tool results.
 - Device-profile `/api/agent/turn` read-only screen flow returned typed
   `walnutpi.toolResult.screen.v1` and `walnutpi.screenCaptureEvidence.v1`
   without embedding PNG base64 in the turn ledger.
+- Offline platform verification covers `screen.captureFrame` with typed capture
+  metadata, `screen.syncPlaylist` in preview no-write mode, and
+  `screen.renderWallpaper`/`screen.writePlaylist` against a temporary Screen
+  Workspace so verification does not mutate the tracked default playlist.
+  Verification also asserts OPA policy decisions for screen sync/write
+  `tools/call`.
+- Device-profile MCP `screen.syncPlaylist` was run against the WalnutPi Device
+  after starting `walnut-screen.service`; the call passed OPA with
+  `policyStatus: allow`, completed remote delivery/activation, and returned
+  build id `screen-20260626080224-69dde0d5`.
+- Read-only device evidence then reported `walnut-screen.service active`,
+  framebuffer `RGB565_LE`, nonblank 480x320 output, and raw framebuffer hash
+  `e3fbf800e5918d0edc07ed7a805c7eb2bf17f57f74a99057d45e98e39186c13f`, matching
+  the tracked `seed-terminal-ops` playlist output hash.
 - ADR 0025 and `CONTEXT.md` record the split between generated Widget App
   Artifacts and Screen Playlist playback.
 - `bun run check` passes after removing the old generated-source-to-Widget-App
@@ -140,15 +164,14 @@ device-profile verification, not offline verification.
 
 ## Next Work
 
-- Move the remaining `/api/agent/turn` capabilities into Mastra-owned workflows
-  without reintroducing local dispatcher fallback.
+- Move the remaining memory write, policy prepare/commit, and approved action
+  capabilities into Mastra-owned workflows without reintroducing local
+  dispatcher fallback.
 - Add better-auth subject and device binding to each MCP tools/call policy
   input.
-- Expose and verify the already-implemented `screen.renderWallpaper` and
-  `screen.writePlaylist` command-runner paths through the product agent
-  runtime/Mastra path. Remote sync, stale hash refusal, preview no-write, frame
-  evidence, and capture evidence now have an initial device-profile path, but
-  full Web preview versus device frame comparison remains future work.
+- Extend device-profile verification for the platform `screen.syncPlaylist`
+  path beyond preview no-write into remote delivery, activation, service state,
+  and frame comparison.
 - Replace static console with Next.js only after the new platform paths are
   stable enough to expose.
 - Add curated eval scaffolding without restoring deleted generated benchmark

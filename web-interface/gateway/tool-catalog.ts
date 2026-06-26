@@ -40,6 +40,21 @@ export function createGatewayToolCatalog({
       evidenceMode: enumSchema(["fast", "full"], "fast"),
       mode: enumSchema(["remote", "preview"], "remote"),
     }),
+    tool("screen.renderWallpaper", "screen", "Render a selected Source Asset into a Screen Manifest v2 through the Screen Command DSL.", "/api/screen/workspace/process", {
+      source: objectSchema(),
+      screenId: stringSchema(),
+      preset: enumSchema(["fit-cover:480x320", "fit-contain:480x320"], "fit-cover:480x320"),
+      outputType: enumSchema(["static", "animated"], "static"),
+      title: optionalStringSchema(),
+      description: optionalStringSchema(),
+    }),
+    tool("screen.writePlaylist", "screen", "Write a Screen Playlist v1 item for an existing Screen Manifest through the Screen Command DSL.", "/api/screen/workspace/playlist", {
+      playlistId: stringSchema("default"),
+      manifestId: stringSchema(),
+      mode: enumSchema(["replace", "append"]),
+      durationMs: numberSchema(8000),
+      loop: booleanSchema(true),
+    }),
     tool("memory.sessionSummary", "memory", "Summarize recent session activity from local ledgers.", "/api/session", {
       sessionId: optionalStringSchema(),
     }),
@@ -160,5 +175,34 @@ function enumSchema(values: string[], defaultValue?: string) {
     },
     required: defaultValue === undefined ? ["value"] : [],
     additionalProperties: false,
+  };
+}
+
+function numberSchema(defaultValue?: number) {
+  return {
+    type: "object",
+    properties: {
+      value: { type: "number", ...(defaultValue !== undefined ? { default: defaultValue } : {}) },
+    },
+    required: defaultValue === undefined ? ["value"] : [],
+    additionalProperties: false,
+  };
+}
+
+function booleanSchema(defaultValue?: boolean) {
+  return {
+    type: "object",
+    properties: {
+      value: { type: "boolean", ...(defaultValue !== undefined ? { default: defaultValue } : {}) },
+    },
+    required: defaultValue === undefined ? ["value"] : [],
+    additionalProperties: false,
+  };
+}
+
+function objectSchema() {
+  return {
+    type: "object",
+    additionalProperties: true,
   };
 }

@@ -6,6 +6,7 @@ export { CLASSIFIER_INTENTS };
 
 const READ_ONLY_CONTINUATION_INTENTS = new Set([
   "screen.readPlaylist",
+  "screen.captureFrame",
   "screen.state_frame.read",
   "diagnostics.recentFailure",
   "diagnostics.recent_failure",
