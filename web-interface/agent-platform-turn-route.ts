@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { capabilityFromIntent, runMastraAgentTurnWorkflow } from "./platform/mastra/agent-turn-workflows.ts";
+import {
+  capabilityFromIntent,
+  isMastraAgentTurnCapability,
+  runMastraAgentTurnWorkflow,
+} from "./platform/mastra/agent-turn-workflows.ts";
 import { setWalnutSpanAttributes, withWalnutSpan } from "./platform/observability/tracing.ts";
 import { failedToolResult, toolResult, type WalnutToolResult } from "./walnut-tool-results.ts";
 
@@ -81,6 +85,7 @@ export async function runAgentPlatformTurn({
     finishedAt: null,
     input: {
       text: cleanOptionalText(body.text),
+      capability: cleanOptionalText(body.capability),
       requirements: objectOrNull(body.requirements),
     },
     route: null,
@@ -104,32 +109,17 @@ export async function runAgentPlatformTurn({
   await appendEvent(eventLedger, turn, { kind: "turn.started", status: "running", data: { input: turn.input } });
 
   try {
-    if (!turn.input.text) throw statusError(400, "missing text");
-    const classified = await withWalnutSpan("walnut.intent.route", {
-      "walnut.session_id": turn.sessionId,
-      "walnut.turn_id": turn.turnId,
-    }, async (routeSpan) => {
-      const result = await classifyIntent(turn.input.text, {
-      sessionId: turn.sessionId,
-      turnId: turn.turnId,
-      scenario: objectOrNull(body.scenario),
-      requirements: turn.input.requirements,
-    });
-      if (result.ok) {
-        setWalnutSpanAttributes(routeSpan, {
-          "walnut.route": routeAttribute(result.classification),
-        });
-      }
-      return result;
-    });
-    if (!classified.ok) throw statusError(classified.status || 500, classified.error || "intent classification failed");
+    const structuredCapability = parseStructuredCapability(body.capability);
+    const classified = structuredCapability
+      ? { ok: true, status: 200, classification: structuredCapabilityRoute(structuredCapability, body) }
+      : await classifyTurnInput({ body, classifyIntent, turn });
 
     turn.route = classified.classification;
     setWalnutSpanAttributes(turnSpan, {
       "walnut.route": routeAttribute(classified.classification),
     });
     pushStep(turn, "router", "intent.classify", toolResult("diagnostics", {
-      summary: "Intent classified.",
+      summary: structuredCapability ? "Structured capability routed." : "Intent classified.",
       result: { classification: classified.classification },
       evidence: { intentRoute: classified.classification },
     }));
@@ -156,6 +146,56 @@ export async function runAgentPlatformTurn({
     return { turn, status: error.status || 500 };
   }
   });
+}
+
+async function classifyTurnInput({ body, classifyIntent, turn }: JsonObject) {
+  if (!turn.input.text) throw statusError(400, "missing text");
+  const classified = await withWalnutSpan("walnut.intent.route", {
+    "walnut.session_id": turn.sessionId,
+    "walnut.turn_id": turn.turnId,
+  }, async (routeSpan) => {
+    const result = await classifyIntent(turn.input.text, {
+      sessionId: turn.sessionId,
+      turnId: turn.turnId,
+      scenario: objectOrNull(body.scenario),
+      requirements: turn.input.requirements,
+    });
+    if (result.ok) {
+      setWalnutSpanAttributes(routeSpan, {
+        "walnut.route": routeAttribute(result.classification),
+      });
+    }
+    return result;
+  });
+  if (!classified.ok) throw statusError(classified.status || 500, classified.error || "intent classification failed");
+  return classified;
+}
+
+function parseStructuredCapability(value: any) {
+  const capability = cleanOptionalText(value);
+  if (!capability) return null;
+  if (!isMastraAgentTurnCapability(capability)) {
+    throw statusError(400, `Unsupported structured capability ${capability}`);
+  }
+  return capability;
+}
+
+function structuredCapabilityRoute(capability: string, body: JsonObject) {
+  return {
+    schema: "walnutpi.intent.route.v2",
+    route: "mastra.mcp",
+    action: "call",
+    subject: cleanOptionalText(body.text || capability),
+    delivery: "none",
+    riskHint: capability.includes(".write") || capability === "memory.preference" ? "write" : "read",
+    exposure: ["internal", "agent_action"],
+    actionPolicyId: null,
+    parameters: objectOrNull(body.parameters) || {},
+    confidence: 1,
+    source: "structured",
+    intent: capability,
+    rule: "agent-turn.capability",
+  };
 }
 
 async function dispatchPlatformCapability({

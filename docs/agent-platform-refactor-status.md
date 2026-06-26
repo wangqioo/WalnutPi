@@ -23,6 +23,10 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `web-interface/platform/mastra/agent-turn-workflows.ts`, call `@mastra/mcp`
   against `/mcp`, then project typed tool results into
   `walnutpi.agentPlatformTurn.v1`.
+- Structured `/api/agent/turn` calls use top-level `capability` as the explicit
+  product tool contract. Supported capabilities route directly to Mastra MCP
+  without invoking the model router; unsupported capabilities fail. Nested
+  `requirements.capability` is not an execution protocol.
 - Tool outputs now use typed result contracts from
   `web-interface/walnut-tool-results.ts`.
 - Screen work now has a first Screen Command DSL surface:

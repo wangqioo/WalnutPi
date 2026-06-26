@@ -27,7 +27,6 @@ import { createScreenCommandRunner } from "../web-interface/screen-command-runne
 import { createScreenWorkspaceStore } from "../web-interface/screen-workspace-store.ts";
 import { createToolDispatcher } from "../web-interface/gateway/tool-dispatcher.ts";
 import { getAiModelConfig, getAuthConfig, getDbConfig, getLangfuseConfig } from "../web-interface/platform/config/platform-config.ts";
-import { intentTypeToRoute } from "../web-interface/intent-route.ts";
 import { processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "./screen-workspace-pipeline.ts";
 
 type JsonObject = Record<string, any>;
@@ -423,6 +422,7 @@ let platformTurnOkCount = 0;
 for (const capability of turnCapabilities) {
   const platformTurn = await runAgentPlatformTurn({
     body: {
+      capability,
       text: capability,
       sessionId: "verify-platform",
       playlistId: "default",
@@ -431,16 +431,9 @@ for (const capability of turnCapabilities) {
       ...(capability === "memory.sensitiveSkip" ? { text: "temporary secret-like value" } : {}),
       ...(capability === "device.note.write" ? { text: "verify-platform note boundary" } : {}),
     },
-    classifyIntent: async () => ({
-      ok: true,
-      status: 200,
-      classification: intentTypeToRoute(capability, {
-        subject: capability,
-        delivery: "none",
-        confidence: 1,
-        source: "structured",
-      }),
-    }),
+    classifyIntent: async () => {
+      throw new Error(`structured capability ${capability} unexpectedly called the classifier`);
+    },
     turnLedger: { async appendTurn() {} },
     eventLedger: { async appendEvent() {} },
     metricsLedger,
