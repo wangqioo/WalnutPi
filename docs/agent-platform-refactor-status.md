@@ -200,8 +200,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   capability actions, and an approval queue around
   `policy.action.prepare`/`policy.action.commit`. The approval UI approves only
   prepared catalog actions plus normalized params and approval proof; it does
-  not display or submit raw command strings. Next rewrites `/api/*` and `/mcp`
-  to the Hono platform server during local development.
+  not display or submit raw command strings. It also includes a Screen
+  Workspace panel for the default playlist, manifest/output artifact summaries,
+  and recent screen evidence records without exposing raw device output. Next
+  rewrites `/api/*` and `/mcp` to the Hono platform server during local
+  development.
 - `web-interface/platform/policy/opa-boundary.ts` runs OPA CLI decisions for
   the active tool-dispatch policy gate, with local manifest fail-closed behavior
   when OPA is unavailable.

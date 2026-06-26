@@ -57,6 +57,31 @@ type AuthSubject = {
   userId: string | null;
 };
 
+type ScreenPlaylistView = {
+  ok?: boolean;
+  playlistHash?: string;
+  playlist?: JsonObject;
+  items?: JsonObject[];
+};
+
+type ScreenRecordSummary = {
+  artifactHash?: string | null;
+  buildId?: string | null;
+  failedStage?: string | null;
+  finishedAt?: string | null;
+  frameHash?: string | null;
+  frameUrl?: string | null;
+  hasFramePng?: boolean;
+  manifestHash?: string | null;
+  ok?: boolean;
+  playlistHash?: string | null;
+  startedAt?: string | null;
+  summary?: string | null;
+  title?: string | null;
+  visualMatch?: string | null;
+  webDeviceFrameDiffStatus?: string | null;
+};
+
 const QUICK_CAPABILITIES = [
   { label: "Device status", capability: "device.status.read", text: "device.status.read" },
   { label: "Screen playlist", capability: "screen.readPlaylist", text: "screen.readPlaylist" },
@@ -77,6 +102,9 @@ export default function WalnutConsolePage() {
   const [authPassword, setAuthPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
+  const [screenPlaylist, setScreenPlaylist] = useState<ScreenPlaylistView | null>(null);
+  const [screenRecords, setScreenRecords] = useState<ScreenRecordSummary[]>([]);
+  const [screenBusy, setScreenBusy] = useState(false);
   const [error, setError] = useState("");
 
   const sessionId = useMemo(() => getSessionId(), []);
@@ -85,6 +113,7 @@ export default function WalnutConsolePage() {
   useEffect(() => {
     refreshAuthSubject();
     refreshAuditEvents();
+    refreshScreenWorkspace();
   }, []);
 
   async function submitPrompt(event: FormEvent) {
@@ -188,6 +217,25 @@ export default function WalnutConsolePage() {
       setAuthSubject(data.subject || null);
     } catch {
       setAuthSubject(null);
+    }
+  }
+
+  async function refreshScreenWorkspace() {
+    setScreenBusy(true);
+    try {
+      const [playlistResponse, recordsResponse] = await Promise.all([
+        fetch("/api/screen/workspace/playlist", { cache: "no-store" }),
+        fetch("/api/screen/records", { cache: "no-store" }),
+      ]);
+      const playlistData = await playlistResponse.json().catch(() => ({}));
+      const recordsData = await recordsResponse.json().catch(() => ({}));
+      setScreenPlaylist(playlistData?.ok ? playlistData : null);
+      setScreenRecords(Array.isArray(recordsData.records) ? recordsData.records : []);
+    } catch {
+      setScreenPlaylist(null);
+      setScreenRecords([]);
+    } finally {
+      setScreenBusy(false);
     }
   }
 
@@ -370,6 +418,28 @@ export default function WalnutConsolePage() {
             ) : <EmptyLine text="No tool call yet." />}
           </Panel>
 
+          <Panel title="Screen workspace">
+            <div className="grid gap-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="font-mono text-xs text-[#8f9993]">default playlist</div>
+                <button
+                  className="border border-[#35403f] bg-[#101313] px-2 py-1 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
+                  disabled={screenBusy}
+                  onClick={refreshScreenWorkspace}
+                  type="button"
+                >
+                  Refresh
+                </button>
+              </div>
+              {screenPlaylist ? <ScreenPlaylistPanel playlist={screenPlaylist} /> : <EmptyLine text="Playlist unavailable." />}
+              <div className="grid gap-2">
+                {screenRecords.length ? screenRecords.slice(0, 3).map((record, index) => (
+                  <ScreenRecordRow key={record.buildId || `screen-record-${index}`} record={record} />
+                )) : <EmptyLine text="No screen evidence records." />}
+              </div>
+            </div>
+          </Panel>
+
           <Panel title="Audit trail">
             <div className="grid gap-2">
               {auditEvents.length ? auditEvents.slice().reverse().map((event) => (
@@ -394,6 +464,54 @@ export default function WalnutConsolePage() {
         </aside>
       </div>
     </main>
+  );
+}
+
+function ScreenPlaylistPanel({ playlist }: { playlist: ScreenPlaylistView }) {
+  const items = Array.isArray(playlist.items) ? playlist.items : [];
+  return (
+    <div className="grid gap-3">
+      <div className="grid gap-2 font-mono text-xs text-[#aeb8b3]">
+        <KeyValue label="hash" value={playlist.playlistHash ? shortId(playlist.playlistHash) : "-"} />
+        <KeyValue label="items" value={String(items.length)} />
+        <KeyValue label="schema" value={String(playlist.playlist?.schema || "-")} />
+      </div>
+      <div className="grid gap-2">
+        {items.slice(0, 3).map((item, index) => (
+          <article className="grid gap-2 border border-[#252b2b] bg-[#0d0f0f] p-3" key={`${item.manifestId || index}-${item.manifestHash || ""}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-[#f4efe2]">{item.manifestId || item.id || `item ${index + 1}`}</div>
+              <div className="border border-[#35403f] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-[#9eb7b2]">{item.output?.type || "output"}</div>
+            </div>
+            <div className="grid gap-1 font-mono text-[11px] leading-5 text-[#9fa9a4]">
+              <div>manifest {item.manifestHash ? shortId(String(item.manifestHash)) : "-"}</div>
+              <div>duration {String(item.durationMs || "-")} ms</div>
+              <div>asset {safeAssetLabel(item.output?.url)}</div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ScreenRecordRow({ record }: { record: ScreenRecordSummary }) {
+  const status = record.ok === true ? "ok" : record.ok === false ? "failed" : "seen";
+  return (
+    <article className="grid gap-2 border border-[#252b2b] bg-[#0d0f0f] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-sm font-semibold text-[#f4efe2]">{record.title || record.buildId || "screen record"}</div>
+        <div className="border border-[#35403f] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-[#9eb7b2]">{status}</div>
+      </div>
+      <div className="grid gap-1 font-mono text-[11px] leading-5 text-[#9fa9a4]">
+        <div>{formatDate(record.startedAt || record.finishedAt || "")}</div>
+        <div>build {record.buildId ? shortId(record.buildId) : "-"}</div>
+        <div>playlist {record.playlistHash ? shortId(record.playlistHash) : "-"}</div>
+        <div>manifest {record.manifestHash ? shortId(record.manifestHash) : "-"}</div>
+        <div>visual {record.visualMatch || record.webDeviceFrameDiffStatus || "unknown"}</div>
+        {record.frameUrl && record.hasFramePng ? <a className="text-[#8bcfc6] hover:text-[#d4fff9]" href={record.frameUrl}>frame evidence</a> : null}
+      </div>
+    </article>
   );
 }
 
@@ -549,6 +667,13 @@ function formatDate(value: string) {
 
 function shortId(value: string) {
   return value.length > 18 ? `${value.slice(0, 10)}...${value.slice(-6)}` : value;
+}
+
+function safeAssetLabel(value: any) {
+  const text = String(value || "");
+  if (!text) return "-";
+  const parts = text.split("/");
+  return parts.at(-1) || text.slice(0, 80);
 }
 
 function redactToolEvidence(evidence: JsonObject) {
