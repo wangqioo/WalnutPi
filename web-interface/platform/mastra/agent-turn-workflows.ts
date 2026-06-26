@@ -1,5 +1,6 @@
 import { createWalnutMastraMcpClient, type WalnutMastraMcpClientOptions } from "./mcp-client.ts";
 import type { WalnutToolResult } from "../../walnut-tool-results.ts";
+import { setWalnutSpanAttributes, withWalnutSpan } from "../observability/tracing.ts";
 
 type JsonObject = Record<string, any>;
 
@@ -86,8 +87,18 @@ export async function runMastraAgentTurnWorkflow({
   timeoutMs = 30_000,
   ...clientOptions
 }: AgentTurnWorkflowOptions): Promise<WalnutToolResult> {
+  return withWalnutSpan("walnut.tool.call", {
+    "walnut.session_id": sessionId,
+    "walnut.turn_id": turnId,
+    "walnut.tool_name": MCP_TOOL_BY_CAPABILITY[capability],
+    "walnut.playlist_hash": safeOptionalAttribute(params.playlistHash),
+    "walnut.build_id": safeOptionalAttribute(params.buildId),
+  }, async (span) => {
   const mcpToolName = MCP_TOOL_BY_CAPABILITY[capability];
   if (!mcpToolName) throw new Error(`No Mastra workflow is registered for ${capability}`);
+  setWalnutSpanAttributes(span, {
+    "walnut.tool_name": mcpToolName,
+  });
 
   const client = createWalnutMastraMcpClient({ ...clientOptions, timeoutMs });
   try {
@@ -109,6 +120,7 @@ export async function runMastraAgentTurnWorkflow({
   } finally {
     await client.disconnect();
   }
+  });
 }
 
 export function createMastraAgentTurnWorkflowDispatcher(
@@ -232,4 +244,9 @@ function normalizeCapabilityName(intent: string) {
 
 function objectOrEmpty(value: any): JsonObject {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function safeOptionalAttribute(value: any) {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  return String(value);
 }
