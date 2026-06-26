@@ -82,6 +82,8 @@ type ScreenRecordSummary = {
   webDeviceFrameDiffStatus?: string | null;
 };
 
+type SidePanelTab = "status" | "screen" | "advanced";
+
 const QUICK_CAPABILITIES = [
   { label: "Device status", capability: "device.status.read", text: "device.status.read" },
   { label: "Screen playlist", capability: "screen.readPlaylist", text: "screen.readPlaylist" },
@@ -115,6 +117,7 @@ export default function WalnutConsolePage() {
   const [screenRecords, setScreenRecords] = useState<ScreenRecordSummary[]>([]);
   const [screenBusy, setScreenBusy] = useState(false);
   const [error, setError] = useState("");
+  const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("status");
 
   const [sessionId, setSessionId] = useState("server");
   const latestTool = lastTurn?.toolResults?.at(-1) || null;
@@ -302,14 +305,14 @@ export default function WalnutConsolePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0f1111] text-[#ece7db]">
-      <div className="grid min-h-screen grid-cols-1 xl:grid-cols-[minmax(0,1.12fr)_420px]">
-        <section className="flex min-h-0 flex-col border-r border-[#2a2f2f]">
-          <header className="border-b border-[#2a2f2f] px-6 py-5">
+    <main className="h-screen overflow-hidden bg-[#0f1111] text-[#ece7db]">
+      <div className="grid h-screen min-h-0 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1.12fr)_420px]">
+        <section className="flex min-h-0 flex-col overflow-hidden border-r border-[#2a2f2f]">
+          <header className="shrink-0 border-b border-[#2a2f2f] px-5 py-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="font-mono text-xs uppercase tracking-[0.24em] text-[#8a938d]">WalnutPi control plane</p>
-                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#f4efe2] md:text-5xl">Walnut Agent Console</h1>
+                <h1 className="mt-2 text-2xl font-semibold tracking-tight text-[#f4efe2] md:text-4xl">Walnut Agent Console</h1>
               </div>
               <div className="rounded-none border border-[#3a4140] bg-[#151818] px-3 py-2 font-mono text-xs text-[#9eb7b2]">
                 session {sessionId.slice(0, 8)} / {authSubject?.kind || "subject unknown"}
@@ -317,7 +320,7 @@ export default function WalnutConsolePage() {
             </div>
           </header>
 
-          <div className="grid flex-1 grid-rows-[minmax(0,1fr)_auto] gap-4 p-4 md:p-6">
+          <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] gap-4 p-4 md:p-5">
             <section className="min-h-0 overflow-auto border border-[#2a2f2f] bg-[#121515] p-3">
               <div className="grid gap-3">
                 {messages.map((message) => (
@@ -347,7 +350,7 @@ export default function WalnutConsolePage() {
               </div>
               <form className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]" onSubmit={submitPrompt}>
                 <textarea
-                  className="min-h-24 resize-y border border-[#35403f] bg-[#0e1111] px-3 py-3 text-sm leading-6 text-[#f4efe2]"
+                  className="h-24 resize-none border border-[#35403f] bg-[#0e1111] px-3 py-3 text-sm leading-6 text-[#f4efe2]"
                   disabled={busy}
                   onChange={(event) => setPrompt(event.target.value)}
                   placeholder="Ask for device status, screen work, memory capture, or a policy prepare flow."
@@ -362,170 +365,248 @@ export default function WalnutConsolePage() {
           </div>
         </section>
 
-        <aside className="grid content-start gap-4 bg-[#151818] p-4 md:p-6">
-          <Panel title="Session">
-            <div className="grid gap-3">
-              <div className="grid gap-2 font-mono text-xs text-[#aeb8b3]">
-                <KeyValue label="subject" value={authSubject?.kind || "-"} />
-                <KeyValue label="auth" value={authSubject?.authenticated ? "true" : "false"} />
-                <KeyValue label="user" value={authSubject?.userId ? shortId(authSubject.userId) : "-"} />
-                <KeyValue label="session" value={authSubject?.sessionId ? shortId(authSubject.sessionId) : "-"} />
-                <KeyValue label="roles" value={authSubject?.roles?.join(", ") || "-"} />
+        <aside className="grid h-screen min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden bg-[#151818] p-4 md:p-5">
+          <div className="grid gap-3">
+            <div>
+              <p className="font-mono text-xs uppercase tracking-[0.22em] text-[#87908b]">Control deck</p>
+              <div className="mt-2 grid grid-cols-3 border border-[#2a2f2f] bg-[#101313] p-1">
+                <TabButton active={sidePanelTab === "status"} onClick={() => setSidePanelTab("status")}>Status</TabButton>
+                <TabButton active={sidePanelTab === "screen"} onClick={() => setSidePanelTab("screen")}>Screen</TabButton>
+                <TabButton active={sidePanelTab === "advanced"} onClick={() => setSidePanelTab("advanced")}>Details</TabButton>
               </div>
-              <div className="grid gap-2">
-                <input
-                  autoComplete="email"
-                  className="border border-[#35403f] bg-[#0e1111] px-3 py-2 text-sm text-[#f4efe2]"
-                  disabled={authBusy}
-                  onChange={(event) => setAuthEmail(event.target.value)}
-                  placeholder="owner@walnutpi.local"
-                  type="email"
-                  value={authEmail}
+            </div>
+            {latestTool ? <RunStatusBar latestTool={latestTool} /> : <EmptyLine text="Ready. Start with Device status or Screen playlist." />}
+          </div>
+
+          <div className="min-h-0 overflow-hidden">
+            {sidePanelTab === "status" ? (
+              <div className="grid h-full min-h-0 content-start gap-3 overflow-auto pr-1">
+                <Panel title="Account">
+                  <div className="grid gap-3">
+                    <div className="grid gap-2 font-mono text-xs text-[#aeb8b3]">
+                      <KeyValue label="subject" value={authSubject?.kind || "-"} />
+                      <KeyValue label="auth" value={authSubject?.authenticated ? "true" : "false"} />
+                      <KeyValue label="roles" value={authSubject?.roles?.join(", ") || "-"} />
+                    </div>
+                    <div className="grid gap-2">
+                      <input
+                        autoComplete="email"
+                        className="border border-[#35403f] bg-[#0e1111] px-3 py-2 text-sm text-[#f4efe2]"
+                        disabled={authBusy}
+                        onChange={(event) => setAuthEmail(event.target.value)}
+                        placeholder="owner@walnutpi.local"
+                        type="email"
+                        value={authEmail}
+                      />
+                      <input
+                        autoComplete="current-password"
+                        className="border border-[#35403f] bg-[#0e1111] px-3 py-2 text-sm text-[#f4efe2]"
+                        disabled={authBusy}
+                        onChange={(event) => setAuthPassword(event.target.value)}
+                        placeholder="Password"
+                        type="password"
+                        value={authPassword}
+                      />
+                      <div className="grid grid-cols-3 gap-2">
+                        <button className="border border-[#5f827d] bg-[#142523] px-2 py-2 text-xs font-semibold text-[#eafffb] disabled:opacity-50" disabled={authBusy} onClick={() => submitAuth("sign-up")} type="button">
+                          Sign up
+                        </button>
+                        <button className="border border-[#5f827d] bg-[#142523] px-2 py-2 text-xs font-semibold text-[#eafffb] disabled:opacity-50" disabled={authBusy} onClick={() => submitAuth("sign-in")} type="button">
+                          Sign in
+                        </button>
+                        <button className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] disabled:opacity-50" disabled={authBusy} onClick={signOut} type="button">
+                          Sign out
+                        </button>
+                      </div>
+                      {authNotice ? <div className="border border-[#35403f] bg-[#0d0f0f] px-3 py-2 text-xs leading-5 text-[#bfc8c3]">{authNotice}</div> : null}
+                    </div>
+                  </div>
+                </Panel>
+
+                <Panel title="Common checks">
+                  <div className="grid grid-cols-2 gap-2">
+                    {DEVICE_DIAGNOSTIC_CAPABILITIES.slice(0, 4).map((item) => (
+                      <button
+                        className="border border-[#35403f] bg-[#101313] px-3 py-2 text-left text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
+                        disabled={busy}
+                        key={item.capability}
+                        onClick={() => runCapability(item)}
+                        type="button"
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </Panel>
+
+                <Panel title="Approval">
+                  <div className="grid gap-3">
+                    {approvals.length ? approvals.slice(0, 1).map((approval) => (
+                      <ApprovalCard
+                        approval={approval}
+                        busy={busy || approval.status === "committing"}
+                        key={approval.decisionId}
+                        onCommit={() => commitApproval(approval)}
+                      />
+                    )) : <EmptyLine text="No pending approval." />}
+                  </div>
+                </Panel>
+              </div>
+            ) : null}
+
+            {sidePanelTab === "screen" ? (
+              <div className="grid h-full min-h-0 content-start gap-3 overflow-auto pr-1">
+                <ScreenWorkspacePanel
+                  busy={busy}
+                  onRefresh={refreshScreenWorkspace}
+                  onRunCapability={runCapability}
+                  playlist={screenPlaylist}
+                  records={screenRecords}
+                  screenBusy={screenBusy}
                 />
-                <input
-                  autoComplete="current-password"
-                  className="border border-[#35403f] bg-[#0e1111] px-3 py-2 text-sm text-[#f4efe2]"
-                  disabled={authBusy}
-                  onChange={(event) => setAuthPassword(event.target.value)}
-                  placeholder="Password"
-                  type="password"
-                  value={authPassword}
-                />
-                <div className="grid grid-cols-3 gap-2">
-                  <button className="border border-[#5f827d] bg-[#142523] px-2 py-2 text-xs font-semibold text-[#eafffb] disabled:opacity-50" disabled={authBusy} onClick={() => submitAuth("sign-up")} type="button">
-                    Sign up
-                  </button>
-                  <button className="border border-[#5f827d] bg-[#142523] px-2 py-2 text-xs font-semibold text-[#eafffb] disabled:opacity-50" disabled={authBusy} onClick={() => submitAuth("sign-in")} type="button">
-                    Sign in
-                  </button>
-                  <button className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] disabled:opacity-50" disabled={authBusy} onClick={signOut} type="button">
-                    Sign out
-                  </button>
-                </div>
-                {authNotice ? <div className="border border-[#35403f] bg-[#0d0f0f] px-3 py-2 text-xs leading-5 text-[#bfc8c3]">{authNotice}</div> : null}
               </div>
-            </div>
-          </Panel>
+            ) : null}
 
-          <Panel title="Approval queue">
-            <div className="grid gap-3">
-              {approvals.length ? approvals.map((approval) => (
-                <ApprovalCard
-                  approval={approval}
-                  busy={busy || approval.status === "committing"}
-                  key={approval.decisionId}
-                  onCommit={() => commitApproval(approval)}
-                />
-              )) : <EmptyLine text="No prepared catalog action." />}
-            </div>
-          </Panel>
+            {sidePanelTab === "advanced" ? (
+              <div className="grid h-full min-h-0 content-start gap-3 overflow-auto pr-1">
+                <Panel title="Tool result">
+                  {latestTool ? (
+                    <div className="grid gap-2 font-mono text-xs text-[#aeb8b3]">
+                      <KeyValue label="operation" value={latestTool.diagnostics?.operation || "-"} />
+                      <KeyValue label="family" value={latestTool.family || "-"} />
+                      <KeyValue label="ok" value={String(Boolean(latestTool.ok))} />
+                      <KeyValue label="summary" value={latestTool.summary || "-"} />
+                    </div>
+                  ) : <EmptyLine text="No tool call yet." />}
+                </Panel>
 
-          <Panel title="Tool result">
-            {latestTool ? (
-              <div className="grid gap-2 font-mono text-xs text-[#aeb8b3]">
-                <KeyValue label="operation" value={latestTool.diagnostics?.operation || "-"} />
-                <KeyValue label="family" value={latestTool.family || "-"} />
-                <KeyValue label="ok" value={String(Boolean(latestTool.ok))} />
-                <KeyValue label="summary" value={latestTool.summary || "-"} />
+                <Panel title="Route">
+                  <div className="grid gap-2 font-mono text-xs text-[#aeb8b3]">
+                    <KeyValue label="route" value={lastTurn?.route?.route || "-"} />
+                    <KeyValue label="intent" value={lastTurn?.route?.intent || "-"} />
+                    <KeyValue label="source" value={lastTurn?.route?.source || "-"} />
+                  </div>
+                </Panel>
+
+                <Panel title="Evidence">
+                  <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-[#aeb8b3]">
+                    {latestTool ? JSON.stringify(redactToolEvidence(latestTool.evidence || {}), null, 2) : "No evidence yet."}
+                  </pre>
+                </Panel>
+
+                <Panel title="Audit trail">
+                  <div className="grid gap-2">
+                    {auditEvents.length ? auditEvents.slice().reverse().map((event) => (
+                      <AuditEventRow event={event} key={`${event.timestamp}-${event.kind}-${event.decisionId || event.turnId || event.toolName || event.operation}`} />
+                    )) : <EmptyLine text="No audit events yet." />}
+                  </div>
+                </Panel>
               </div>
-            ) : <EmptyLine text="No tool call yet." />}
-          </Panel>
-
-          <Panel title="Device diagnostics">
-            <div className="grid grid-cols-2 gap-2">
-              {DEVICE_DIAGNOSTIC_CAPABILITIES.map((item) => (
-                <button
-                  className="border border-[#35403f] bg-[#101313] px-3 py-2 text-left text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
-                  disabled={busy}
-                  key={item.capability}
-                  onClick={() => runCapability(item)}
-                  type="button"
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </Panel>
-
-          <Panel title="Screen workspace">
-            <div className="grid gap-3">
-              <div className="flex items-center justify-between gap-2">
-                <div className="font-mono text-xs text-[#8f9993]">default playlist</div>
-                <button
-                  className="border border-[#35403f] bg-[#101313] px-2 py-1 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
-                  disabled={screenBusy}
-                  onClick={refreshScreenWorkspace}
-                  type="button"
-                >
-                  Refresh
-                </button>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
-                  disabled={busy}
-                  onClick={() => runCapability({ capability: "screen.readPlaylist", text: "screen.readPlaylist", playlistId: "default" })}
-                  type="button"
-                >
-                  Read
-                </button>
-                <button
-                  className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
-                  disabled={busy}
-                  onClick={() => runCapability({ capability: "screen.captureFrame", text: "screen.captureFrame" })}
-                  type="button"
-                >
-                  Capture
-                </button>
-                <button
-                  className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
-                  disabled={busy || !screenPlaylist?.playlistHash}
-                  onClick={() => runCapability({
-                    capability: "screen.syncPlaylist",
-                    text: "screen.syncPlaylist preview",
-                    playlistHash: screenPlaylist?.playlistHash,
-                    mode: "preview",
-                    evidenceMode: "fast",
-                    previewOnly: true,
-                  })}
-                  type="button"
-                >
-                  Preview sync
-                </button>
-              </div>
-              {screenPlaylist ? <ScreenPlaylistPanel playlist={screenPlaylist} /> : <EmptyLine text="Playlist unavailable." />}
-              <div className="grid gap-2">
-                {screenRecords.length ? screenRecords.slice(0, 3).map((record, index) => (
-                  <ScreenRecordRow key={record.buildId || `screen-record-${index}`} record={record} />
-                )) : <EmptyLine text="No screen evidence records." />}
-              </div>
-            </div>
-          </Panel>
-
-          <Panel title="Audit trail">
-            <div className="grid gap-2">
-              {auditEvents.length ? auditEvents.slice().reverse().map((event) => (
-                <AuditEventRow event={event} key={`${event.timestamp}-${event.kind}-${event.decisionId || event.turnId || event.toolName || event.operation}`} />
-              )) : <EmptyLine text="No audit events yet." />}
-            </div>
-          </Panel>
-
-          <Panel title="Route">
-            <div className="grid gap-2 font-mono text-xs text-[#aeb8b3]">
-              <KeyValue label="route" value={lastTurn?.route?.route || "-"} />
-              <KeyValue label="intent" value={lastTurn?.route?.intent || "-"} />
-              <KeyValue label="source" value={lastTurn?.route?.source || "-"} />
-            </div>
-          </Panel>
-
-          <Panel title="Evidence">
-            <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-[#aeb8b3]">
-              {latestTool ? JSON.stringify(redactToolEvidence(latestTool.evidence || {}), null, 2) : "No evidence yet."}
-            </pre>
-          </Panel>
+            ) : null}
+          </div>
         </aside>
       </div>
     </main>
+  );
+}
+
+function ScreenWorkspacePanel({
+  busy,
+  onRefresh,
+  onRunCapability,
+  playlist,
+  records,
+  screenBusy,
+}: {
+  busy: boolean;
+  onRefresh: () => void;
+  onRunCapability: (input: JsonObject) => void;
+  playlist: ScreenPlaylistView | null;
+  records: ScreenRecordSummary[];
+  screenBusy: boolean;
+}) {
+  return (
+    <Panel title="Screen workspace">
+      <div className="grid gap-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-mono text-xs text-[#8f9993]">default playlist</div>
+          <button
+            className="border border-[#35403f] bg-[#101313] px-2 py-1 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
+            disabled={screenBusy}
+            onClick={onRefresh}
+            type="button"
+          >
+            Refresh
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
+            disabled={busy}
+            onClick={() => onRunCapability({ capability: "screen.readPlaylist", text: "screen.readPlaylist", playlistId: "default" })}
+            type="button"
+          >
+            Read
+          </button>
+          <button
+            className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
+            disabled={busy}
+            onClick={() => onRunCapability({ capability: "screen.captureFrame", text: "screen.captureFrame" })}
+            type="button"
+          >
+            Capture
+          </button>
+          <button
+            className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6] disabled:opacity-50"
+            disabled={busy || !playlist?.playlistHash}
+            onClick={() => onRunCapability({
+              capability: "screen.syncPlaylist",
+              text: "screen.syncPlaylist preview",
+              playlistHash: playlist?.playlistHash,
+              mode: "preview",
+              evidenceMode: "fast",
+              previewOnly: true,
+            })}
+            type="button"
+          >
+            Preview sync
+          </button>
+        </div>
+        {playlist ? <ScreenPlaylistPanel playlist={playlist} /> : <EmptyLine text="Playlist unavailable." />}
+        <div className="grid gap-2">
+          {records.length ? records.slice(0, 3).map((record, index) => (
+            <ScreenRecordRow key={record.buildId || `screen-record-${index}`} record={record} />
+          )) : <EmptyLine text="No screen evidence records." />}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function RunStatusBar({ latestTool }: { latestTool: JsonObject }) {
+  const ok = latestTool.ok === true ? "ok" : latestTool.ok === false ? "needs attention" : "seen";
+  return (
+    <div className="border border-[#2a2f2f] bg-[#101313] px-3 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#77807b]">Last run</div>
+          <div className="truncate text-sm font-semibold text-[#f4efe2]">{latestTool.summary || latestTool.diagnostics?.operation || "Completed"}</div>
+        </div>
+        <div className="shrink-0 border border-[#35403f] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-[#9eb7b2]">{ok}</div>
+      </div>
+    </div>
+  );
+}
+
+function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
+  return (
+    <button
+      className={`px-2 py-2 text-xs font-semibold ${active ? "bg-[#203330] text-[#eafffb]" : "text-[#9fa9a4] hover:bg-[#151818]"}`}
+      onClick={onClick}
+      type="button"
+    >
+      {children}
+    </button>
   );
 }
 
