@@ -572,6 +572,60 @@ record("agent-turn-mcp-auth-context", {
   spoofedRoleExposure: JSON.stringify({ requestScopedMcpAudit, requestScopedPolicyAudit }).includes("admin"),
 });
 
+const noSshAgentTurnAuditEvents: JsonObject[] = [];
+const noSshAgentTurnRequest = new Request("http://127.0.0.1:4173/api/agent/turn?nossh=1", {
+  headers: {
+    "x-walnut-subject": "attacker",
+    "x-walnut-roles": "admin",
+  },
+});
+const noSshAgentTurnAuthContext = await createMcpAuthContext(noSshAgentTurnRequest, {
+  deviceProfile: "device",
+  target: "verify@walnutpi",
+});
+const noSshMastraDispatch = createMastraAgentTurnWorkflowDispatcher({
+  endpoint: "http://127.0.0.1:4173/mcp",
+  fetchImpl: ((url, init) => {
+    const request = new Request(url, init);
+    return handleWalnutMcpRequest(request, {
+      authContext: noSshAgentTurnAuthContext,
+      toolCatalog,
+      toolDispatcher,
+      auditLedger: {
+        async append(record: JsonObject) {
+          noSshAgentTurnAuditEvents.push(record);
+        },
+      },
+    });
+  }) as any,
+  id: `verify-turn-nossh-${randomUUID()}`,
+});
+const noSshPlatformTurn = await runAgentPlatformTurn({
+  body: {
+    capability: "device.status.read",
+    text: "device.status.read",
+    sessionId: "verify-agent-turn-nossh",
+  },
+  classifyIntent: async () => {
+    throw new Error("nossh structured capability unexpectedly called the classifier");
+  },
+  turnLedger: { async appendTurn() {} },
+  eventLedger: { async appendEvent() {} },
+  metricsLedger,
+  mastraWorkflows: { dispatch: noSshMastraDispatch },
+});
+record("agent-turn-nossh-mastra-path", {
+  ok: noSshPlatformTurn.turn?.ok === true
+    && noSshPlatformTurn.status === 200
+    && noSshPlatformTurn.turn?.toolResults?.some((item: JsonObject) =>
+      item.diagnostics?.operation === "mastra.mcp.device.status.read"
+    )
+    && !JSON.stringify(noSshPlatformTurn).includes("preview mode disables SSH"),
+  status: noSshPlatformTurn.status,
+  operation: "mastra.mcp.device.status.read",
+  previewShortCircuit: JSON.stringify(noSshPlatformTurn).includes("preview mode disables SSH"),
+});
+
 const turnCapabilities = [
   "device.status.read",
   "screen.readPlaylist",

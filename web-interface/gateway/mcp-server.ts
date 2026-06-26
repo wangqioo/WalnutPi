@@ -220,8 +220,7 @@ function registerAgentRoutes(app: Hono, {
     return previewOnly(url) ? previewOnlyJson() : handleAgentChat(c.req);
   });
   app.post("/api/agent/turn", (c) => {
-    const url = new URL(c.req.url);
-    return previewOnly(url) ? previewOnlyJson() : agentPlatform.handleTurn(c.req);
+    return agentPlatform.handleTurn(c.req);
   });
   app.get("/api/agent/turns", (c) => agentPlatform.handleTurns(new URL(c.req.url)));
   app.get("/api/agent/turn-events", (c) => agentPlatform.handleTurnEvents(new URL(c.req.url)));

@@ -104,6 +104,9 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   before dispatching structured capabilities. Its internal `/mcp` call reuses
   the same server-derived auth context as direct `/mcp` requests instead of
   constructing a hard-coded local-owner subject inside the workflow.
+- `/api/agent/turn` is no longer short-circuited by the old `nossh` preview
+  query parameter. Structured turns still reach Mastra/MCP/OPA so platform
+  wiring failures cannot be disguised as preview skips.
 - The MCP subject resolver now attempts the better-auth session API first and
   then falls back to the server-derived local-owner subject for the current
   local control-plane profile. Client headers cannot declare subject or roles.
@@ -256,6 +259,8 @@ local-only or mock verification.
   path uses request-derived auth context, reaches the `policy.action.prepare`
   no-command boundary, and does not admit spoofed subject/role headers into the
   MCP or approval audit rows.
+- `bun run verify:platform` verifies `/api/agent/turn?nossh=1` still reaches
+  the structured Mastra/MCP path instead of returning the old preview skip.
 - `bun run verify:platform` verifies the public gateway audit projection redacts
   raw command strings, private device output, private evidence, and private
   params.
