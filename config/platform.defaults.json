@@ -1,0 +1,36 @@
+{
+  "ai": {
+    "provider": "walnut-ai",
+    "model": "gpt-5.4-mini",
+    "baseUrl": "https://rehdasu.cn/v1",
+    "apiKeySource": {
+      "kind": "codex-auth",
+      "path": "~/.codex/auth.json",
+      "key": "OPENAI_API_KEY"
+    }
+  },
+  "auth": {
+    "baseUrl": "http://127.0.0.1:4173",
+    "secretSource": {
+      "kind": "derived",
+      "seed": "yrd",
+      "namespace": "walnutpi:better-auth"
+    }
+  },
+  "db": {
+    "url": "postgres://walnutpi:walnutpi_dev@127.0.0.1:5432/walnutpi"
+  },
+  "langfuse": {
+    "enabled": true,
+    "secretSource": {
+      "kind": "markdown-env",
+      "path": "~/secret.md"
+    }
+  },
+  "mcp": {
+    "endpoint": "http://127.0.0.1:4173/mcp"
+  },
+  "opa": {
+    "path": "opa"
+  }
+}

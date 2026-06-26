@@ -5,6 +5,7 @@ node_modules/
 .env
 .env.*
 !.env.example
+config/platform.local.json
 *.log
 !*.spec
 --advance-ms

@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: walnutpi-postgres
+    environment:
+      POSTGRES_DB: walnutpi
+      POSTGRES_USER: walnutpi
+      POSTGRES_PASSWORD: walnutpi_dev
+    ports:
+      - "${WALNUT_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - walnutpi-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U walnutpi -d walnutpi"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  walnutpi-postgres-data:
