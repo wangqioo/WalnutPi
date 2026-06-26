@@ -54,7 +54,6 @@ import {
   PROJECT_ROOT,
   REMOTE_BUILD_USER,
   REMOTE_PROJECT_ROOT,
-  RETRIEVAL_FILE_LIMIT,
   RETRIEVAL_RESULT_LIMIT,
   SCREEN_FRAME_TICKET_TTL_MS,
   SCREEN_LVGL_PREVIEW_OUTPUT_DIR,
@@ -65,10 +64,7 @@ import {
   SSH_HOST,
   SSH_PASSWORD,
   SSH_USER,
-  WALNUT_AI_CORPUS_DIR,
   WALNUT_AI_MEMORY_FILE,
-  WALNUT_AI_PRIMARY_SKILL,
-  WALNUT_AI_SKILLS_DIR,
   WALNUT_CLI_SOURCE_PATH,
   WEB_METRICS_PATH,
   WEB_SESSION_EVENT_LIMIT,
@@ -88,7 +84,6 @@ const WEB_CONFIG = {
   PROJECT_ROOT,
   REMOTE_BUILD_USER,
   REMOTE_PROJECT_ROOT,
-  RETRIEVAL_FILE_LIMIT,
   RETRIEVAL_RESULT_LIMIT,
   SCREEN_FRAME_TICKET_TTL_MS,
   SCREEN_LVGL_PREVIEW_OUTPUT_DIR,
@@ -99,10 +94,7 @@ const WEB_CONFIG = {
   SSH_HOST,
   SSH_PASSWORD,
   SSH_USER,
-  WALNUT_AI_CORPUS_DIR,
   WALNUT_AI_MEMORY_FILE,
-  WALNUT_AI_PRIMARY_SKILL,
-  WALNUT_AI_SKILLS_DIR,
   WALNUT_CLI_SOURCE_PATH,
   WEB_METRICS_PATH,
   WEB_SESSION_EVENT_LIMIT,
@@ -193,13 +185,6 @@ async function readWalnutMemory() {
   } catch {
     return emptyMemory();
   }
-}
-
-async function retrieveWalnutContext(query) {
-  const retrieved = await curatedRetrievalStore.retrieve(query, {
-    resultLimit: RETRIEVAL_RESULT_LIMIT,
-  });
-  return retrieved.results;
 }
 
 async function retrieveWalnutContextView(query) {

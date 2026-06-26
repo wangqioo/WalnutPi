@@ -168,8 +168,9 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `web-interface/platform/memory/curated-retrieval-store.ts` as the active
   control-plane retrieval path. It reads approved durable memory and curated
   `retrieval_documents` rows only. Raw session logs and raw daily notes are
-  excluded by `source_kind`/`status`, and the old file-backed skills/corpus
-  scanner is no longer the Web retrieval main path.
+  excluded by `source_kind`/`status`. The old Web file-backed skills/corpus
+  scanner was removed; `walnut-ai-terminal/skills` and `walnut-ai-terminal/corpus`
+  remain archived/prototype seed material only.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
