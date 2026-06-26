@@ -89,6 +89,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   no longer expose raw shell, SSH, or Walnut CLI command strings. Command
   construction remains inside the dispatcher/adapter boundary and raw command
   records stay limited to internal diagnostic/audit ledgers.
+- `memory.preference` and `memory.sensitiveSkip` now route through a DB
+  product-state store seam. Preference captures create candidate records when
+  Postgres is available; sensitive skips store only a SHA-256 text hash and
+  length. If the DB table/config is unavailable, the tool reports the boundary
+  as reached and skipped instead of falling back to file writes.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -140,6 +145,9 @@ local-only or mock verification.
 - `bun run verify:platform` injects a stub raw command into the device action
   dispatcher and recursively verifies MCP/Mastra/agent-turn results do not
   expose raw command fields.
+- `bun run verify:platform` verifies the memory product-state schema and the
+  memory tool seam, including that `memory.sensitiveSkip` does not expose raw
+  sensitive text.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
 tool results.
 - Policy pending smoke returned `noCommandExecution` evidence.
@@ -193,6 +201,8 @@ device-profile verification, not offline verification.
   Mastra-owned workflows without reintroducing local dispatcher fallback.
 - Replace the current local-owner MCP subject fallback with a full better-auth
   session resolver and bind approval tokens to that subject.
+- Add managed DB migrations for memory product-state tables and then move
+  approved durable memory/retrieval to the curated DB path.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.

@@ -24,6 +24,7 @@ It is a working map, not a replacement spec.
 | Renderer adapter split | Screen rendering still flows through `screen-workspace-workflows.ts` and `scripts/screen-workspace-pipeline.ts` | No explicit `WallpaperRenderer`, `TerminalPrintRenderer`, `RuntimeAssetRenderer`, or `WidgetAppRenderer` modules | `P1` |
 | Typed WalnutPi tool results and `walnutpi.agentPlatformTurn.v1` projection | `web-interface/walnut-tool-results.ts` defines typed results; `web-interface/agent-platform-turn-route.ts` projects only typed Mastra/MCP tool results into the turn shape; public tool/session projections strip raw command fields while retaining diagnostic/audit references | Projection still lives in the Hono route layer until the Next/AI SDK console replaces the static console path | `P1` |
 | OpenTelemetry, Langfuse, and curated eval | `web-interface/platform/observability/` initializes OTel and a local-safe Langfuse boundary; existing local ledgers still hold product evidence | Wire spans into the production turn/tool paths and add the 3x3 curated eval runner | `P1` |
+| DB-backed memory product state | `web-interface/platform/db/schema.ts` defines memory candidate and sensitive-skip tables; `memory.preference` and `memory.sensitiveSkip` route through `web-interface/platform/memory/product-state-store.ts`; sensitive skips store hash/length only | Add managed migrations, approved durable memory, and curated retrieval paths without indexing raw session logs | `P1` |
 | Narrow device boundary | `walnut-assistant/walnut`, `lvgl_app/src/main.c`, and `web-interface/walnut-remote-adapter.ts` form the current device path | Remote execution still relies on shell command strings and is broader than the typed device surface in the spec | `P1` |
 | Vercel AI SDK web/API surface | `web-interface/platform/ai-sdk/` owns the AI SDK OpenAI-compatible provider boundary | Build the streaming API/UI path; keep AI SDK provider objects out of Mastra | `P2` |
 | Next.js Walnut Agent Console | `web-interface/next-app/` is a minimal Next boundary; the static HTML console remains active | Replace the static console only after a business vertical slice is stable | `P2` |
@@ -40,5 +41,5 @@ It is a working map, not a replacement spec.
 1. Expand Mastra-owned workflows from the current screen/memory/device slice into policy prepare/commit and approved action flows without adding parallel local execution paths.
 2. Add the prepare/commit approval audit flow for confirmable actions.
 3. Add the full better-auth session resolver and approval token subject binding beyond the current local-owner MCP context.
-4. Wire OpenTelemetry and Langfuse spans through the active turn/tool path.
+4. Finish policy-decision spans and Langfuse trace/session correlation for the active turn/tool path.
 5. Replace the static console with the Next.js/Vercel AI SDK surface after the platform path owns the needed business workflows.

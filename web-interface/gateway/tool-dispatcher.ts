@@ -1,4 +1,5 @@
 import { type WalnutToolResult, failedToolResult, toolResult } from "../walnut-tool-results.ts";
+import { createMemoryProductStateStore } from "../platform/memory/product-state-store.ts";
 
 type JsonObject = Record<string, any>;
 
@@ -10,6 +11,7 @@ export function createToolDispatcher({
   policyManifest,
   opaEnforcer,
   auditLedger,
+  memoryStore = createMemoryProductStateStore(),
 }: JsonObject) {
   async function callTool(toolName: string, params: JsonObject, turn: JsonObject) {
     if (!toolName) return failedToolResult("diagnostics", "Tool name is required");
@@ -310,47 +312,85 @@ export function createToolDispatcher({
   }
 
   async function memoryPreference(body: JsonObject, turn: JsonObject) {
+    const captured = await memoryStore.capturePreferenceCandidate({
+      text: body.text,
+      sessionId: turn.sessionId || "unknown-session",
+      turnId: turn.turnId || null,
+    });
     return toolResult("memory", {
       summary: "Captured a durable memory candidate. No write was committed.",
       result: {
         operation: "memory.preference",
-        candidate: String(body.text || "").trim(),
+        candidate: captured.candidateText,
+        persisted: Boolean(captured.persisted),
       },
       evidence: {
-        memoryUpdateCandidateOrConfirmation: { ok: true, writeState: "candidate", text: String(body.text || "").trim() },
-        memoryCategoryKey: "preferences.screen_generation",
+        memoryUpdateCandidateOrConfirmation: {
+          ok: true,
+          writeState: "candidate",
+          text: captured.candidateText,
+          persisted: Boolean(captured.persisted),
+        },
+        memoryCategoryKey: captured.categoryKey || "preferences.screen_generation",
         sourceSessionId: turn.sessionId || "unknown-session",
+        sourceTurnId: turn.turnId || null,
         noDurableMemoryWrite: true,
+        dbProductState: {
+          boundaryReached: true,
+          persisted: Boolean(captured.persisted),
+          skipped: Boolean(captured.skipped),
+          reason: captured.reason || null,
+        },
       },
     });
   }
 
   async function memorySensitiveSkip(body: JsonObject, turn: JsonObject) {
+    const skipped = await memoryStore.recordSensitiveSkip({
+      text: body.text,
+      sessionId: turn.sessionId || "unknown-session",
+      turnId: turn.turnId || null,
+    });
     return toolResult("memory", {
       summary: "Rejected sensitive temporary content for durable memory.",
       result: {
         operation: "memory.sensitive_skip",
+        textHash: skipped.textHash,
+        textLength: skipped.textLength,
+        persisted: Boolean(skipped.persisted),
       },
       evidence: {
-        memorySkipEvidence: { ok: true, reason: "sensitive-temporary", textLength: String(body.text || "").trim().length },
+        memorySkipEvidence: {
+          ok: true,
+          reason: skipped.reason,
+          textHash: skipped.textHash,
+          textLength: skipped.textLength,
+          persisted: Boolean(skipped.persisted),
+        },
         sensitiveMemoryRejection: true,
         sessionSafetySummary: { sessionId: turn.sessionId || "unknown-session", noDurableMemoryWrite: true },
+        dbProductState: {
+          boundaryReached: true,
+          persisted: Boolean(skipped.persisted),
+          skipped: Boolean(skipped.skipped),
+          reason: skipped.writeReason || null,
+        },
       },
     });
   }
 
   async function sessionSummary(turn: JsonObject) {
-    const previousTurns = await turnLedger.readTurns({ sessionId: turn.sessionId, count: 20 });
-    const lines = previousTurns
-      .filter((item: JsonObject) => item.input?.text && item.input.text !== turn.input.text)
-      .slice(-8)
-      .map((item: JsonObject) => `- ${item.input.text} -> ${item.status}`);
-    const summary = lines.length ? lines.join("\n") : "No prior turns in this session.";
+    const session = await memoryStore.summarizeSession({
+      sessionId: turn.sessionId,
+      turnLedger,
+      inputText: turn.input?.text,
+    });
     return toolResult("memory", {
-      summary,
+      summary: session.summary,
       result: {
         operation: "session.summary",
-        eventsReadCount: previousTurns.length,
+        eventsReadCount: session.eventsReadCount,
+        source: session.source,
       },
       evidence: {
         sessionId: turn.sessionId,

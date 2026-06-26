@@ -164,6 +164,62 @@ const metricsLedger = {
     return { events: [] };
   },
 };
+const memoryWrites: JsonObject[] = [];
+const memoryStore = {
+  async capturePreferenceCandidate({ text, sessionId, turnId }: JsonObject) {
+    const record = {
+      kind: "memory.candidate",
+      candidateText: String(text || "").trim(),
+      sourceSessionId: sessionId || null,
+      sourceTurnId: turnId || null,
+      categoryKey: "preferences.screen_generation",
+      persisted: true,
+    };
+    memoryWrites.push(record);
+    return {
+      ok: true,
+      writeState: "candidate",
+      categoryKey: record.categoryKey,
+      candidateText: record.candidateText,
+      persisted: true,
+      skipped: false,
+      reason: null,
+    };
+  },
+  async recordSensitiveSkip({ text, sessionId, turnId }: JsonObject) {
+    const normalized = String(text || "").trim();
+    const record = {
+      kind: "memory.sensitive_skip",
+      textHash: `sha256:${createHash("sha256").update(normalized).digest("hex")}`,
+      textLength: normalized.length,
+      sourceSessionId: sessionId || null,
+      sourceTurnId: turnId || null,
+      persisted: true,
+    };
+    memoryWrites.push(record);
+    return {
+      ok: true,
+      reason: "sensitive-temporary",
+      textHash: record.textHash,
+      textLength: record.textLength,
+      persisted: true,
+      skipped: false,
+      writeReason: null,
+    };
+  },
+  async summarizeSession({ sessionId, turnLedger, inputText }: JsonObject) {
+    const previousTurns = await turnLedger.readTurns({ sessionId, count: 20 });
+    const lines = previousTurns
+      .filter((item: JsonObject) => item.input?.text && item.input.text !== inputText)
+      .slice(-8)
+      .map((item: JsonObject) => `- ${item.input.text} -> ${item.status}`);
+    return {
+      summary: lines.length ? lines.join("\n") : "No prior turns in this session.",
+      eventsReadCount: previousTurns.length,
+      source: "turn-ledger",
+    };
+  },
+};
 const actionDispatcher = {
   async runAction({ action, policyDecision }: JsonObject) {
     return {
@@ -194,6 +250,7 @@ const toolDispatcher = createToolDispatcher({
       auditEvents.push(record);
     },
   },
+  memoryStore,
 });
 const auditEvents: JsonObject[] = [];
 
@@ -288,8 +345,10 @@ try {
     ["memory.sensitiveSkip", "walnutpi_memory.sensitiveSkip", { text: "temporary secret-like value" }],
   ] as const;
   let mcpCallOkCount = 0;
+  const mcpMemoryResults: Record<string, JsonObject> = {};
   for (const [capability, mcpToolName, args] of mcpCallTargets) {
     const result = await tools[mcpToolName]?.execute?.(args as any, {} as any);
+    if (capability.startsWith("memory.")) mcpMemoryResults[capability] = result;
     const commandExposure = findRawCommandExposure(result);
     const ok = Boolean(result?.ok);
     if (ok) mcpCallOkCount += 1;
@@ -306,6 +365,17 @@ try {
     ok: mcpCallOkCount >= 5,
     passed: mcpCallOkCount,
     required: 5,
+  });
+  const sensitiveSkipTextExposure = JSON.stringify(mcpMemoryResults["memory.sensitiveSkip"] || {}).includes("temporary secret-like value");
+  record("memory.product-state-tools", {
+    ok: memoryWrites.some((item) => item.kind === "memory.candidate" && item.persisted === true)
+      && memoryWrites.some((item) => item.kind === "memory.sensitive_skip" && item.persisted === true)
+      && mcpMemoryResults["memory.preference"]?.evidence?.dbProductState?.boundaryReached === true
+      && mcpMemoryResults["memory.sensitiveSkip"]?.evidence?.memorySkipEvidence?.textHash?.startsWith("sha256:")
+      && !sensitiveSkipTextExposure,
+    candidateWrites: memoryWrites.filter((item) => item.kind === "memory.candidate").length,
+    sensitiveSkipWrites: memoryWrites.filter((item) => item.kind === "memory.sensitive_skip").length,
+    sensitiveSkipTextExposure,
   });
   const deviceStatus = await runMastraAgentTurnWorkflow({
     capability: "device.status.read",
@@ -459,6 +529,10 @@ record("db.drizzle-postgres", {
   skipped: db.skipped,
   reason: db.reason || null,
   tables: Object.keys(schema),
+});
+record("db.memory-product-state-schema", {
+  ok: Boolean(schema.memoryCandidates && schema.memorySensitiveSkips),
+  tables: Object.keys(schema).filter((table) => table.toLowerCase().includes("memory")),
 });
 if (db.sql) await db.sql.end({ timeout: 1 });
 
