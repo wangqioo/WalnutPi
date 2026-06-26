@@ -1,7 +1,9 @@
-# Keep memory and retrieval file-backed
+# Superseded: keep memory and retrieval file-backed
 
-WalnutPi keeps Durable Memory, Daily Notes, Session Logs, and Retrieval Corpus as file-backed, auditable local artifacts for the current product stage. This fits the headless WalnutPi Device, keeps privacy and secret filtering inspectable, and is sufficient while the project corpus is small.
+Status: Superseded by `docs/agent-platform-refactor-spec.md`.
+
+WalnutPi previously kept Durable Memory, Daily Notes, Session Logs, and Retrieval Corpus as file-backed, auditable local artifacts for the early product stage. The agent-platform refactor moves active control-plane product state to Postgres.
 
 **Consequences**
 
-Vector databases, embedding indexes, and heavier retrieval services should not become the default memory path yet. They may be introduced later only as an explicit upgrade with a clear privacy, storage, performance, and migration story.
+File-backed memory and old JSONL session logs are not the active Web session, agent-turn, or durable-memory path. Retrieval remains curated: raw session logs and raw daily notes must not be vector-indexed or scanned as a background memory source.

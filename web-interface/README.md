@@ -111,19 +111,12 @@ The agent should run controlled local checks such as `walnut status`, network ch
 The browser keeps a `walnut-web-session-id` in local storage. The server stores the canonical append-only event log under:
 
 ```text
-web-interface/data/sessions/<sessionId>.jsonl
+Postgres web_session_events
 ```
 
-Override the directory with `WALNUT_WEB_SESSIONS_DIR`. Events include user messages, assistant messages, and structured action evidence. This full log is the source for later background memory distillation; `~/walnut-memory/memory.json` is the compact memory derived from stored conversations, not a replacement for them.
+Agent turn snapshots and turn events are also Postgres-backed through `agent_turn_snapshots` and `agent_turn_events`. If the control-plane database is not configured, public APIs report skipped persistence explicitly; there is no JSONL fallback for the active Web session or agent-turn ledgers.
 
-Distill compact memory from stored sessions with:
-
-```bash
-python ../walnut-ai-terminal/memory_distiller.py --dry-run
-python ../walnut-ai-terminal/memory_distiller.py
-```
-
-The distiller reads user-authored events only, merges durable non-secret facts into `~/walnut-memory/memory.json`, and leaves the JSONL session logs as the canonical conversation history. `web-interface/data/` is ignored by Git so local conversations are not committed by accident.
+Raw session logs are not Retrieval Corpus and must not be vector-indexed. Durable Memory is captured through the platform memory tools and DB product-state path, not by scanning session history files.
 
 Current APIs:
 

@@ -119,6 +119,12 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   Postgres `audit_events` table. `web-interface/gateway/audit-ledger.ts` no
   longer writes `data/gateway-audit.jsonl`; DB-unavailable writes report an
   explicit skipped persistence result instead of falling back to JSONL.
+- Active Web session events, agent turn snapshots, and agent turn events now
+  persist through Postgres tables `web_session_events`,
+  `agent_turn_snapshots`, and `agent_turn_events`. The active ledgers do not
+  write JSONL fallback files; DB-unconfigured reads report empty ledgers and
+  public read APIs expose skipped persistence status, while DB write failures
+  are surfaced as persistence failures.
 - `memory.preference` and `memory.sensitiveSkip` now route through a DB
   product-state store seam. Preference captures create candidate records when
   Postgres is available; sensitive skips store only a SHA-256 text hash and
@@ -189,6 +195,8 @@ local-only or mock verification.
 - `bun run verify:platform` verifies the memory product-state schema and the
   memory tool seam, including that `memory.sensitiveSkip` does not expose raw
   sensitive text.
+- `bun run verify:platform` verifies the Drizzle schema exports for
+  `agentTurnSnapshots`, `agentTurnEvents`, and `webSessionEvents`.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
 tool results.
 - Policy pending smoke returned `noCommandExecution` evidence.
@@ -245,6 +253,13 @@ tool results.
 - `@mastra/pg` was installed and the Mastra registry was rebound to
   Postgres-backed storage. `verify:platform` now fails if Mastra storage is not
   `PostgresStore`; the previous in-memory storage warning is gone.
+- Live `/api/agent/turn` smoke for `device.status.read` and
+  `memory.preference` completed through final diagnostics operations
+  `mastra.mcp.device.status.read` and `mastra.mcp.memory.preference`; both turn
+  responses reported `telemetry.persistence.turnLedger.persisted: true`,
+  `/api/agent/turns` returned two Postgres-backed turn snapshots,
+  `/api/agent/turn-events` returned four Postgres-backed events, and neither
+  response exposed raw command fields.
 - Device-profile sync evidence was rerun after deleting the current
   `agent-freeform-*` generated artifacts. The script rebuilt the default
   playlist and completed with `ok: True`, `visualMatch: captured`, and
@@ -259,9 +274,6 @@ device-profile verification, not offline verification.
 - Replace the current better-auth-first/local-owner subject resolver with real
   signed-in user flows once the Next.js console owns login/session creation.
 - Move approved durable memory/retrieval to the curated DB path.
-- Decide the next Walnut-owned ledger migration target: agent turns/session
-  events are still file-backed append-only ledgers, while Mastra runtime
-  storage, gateway audit, and approval records are now Postgres-backed.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.
