@@ -46,6 +46,7 @@ export function createAgentPlatformTurnRoute({
       return json({
         ok: true,
         schema: "walnutpi.agentPlatformTurns.v1",
+        persistence: await turnLedger.persistenceStatus?.(),
         turns: await turnLedger.readTurns({ sessionId, count: Number.isFinite(limit) ? limit : 100 }),
       });
     },
@@ -57,6 +58,7 @@ export function createAgentPlatformTurnRoute({
       return json({
         ok: true,
         schema: "walnutpi.agentPlatformTurnEvents.v1",
+        persistence: await eventLedger.persistenceStatus?.(),
         events: await eventLedger.readEvents({ sessionId, turnId, afterSeq }),
       });
     },
@@ -98,6 +100,7 @@ export async function runAgentPlatformTurn({
         totalSteps: 0,
         failures: 0,
       },
+      persistence: null as JsonObject | null,
     },
     userSummary: "",
   };
@@ -132,8 +135,9 @@ export async function runAgentPlatformTurn({
     });
     pushStep(turn, result.family, result.result?.operation || result.diagnostics?.operation || result.family, result);
     finishTurn(turn);
+    const persistence = await turnLedger.appendTurn(turn);
+    turn.telemetry.persistence = { turnLedger: persistence || null };
     await appendEvent(eventLedger, turn, { kind: "turn.completed", status: turn.status, data: { result } });
-    await turnLedger.appendTurn(turn);
     return { turn, status: result.ok ? 200 : 400 };
   } catch (error: any) {
     const result = failedToolResult("diagnostics", error.message || "agent platform turn failed", {
@@ -141,8 +145,19 @@ export async function runAgentPlatformTurn({
     });
     pushStep(turn, "diagnostics", "platform.failure", result);
     finishTurn(turn, "failed");
+    try {
+      const persistence = await turnLedger.appendTurn(turn);
+      turn.telemetry.persistence = { turnLedger: persistence || null };
+    } catch (persistError: any) {
+      turn.telemetry.persistence = {
+        turnLedger: {
+          persisted: false,
+          skipped: false,
+          error: persistError.message,
+        },
+      };
+    }
     await appendEvent(eventLedger, turn, { kind: "turn.failed", status: "failed", error: error.message });
-    await turnLedger.appendTurn(turn);
     return { turn, status: error.status || 500 };
   }
   });

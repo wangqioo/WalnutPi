@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigserial, boolean, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 export const platformMigrations = pgTable("platform_migrations", {
   id: text("id").primaryKey(),
@@ -12,6 +12,43 @@ export const agentTurns = pgTable("agent_turns", {
   route: text("route").notNull(),
   input: jsonb("input").notNull(),
   result: jsonb("result").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const agentTurnSnapshots = pgTable("agent_turn_snapshots", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  turnId: text("turn_id").notNull(),
+  sessionId: text("session_id"),
+  status: text("status").notNull(),
+  route: jsonb("route"),
+  input: jsonb("input").notNull(),
+  turn: jsonb("turn").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const agentTurnEvents = pgTable("agent_turn_events", {
+  seq: bigserial("seq", { mode: "number" }).primaryKey(),
+  turnId: text("turn_id").notNull(),
+  sessionId: text("session_id"),
+  kind: text("kind").notNull(),
+  status: text("status").notNull(),
+  stepId: text("step_id"),
+  data: jsonb("data"),
+  error: text("error"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const webSessionEvents = pgTable("web_session_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  eventId: text("event_id").notNull(),
+  sessionId: text("session_id").notNull(),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  action: text("action"),
+  ok: boolean("ok"),
+  contextUsed: jsonb("context_used"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).defaultNow().notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 

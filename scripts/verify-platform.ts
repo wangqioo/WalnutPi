@@ -594,6 +594,14 @@ record("db.audit-event-schema", {
   ok: Boolean(schema.auditEvents),
   tables: Object.keys(schema).filter((table) => table.toLowerCase().includes("audit")),
 });
+record("db.agent-session-ledger-schema", {
+  ok: Boolean(schema.agentTurnSnapshots && schema.agentTurnEvents && schema.webSessionEvents),
+  tables: Object.keys(schema).filter((table) =>
+    table === "agentTurnSnapshots"
+    || table === "agentTurnEvents"
+    || table === "webSessionEvents"
+  ),
+});
 if (db.sql) {
   try {
     const rows = await db.sql`

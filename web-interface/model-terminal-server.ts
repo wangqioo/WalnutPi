@@ -42,8 +42,6 @@ import { generateLvglScreenWorkspaceRuntimeAssets } from "../scripts/generate-lv
 import {
   ACTION_OUTPUT_LIMIT,
   ACTION_POLICY_MANIFEST_PATH,
-  AGENT_TURNS_PATH,
-  AGENT_TURN_EVENTS_PATH,
   AI_CONTEXT_LIMIT,
   AI_CONTEXT_TEXT_LIMIT,
   BASE_DIR,
@@ -72,15 +70,12 @@ import {
   WALNUT_AI_SKILLS_DIR,
   WALNUT_CLI_SOURCE_PATH,
   WEB_METRICS_PATH,
-  WEB_SESSIONS_DIR,
   WEB_SESSION_EVENT_LIMIT,
 } from "./config.ts";
 
 const WEB_CONFIG = {
   ACTION_OUTPUT_LIMIT,
   ACTION_POLICY_MANIFEST_PATH,
-  AGENT_TURNS_PATH,
-  AGENT_TURN_EVENTS_PATH,
   AI_CONTEXT_LIMIT,
   AI_CONTEXT_TEXT_LIMIT,
   BASE_DIR,
@@ -109,7 +104,6 @@ const WEB_CONFIG = {
   WALNUT_AI_SKILLS_DIR,
   WALNUT_CLI_SOURCE_PATH,
   WEB_METRICS_PATH,
-  WEB_SESSIONS_DIR,
   WEB_SESSION_EVENT_LIMIT,
 };
 type JsonObject = Record<string, any>;
@@ -118,7 +112,6 @@ const WEB_ACTIONS = actionsForExecutor(ACTION_POLICY_MANIFEST, "web");
 const aiApiKey = getAiModelConfig().apiKey;
 const screenFrameTickets = new Map();
 const webSessionLedger = createWebSessionLedger({
-  sessionsDir: WEB_SESSIONS_DIR,
   eventLimit: WEB_SESSION_EVENT_LIMIT,
 });
 const webMetricsLedger = createWebMetricsLedger({
@@ -126,12 +119,10 @@ const webMetricsLedger = createWebMetricsLedger({
   limit: Number(process.env.WALNUT_WEB_METRICS_LIMIT || 200),
 });
 const agentTurnLedger = createAgentTurnLedger({
-  turnsPath: AGENT_TURNS_PATH,
   limit: Number(process.env.WALNUT_AGENT_TURN_LIMIT || 100),
 });
 const agentEventBus = createAgentEventBus();
 const agentTurnEventLedger = createAgentTurnEventLedger({
-  eventsPath: AGENT_TURN_EVENTS_PATH,
   eventBus: agentEventBus,
   limit: Number(process.env.WALNUT_AGENT_TURN_EVENT_LIMIT || 500),
 });

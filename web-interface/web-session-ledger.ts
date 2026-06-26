@@ -1,36 +1,35 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { desc, eq } from "drizzle-orm";
+import { createWalnutPostgresClient } from "./platform/db/client.ts";
+import { webSessionEvents } from "./platform/db/schema.ts";
 
-function clippedText(value, limit) {
+type JsonObject = Record<string, any>;
+
+const LEDGER_SCHEMA = "walnutpi.webSessionLedger.postgres.v1";
+
+function clippedText(value: any, limit: number) {
   return String(value || "")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, limit);
 }
 
-function sessionContent(value) {
+function sessionContent(value: any) {
   return String(value || "").replace(/\0/g, "").trim();
 }
 
 export function createWebSessionLedger({
-  sessionsDir,
   eventLimit = 300,
   actionLimit = 120,
-}) {
-  function safeSessionId(value) {
+  postgresClientFactory = createWalnutPostgresClient,
+}: JsonObject = {}) {
+  function safeSessionId(value: any) {
     const text = String(value || "").trim();
     if (!/^[a-zA-Z0-9._-]{8,80}$/.test(text) || text.includes("..") || text.startsWith(".")) return null;
     return text;
   }
 
-  function sessionPath(sessionId) {
-    const id = safeSessionId(sessionId);
-    if (!id) return null;
-    return path.join(sessionsDir, `${id}.jsonl`);
-  }
-
-  function normalizeEvent(value) {
+  function normalizeEvent(value: JsonObject) {
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const role = String(value.role || "").trim();
     if (!["user", "assistant", "system", "action"].includes(role)) return null;
@@ -47,35 +46,71 @@ export function createWebSessionLedger({
     };
   }
 
-  async function appendEvent(sessionId, event) {
-    const filePath = sessionPath(sessionId);
+  async function appendEvent(sessionId: string, event: JsonObject) {
+    const id = safeSessionId(sessionId);
     const normalized = normalizeEvent(event);
-    if (!filePath || !normalized) return null;
-    await mkdir(path.dirname(filePath), { recursive: true });
-    await writeFile(filePath, `${JSON.stringify(normalized)}\n`, { encoding: "utf8", flag: "a" });
-    return normalized;
+    if (!id || !normalized) return null;
+    const client = postgresClientFactory();
+    if (!client?.ok || !client.db) throw new Error(`web session persistence skipped: ${client?.reason || "database url is not configured"}`);
+    try {
+      await client.db.insert(webSessionEvents).values({
+        eventId: normalized.id,
+        sessionId: id,
+        role: normalized.role,
+        content: normalized.content,
+        action: normalized.action,
+        ok: normalized.ok,
+        contextUsed: normalized.contextUsed,
+        occurredAt: new Date(normalized.at),
+      });
+      return normalized;
+    } catch (error: any) {
+      throw new Error(`web session persistence failed: ${error.message}`);
+    } finally {
+      await client.sql?.end?.({ timeout: 1 });
+    }
   }
 
-  async function readEvents(sessionId, limit = eventLimit) {
-    const filePath = sessionPath(sessionId);
-    if (!filePath) return null;
-    let data = "";
+  async function readEvents(sessionId: string, limit = eventLimit) {
+    const id = safeSessionId(sessionId);
+    if (!id) return null;
+    const client = postgresClientFactory();
+    if (!client?.ok || !client.db) return [];
     try {
-      data = await readFile(filePath, "utf8");
-    } catch {
-      return [];
+      const rows = await client.db
+        .select()
+        .from(webSessionEvents)
+        .where(eq(webSessionEvents.sessionId, id))
+        .orderBy(desc(webSessionEvents.occurredAt))
+        .limit(Math.max(Number(limit) || eventLimit, 1));
+      return rows.reverse().map((row: JsonObject) => ({
+        id: row.eventId,
+        at: row.occurredAt instanceof Date ? row.occurredAt.toISOString() : new Date(row.occurredAt).toISOString(),
+        role: row.role,
+        content: row.content,
+        action: row.action,
+        ok: row.ok,
+        contextUsed: row.contextUsed,
+      }));
+    } catch (error: any) {
+      throw new Error(`web session read failed: ${error.message}`);
+    } finally {
+      await client.sql?.end?.({ timeout: 1 });
     }
-    const lines = data.split(/\r?\n/).filter(Boolean);
-    const events = [];
-    for (const line of lines.slice(-limit)) {
-      try {
-        const parsed = JSON.parse(line);
-        if (parsed && typeof parsed === "object") events.push(parsed);
-      } catch {
-        // Ignore corrupt trailing lines; append-only history should still be readable.
-      }
+  }
+
+  async function persistenceStatus() {
+    const client = postgresClientFactory();
+    if (!client?.ok || !client.db) {
+      return {
+        schema: LEDGER_SCHEMA,
+        persisted: false,
+        skipped: true,
+        reason: client?.reason || "database url is not configured",
+      };
     }
-    return events;
+    await client.sql?.end?.({ timeout: 1 });
+    return { schema: LEDGER_SCHEMA, persisted: true, skipped: false };
   }
 
   return {
@@ -83,5 +118,6 @@ export function createWebSessionLedger({
     normalizeEvent,
     appendEvent,
     readEvents,
+    persistenceStatus,
   };
 }

@@ -1,8 +1,11 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { and, desc, eq, gt } from "drizzle-orm";
+import { createWalnutPostgresClient } from "./platform/db/client.ts";
+import { agentTurnEvents } from "./platform/db/schema.ts";
 
 const EVENT_SCHEMA = "walnutpi.agentTurnEvent.v1";
+const LEDGER_SCHEMA = "walnutpi.agentTurnEventLedger.postgres.v1";
 
+type JsonObject = Record<string, any>;
 type AgentTurnEvent = {
   data?: any;
   error?: any;
@@ -19,62 +22,126 @@ type AgentTurnEventRecord = AgentTurnEvent & {
   timestamp: string;
 };
 
-export function createAgentTurnEventLedger({ eventsPath, eventBus = null, limit = 500 }: { eventsPath: string; eventBus?: any; limit?: number }) {
-  let nextSeq = 1;
-  let loaded = false;
-  let appendLock: Promise<AgentTurnEventRecord | null> = Promise.resolve(null);
-
-  async function ensureSeq() {
-    if (loaded) return;
-    loaded = true;
-    const events = await readEvents({ count: 1 });
-    nextSeq = (events.at(-1)?.seq || 0) + 1;
-  }
-
+export function createAgentTurnEventLedger({
+  eventBus = null,
+  limit = 500,
+  postgresClientFactory = createWalnutPostgresClient,
+}: { eventBus?: any; limit?: number; postgresClientFactory?: any } = {}) {
   async function appendEvent(event: AgentTurnEvent): Promise<AgentTurnEventRecord> {
-    appendLock = appendLock.catch(() => null).then(async () => {
-      await ensureSeq();
+    const client = postgresClientFactory();
+    if (!client?.ok || !client.db) {
+      return skippedEventRecord(event, client?.reason || "database url is not configured");
+    }
+    try {
+      const timestamp = event.timestamp || new Date().toISOString();
+      const [inserted] = await client.db
+        .insert(agentTurnEvents)
+        .values({
+          turnId: event.turnId,
+          sessionId: cleanNullableText(event.sessionId),
+          kind: event.kind,
+          status: event.status,
+          stepId: cleanNullableText(event.stepId),
+          data: event.data !== undefined ? event.data : null,
+          error: event.error ? String(event.error) : null,
+          occurredAt: new Date(timestamp),
+        })
+        .returning({
+          seq: agentTurnEvents.seq,
+        });
       const record: AgentTurnEventRecord = {
         schema: EVENT_SCHEMA,
         turnId: event.turnId,
         sessionId: event.sessionId || null,
-        seq: nextSeq++,
+        seq: Number(inserted.seq),
         kind: event.kind,
         status: event.status,
-        timestamp: event.timestamp || new Date().toISOString(),
+        timestamp,
         ...(event.stepId ? { stepId: event.stepId } : {}),
         ...(event.data !== undefined ? { data: event.data } : {}),
         ...(event.error ? { error: String(event.error) } : {}),
       };
-      await mkdir(path.dirname(eventsPath), { recursive: true });
-      await writeFile(eventsPath, `${JSON.stringify(record)}\n`, { encoding: "utf8", flag: "a" });
       eventBus?.publish(record);
       return record;
-    });
-    return appendLock as Promise<AgentTurnEventRecord>;
+    } catch (error: any) {
+      throw new Error(`agent turn event persistence failed: ${error.message}`);
+    } finally {
+      await client.sql?.end?.({ timeout: 1 });
+    }
   }
 
   async function readEvents({ sessionId = null, turnId = null, afterSeq = 0, count = limit }: { sessionId?: string | null; turnId?: string | null; afterSeq?: number; count?: number } = {}) {
-    let data = "";
+    const client = postgresClientFactory();
+    if (!client?.ok || !client.db) return [];
     try {
-      data = await readFile(eventsPath, "utf8");
-    } catch {
-      return [];
+      const filters = [gt(agentTurnEvents.seq, Number(afterSeq || 0))];
+      if (sessionId) filters.push(eq(agentTurnEvents.sessionId, sessionId));
+      if (turnId) filters.push(eq(agentTurnEvents.turnId, turnId));
+      const boundedCount = Math.max(Number(count) || limit, 1);
+      const rows = await client.db
+        .select()
+        .from(agentTurnEvents)
+        .where(and(...filters))
+        .orderBy(desc(agentTurnEvents.seq))
+        .limit(boundedCount);
+      return rows.reverse().map(eventRecordFromRow);
+    } catch (error: any) {
+      throw new Error(`agent turn event read failed: ${error.message}`);
+    } finally {
+      await client.sql?.end?.({ timeout: 1 });
     }
-    const events: AgentTurnEventRecord[] = [];
-    for (const line of data.split(/\r?\n/).filter(Boolean)) {
-      try {
-        const event = JSON.parse(line);
-        if (sessionId && event.sessionId !== sessionId) continue;
-        if (turnId && event.turnId !== turnId) continue;
-        if (Number(event.seq || 0) <= Number(afterSeq || 0)) continue;
-        events.push(event);
-      } catch {
-        // Tolerate corrupt trailing JSONL; the next append still works.
-      }
-    }
-    return events.slice(-Math.max(Number(count) || limit, 1));
   }
 
-  return { appendEvent, readEvents };
+  async function persistenceStatus() {
+    const client = postgresClientFactory();
+    if (!client?.ok || !client.db) {
+      return {
+        schema: LEDGER_SCHEMA,
+        persisted: false,
+        skipped: true,
+        reason: client?.reason || "database url is not configured",
+      };
+    }
+    await client.sql?.end?.({ timeout: 1 });
+    return { schema: LEDGER_SCHEMA, persisted: true, skipped: false };
+  }
+
+  return { appendEvent, readEvents, persistenceStatus };
+}
+
+function eventRecordFromRow(row: JsonObject): AgentTurnEventRecord {
+  return {
+    schema: EVENT_SCHEMA,
+    turnId: row.turnId,
+    sessionId: row.sessionId || null,
+    seq: Number(row.seq),
+    kind: row.kind,
+    status: row.status,
+    timestamp: row.occurredAt instanceof Date ? row.occurredAt.toISOString() : new Date(row.occurredAt).toISOString(),
+    ...(row.stepId ? { stepId: row.stepId } : {}),
+    ...(row.data !== null && row.data !== undefined ? { data: row.data } : {}),
+    ...(row.error ? { error: row.error } : {}),
+  };
+}
+
+function skippedEventRecord(event: AgentTurnEvent, reason: string): AgentTurnEventRecord {
+  return {
+    schema: EVENT_SCHEMA,
+    turnId: event.turnId,
+    sessionId: event.sessionId || null,
+    seq: 0,
+    kind: event.kind,
+    status: event.status,
+    timestamp: event.timestamp || new Date().toISOString(),
+    ...(event.stepId ? { stepId: event.stepId } : {}),
+    ...(event.data !== undefined ? { data: { ...event.data, persistence: { persisted: false, skipped: true, reason } } } : {
+      data: { persistence: { persisted: false, skipped: true, reason } },
+    }),
+    ...(event.error ? { error: String(event.error) } : {}),
+  };
+}
+
+function cleanNullableText(value: any) {
+  const text = String(value || "").trim();
+  return text || null;
 }

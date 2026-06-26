@@ -21,6 +21,7 @@ export function createProjectMemoryApi({
           ok: true,
           schema: "walnutpi.webSession.v1",
           sessionId,
+          persistence: await webSessionLedger.persistenceStatus?.(),
           events: events || [],
         });
       }
@@ -34,7 +35,13 @@ export function createProjectMemoryApi({
         }
         const event = await webSessionLedger.appendEvent(sessionId, body.event || body);
         if (!event) return json({ ok: false, error: "invalid session event" }, 400);
-        return json({ ok: true, schema: "walnutpi.webSessionAppend.v1", sessionId, event });
+        return json({
+          ok: true,
+          schema: "walnutpi.webSessionAppend.v1",
+          sessionId,
+          persistence: await webSessionLedger.persistenceStatus?.(),
+          event,
+        });
       }
 
       return json({ ok: false, error: "Method not allowed" }, 405);
