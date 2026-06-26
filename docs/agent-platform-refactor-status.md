@@ -93,6 +93,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `environment.deviceProfile`, `environment.target`, and request
   `sessionId`/`turnId`/`traceId`; tool arguments may set preview mode and
   approval token but cannot override subject or device target.
+- OPA policy now requires an authenticated owner role and matching org/device
+  binding between subject and environment before allowing read actions or
+  approved confirmable actions. Policy audit keeps only a public subject and
+  environment summary; private device targets are not exposed through public
+  projections.
 - `/api/agent/turn` now creates a request-scoped Mastra MCP workflow dispatcher
   before dispatching structured capabilities. Its internal `/mcp` call reuses
   the same server-derived auth context as direct `/mcp` requests instead of
@@ -104,6 +109,12 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `/api/auth/subject` projection. better-auth uses the control-plane Postgres
   tables `auth_user`, `auth_session`, `auth_account`, and `auth_verification`;
   DB-unavailable auth startup is an honest failure, not an in-memory fallback.
+- WalnutPi org/device/role subject binding is DB-owned through `walnut_orgs`,
+  `walnut_devices`, and `walnut_user_bindings`. Signed better-auth sessions
+  are resolved to a server-derived owner binding for the default WalnutPi
+  device before entering MCP/OPA. If that binding path cannot be persisted or
+  read, the signed session path fails instead of falling back to a
+  client-controlled role.
 - The Next/Tailwind console now has a compact session panel for email sign-up,
   sign-in, sign-out, and server-derived subject display. It does not submit
   client-controlled subject or role headers.
@@ -211,6 +222,9 @@ local-only or mock verification.
   real signed-in test session, resolves it as `better-auth-user`, and carries
   that signed subject through the `/api/agent/turn` -> Mastra MCP ->
   OPA/audit path without accepting spoofed subject/role headers.
+- `bun run verify:platform` verifies signed better-auth users resolve through
+  Postgres-backed org/device/owner bindings, and that OPA receives matching
+  subject and environment binding ids.
 - `bun run verify:platform` verifies the `/api/agent/turn` Mastra MCP workflow
   path uses request-derived auth context, reaches the `policy.action.prepare`
   no-command boundary, and does not admit spoofed subject/role headers into the
@@ -238,6 +252,9 @@ local-only or mock verification.
 - `bun run verify:platform` verifies the Drizzle schema exports and live
   Postgres tables for better-auth `auth_user`, `auth_session`, `auth_account`,
   and `auth_verification`.
+- `bun run verify:platform` verifies the Drizzle schema exports and live
+  Postgres tables for WalnutPi auth subject binding: `walnut_orgs`,
+  `walnut_devices`, and `walnut_user_bindings`.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
 tool results.
 - Policy pending smoke returned `noCommandExecution` evidence.
@@ -311,6 +328,12 @@ tool results.
   all reach final `mastra.mcp.*` operations. The prepare result issued an
   approval token without raw command exposure; commit returned the expected
   high-risk direct Web execution block without raw command exposure.
+- Live `bun run web` smoke verified better-auth HTTP sign-up produced a
+  `better-auth-user` subject with `bindingSource: postgres`, owner role, and
+  the default WalnutPi org/device binding. The same signed session reached
+  `/api/agent/turn` for `device.status.read` and `policy.action.prepare` with
+  final diagnostics operations `mastra.mcp.device.status.read` and
+  `mastra.mcp.policy.action.prepare`; no raw command field was exposed.
 - Playwright smoke rendered the Next console, clicked `Prepare restart`,
   observed the approval queue button, and found no raw command string in the
   visible UI.
@@ -324,8 +347,8 @@ device-profile verification, not offline verification.
 
 ## Next Work
 
-- Add org/device binding and role assignment on top of the current
-  Postgres-backed better-auth user/session path.
+- Add multi-org/device management and role-assignment UI/API on top of the
+  current Postgres-backed better-auth subject binding tables.
 - Move approved durable memory/retrieval to the curated DB path.
 - Move Screen Workspace, artifact panels, and device diagnostics into the
   Next/Tailwind console, then retire the static HTML console.

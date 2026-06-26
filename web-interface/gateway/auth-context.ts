@@ -4,7 +4,7 @@ type JsonObject = Record<string, any>;
 
 export async function createMcpAuthContext(req: Request, environment: JsonObject = {}): Promise<JsonObject> {
   const url = new URL(req.url);
-  const subject = await resolveWalnutSubjectFromRequest(req);
+  const subject = await resolveWalnutSubjectFromRequest(req, environment);
   return {
     subject: {
       ...subject,
@@ -13,8 +13,10 @@ export async function createMcpAuthContext(req: Request, environment: JsonObject
     environment: {
       ...environment,
       previewOnly: url.searchParams.get("previewOnly") === "1" || url.searchParams.get("preview") === "1",
-      deviceProfile: environment.deviceProfile || "device",
-      target: environment.target || null,
+      deviceProfile: subject.deviceProfile || environment.deviceProfile || "device",
+      target: subject.target || environment.target || null,
+      orgId: subject.orgId || environment.orgId || null,
+      deviceId: subject.deviceId || environment.deviceId || null,
     },
   };
 }
@@ -32,6 +34,8 @@ export function mergeToolAuthContext(base: JsonObject = {}, params: JsonObject =
       previewOnly: params.previewOnly === true || params.mode === "preview" || environment.previewOnly === true,
       deviceProfile: environment.deviceProfile || "device",
       target: environment.target || null,
+      orgId: environment.orgId || null,
+      deviceId: environment.deviceId || null,
     },
   };
 }

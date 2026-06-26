@@ -1,4 +1,4 @@
-import { bigserial, boolean, integer, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { bigserial, boolean, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const platformMigrations = pgTable("platform_migrations", {
   id: text("id").primaryKey(),
@@ -129,6 +129,37 @@ export const verification = pgTable("auth_verification", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
 });
+
+export const walnutOrgs = pgTable("walnut_orgs", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const walnutDevices = pgTable("walnut_devices", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull().references(() => walnutOrgs.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  deviceProfile: text("device_profile").notNull(),
+  target: text("target").notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const walnutUserBindings = pgTable("walnut_user_bindings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  orgId: text("org_id").notNull().references(() => walnutOrgs.id, { onDelete: "cascade" }),
+  deviceId: text("device_id").notNull().references(() => walnutDevices.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => [
+  uniqueIndex("walnut_user_bindings_user_device_role_idx").on(table.userId, table.deviceId, table.role),
+]);
 
 export const retrievalDocuments = pgTable("retrieval_documents", {
   id: uuid("id").primaryKey().defaultRandom(),

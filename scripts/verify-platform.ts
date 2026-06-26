@@ -271,6 +271,8 @@ const mcpFetch = async (url: string | URL, init?: RequestInit) => {
         previewOnly: false,
         deviceProfile: "device",
         target: "verify@walnutpi",
+        orgId: "local-control-plane",
+        deviceId: "default-walnutpi",
       },
     },
     toolCatalog,
@@ -578,11 +580,15 @@ const policyAuditWithContext = auditEvents.find((event) =>
   && event.decision?.schema === "walnutpi.action-policy-decision.v1"
 );
 record("policy.mcp-auth-context", {
-  ok: Boolean(policyAuditWithContext),
+  ok: Boolean(policyAuditWithContext)
+    && policyAuditWithContext?.decision?.audit?.subject?.orgId === "local-control-plane"
+    && policyAuditWithContext?.decision?.audit?.environment?.deviceId === "default-walnutpi",
   subjectKind: policyAuditWithContext?.subjectKind || null,
   deviceProfile: policyAuditWithContext?.deviceProfile || null,
   sessionId: policyAuditWithContext?.sessionId || null,
   turnId: policyAuditWithContext?.turnId || null,
+  orgId: policyAuditWithContext?.decision?.audit?.subject?.orgId || null,
+  deviceId: policyAuditWithContext?.decision?.audit?.environment?.deviceId || null,
 });
 
 const spoofedSubject = await resolveWalnutSubjectFromRequest(new Request("http://127.0.0.1:4173/mcp", {
@@ -594,6 +600,8 @@ const spoofedSubject = await resolveWalnutSubjectFromRequest(new Request("http:/
 record("auth.subject-server-derived", {
   ok: spoofedSubject.kind === "local-user"
     && spoofedSubject.userId === "local-owner"
+    && spoofedSubject.orgId === "local-control-plane"
+    && spoofedSubject.deviceId === "default-walnutpi"
     && Array.isArray(spoofedSubject.roles)
     && spoofedSubject.roles.includes("owner")
     && !spoofedSubject.roles.includes("admin"),
@@ -619,11 +627,20 @@ try {
   signedAuthCookie = cookieHeaderFromSetCookie(signUpResponse.headers.get("set-cookie") || "");
   signedAuthSubject = await resolveWalnutSubjectFromRequest(new Request("http://127.0.0.1:4173/mcp", {
     headers: signedAuthCookie ? { cookie: signedAuthCookie } : {},
-  }));
+  }), {
+    deviceProfile: "device",
+    target: "verify@walnutpi",
+  });
   record("auth.better-auth-session-subject", {
     ok: signUpResponse.ok
       && signedAuthSubject.kind === "better-auth-user"
       && signedAuthSubject.authenticated === true
+      && signedAuthSubject.bindingSource === "postgres"
+      && signedAuthSubject.roles?.includes?.("owner")
+      && signedAuthSubject.orgId === "local-control-plane"
+      && signedAuthSubject.deviceId === "default-walnutpi"
+      && signedAuthSubject.deviceProfile === "device"
+      && signedAuthSubject.target === "verify@walnutpi"
       && Boolean(signedAuthSubject.userId)
       && Boolean(signedAuthSubject.sessionId),
     signUpStatus: signUpResponse.status,
@@ -631,6 +648,10 @@ try {
     authenticated: signedAuthSubject.authenticated || false,
     hasUserId: Boolean(signedAuthSubject.userId),
     hasSessionId: Boolean(signedAuthSubject.sessionId),
+    roles: signedAuthSubject.roles || [],
+    orgId: signedAuthSubject.orgId || null,
+    deviceId: signedAuthSubject.deviceId || null,
+    bindingSource: signedAuthSubject.bindingSource || null,
   });
 } catch (error: any) {
   record("auth.better-auth-session-subject", { ok: false, error: error.message });
@@ -692,20 +713,28 @@ if (signedAuthCookie) {
     event.kind === "policy.action.prepare.recorded"
     && event.sessionId === signedSessionId
   );
+  const signedPolicyDecisionAudit = auditEvents.find((event) =>
+    event.kind === "policy.action.prepare.decision"
+    && event.sessionId === signedSessionId
+  );
   record("agent-turn-mcp-better-auth-context", {
     ok: signedPlatformTurn.turn?.ok === true
       && signedMcpAudit?.subjectKind === "better-auth-user"
       && signedMcpAudit?.deviceProfile === "device"
       && signedPolicyAudit?.subjectKind === "better-auth-user"
+      && signedPolicyDecisionAudit?.decision?.audit?.subject?.orgId === "local-control-plane"
+      && signedPolicyDecisionAudit?.decision?.audit?.environment?.deviceId === "default-walnutpi"
       && signedPolicyAudit?.noCommandExecution === true
-      && !JSON.stringify({ signedMcpAudit, signedPolicyAudit }).includes("admin")
+      && !JSON.stringify({ signedMcpAudit, signedPolicyAudit, signedPolicyDecisionAudit }).includes("admin")
       && signedPlatformTurn.turn?.toolResults?.some((item: JsonObject) =>
         item.diagnostics?.operation === "mastra.mcp.policy.action.prepare"
       ),
     subjectKind: signedMcpAudit?.subjectKind || null,
     policySubjectKind: signedPolicyAudit?.subjectKind || null,
     deviceProfile: signedMcpAudit?.deviceProfile || null,
-    spoofedRoleExposure: JSON.stringify({ signedMcpAudit, signedPolicyAudit }).includes("admin"),
+    orgId: signedPolicyDecisionAudit?.decision?.audit?.subject?.orgId || null,
+    deviceId: signedPolicyDecisionAudit?.decision?.audit?.environment?.deviceId || null,
+    spoofedRoleExposure: JSON.stringify({ signedMcpAudit, signedPolicyAudit, signedPolicyDecisionAudit }).includes("admin"),
   });
 } else {
   record("agent-turn-mcp-better-auth-context", {
@@ -861,6 +890,14 @@ record("db.better-auth-schema", {
     || table === "verification"
   ),
 });
+record("db.auth-subject-binding-schema", {
+  ok: Boolean(schema.walnutOrgs && schema.walnutDevices && schema.walnutUserBindings),
+  tables: Object.keys(schema).filter((table) =>
+    table === "walnutOrgs"
+    || table === "walnutDevices"
+    || table === "walnutUserBindings"
+  ),
+});
 if (db.sql) {
   try {
     const rows = await db.sql`
@@ -894,6 +931,22 @@ if (db.sql) {
   } catch (error: any) {
     record("db.better-auth-postgres-tables", { ok: false, error: error.message });
   } finally {
+    try {
+      const rows = await db.sql`
+        select table_name
+        from information_schema.tables
+        where table_schema = 'public'
+          and table_name in ('walnut_orgs', 'walnut_devices', 'walnut_user_bindings')
+        order by table_name
+      `;
+      const tableNames = rows.map((row: JsonObject) => row.table_name);
+      record("db.auth-subject-binding-postgres-tables", {
+        ok: ["walnut_devices", "walnut_orgs", "walnut_user_bindings"].every((table) => tableNames.includes(table)),
+        tables: tableNames,
+      });
+    } catch (error: any) {
+      record("db.auth-subject-binding-postgres-tables", { ok: false, error: error.message });
+    }
     await db.sql.end({ timeout: 1 });
   }
 }

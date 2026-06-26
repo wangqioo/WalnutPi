@@ -410,6 +410,8 @@ function publicSubject(subject: JsonObject) {
     roles: Array.isArray(subject.roles) ? subject.roles : [],
     userId: subject.userId || null,
     sessionId: subject.sessionId || null,
+    orgId: subject.orgId || null,
+    deviceId: subject.deviceId || null,
   };
 }
 
@@ -421,6 +423,8 @@ function subjectForTurn(turn: JsonObject) {
     roles: Array.isArray(subject.roles) ? subject.roles : [],
     userId: subject.userId || null,
     sessionId: subject.sessionId || turn.sessionId || null,
+    orgId: subject.orgId || null,
+    deviceId: subject.deviceId || null,
     approvalTokenProof: subject.approvalTokenProof === true,
   };
 }

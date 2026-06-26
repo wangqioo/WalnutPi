@@ -64,6 +64,8 @@ export function createOpaPolicyBoundary({
         action: resolved.action || null,
         parameterValues: resolved.parameterValues || {},
         regoDecision,
+        subject,
+        environment,
       });
     } catch (error: any) {
       return failClosedDecision({
@@ -71,6 +73,8 @@ export function createOpaPolicyBoundary({
         actionId: resolved.actionId || actionId,
         action: resolved.action || null,
         reason: `opa-unavailable:${error.message || "unknown"}`,
+        subject,
+        environment,
       });
     }
   }
@@ -194,7 +198,7 @@ function spawnWithInput(command: string, args: string[], input: string): Promise
   });
 }
 
-function normalizeOpaDecision({ actionId, action, parameterValues, regoDecision }: JsonObject): OpaActionPolicyDecision {
+function normalizeOpaDecision({ actionId, action, parameterValues, regoDecision, subject, environment }: JsonObject): OpaActionPolicyDecision {
   const status = regoDecision.status === "allow" ? "allow" : regoDecision.status === "pending" ? "pending" : "refused";
   const allow = status === "allow";
   return {
@@ -219,6 +223,8 @@ function normalizeOpaDecision({ actionId, action, parameterValues, regoDecision 
       risk: action?.risk || "unknown",
       policyVersion: "local-rego",
       matchedRules: [String(regoDecision.reason || status)],
+      subject: publicPolicySubject(subject),
+      environment: publicPolicyEnvironment(environment),
     },
     evidence: {
       kind: status === "pending" ? "pending-local-action" : status === "refused" ? "refused-local-action" : "allowed-local-action",
@@ -228,7 +234,7 @@ function normalizeOpaDecision({ actionId, action, parameterValues, regoDecision 
   };
 }
 
-function failClosedDecision({ local, actionId, action, reason }: JsonObject): OpaActionPolicyDecision {
+function failClosedDecision({ local, actionId, action, reason, subject, environment }: JsonObject): OpaActionPolicyDecision {
   const mustFailClosed = !action
     || action.risk === "high"
     || action.risk === "write-low"
@@ -241,7 +247,13 @@ function failClosedDecision({ local, actionId, action, reason }: JsonObject): Op
       engine: "local-manifest-fail-closed",
       decisionId: randomUUID(),
       reason: "opa-unavailable-read-action-local-allow",
-      audit: { risk: action?.risk || "unknown", policyVersion: "local-manifest", matchedRules: ["read-action-local-allow"] },
+      audit: {
+        risk: action?.risk || "unknown",
+        policyVersion: "local-manifest",
+        matchedRules: ["read-action-local-allow"],
+        subject: publicPolicySubject(subject),
+        environment: publicPolicyEnvironment(environment),
+      },
       evidence: { kind: "allowed-local-action", actionId, opaUnavailable: true },
     };
   }
@@ -258,19 +270,50 @@ function failClosedDecision({ local, actionId, action, reason }: JsonObject): Op
     requirements: action?.confirmationRequired
       ? { approval: { required: true, kind: "explicit-user-confirmation" } }
       : {},
-    audit: { risk: action?.risk || "unknown", policyVersion: "local-manifest", matchedRules: ["opa-unavailable-fail-closed"] },
+    audit: {
+      risk: action?.risk || "unknown",
+      policyVersion: "local-manifest",
+      matchedRules: ["opa-unavailable-fail-closed"],
+      subject: publicPolicySubject(subject),
+      environment: publicPolicyEnvironment(environment),
+    },
     evidence: { kind: "policy-fail-closed", actionId, noCommandExecution: true },
+  };
+}
+
+function publicPolicySubject(subject: JsonObject = {}) {
+  return {
+    kind: subject.kind || null,
+    authenticated: Boolean(subject.authenticated),
+    roles: Array.isArray(subject.roles) ? subject.roles.map(String).filter(Boolean).sort() : [],
+    userId: subject.userId || null,
+    sessionId: subject.sessionId || null,
+    orgId: subject.orgId || null,
+    deviceId: subject.deviceId || null,
+  };
+}
+
+function publicPolicyEnvironment(environment: JsonObject = {}) {
+  return {
+    previewOnly: environment.previewOnly === true,
+    deviceProfile: environment.deviceProfile || null,
+    orgId: environment.orgId || null,
+    deviceId: environment.deviceId || null,
   };
 }
 
 function defaultSubject() {
   return {
     kind: "local-user",
-      authenticated: true,
-      roles: ["owner"],
-      approvalToken: null,
-      approvalTokenProof: null,
-    };
+    authenticated: true,
+    roles: ["owner"],
+    userId: "local-owner",
+    sessionId: null,
+    orgId: "local-control-plane",
+    deviceId: "default-walnutpi",
+    approvalToken: null,
+    approvalTokenProof: null,
+  };
 }
 
 function defaultEnvironment() {
@@ -278,5 +321,7 @@ function defaultEnvironment() {
     previewOnly: false,
     deviceProfile: "device",
     target: null,
+    orgId: "local-control-plane",
+    deviceId: "default-walnutpi",
   };
 }

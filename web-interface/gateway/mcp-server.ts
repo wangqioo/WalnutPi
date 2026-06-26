@@ -93,7 +93,7 @@ export function createProductGatewayApp({
     auditLedger,
     readJsonRequest,
   });
-  registerAuthRoutes(app, { json });
+  registerAuthRoutes(app, { json, config });
   registerScreenRoutes(app, {
     json,
     previewOnly,
@@ -143,9 +143,12 @@ function registerProductRoutes(app: Hono, {
   app.all("/api/session", (c) => projectMemoryApi.handleSession(c.req, new URL(c.req.url)));
 }
 
-function registerAuthRoutes(app: Hono, { json }: JsonObject) {
+function registerAuthRoutes(app: Hono, { json, config }: JsonObject) {
   app.get("/api/auth/subject", async (c) => {
-    const subject = await resolveWalnutSubjectFromRequest(c.req.raw);
+    const subject = await resolveWalnutSubjectFromRequest(c.req.raw, {
+      deviceProfile: "device",
+      target: `${config.SSH_USER}@${config.SSH_HOST}`,
+    });
     return json({
       ok: true,
       schema: "walnutpi.authSubject.v1",
@@ -197,6 +200,10 @@ function publicSubject(subject: JsonObject) {
     roles: Array.isArray(subject.roles) ? subject.roles.map(String) : [],
     userId: subject.userId || null,
     sessionId: subject.sessionId || null,
+    orgId: subject.orgId || null,
+    deviceId: subject.deviceId || null,
+    deviceProfile: subject.deviceProfile || null,
+    bindingSource: subject.bindingSource || null,
   };
 }
 
