@@ -10,8 +10,10 @@ const READ_ONLY_TOOLS = new Set([
   "diagnostics.recentFailure",
   "device.network.read",
   "device.snapshot.read",
+  "device.i2c.read",
   "device.gpio.read",
   "device.notes.read",
+  "memory.sessionSummary",
 ]);
 
 export type WalnutMcpServerDeps = {

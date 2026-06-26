@@ -1,4 +1,3 @@
-import { actionIdForIntent, policyActionIdsForIntent } from "../action-registry.ts";
 import { type WalnutToolResult, failedToolResult, toolResult } from "../walnut-tool-results.ts";
 
 type JsonObject = Record<string, any>;
@@ -12,41 +11,10 @@ export function createToolDispatcher({
   opaEnforcer,
   auditLedger,
 }: JsonObject) {
-  async function dispatchIntent({
-    classification,
-    body,
-    turn,
-  }: {
-    classification: JsonObject;
-    body: JsonObject;
-    turn: JsonObject;
-  }): Promise<WalnutToolResult> {
-    const intent = String(classification?.intent || "");
-    const specialHandler = SPECIAL_INTENT_HANDLERS[intent];
-    if (specialHandler) return specialHandler({ body, turn, classification, intent });
-
-    if (intent.startsWith("policy.")) return handlePolicyIntent(intent, body, turn);
-
-    const actionId = actionIdForIntent(intent) || (classification?.route === "ai.chat" ? "ai" : null);
-    if (!actionId) {
-      return failedToolResult("diagnostics", `No platform tool is registered for intent ${intent || "(missing)"}`, {
-        operation: "tool.dispatch",
-      });
-    }
-
-    const result = await runPolicyGatedAction({
-      actionId,
-      body,
-      turn,
-      operation: actionId === "ai" ? "chat.reply" : "device.action",
-    });
-    return result;
-  }
-
   async function callTool(toolName: string, params: JsonObject, turn: JsonObject) {
     if (!toolName) return failedToolResult("diagnostics", "Tool name is required");
     if (toolName.startsWith("policy.")) {
-      return handlePolicyIntent(toolName, params, turn);
+      return handlePolicyTool(toolName, params, turn);
     }
     if (toolName.startsWith("screen.")) return handleScreenTool(toolName, params);
     if (toolName.startsWith("memory.")) return handleMemoryTool(toolName, params, turn);
@@ -106,17 +74,6 @@ export function createToolDispatcher({
       mode,
     });
   }
-
-  const SPECIAL_INTENT_HANDLERS: Record<string, (args: { body: JsonObject; turn: JsonObject; classification: JsonObject; intent: string }) => WalnutToolResult | Promise<WalnutToolResult>> = {
-    "session.summary": ({ turn }) => sessionSummary(turn),
-    "memory.preference": ({ body, turn }) => memoryPreference(body, turn),
-    "memory.sensitive_skip": ({ body, turn }) => memorySensitiveSkip(body, turn),
-    "diagnostics.recent_failure": ({ turn }) => recentFailure(turn),
-    "screen.state_frame.read": () => readScreenFrame(),
-    "screen.sync": ({ body }) => syncScreen(body),
-    "screen.generate": ({ intent }) => screenGenerationRequiresDslSource(intent),
-    "screen.widget_app.create": ({ intent }) => screenGenerationRequiresDslSource(intent),
-  };
 
   async function runPolicyGatedAction({
     actionId,
@@ -198,8 +155,8 @@ export function createToolDispatcher({
     });
   }
 
-  async function handlePolicyIntent(intent: string, body: JsonObject, turn: JsonObject) {
-    const actionIds = policyActionIdsForIntent(intent) || [];
+  async function handlePolicyTool(toolName: string, body: JsonObject, turn: JsonObject) {
+    const actionIds = POLICY_TOOL_ACTIONS[toolName] || [];
     const pending = actionIds.map((actionId: string) => ({
       schema: "walnutpi.action-policy-decision.v1",
       actionId,
@@ -222,7 +179,7 @@ export function createToolDispatcher({
       operation: "gateway.policy",
       ok: true,
       status: 409,
-      actionId: intent,
+      actionId: toolName,
       turnId: turn.turnId || null,
       sessionId: turn.sessionId || null,
       result: pending,
@@ -240,21 +197,6 @@ export function createToolDispatcher({
         noCommandExecution: true,
         noRemoteCommandExecution: true,
         userRequest: body.text,
-      },
-    });
-  }
-
-  function screenGenerationRequiresDslSource(intent: string) {
-    return toolResult("screen", {
-      ok: false,
-      summary: "Screen generation now requires an explicit Screen Command DSL source before rendering.",
-      result: {
-        operation: intent,
-        requiredCommand: "screen.renderWallpaper",
-      },
-      evidence: {
-        noAuthoritativeLlmManifest: true,
-        missingSourceRef: true,
       },
     });
   }
@@ -363,6 +305,7 @@ export function createToolDispatcher({
     if (toolName === "device.status.read") return "status";
     if (toolName === "device.network.read") return "network";
     if (toolName === "device.snapshot.read") return "snapshot";
+    if (toolName === "device.i2c.read") return "i2c_scan";
     if (toolName === "device.gpio.read") return "gpio";
     if (toolName === "device.notes.read") return "notes";
     if (toolName === "device.note.write") return "note";
@@ -385,7 +328,12 @@ export function createToolDispatcher({
   }
 
   return {
-    dispatchIntent,
     callTool,
   };
 }
+
+const POLICY_TOOL_ACTIONS: Record<string, string[]> = {
+  "policy.system_write": ["package-install", "reboot"],
+  "policy.service_restart": ["restart_walnut_screen_service"],
+  "policy.maintenance_guidance": ["storage-delete"],
+};

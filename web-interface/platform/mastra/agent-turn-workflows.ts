@@ -9,8 +9,10 @@ export const MASTRA_AGENT_TURN_CAPABILITIES = [
   "screen.readPlaylist",
   "device.network.read",
   "device.snapshot.read",
+  "device.i2c.read",
   "device.gpio.read",
   "device.notes.read",
+  "memory.sessionSummary",
 ] as const;
 
 export type MastraAgentTurnCapability = (typeof MASTRA_AGENT_TURN_CAPABILITIES)[number];
@@ -28,8 +30,10 @@ const MCP_TOOL_BY_CAPABILITY: Record<MastraAgentTurnCapability, string> = {
   "screen.readPlaylist": "walnutpi_screen.readPlaylist",
   "device.network.read": "walnutpi_device.network.read",
   "device.snapshot.read": "walnutpi_device.snapshot.read",
+  "device.i2c.read": "walnutpi_device.i2c.read",
   "device.gpio.read": "walnutpi_device.gpio.read",
   "device.notes.read": "walnutpi_device.notes.read",
+  "memory.sessionSummary": "walnutpi_memory.sessionSummary",
 };
 
 const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["family"]> = {
@@ -38,8 +42,10 @@ const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["
   "screen.readPlaylist": "screen",
   "device.network.read": "device",
   "device.snapshot.read": "device",
+  "device.i2c.read": "device",
   "device.gpio.read": "device",
   "device.notes.read": "device",
+  "memory.sessionSummary": "memory",
 };
 
 export function capabilityFromIntent(intent: string): MastraAgentTurnCapability | null {
@@ -153,6 +159,7 @@ function normalizeToolResult(value: any, diagnostics: JsonObject): WalnutToolRes
 function normalizeCapabilityName(intent: string) {
   if (intent === "diagnostics.recent_failure") return "diagnostics.recentFailure";
   if (intent === "screen.read_playlist") return "screen.readPlaylist";
+  if (intent === "session.summary") return "memory.sessionSummary";
   return intent;
 }
 

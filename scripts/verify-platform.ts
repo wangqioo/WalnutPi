@@ -146,9 +146,11 @@ try {
   const expectedMcpTools = [
     "walnutpi_screen.readPlaylist",
     "walnutpi_diagnostics.recentFailure",
+    "walnutpi_memory.sessionSummary",
     "walnutpi_device.status.read",
     "walnutpi_device.network.read",
     "walnutpi_device.snapshot.read",
+    "walnutpi_device.i2c.read",
     "walnutpi_device.gpio.read",
     "walnutpi_device.notes.read",
   ];
@@ -159,9 +161,11 @@ try {
   const mcpCallTargets = [
     ["screen.readPlaylist", "walnutpi_screen.readPlaylist", { playlistId: "default" }],
     ["diagnostics.recentFailure", "walnutpi_diagnostics.recentFailure", {}],
+    ["memory.sessionSummary", "walnutpi_memory.sessionSummary", {}],
     ["device.status.read", "walnutpi_device.status.read", {}],
     ["device.network.read", "walnutpi_device.network.read", {}],
     ["device.snapshot.read", "walnutpi_device.snapshot.read", {}],
+    ["device.i2c.read", "walnutpi_device.i2c.read", {}],
     ["device.gpio.read", "walnutpi_device.gpio.read", {}],
     ["device.notes.read", "walnutpi_device.notes.read", {}],
   ] as const;
@@ -214,7 +218,9 @@ const turnCapabilities = [
   "screen.readPlaylist",
   "device.network.read",
   "device.snapshot.read",
+  "device.i2c.read",
   "device.gpio.read",
+  "memory.sessionSummary",
 ] satisfies MastraAgentTurnCapability[];
 let platformTurnOkCount = 0;
 for (const capability of turnCapabilities) {

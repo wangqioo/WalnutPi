@@ -15,6 +15,10 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - `/api/agent/turn` now routes through `web-interface/agent-platform-turn-route.ts`
   for request handling, ledger writes, and typed-result projection only. It no
   longer dispatches unsupported capabilities to the old local dispatcher.
+- `web-interface/gateway/tool-dispatcher.ts` no longer exposes an intent
+  dispatch entry. It is now the MCP/domain tool dispatcher used by `/mcp`, and
+  executable device tools still pass through the OPA policy gate before command
+  construction.
 - Supported structured read-only capabilities enter
   `web-interface/platform/mastra/agent-turn-workflows.ts`, call `@mastra/mcp`
   against `/mcp`, then project typed tool results into
@@ -56,8 +60,8 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   removed.
 - The SDK tool surface now exposes the read-only platform slice:
   `screen.readPlaylist`, `diagnostics.recentFailure`, `device.status.read`,
-  `device.network.read`, `device.snapshot.read`, `device.gpio.read`, and
-  `device.notes.read`.
+  `device.network.read`, `device.snapshot.read`, `device.i2c.read`,
+  `device.gpio.read`, `device.notes.read`, and `memory.sessionSummary`.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -98,8 +102,8 @@ local-only or mock verification.
   surface through `@mastra/mcp`.
 - Live `POST /api/agent/turn` with a structured `device.status.read`
   continuation completed through `mastra.mcp.device.status.read`.
-- `bun run verify:platform` now verifies at least seven `/mcp` tools/list
-  entries, seven MCP tools/call invocations, and five structured
+- `bun run verify:platform` now verifies at least nine `/mcp` tools/list
+  entries, nine MCP tools/call invocations, and seven structured
   `/api/agent/turn` slices through Mastra MCP workflow dispatch.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
 tool results.

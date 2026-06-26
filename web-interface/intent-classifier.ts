@@ -9,6 +9,7 @@ const READ_ONLY_CONTINUATION_INTENTS = new Set([
   "screen.state_frame.read",
   "diagnostics.recentFailure",
   "diagnostics.recent_failure",
+  "memory.sessionSummary",
   "session.summary",
 ]);
 

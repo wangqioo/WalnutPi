@@ -15,6 +15,7 @@ const DEVICE_TOOL_NAMES = [
   "device.status.read",
   "device.network.read",
   "device.snapshot.read",
+  "device.i2c.read",
   "device.gpio.read",
   "device.notes.read",
   "device.note.write",
@@ -119,6 +120,7 @@ function toolActionId(name: string) {
   if (name === "device.status.read") return "status";
   if (name === "device.network.read") return "network";
   if (name === "device.snapshot.read") return "snapshot";
+  if (name === "device.i2c.read") return "i2c_scan";
   if (name === "device.gpio.read") return "gpio";
   if (name === "device.notes.read") return "notes";
   if (name === "device.note.write") return "note";

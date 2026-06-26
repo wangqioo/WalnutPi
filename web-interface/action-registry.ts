@@ -16,33 +16,6 @@ import { actionSummary, actionsForExecutor, normalizeActionPolicyManifest } from
 // Synchronous exports — usable without loading the manifest
 // ═══════════════════════════════════════════════════════════════════════════
 
-// -- Intent → action ID mapping (replace ACTION_BY_INTENT) ------------------
-// Add a new entry here when adding a new action + intent.
-
-export function actionIdForIntent(intent) {
-  return INTENT_TO_ACTION[intent] || null;
-}
-
-export function policyActionIdsForIntent(intent) {
-  return INTENT_TO_POLICY_ACTIONS[intent] || null;
-}
-
-const INTENT_TO_ACTION = Object.freeze({
-  "device.status.read": "status",
-  "device.network.read": "network",
-  "device.snapshot.read": "snapshot",
-  "device.i2c.read": "i2c_scan",
-  "device.gpio.read": "gpio",
-  "device.notes.read": "notes",
-  "device.note.write": "note",
-});
-
-const INTENT_TO_POLICY_ACTIONS = Object.freeze({
-  "policy.system_write": ["package-install", "reboot"],
-  "policy.service_restart": ["restart_walnut_screen_service"],
-  "policy.maintenance_guidance": ["storage-delete"],
-});
-
 // -- Safe continuation detection --------------------------------------------
 
 const SAFE_ACTION_IDS = new Set(["status", "network", "snapshot", "gpio", "notes"]);
@@ -102,14 +75,6 @@ export function createActionRegistry({ manifestPath, shellQuote, aiTimeoutSecond
   }
 
   // -- Intent routing -------------------------------------------------------
-
-  function actionIdForIntent(intent) {
-    return INTENT_TO_ACTION[intent] || null;
-  }
-
-  function policyActionIdsForIntent(intent) {
-    return INTENT_TO_POLICY_ACTIONS[intent] || null;
-  }
 
   // -- Action metadata (from manifest) --------------------------------------
 
@@ -177,8 +142,6 @@ export function createActionRegistry({ manifestPath, shellQuote, aiTimeoutSecond
 
   return {
     loadManifest,
-    actionIdForIntent,
-    policyActionIdsForIntent,
     getAction,
     getWebActions,
     getActionSummary,

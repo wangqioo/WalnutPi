@@ -33,6 +33,7 @@ export const CLASSIFIER_INTENTS = [
   "device.network.read",
   "device.gpio.read",
   "device.notes.read",
+  "memory.sessionSummary",
   "device.note.write",
   "memory.preference",
   "memory.sensitive_skip",
@@ -59,6 +60,7 @@ export function intentTypeToRoute(intent: string, fields: IntentRouteFields = {}
     "device.network.read": ["device.action", "read"],
     "device.gpio.read": ["device.action", "read"],
     "device.notes.read": ["memory.notes", "read"],
+    "memory.sessionSummary": ["ai.chat", "answer"],
     "device.note.write": ["memory.notes", "write"],
     "memory.preference": ["memory.notes", "write"],
     "memory.sensitive_skip": ["memory.notes", "refuse"],
@@ -95,7 +97,9 @@ function readOnlyIntent(intent: string) {
   return intent?.startsWith("device.")
     || intent?.startsWith("diagnostics.")
     || intent === "screen.state_frame.read"
-    || intent === "screen.readPlaylist";
+    || intent === "screen.readPlaylist"
+    || intent === "memory.sessionSummary"
+    || intent === "session.summary";
 }
 
 function normalizeIntentSource(source?: string) {
