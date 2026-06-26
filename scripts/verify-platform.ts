@@ -27,6 +27,7 @@ import { createLocalOwnerAuthContext, resolveWalnutSubjectFromRequest } from "..
 import { createScreenCommandRunner } from "../web-interface/screen-command-runner.ts";
 import { createScreenWorkspaceStore } from "../web-interface/screen-workspace-store.ts";
 import { createToolDispatcher } from "../web-interface/gateway/tool-dispatcher.ts";
+import { publicGatewayAuditEventFromRecord } from "../web-interface/gateway/audit-ledger.ts";
 import { createMemoryActionApprovalStore } from "../web-interface/platform/policy/action-approval-store.ts";
 import { getAiModelConfig, getAuthConfig, getDbConfig, getLangfuseConfig } from "../web-interface/platform/config/platform-config.ts";
 import { processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "./screen-workspace-pipeline.ts";
@@ -599,6 +600,71 @@ record("auth.subject-server-derived", {
   subjectKind: spoofedSubject.kind,
   userId: spoofedSubject.userId || null,
   roles: spoofedSubject.roles || [],
+});
+
+const publicAuditProjection = publicGatewayAuditEventFromRecord({
+  timestamp: new Date().toISOString(),
+  kind: "mcp.sdk.tool",
+  operation: "tools/call",
+  ok: true,
+  status: 200,
+  toolName: "device.status.read",
+  sessionId: "verify-public-audit",
+  turnId: "verify-public-audit-turn",
+  subjectKind: "local-user",
+  deviceProfile: "device",
+  decision: {
+    schema: "walnutpi.action-policy-decision.v1",
+    engine: "opa-cli",
+    decisionId: "verify-decision",
+    actionId: "status",
+    allow: true,
+    status: "allow",
+    reason: "local-action-allowed",
+    audit: {
+      risk: "read",
+      policyVersion: "local-rego",
+      matchedRules: ["local-action-allowed"],
+    },
+    evidence: {
+      noCommandExecution: false,
+    },
+    action: {
+      web: {
+        command: "walnut action run status --json",
+      },
+    },
+  },
+  result: {
+    schema: "walnutpi.toolResult.device.v1",
+    ok: true,
+    family: "device",
+    result: {
+      operation: "device.action",
+      actionId: "status",
+      output: "private device output",
+      command: "walnut action run status --json",
+    },
+  },
+  evidence: {
+    output: "private evidence",
+    rawCommand: "walnut action run status --json",
+  },
+  params: {
+    text: "private params",
+  },
+});
+const publicAuditJson = JSON.stringify(publicAuditProjection);
+record("gateway.audit-public-projection", {
+  ok: publicAuditProjection.schema === "walnutpi.gatewayAuditEvent.public.v1"
+    && publicAuditProjection.payloadsRedacted === true
+    && !publicAuditJson.includes("walnut action run")
+    && !publicAuditJson.includes("private device output")
+    && !publicAuditJson.includes("private evidence")
+    && !publicAuditJson.includes("private params"),
+  rawCommandExposure: publicAuditJson.includes("walnut action run"),
+  privateOutputExposure: publicAuditJson.includes("private device output"),
+  privateParamsExposure: publicAuditJson.includes("private params"),
 });
 
 try {

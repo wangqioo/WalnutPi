@@ -123,6 +123,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   Postgres `audit_events` table. `web-interface/gateway/audit-ledger.ts` no
   longer writes `data/gateway-audit.jsonl`; DB-unavailable writes report an
   explicit skipped persistence result instead of falling back to JSONL.
+- `/api/gateway/audit-events` exposes a public audit projection from
+  `audit_events` for diagnostics. The projection includes operation metadata,
+  ids, hashes, policy summary, subject kind, and device profile, but does not
+  expose raw params, raw decision bodies, raw result payloads, raw evidence
+  payloads, command strings, approval tokens, or device output.
 - Active Web session events, agent turn snapshots, and agent turn events now
   persist through Postgres tables `web_session_events`,
   `agent_turn_snapshots`, and `agent_turn_events`. The active ledgers do not
@@ -142,11 +147,12 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `mastra.mcp.<capability>`.
 - `web-interface/next-app/` now contains the first Tailwind-based Next.js
   Walnut Agent Console slice. It provides chat/tool result panels, route and
-  evidence diagnostics, quick Mastra/MCP capability actions, and an approval
-  queue around `policy.action.prepare`/`policy.action.commit`. The approval UI
-  approves only prepared catalog actions plus normalized params and approval
-  proof; it does not display or submit raw command strings. Next rewrites
-  `/api/*` and `/mcp` to the Hono platform server during local development.
+  evidence diagnostics, a redacted Postgres audit trail, quick Mastra/MCP
+  capability actions, and an approval queue around
+  `policy.action.prepare`/`policy.action.commit`. The approval UI approves only
+  prepared catalog actions plus normalized params and approval proof; it does
+  not display or submit raw command strings. Next rewrites `/api/*` and `/mcp`
+  to the Hono platform server during local development.
 - `web-interface/platform/policy/opa-boundary.ts` runs OPA CLI decisions for
   the active tool-dispatch policy gate, with local manifest fail-closed behavior
   when OPA is unavailable.
@@ -195,6 +201,9 @@ local-only or mock verification.
   path uses request-derived auth context, reaches the `policy.action.prepare`
   no-command boundary, and does not admit spoofed subject/role headers into the
   MCP or approval audit rows.
+- `bun run verify:platform` verifies the public gateway audit projection redacts
+  raw command strings, private device output, private evidence, and private
+  params.
 - `bun run verify:platform` verifies `policy.action.prepare` produces no command
   execution, `policy.action.commit` requires the approval proof, and high-risk
   direct Web execution remains blocked without exposing command strings.
@@ -276,6 +285,10 @@ tool results.
   `/api/agent/turn-events` returned four Postgres-backed events, and neither
   response exposed raw command fields.
 - `bun run next:build` passes for the Next/Tailwind console.
+- The ignored local `web-interface/data/gateway-audit.jsonl`,
+  `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
+  were deleted from the workspace after the Postgres paths became the active
+  ledgers.
 - Live Next proxy smoke through `http://127.0.0.1:3000/api/agent/turn` verified
   `device.status.read`, `policy.action.prepare`, and `policy.action.commit`
   all reach final `mastra.mcp.*` operations. The prepare result issued an

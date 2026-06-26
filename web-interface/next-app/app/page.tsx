@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type JsonObject = Record<string, any>;
 
@@ -29,6 +29,26 @@ type PlatformTurn = JsonObject & {
   userSummary?: string;
 };
 
+type AuditEvent = {
+  actionId?: string | null;
+  decisionId?: string | null;
+  deviceProfile?: string | null;
+  evidenceSummary?: JsonObject | null;
+  kind: string;
+  ok?: boolean | null;
+  operation?: string | null;
+  paramsHash?: string | null;
+  payloadsRedacted?: boolean;
+  policy?: JsonObject | null;
+  result?: JsonObject | null;
+  sessionId?: string | null;
+  status?: number | null;
+  subjectKind?: string | null;
+  timestamp: string;
+  toolName?: string | null;
+  turnId?: string | null;
+};
+
 const QUICK_CAPABILITIES = [
   { label: "Device status", capability: "device.status.read", text: "device.status.read" },
   { label: "Screen playlist", capability: "screen.readPlaylist", text: "screen.readPlaylist" },
@@ -43,10 +63,15 @@ export default function WalnutConsolePage() {
   ]);
   const [lastTurn, setLastTurn] = useState<PlatformTurn | null>(null);
   const [approvals, setApprovals] = useState<PreparedApproval[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [error, setError] = useState("");
 
   const sessionId = useMemo(() => getSessionId(), []);
   const latestTool = lastTurn?.toolResults?.at(-1) || null;
+
+  useEffect(() => {
+    refreshAuditEvents();
+  }, []);
 
   async function submitPrompt(event: FormEvent) {
     event.preventDefault();
@@ -63,6 +88,7 @@ export default function WalnutConsolePage() {
     try {
       const turn = await postTurn({ text, sessionId });
       acceptTurn(turn);
+      await refreshAuditEvents();
     } catch (caught: any) {
       setError(caught.message);
       addMessage("assistant", caught.message);
@@ -78,6 +104,7 @@ export default function WalnutConsolePage() {
     try {
       const turn = await postTurn({ sessionId, ...input });
       acceptTurn(turn);
+      await refreshAuditEvents();
     } catch (caught: any) {
       setError(caught.message);
       addMessage("assistant", caught.message);
@@ -104,6 +131,7 @@ export default function WalnutConsolePage() {
       acceptTurn(turn);
       const ok = Boolean(turn.toolResults?.at(-1)?.ok);
       setApprovals((items) => items.map((item) => item.decisionId === approval.decisionId ? { ...item, status: ok ? "committed" : "failed" } : item));
+      await refreshAuditEvents();
     } catch (caught: any) {
       setError(caught.message);
       addMessage("assistant", caught.message);
@@ -124,6 +152,16 @@ export default function WalnutConsolePage() {
 
   function addMessage(role: Message["role"], text: string) {
     setMessages((items) => [...items, { id: cryptoId(), role, text }]);
+  }
+
+  async function refreshAuditEvents() {
+    try {
+      const response = await fetch("/api/gateway/audit-events?limit=12", { cache: "no-store" });
+      const data = await response.json();
+      setAuditEvents(Array.isArray(data.events) ? data.events : []);
+    } catch {
+      setAuditEvents([]);
+    }
   }
 
   return (
@@ -212,6 +250,14 @@ export default function WalnutConsolePage() {
             ) : <EmptyLine text="No tool call yet." />}
           </Panel>
 
+          <Panel title="Audit trail">
+            <div className="grid gap-2">
+              {auditEvents.length ? auditEvents.slice().reverse().map((event) => (
+                <AuditEventRow event={event} key={`${event.timestamp}-${event.kind}-${event.decisionId || event.turnId || event.toolName || event.operation}`} />
+              )) : <EmptyLine text="No audit events yet." />}
+            </div>
+          </Panel>
+
           <Panel title="Route">
             <div className="grid gap-2 font-mono text-xs text-[#aeb8b3]">
               <KeyValue label="route" value={lastTurn?.route?.route || "-"} />
@@ -228,6 +274,30 @@ export default function WalnutConsolePage() {
         </aside>
       </div>
     </main>
+  );
+}
+
+function AuditEventRow({ event }: { event: AuditEvent }) {
+  const ok = event.ok === false ? "failed" : event.status === 409 ? "pending" : event.ok === true ? "ok" : "seen";
+  const policy = event.policy || {};
+  const result = event.result || {};
+  return (
+    <article className="grid gap-2 border border-[#252b2b] bg-[#0d0f0f] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="font-mono text-xs text-[#d5d0c4]">{event.kind}</div>
+        <div className="border border-[#35403f] px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-[#9eb7b2]">{ok}</div>
+      </div>
+      <div className="grid gap-1 font-mono text-[11px] leading-5 text-[#9fa9a4]">
+        <div>{formatDate(event.timestamp)}</div>
+        <div>{event.toolName || result.operation || event.operation || "-"}</div>
+        {event.actionId || policy.actionId || result.actionId ? <div>action {event.actionId || policy.actionId || result.actionId}</div> : null}
+        {event.decisionId ? <div>decision {shortId(event.decisionId)}</div> : null}
+        {event.paramsHash ? <div>paramsHash {shortId(event.paramsHash)}</div> : null}
+        <div>subject {event.subjectKind || "-"} / {event.deviceProfile || "-"}</div>
+        {policy.status ? <div>policy {policy.status} {policy.reason || ""}</div> : null}
+        {event.evidenceSummary?.noCommandExecution ? <div>no command construction</div> : null}
+      </div>
+    </article>
   );
 }
 
@@ -355,6 +425,10 @@ function safeParamsSummary(params: JsonObject) {
 function formatDate(value: string) {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? "-" : date.toLocaleString();
+}
+
+function shortId(value: string) {
+  return value.length > 18 ? `${value.slice(0, 10)}...${value.slice(-6)}` : value;
 }
 
 function redactToolEvidence(evidence: JsonObject) {

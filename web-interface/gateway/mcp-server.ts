@@ -149,6 +149,22 @@ function registerGatewayRoutes(app: Hono, {
   auditLedger,
 }: JsonObject) {
   app.get("/api/gateway/tools", () => json(gatewayTools.listTools()));
+  app.get("/api/gateway/audit-events", async (c) => {
+    const url = new URL(c.req.url);
+    const limit = Number(url.searchParams.get("limit") || 50);
+    const events = await auditLedger.readPublicRecent?.(Number.isFinite(limit) ? limit : 50);
+    return json({
+      ok: true,
+      schema: "walnutpi.gatewayAuditEvents.public.v1",
+      events: Array.isArray(events) ? events : [],
+      redaction: {
+        rawParams: false,
+        rawDecision: false,
+        rawResult: false,
+        rawEvidence: false,
+      },
+    });
+  });
   app.all("/mcp", async (c) => handleWalnutMcpRequest(c.req.raw, {
     auditLedger,
     authContext: await createMcpAuthContext(c.req.raw, {

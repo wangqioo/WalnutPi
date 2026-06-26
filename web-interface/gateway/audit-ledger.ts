@@ -85,9 +85,15 @@ export function createGatewayAuditLedger({
     }
   }
 
+  async function readPublicRecent(requestedLimit = 100) {
+    const rows = await readRecent(Math.max(1, Math.min(200, requestedLimit)));
+    return rows.map(publicGatewayAuditEventFromRecord);
+  }
+
   return {
     append,
     readRecent,
+    readPublicRecent,
   };
 }
 
@@ -176,4 +182,65 @@ function objectOrNull(value: any) {
 
 function dateIso(value: any) {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+export function publicGatewayAuditEventFromRecord(event: JsonObject) {
+  const decision = objectOrNull(event.decision);
+  const result = objectOrNull(event.result);
+  const evidence = objectOrNull(event.evidence);
+  return {
+    schema: "walnutpi.gatewayAuditEvent.public.v1",
+    timestamp: event.timestamp,
+    kind: event.kind,
+    operation: event.operation,
+    ok: event.ok,
+    status: event.status,
+    actionId: event.actionId,
+    toolName: event.toolName,
+    toolOperation: event.toolOperation,
+    sessionId: event.sessionId,
+    turnId: event.turnId,
+    traceId: event.traceId,
+    requestId: event.requestId,
+    subjectKind: event.subjectKind,
+    deviceProfile: event.deviceProfile,
+    decisionId: event.decisionId || decision?.decisionId || null,
+    freshDecisionId: event.freshDecisionId,
+    paramsHash: event.paramsHash,
+    subjectHash: event.subjectHash,
+    commandBindingId: event.commandBindingId,
+    reason: event.reason || decision?.reason || null,
+    policy: decision ? {
+      schema: decision.schema || null,
+      engine: decision.engine || null,
+      actionId: decision.actionId || event.actionId || null,
+      allow: typeof decision.allow === "boolean" ? decision.allow : null,
+      status: decision.status || null,
+      reason: decision.reason || null,
+      risk: decision.audit?.risk || null,
+      policyVersion: decision.audit?.policyVersion || null,
+      matchedRules: Array.isArray(decision.audit?.matchedRules)
+        ? decision.audit.matchedRules.map(String).slice(0, 8)
+        : [],
+      noCommandExecution: decision.evidence?.noCommandExecution === true,
+    } : null,
+    result: result ? {
+      schema: result.schema || null,
+      family: result.family || null,
+      ok: typeof result.ok === "boolean" ? result.ok : null,
+      operation: result.result?.operation || result.diagnostics?.operation || null,
+      actionId: result.result?.actionId || null,
+      policyDecisionId: result.diagnostics?.policyDecisionId || null,
+    } : null,
+    evidenceSummary: evidence ? {
+      noCommandExecution: evidence.noCommandExecution === true,
+      noRemoteCommandExecution: evidence.noRemoteCommandExecution === true,
+      pendingLocalAction: evidence.pendingLocalAction === true,
+      preparedLocalAction: evidence.preparedLocalAction === true,
+      highRiskDirectExecutionBlocked: evidence.highRiskDirectExecutionBlocked === true,
+      dbProductStatePersisted: evidence.dbProductState?.persisted ?? null,
+    } : null,
+    payloadsRedacted: true,
+    persisted: event.persisted === true,
+  };
 }
