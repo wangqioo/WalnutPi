@@ -29,13 +29,16 @@ export function createAgentPlatformTurnRoute({
         return json({ ok: false, error: error.message }, 400);
       }
 
+      const scopedMastraWorkflows = typeof mastraWorkflows?.forRequest === "function"
+        ? await mastraWorkflows.forRequest(requestForWorkflow(req))
+        : mastraWorkflows;
       const outcome = await runAgentPlatformTurn({
         body,
         classifyIntent,
         turnLedger,
         eventLedger,
         metricsLedger,
-        mastraWorkflows,
+        mastraWorkflows: scopedMastraWorkflows,
       });
       return json(outcome.turn, outcome.status);
     },
@@ -63,6 +66,10 @@ export function createAgentPlatformTurnRoute({
       });
     },
   };
+}
+
+function requestForWorkflow(req: any) {
+  return req?.raw instanceof Request ? req.raw : req;
 }
 
 export async function runAgentPlatformTurn({

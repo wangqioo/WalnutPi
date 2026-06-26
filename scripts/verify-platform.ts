@@ -30,6 +30,7 @@ import { createToolDispatcher } from "../web-interface/gateway/tool-dispatcher.t
 import { createMemoryActionApprovalStore } from "../web-interface/platform/policy/action-approval-store.ts";
 import { getAiModelConfig, getAuthConfig, getDbConfig, getLangfuseConfig } from "../web-interface/platform/config/platform-config.ts";
 import { processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "./screen-workspace-pipeline.ts";
+import { createMcpAuthContext } from "../web-interface/gateway/auth-context.ts";
 
 type JsonObject = Record<string, any>;
 
@@ -437,6 +438,77 @@ const mastraDispatch = createMastraAgentTurnWorkflowDispatcher({
       endpoint: "http://127.0.0.1:4173/mcp",
       fetchImpl: mcpFetch as any,
       id: `verify-turn-${randomUUID()}`,
+});
+
+const agentTurnAuditEvents: JsonObject[] = [];
+const agentTurnRequest = new Request("http://127.0.0.1:4173/api/agent/turn?previewOnly=1", {
+  headers: {
+    "x-walnut-subject": "attacker",
+    "x-walnut-roles": "admin",
+  },
+});
+const agentTurnAuthContext = await createMcpAuthContext(agentTurnRequest, {
+  deviceProfile: "device",
+  target: "verify@walnutpi",
+});
+const requestScopedMastraDispatch = createMastraAgentTurnWorkflowDispatcher({
+  endpoint: "http://127.0.0.1:4173/mcp",
+  fetchImpl: ((url, init) => {
+    const request = new Request(url, init);
+    return handleWalnutMcpRequest(request, {
+      authContext: agentTurnAuthContext,
+      toolCatalog,
+      toolDispatcher,
+      auditLedger: {
+        async append(record: JsonObject) {
+          agentTurnAuditEvents.push(record);
+        },
+      },
+    });
+  }) as any,
+  id: `verify-turn-request-auth-${randomUUID()}`,
+});
+const requestScopedPlatformTurn = await runAgentPlatformTurn({
+  body: {
+    capability: "policy.action.prepare",
+    text: "policy.action.prepare",
+    sessionId: "verify-agent-turn-auth",
+    actionId: "restart_walnut_screen_service",
+    params: {},
+  },
+  classifyIntent: async () => {
+    throw new Error("structured capability unexpectedly called the classifier");
+  },
+  turnLedger: { async appendTurn() {} },
+  eventLedger: { async appendEvent() {} },
+  metricsLedger,
+  mastraWorkflows: { dispatch: requestScopedMastraDispatch },
+});
+const requestScopedMcpAudit = agentTurnAuditEvents.find((event) =>
+  event.kind === "mcp.sdk.tool"
+  && event.sessionId === "verify-agent-turn-auth"
+  && event.toolName === "policy.action.prepare"
+);
+const requestScopedPolicyAudit = auditEvents.find((event) =>
+  event.kind === "policy.action.prepare.recorded"
+  && event.sessionId === "verify-agent-turn-auth"
+);
+record("agent-turn-mcp-auth-context", {
+  ok: requestScopedPlatformTurn.turn?.ok === true
+    && requestScopedMcpAudit?.subjectKind === "local-user"
+    && requestScopedMcpAudit?.deviceProfile === "device"
+    && requestScopedPolicyAudit?.noCommandExecution === true
+    && !JSON.stringify(requestScopedPolicyAudit).includes("admin")
+    && !JSON.stringify(requestScopedMcpAudit).includes("admin")
+    && requestScopedPlatformTurn.turn?.toolResults?.some((item: JsonObject) =>
+      item.diagnostics?.operation === "mastra.mcp.policy.action.prepare"
+    ),
+  subjectKind: requestScopedMcpAudit?.subjectKind || null,
+  deviceProfile: requestScopedMcpAudit?.deviceProfile || null,
+  sessionId: requestScopedMcpAudit?.sessionId || null,
+  mcpAuditKind: requestScopedMcpAudit?.kind || null,
+  policyAuditKind: requestScopedPolicyAudit?.kind || null,
+  spoofedRoleExposure: JSON.stringify({ requestScopedMcpAudit, requestScopedPolicyAudit }).includes("admin"),
 });
 
 const turnCapabilities = [

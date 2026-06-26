@@ -25,6 +25,7 @@ import { createScreenCommandRunner } from "./screen-command-runner.ts";
 import { createWalnutMastraAgentApi } from "./mastra-agent-api.ts";
 import { createStaticUiHost } from "./static-ui-host.ts";
 import { createProductGatewayApp, createProductGatewayFetch } from "./gateway/mcp-server.ts";
+import { createMcpAuthContext } from "./gateway/auth-context.ts";
 import { createGatewayToolCatalog } from "./gateway/tool-catalog.ts";
 import { handleWalnutMcpRequest } from "./platform/mcp/server.ts";
 import { createMastraAgentTurnWorkflowDispatcher } from "./platform/mastra/agent-turn-workflows.ts";
@@ -32,7 +33,6 @@ import { createOpaEnforcer } from "./gateway/opa-enforcer.ts";
 import { createToolDispatcher } from "./gateway/tool-dispatcher.ts";
 import { createGatewayAuditLedger } from "./gateway/audit-ledger.ts";
 import { createOpaPolicyBoundary } from "./platform/policy/opa-boundary.ts";
-import { createLocalOwnerAuthContext } from "./platform/auth/auth.ts";
 import { getAiModelConfig } from "./platform/config/platform-config.ts";
 import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-classifier.ts";
 import { compactRetrievalForPrompt, retrieveWalnutContext as retrieveWalnutContextWithOptions } from "./walnut-retrieval.ts";
@@ -734,23 +734,24 @@ const agentPlatform = createAgentPlatformTurnRoute({
   eventLedger: agentTurnEventLedger,
   metricsLedger: webMetricsLedger,
   mastraWorkflows: {
-    dispatch: createMastraAgentTurnWorkflowDispatcher({
-      endpoint: "http://127.0.0.1:4173/mcp",
-      fetchImpl: ((url, init) => handleWalnutMcpRequest(new Request(url, init), {
-        auditLedger: gatewayAuditLedger,
-        authContext: {
-          subject: createLocalOwnerAuthContext(),
-          environment: {
-            previewOnly: false,
-            deviceProfile: "device",
-            target: `${SSH_USER}@${SSH_HOST}`,
-          },
-        },
-        toolCatalog: createGatewayToolCatalog({ policyActions: ACTION_POLICY_MANIFEST.actions || {} }),
-        toolDispatcher,
-      })) as any,
-      id: "agent-turn-workflow",
-    }),
+    async forRequest(req: Request) {
+      const authContext = await createMcpAuthContext(req, {
+        deviceProfile: "device",
+        target: `${SSH_USER}@${SSH_HOST}`,
+      });
+      return {
+        dispatch: createMastraAgentTurnWorkflowDispatcher({
+          endpoint: "http://127.0.0.1:4173/mcp",
+          fetchImpl: ((url, init) => handleWalnutMcpRequest(new Request(url, init), {
+            auditLedger: gatewayAuditLedger,
+            authContext,
+            toolCatalog: createGatewayToolCatalog({ policyActions: ACTION_POLICY_MANIFEST.actions || {} }),
+            toolDispatcher,
+          })) as any,
+          id: "agent-turn-workflow",
+        }),
+      };
+    },
   },
   readJsonRequest,
   json,

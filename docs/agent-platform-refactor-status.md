@@ -93,6 +93,10 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `environment.deviceProfile`, `environment.target`, and request
   `sessionId`/`turnId`/`traceId`; tool arguments may set preview mode and
   approval token but cannot override subject or device target.
+- `/api/agent/turn` now creates a request-scoped Mastra MCP workflow dispatcher
+  before dispatching structured capabilities. Its internal `/mcp` call reuses
+  the same server-derived auth context as direct `/mcp` requests instead of
+  constructing a hard-coded local-owner subject inside the workflow.
 - The MCP subject resolver now attempts the better-auth session API first and
   then falls back to the server-derived local-owner subject for the current
   local control-plane profile. Client headers cannot declare subject or roles.
@@ -187,6 +191,10 @@ local-only or mock verification.
   policy audit for an OPA-gated tool call.
 - `bun run verify:platform` verifies spoofed subject/role headers are ignored
   by the MCP subject resolver.
+- `bun run verify:platform` verifies the `/api/agent/turn` Mastra MCP workflow
+  path uses request-derived auth context, reaches the `policy.action.prepare`
+  no-command boundary, and does not admit spoofed subject/role headers into the
+  MCP or approval audit rows.
 - `bun run verify:platform` verifies `policy.action.prepare` produces no command
   execution, `policy.action.commit` requires the approval proof, and high-risk
   direct Web execution remains blocked without exposing command strings.
@@ -286,8 +294,9 @@ device-profile verification, not offline verification.
 
 ## Next Work
 
-- Replace the current better-auth-first/local-owner subject resolver with real
-  signed-in user flows once the Next.js console owns login/session creation.
+- Add real signed-in user flows once the Next.js console owns login/session
+  creation; the active MCP and agent-turn tool paths already use the
+  better-auth-first/server-derived subject resolver.
 - Move approved durable memory/retrieval to the curated DB path.
 - Move Screen Workspace, artifact panels, and device diagnostics into the
   Next/Tailwind console, then retire the static HTML console.
