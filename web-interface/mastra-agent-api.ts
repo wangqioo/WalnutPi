@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CLASSIFIER_INTENTS } from "./intent-route.ts";
 import { getWalnutAgent } from "./mastra-registry.ts";
 
 type Telemetry = Record<string, any>;
@@ -12,10 +13,10 @@ export function createWalnutMastraAgentApi() {
   const api = {
     async classifyIntent(text: string, telemetry: Telemetry = {}) {
       const schema = z.object({
-        intent: z.string(),
+        intent: z.enum(CLASSIFIER_INTENTS as [string, ...string[]]),
         subject: z.string().optional(),
         delivery: z.string().optional(),
-        confidence: z.number().min(0).max(1),
+        confidence: z.number().min(0).max(1).optional().default(0.5),
       });
       const agent = getWalnutAgent("router");
       const result = await agent.generate(buildStructuredPrompt([
@@ -24,7 +25,7 @@ export function createWalnutMastraAgentApi() {
         "Choose exactly one supported intent.",
         "Do not execute commands.",
         "Do not infer evaluation oracle answers.",
-        "Allowed intents: chat, screen.generate, screen.sync, device.status.read, action.confirm, action.run, diagnostics.read, memory.read.",
+        `Allowed intents: ${CLASSIFIER_INTENTS.join(", ")}.`,
         "Input text:",
         text,
         "Telemetry:",

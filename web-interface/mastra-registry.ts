@@ -1,11 +1,11 @@
 import { Mastra } from "@mastra/core";
 import { Agent } from "@mastra/core/agent";
-import { getAiModelConfig } from "./platform/config/platform-config.ts";
+import { getMastraModelConfig } from "./platform/config/platform-config.ts";
 import { getWalnutMastraStorage } from "./platform/mastra/storage.ts";
 
 type WalnutAgentId = "router" | "widget" | "chat";
 
-const REGISTRY_MODEL = getAiModelConfig();
+const REGISTRY_MODEL = getMastraModelConfig();
 
 let mastraRegistry: Mastra | undefined;
 

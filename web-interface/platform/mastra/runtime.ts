@@ -6,6 +6,7 @@ export {
   runMastraAgentTurnWorkflow,
   MASTRA_AGENT_TURN_CAPABILITIES,
 } from "./agent-turn-workflows.ts";
-import { getAiModelConfig } from "../config/platform-config.ts";
+import { getAiModelConfig, getMastraModelConfig } from "../config/platform-config.ts";
 
-export const WALNUT_MASTRA_MODEL = getAiModelConfig();
+export const WALNUT_MASTRA_MODEL_CONFIG = getAiModelConfig();
+export const WALNUT_MASTRA_MODEL = getMastraModelConfig();

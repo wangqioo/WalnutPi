@@ -37,6 +37,16 @@ export function getAiModelConfig() {
   };
 }
 
+export function getMastraModelConfig() {
+  const ai = getAiModelConfig();
+  return {
+    providerId: ai.provider,
+    modelId: ai.model,
+    url: ai.url,
+    apiKey: ai.apiKey,
+  };
+}
+
 export function getAiSdkConfig() {
   const ai = loadPlatformConfig().ai || {};
   return {

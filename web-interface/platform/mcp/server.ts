@@ -89,6 +89,17 @@ const TOOL_POLICIES: Record<string, {
   },
   "device.status.read": readOnlyToolSchema(),
   "diagnostics.recentFailure": readOnlyToolSchema(),
+  "ai.chat": {
+    readOnly: true,
+    destructive: false,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      text: z.string().min(1).max(4000),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
   "device.network.read": readOnlyToolSchema(),
   "device.snapshot.read": readOnlyToolSchema(),
   "device.i2c.read": readOnlyToolSchema(),

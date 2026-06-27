@@ -22,6 +22,7 @@ export const MASTRA_AGENT_TURN_CAPABILITIES = [
   "memory.preference",
   "memory.approve",
   "memory.sensitiveSkip",
+  "ai.chat",
   "policy.action.prepare",
   "policy.action.commit",
 ] as const;
@@ -53,6 +54,7 @@ const MCP_TOOL_BY_CAPABILITY: Record<MastraAgentTurnCapability, string> = {
   "memory.preference": "walnutpi_memory.preference",
   "memory.approve": "walnutpi_memory.approve",
   "memory.sensitiveSkip": "walnutpi_memory.sensitiveSkip",
+  "ai.chat": "walnutpi_ai.chat",
   "policy.action.prepare": "walnutpi_policy.action.prepare",
   "policy.action.commit": "walnutpi_policy.action.commit",
 };
@@ -75,6 +77,7 @@ const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["
   "memory.preference": "memory",
   "memory.approve": "memory",
   "memory.sensitiveSkip": "memory",
+  "ai.chat": "chat",
   "policy.action.prepare": "policy",
   "policy.action.commit": "policy",
 };
@@ -209,6 +212,12 @@ function paramsForCapability(
     };
   }
   if (capability === "device.note.write" || capability === "memory.preference" || capability === "memory.sensitiveSkip") {
+    return {
+      ...parameters,
+      text: body.text || parameters.text || "",
+    };
+  }
+  if (capability === "ai.chat") {
     return {
       ...parameters,
       text: body.text || parameters.text || "",

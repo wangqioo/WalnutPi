@@ -6,7 +6,7 @@ export type GatewayToolDefinition = {
   description: string;
   inputSchema: JsonObject;
   name: string;
-  group: "screen" | "device" | "memory" | "diagnostics" | "policy";
+  group: "screen" | "device" | "memory" | "diagnostics" | "policy" | "chat";
   route: string;
   actionId?: string | null;
 };
@@ -70,6 +70,9 @@ export function createGatewayToolCatalog({
     tool("diagnostics.recentFailure", "diagnostics", "Summarize the latest local failure evidence.", "/api/metrics", {
       sessionId: optionalStringSchema(),
     }),
+    tool("ai.chat", "chat", "Answer a general WalnutPi chat request through the Mastra chat agent.", "/api/agent/turn", {
+      text: stringSchema(),
+    }),
     tool("policy.action.prepare", "policy", "Prepare a catalog action through OPA before command construction.", "/mcp", {
       actionId: stringSchema(),
       params: objectSchema(),
@@ -121,6 +124,9 @@ export function createGatewayToolCatalog({
     },
     isDiagnosticsTool(name: string) {
       return name.startsWith("diagnostics.");
+    },
+    isChatTool(name: string) {
+      return name.startsWith("ai.");
     },
   };
 }

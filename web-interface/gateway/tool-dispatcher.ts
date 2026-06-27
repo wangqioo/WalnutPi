@@ -1,6 +1,7 @@
 import { type WalnutToolResult, failedToolResult, toolResult } from "../walnut-tool-results.ts";
 import { createMemoryProductStateStore } from "../platform/memory/product-state-store.ts";
 import { createActionApprovalService } from "../platform/policy/action-approval-service.ts";
+import { createWalnutMastraAgentApi } from "../mastra-agent-api.ts";
 
 type JsonObject = Record<string, any>;
 
@@ -23,6 +24,7 @@ export function createToolDispatcher({
 }: JsonObject) {
   async function callTool(toolName: string, params: JsonObject, turn: JsonObject) {
     if (!toolName) return failedToolResult("diagnostics", "Tool name is required");
+    if (toolName.startsWith("ai.")) return handleChatTool(toolName, params, turn);
     if (toolName.startsWith("policy.")) {
       return handlePolicyTool(toolName, params, turn);
     }
@@ -38,6 +40,37 @@ export function createToolDispatcher({
       });
     }
     return failedToolResult("diagnostics", `Unsupported tool group for ${toolName}`);
+  }
+
+  async function handleChatTool(toolName: string, params: JsonObject, turn: JsonObject) {
+    if (toolName !== "ai.chat") return failedToolResult("chat", `Unknown chat tool ${toolName}`);
+    const text = String(params.text || turn.input?.text || "").trim();
+    if (!text) return failedToolResult("chat", "Chat text is required.");
+    const response = await createWalnutMastraAgentApi().createChatResponse({
+      messages: [{ role: "user", content: text }],
+      telemetry: {
+        sessionId: turn.sessionId || null,
+        turnId: turn.turnId || null,
+      },
+    });
+    const data = await response.json();
+    return toolResult("chat", {
+      ok: Boolean(data.ok),
+      summary: String(data.text || data.error || "Chat response completed."),
+      result: {
+        operation: "ai.chat",
+        responseSchema: data.schema || null,
+        text: data.text || "",
+      },
+      evidence: {
+        mastraAgent: "chat",
+        noCommandExecution: true,
+        noRemoteCommandExecution: true,
+      },
+      diagnostics: {
+        operation: "ai.chat",
+      },
+    });
   }
 
   async function readScreenFrame() {
