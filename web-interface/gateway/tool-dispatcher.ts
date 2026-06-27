@@ -694,6 +694,14 @@ export function createToolDispatcher({
       operation: "screen.widgetApp.action",
     });
     if (!policy.allow) return policy.result;
+    if (actionId === "refresh_device_status") {
+      return runWidgetAppReadAction({
+        actionId,
+        params: objectOrEmpty(body.params),
+        turn,
+        policyDecision: policy.decision,
+      });
+    }
     return widgetAppDeviceBoundaryResult({
       operation: "screen.widgetApp.action",
       summary: "Widget App action reached MCP/OPA and failed closed at the typed device boundary.",
@@ -702,6 +710,55 @@ export function createToolDispatcher({
       turn,
       policyDecision: policy.decision,
       sideEffects: actionId === "refresh_device_status" ? [] : [{ kind: "device-action", target: "widget-app", status: "blocked" }],
+    });
+  }
+
+  async function runWidgetAppReadAction({
+    actionId,
+    params,
+    turn,
+    policyDecision,
+  }: {
+    actionId: string;
+    params: JsonObject;
+    turn: JsonObject;
+    policyDecision: JsonObject;
+  }) {
+    if (!widgetAppDeviceAdapter?.runAction) {
+      return widgetAppDeviceBoundaryResult({
+        operation: "screen.widgetApp.action",
+        summary: "Widget App action reached MCP/OPA and failed closed because the typed device action adapter is not configured.",
+        actionId,
+        params,
+        turn,
+        policyDecision,
+        sideEffects: [],
+      });
+    }
+    const action = await widgetAppDeviceAdapter.runAction({ actionId, params });
+    return toolResult("screen", {
+      ok: Boolean(action.ok),
+      summary: action.summary || "Widget App action completed through the typed device adapter.",
+      result: {
+        operation: "screen.widgetApp.action",
+        actionId,
+        executed: Boolean(action.ok),
+        actionResult: objectOrEmpty(action.result),
+        policyDecision: opaEnforcer.publicDecision(policyDecision),
+      },
+      evidence: {
+        ...objectOrEmpty(action.evidence),
+        policyDecision: opaEnforcer.publicDecision(policyDecision),
+        actionStages: objectOrEmpty(action.stages),
+      },
+      sideEffects: [],
+      diagnostics: {
+        ...objectOrEmpty(action.diagnostics),
+        operation: "screen.widgetApp.action",
+        policyDecisionId: policyDecision?.decisionId || null,
+        adapter: action.adapter || "unknown",
+        reason: action.reason || null,
+      },
     });
   }
 

@@ -26,6 +26,10 @@ export type WidgetAppDeviceAdapter = {
     evidenceMode?: "fast" | "full";
     versionId?: string | null;
   }): Promise<JsonObject>;
+  runAction(options: {
+    actionId: string;
+    params?: JsonObject;
+  }): Promise<JsonObject>;
 };
 
 export function createWidgetAppDeviceAdapter({
@@ -131,7 +135,60 @@ export function createWidgetAppDeviceAdapter({
         },
       };
     },
+    async runAction(options) {
+      const actionId = cleanOptionalText(options.actionId);
+      if (actionId !== "refresh_device_status") {
+        return {
+          ok: false,
+          adapter: "ssh-widget-app-action",
+          operation: "screen.widgetApp.action",
+          actionId,
+          reason: "unsupported-widget-app-device-action",
+          diagnostics: {
+            commandBoundary: "not-reached",
+            rawCommandExposed: false,
+          },
+        };
+      }
+
+      const status = await runRemoteRaw(buildRefreshDeviceStatusCommand(), 20_000, 20_000);
+      const parsedStatus = parseJsonOutput(status.output);
+      const publicStatus = publicDeviceStatus(parsedStatus);
+      return {
+        ok: Boolean(status.ok && publicStatus),
+        adapter: "ssh-widget-app-action",
+        operation: "screen.widgetApp.action",
+        actionId,
+        summary: status.ok
+          ? "Widget App device status binding refreshed through the typed device adapter."
+          : "Widget App device status refresh reached the typed device adapter but did not complete.",
+        result: {
+          actionId,
+          refreshed: Boolean(status.ok && publicStatus),
+          status: publicStatus,
+        },
+        evidence: {
+          deviceBoundaryReached: true,
+          readOnlyDeviceAction: true,
+          noRawCommandExposure: true,
+          noRawDeviceOutputExposure: true,
+        },
+        stages: {
+          refresh: publicStage(status),
+        },
+        remoteExecution: summarizeRemoteExecution([status]),
+        diagnostics: {
+          commandBoundary: "internal-adapter-only",
+          rawCommandExposed: false,
+          parseOk: Boolean(publicStatus),
+        },
+      };
+    },
   };
+}
+
+function buildRefreshDeviceStatusCommand() {
+  return "walnut action run status --json";
 }
 
 async function buildWidgetRuntimeSlice({
@@ -314,6 +371,49 @@ function publicStage(result: RemoteRunResult) {
     remoteTransport: result.remoteTransport || null,
     reusedConnection: typeof result.reusedConnection === "boolean" ? result.reusedConnection : null,
   };
+}
+
+function parseJsonOutput(value: string) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function publicDeviceStatus(value: JsonObject | null) {
+  if (!value) return null;
+  const output = parseJsonOutput(String(value.output || ""));
+  const source = output || value;
+  return {
+    ok: Boolean(value.ok),
+    id: cleanOptionalText(value.id),
+    title: cleanOptionalText(value.title),
+    serviceState: firstString(source, ["walnutScreenService", "walnut-screen.service", "screenService", "serviceState"]),
+    hostname: firstString(source, ["hostname", "host"]),
+    primaryIp: firstString(source, ["primaryIp", "ip", "address"]),
+    memory: publicNested(source.memory || source.mem),
+    disk: publicNested(source.disk || source.storage),
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+function publicNested(value: any) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => typeof entry === "string" || typeof entry === "number" || typeof entry === "boolean")
+      .slice(0, 8),
+  );
+}
+
+function firstString(source: JsonObject, keys: string[]) {
+  for (const key of keys) {
+    const value = source?.[key];
+    if (typeof value === "string" && value.trim()) return value.trim().slice(0, 160);
+  }
+  return null;
 }
 
 function summarizeRemoteExecution(results: RemoteRunResult[]) {
