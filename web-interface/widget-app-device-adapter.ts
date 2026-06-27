@@ -137,58 +137,148 @@ export function createWidgetAppDeviceAdapter({
     },
     async runAction(options) {
       const actionId = cleanOptionalText(options.actionId);
-      if (actionId !== "refresh_device_status") {
-        return {
-          ok: false,
-          adapter: "ssh-widget-app-action",
-          operation: "screen.widgetApp.action",
-          actionId,
-          reason: "unsupported-widget-app-device-action",
-          diagnostics: {
-            commandBoundary: "not-reached",
-            rawCommandExposed: false,
-          },
-        };
-      }
-
-      const status = await runRemoteRaw(buildRefreshDeviceStatusCommand(), 20_000, 20_000);
-      const parsedStatus = parseJsonOutput(status.output);
-      const publicStatus = publicDeviceStatus(parsedStatus);
+      if (actionId === "refresh_device_status") return runRefreshDeviceStatus(runRemoteRaw);
+      if (actionId === "restart_walnut_screen_service") return runRestartWalnutScreenService(runRemoteRaw);
+      if (actionId === "reboot_device") return runRebootDevice(runRemoteRaw);
       return {
-        ok: Boolean(status.ok && publicStatus),
+        ok: false,
         adapter: "ssh-widget-app-action",
         operation: "screen.widgetApp.action",
         actionId,
-        summary: status.ok
-          ? "Widget App device status binding refreshed through the typed device adapter."
-          : "Widget App device status refresh reached the typed device adapter but did not complete.",
-        result: {
-          actionId,
-          refreshed: Boolean(status.ok && publicStatus),
-          status: publicStatus,
-        },
-        evidence: {
-          deviceBoundaryReached: true,
-          readOnlyDeviceAction: true,
-          noRawCommandExposure: true,
-          noRawDeviceOutputExposure: true,
-        },
-        stages: {
-          refresh: publicStage(status),
-        },
-        remoteExecution: summarizeRemoteExecution([status]),
+        reason: "unsupported-widget-app-device-action",
         diagnostics: {
-          commandBoundary: "internal-adapter-only",
+          commandBoundary: "not-reached",
           rawCommandExposed: false,
-          parseOk: Boolean(publicStatus),
         },
       };
     },
   };
 }
 
+async function runRefreshDeviceStatus(runRemoteRaw: (command: string, timeoutMs?: number, limit?: number) => Promise<RemoteRunResult>) {
+  const actionId = "refresh_device_status";
+  const status = await runRemoteRaw(buildRefreshDeviceStatusCommand(), 20_000, 20_000);
+  const parsedStatus = parseJsonOutput(status.output);
+  const publicStatus = publicDeviceStatus(parsedStatus);
+  return {
+    ok: Boolean(status.ok && publicStatus),
+    adapter: "ssh-widget-app-action",
+    operation: "screen.widgetApp.action",
+    actionId,
+    summary: status.ok
+      ? "Widget App device status binding refreshed through the typed device adapter."
+      : "Widget App device status refresh reached the typed device adapter but did not complete.",
+    result: {
+      actionId,
+      refreshed: Boolean(status.ok && publicStatus),
+      status: publicStatus,
+    },
+    evidence: {
+      deviceBoundaryReached: true,
+      readOnlyDeviceAction: true,
+      noRawCommandExposure: true,
+      noRawDeviceOutputExposure: true,
+    },
+    stages: {
+      refresh: publicStage(status),
+    },
+    remoteExecution: summarizeRemoteExecution([status]),
+    diagnostics: {
+      commandBoundary: "internal-adapter-only",
+      rawCommandExposed: false,
+      parseOk: Boolean(publicStatus),
+    },
+  };
+}
+
+async function runRestartWalnutScreenService(runRemoteRaw: (command: string, timeoutMs?: number, limit?: number) => Promise<RemoteRunResult>) {
+  const actionId = "restart_walnut_screen_service";
+  const restart = await runRemoteRaw(buildRestartWalnutScreenServiceCommand(), 30_000, 20_000);
+  return {
+    ok: Boolean(restart.ok),
+    adapter: "ssh-widget-app-action",
+    operation: "screen.widgetApp.action",
+    actionId,
+    summary: restart.ok
+      ? "Walnut screen service restart executed through the typed Widget App device adapter."
+      : "Walnut screen service restart reached the typed Widget App device adapter but did not complete.",
+    result: {
+      actionId,
+      restarted: Boolean(restart.ok),
+      serviceState: parseServiceState(restart.output),
+    },
+    evidence: {
+      deviceBoundaryReached: true,
+      approvedDeviceAction: true,
+      serviceRestartRequested: true,
+      noRawCommandExposure: true,
+      noRawDeviceOutputExposure: true,
+    },
+    stages: {
+      restart: publicStage(restart),
+    },
+    remoteExecution: summarizeRemoteExecution([restart]),
+    diagnostics: {
+      commandBoundary: "internal-adapter-only",
+      rawCommandExposed: false,
+    },
+  };
+}
+
+async function runRebootDevice(runRemoteRaw: (command: string, timeoutMs?: number, limit?: number) => Promise<RemoteRunResult>) {
+  const actionId = "reboot_device";
+  const reboot = await runRemoteRaw(buildRebootDeviceCommand(), 10_000, 8_000);
+  return {
+    ok: Boolean(reboot.ok),
+    adapter: "ssh-widget-app-action",
+    operation: "screen.widgetApp.action",
+    actionId,
+    summary: reboot.ok
+      ? "WalnutPi reboot action was handed to the typed Widget App device adapter."
+      : "WalnutPi reboot action reached the typed Widget App device adapter but did not report clean completion.",
+    result: {
+      actionId,
+      rebootRequested: Boolean(reboot.ok),
+    },
+    evidence: {
+      deviceBoundaryReached: true,
+      approvedDeviceAction: true,
+      rebootRequested: Boolean(reboot.ok),
+      noRawCommandExposure: true,
+      noRawDeviceOutputExposure: true,
+    },
+    stages: {
+      reboot: publicStage(reboot),
+    },
+    remoteExecution: summarizeRemoteExecution([reboot]),
+    diagnostics: {
+      commandBoundary: "internal-adapter-only",
+      rawCommandExposed: false,
+    },
+  };
+}
+
 function buildRefreshDeviceStatusCommand() {
   return "walnut action run status --json";
+}
+
+function buildRestartWalnutScreenServiceCommand() {
+  return [
+    "set -e",
+    "sudo -n systemctl restart walnut-screen.service",
+    "sleep 1",
+    "screen_state=$(systemctl is-active walnut-screen.service)",
+    "printf 'walnut-screen.service %s\\n' \"$screen_state\"",
+    'test "$screen_state" = active',
+  ].join("; ");
+}
+
+function buildRebootDeviceCommand() {
+  return [
+    "set -e",
+    "sudo -n reboot",
+    "printf 'reboot-requested\\n'",
+  ].join("; ");
 }
 
 async function buildWidgetRuntimeSlice({

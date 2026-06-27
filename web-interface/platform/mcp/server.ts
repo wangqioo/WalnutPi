@@ -108,6 +108,9 @@ const TOOL_POLICIES: Record<string, {
     inputSchema: {
       action: z.string().min(1).max(120),
       params: z.record(z.string(), z.any()).optional(),
+      decisionId: z.string().min(1).max(160).optional(),
+      approvalToken: z.string().min(1).max(240).optional(),
+      execute: z.boolean().optional(),
       ...REQUEST_CONTEXT_SCHEMA,
     },
   },

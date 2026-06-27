@@ -687,9 +687,18 @@ export function createToolDispatcher({
         },
       });
     }
+    const widgetActionParams = objectOrEmpty(body.params);
+    if (isHighRiskAction(actionId) && hasApprovalExecutionProof(body)) {
+      return runWidgetAppApprovedAction({
+        actionId,
+        params: widgetActionParams,
+        body,
+        turn,
+      });
+    }
     const policy = await decideToolPolicy({
       actionId,
-      params: objectOrEmpty(body.params),
+      params: widgetActionParams,
       turn,
       operation: "screen.widgetApp.action",
     });
@@ -697,7 +706,7 @@ export function createToolDispatcher({
     if (actionId === "refresh_device_status") {
       return runWidgetAppReadAction({
         actionId,
-        params: objectOrEmpty(body.params),
+        params: widgetActionParams,
         turn,
         policyDecision: policy.decision,
       });
@@ -706,7 +715,7 @@ export function createToolDispatcher({
       operation: "screen.widgetApp.action",
       summary: "Widget App action reached MCP/OPA and failed closed at the typed device boundary.",
       actionId,
-      params: objectOrEmpty(body.params),
+      params: widgetActionParams,
       turn,
       policyDecision: policy.decision,
       sideEffects: actionId === "refresh_device_status" ? [] : [{ kind: "device-action", target: "widget-app", status: "blocked" }],
@@ -756,6 +765,73 @@ export function createToolDispatcher({
         ...objectOrEmpty(action.diagnostics),
         operation: "screen.widgetApp.action",
         policyDecisionId: policyDecision?.decisionId || null,
+        adapter: action.adapter || "unknown",
+        reason: action.reason || null,
+      },
+    });
+  }
+
+  async function runWidgetAppApprovedAction({
+    actionId,
+    params,
+    body,
+    turn,
+  }: {
+    actionId: string;
+    params: JsonObject;
+    body: JsonObject;
+    turn: JsonObject;
+  }) {
+    const committed = await actionApprovalService.commitForExecution({
+      decisionId: body.decisionId,
+      actionId,
+      params,
+      approvalToken: body.approvalToken,
+    }, turn);
+    const committedResult = committed.toolResult;
+    if (!committedResult.ok || committedResult.result?.committed !== true || !committed.executionDecision?.allow) {
+      return committedResult;
+    }
+    const policyDecision = committed.executionDecision;
+    if (!widgetAppDeviceAdapter?.runAction) {
+      return widgetAppDeviceBoundaryResult({
+        operation: "screen.widgetApp.action",
+        summary: "Approved Widget App action reached MCP/OPA and failed closed because the typed device action adapter is not configured.",
+        actionId,
+        params,
+        turn,
+        policyDecision,
+        sideEffects: widgetAppActionSideEffects(actionId, false),
+      });
+    }
+    const action = await widgetAppDeviceAdapter.runAction({ actionId, params });
+    return toolResult("screen", {
+      ok: Boolean(action.ok),
+      summary: action.summary || "Approved Widget App action completed through the typed device adapter.",
+      result: {
+        operation: "screen.widgetApp.action",
+        actionId,
+        approved: true,
+        approvalCommitted: true,
+        executed: Boolean(action.ok),
+        actionResult: objectOrEmpty(action.result),
+        policyDecision: opaEnforcer.publicDecision(policyDecision),
+      },
+      evidence: {
+        ...objectOrEmpty(action.evidence),
+        approvalCommitted: true,
+        policyDecision: opaEnforcer.publicDecision(policyDecision),
+        actionStages: objectOrEmpty(action.stages),
+        typedWidgetAppAction: true,
+        noRawCommandExposure: true,
+        noRawDeviceOutputExposure: true,
+      },
+      sideEffects: widgetAppActionSideEffects(actionId, Boolean(action.ok)),
+      diagnostics: {
+        ...objectOrEmpty(action.diagnostics),
+        operation: "screen.widgetApp.action",
+        policyDecisionId: policyDecision?.decisionId || null,
+        approvalDecisionId: committedResult.result?.decisionId || body.decisionId || null,
         adapter: action.adapter || "unknown",
         reason: action.reason || null,
       },
@@ -855,6 +931,23 @@ export function createToolDispatcher({
       || action?.confirmationRequired === true
       || action?.mode === "confirmable"
       || ["restart_walnut_screen_service", "reboot", "reboot_device", "shutdown", "package-install", "storage-delete", "image-flash"].includes(actionId);
+  }
+
+  function hasApprovalExecutionProof(body: JsonObject) {
+    return body.execute === true
+      && Boolean(cleanOptionalText(body.decisionId))
+      && Boolean(cleanOptionalText(body.approvalToken));
+  }
+
+  function widgetAppActionSideEffects(actionId: string, ok: boolean) {
+    const status = ok ? "observed" : "failed";
+    if (actionId === "restart_walnut_screen_service") {
+      return [{ kind: "service-restart", target: "walnut-screen.service", status }];
+    }
+    if (actionId === "reboot_device") {
+      return [{ kind: "reboot", target: "device", status }];
+    }
+    return [];
   }
 
   function objectOrEmpty(value: any): JsonObject {

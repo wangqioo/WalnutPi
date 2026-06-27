@@ -63,6 +63,9 @@ export function createGatewayToolCatalog({
     tool("screen.widgetApp.action", "screen", "Run a Widget App action through the platform policy path.", "/api/screen/widget-apps/current/events", {
       action: stringSchema(),
       params: objectSchema(),
+      decisionId: optionalStringSchema(),
+      approvalToken: optionalStringSchema(),
+      execute: booleanSchema(false),
     }),
     tool("memory.sessionSummary", "memory", "Summarize recent session activity from local ledgers.", "/api/session", {
       sessionId: optionalStringSchema(),

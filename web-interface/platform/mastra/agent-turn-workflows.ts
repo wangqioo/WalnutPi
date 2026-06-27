@@ -238,6 +238,9 @@ function paramsForCapability(
       ...parameters,
       action: body.action || body.actionId || parameters.action,
       params: body.params || parameters.params || {},
+      decisionId: body.decisionId || parameters.decisionId,
+      approvalToken: body.approvalToken || parameters.approvalToken,
+      execute: body.execute === true || parameters.execute === true,
     };
   }
   if (capability === "device.note.write" || capability === "memory.preference" || capability === "memory.sensitiveSkip") {
