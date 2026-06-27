@@ -6,6 +6,7 @@ import { createMcpAuthContext } from "./auth-context.ts";
 import { createWalnutAuth, resolveWalnutSubjectFromRequest } from "../platform/auth/auth.ts";
 import { readWalnutSubjectManagement, upsertWalnutSubjectManagement } from "../platform/auth/subject-management.ts";
 import { createPendingEvalScore, getCuratedEvalCase, listCuratedEvalCases, runCuratedEvalCase } from "../platform/eval/curated-eval.ts";
+import { publishCuratedEvalScoreToLangfuse } from "../platform/eval/langfuse-eval-publisher.ts";
 import type { ActionPolicyManifest } from "../action-policy.ts";
 import type { GatewayJson } from "./gateway-interfaces.ts";
 
@@ -202,6 +203,7 @@ function registerEvalRoutes(app: Hono, { agentPlatform, json }: JsonObject) {
       body = {};
     }
     const allowDevice = body.allowDevice === true;
+    const publishLangfuse = body.publishLangfuse !== false;
     const suite = body.suite ? String(body.suite) : null;
     const requestedCaseId = body.caseId ? String(body.caseId) : null;
     const selected = requestedCaseId
@@ -215,21 +217,59 @@ function registerEvalRoutes(app: Hono, { agentPlatform, json }: JsonObject) {
     }
     const results = [];
     for (const evalCase of selected) {
-      results.push(await runCuratedEvalCase({
+      const result = await runCuratedEvalCase({
         evalCase,
         variantId: body.variantId ? String(body.variantId) : "local-platform",
         allowDevice,
         runAgentTurn: (turnBody: JsonObject) => runAgentTurnViaPlatform(agentPlatform, turnBody),
-      }));
+      });
+      const score = objectOrEmpty(result.score);
+      results.push({
+        ...result,
+        langfuse: publishLangfuse && !result.skipped && result.score
+          ? await publishCuratedEvalScoreToLangfuse({
+            evalCase,
+            score: score as any,
+            variantId: body.variantId ? String(body.variantId) : "local-platform",
+            datasetName: body.datasetName ? String(body.datasetName) : "walnutpi-curated-eval",
+          })
+          : {
+            ok: false,
+            schema: "walnutpi.langfuseEvalPublish.v1",
+            configured: false,
+            skipped: true,
+            datasetName: body.datasetName ? String(body.datasetName) : "walnutpi-curated-eval",
+            runName: `walnutpi-${body.variantId ? String(body.variantId) : "local-platform"}`,
+            caseId: evalCase.id,
+            datasetItemId: null,
+            datasetRunId: null,
+            traceId: score.traceId || null,
+            scoreName: null,
+            redaction: {
+              input: false,
+              output: false,
+              metadata: false,
+              rawUserText: false,
+              rawParams: false,
+              rawTurn: false,
+              rawCommand: false,
+            },
+            error: publishLangfuse ? "Langfuse publish requires an executed eval score with traceId" : "Langfuse publish disabled by request",
+          },
+      });
     }
     return json({
-      ok: results.every((item: JsonObject) => item.ok || item.skipped),
+      ok: results.every((item: JsonObject) =>
+        (item.ok || item.skipped)
+        && (publishLangfuse !== true || item.langfuse?.ok || item.langfuse?.skipped)
+      ),
       schema: "walnutpi.curatedEvalRun.v1",
       caseCount: results.length,
       passed: results.filter((item: JsonObject) => item.score?.verdict === "pass").length,
       failed: results.filter((item: JsonObject) => item.score?.verdict === "fail").length,
       skipped: results.filter((item: JsonObject) => item.skipped || item.score?.verdict === "skip").length,
       allowDevice,
+      publishLangfuse,
       results,
       generatedBenchmarkHarnessRestored: false,
       redaction: {
@@ -249,6 +289,10 @@ async function runAgentTurnViaPlatform(agentPlatform: JsonObject, body: JsonObje
     body: JSON.stringify(body),
   }));
   return response.json();
+}
+
+function objectOrEmpty(value: any): JsonObject {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
 function registerAuthRoutes(app: Hono, { json, config }: JsonObject) {

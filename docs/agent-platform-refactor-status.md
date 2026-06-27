@@ -298,6 +298,15 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   grader seed cases. Device-profile cases are skipped unless the caller passes
   `allowDevice: true`. Eval run results expose redacted turn summaries, score
   records, trace/turn refs, evidence keys, and grader metadata only.
+- When Langfuse is configured, `/api/eval/curated/run` also creates or updates
+  redacted Langfuse dataset items, links executed case traces into a dataset
+  run, and writes trace-level numeric scores. Dataset inputs keep only case
+  metadata plus input/params hashes; score metadata keeps evidence refs and
+  grader fields, not raw user text, raw params, raw turn payloads, raw command
+  strings, raw outputs, session logs, or daily notes. If Langfuse is explicitly
+  configured but dataset/score publishing fails, the run reports failure rather
+  than disguising it as an eval skip; unconfigured Langfuse is reported as a
+  skipped publish boundary.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -514,6 +523,12 @@ local-only or mock verification.
   server on port 4185 ran the safety suite with `allowDevice: false`; both
   seed cases passed, no cases were skipped, and the run projection contained no
   command-like strings such as service-manager or shell command text.
+- After adding the Langfuse curated eval publisher, `bun run check` passes. A
+  temporary Web server on port 4187 ran the safety suite with
+  `publishLangfuse: false`; both seed cases passed, no cases were skipped, the
+  Langfuse publish boundary was explicitly marked skipped by request, and the
+  run projection contained no command-like strings such as service-manager or
+  shell command text.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -551,8 +566,9 @@ device-profile verification, not offline verification.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path after the redaction change: remote delivery, activation, service state,
   and frame comparison should still prove through Mastra/MCP/OPA/typed adapter.
-- Attach curated eval run results to redacted Langfuse dataset items and scores,
-  and keep subjective grading behind explicit human review.
+- Add explicit SME review flow for subjective curated cases and move executed
+  case workers fully into Inngest while preserving the redacted Langfuse
+  dataset/score boundary.
 - Retrieval embedding provider wiring is intentionally skipped for this round.
   Reindex should continue to return honest provider-unconfigured failure until
   an approved provider is selected.
