@@ -4,6 +4,7 @@ import { createGatewayToolCatalog } from "./tool-catalog.ts";
 import { handleWalnutMcpRequest } from "../platform/mcp/server.ts";
 import { createMcpAuthContext } from "./auth-context.ts";
 import { createWalnutAuth, resolveWalnutSubjectFromRequest } from "../platform/auth/auth.ts";
+import { readWalnutSubjectManagement, upsertWalnutSubjectManagement } from "../platform/auth/subject-management.ts";
 import type { ActionPolicyManifest } from "../action-policy.ts";
 import type { GatewayJson } from "./gateway-interfaces.ts";
 
@@ -162,6 +163,29 @@ function registerAuthRoutes(app: Hono, { json, config }: JsonObject) {
       schema: "walnutpi.authSubject.v1",
       subject: publicSubject(subject),
     });
+  });
+  app.get("/api/auth/bindings", async (c) => {
+    try {
+      const subject = await resolveWalnutSubjectFromRequest(c.req.raw, {
+        deviceProfile: "device",
+        target: `${config.SSH_USER}@${config.SSH_HOST}`,
+      });
+      return json(await readWalnutSubjectManagement(subject));
+    } catch (error: any) {
+      return json({ ok: false, schema: "walnutpi.authSubjectManagement.v1", error: error.message }, error.status || 500);
+    }
+  });
+  app.post("/api/auth/bindings/upsert", async (c) => {
+    try {
+      const subject = await resolveWalnutSubjectFromRequest(c.req.raw, {
+        deviceProfile: "device",
+        target: `${config.SSH_USER}@${config.SSH_HOST}`,
+      });
+      const body = await c.req.json().catch(() => ({}));
+      return json(await upsertWalnutSubjectManagement(subject, body));
+    } catch (error: any) {
+      return json({ ok: false, schema: "walnutpi.authSubjectManagement.upsert.v1", error: error.message }, error.status || 500);
+    }
   });
   app.all("/api/auth/*", (c) => createWalnutAuth().handler(c.req.raw));
 }

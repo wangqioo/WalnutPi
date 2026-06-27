@@ -13,11 +13,11 @@ export type WalnutSubjectBinding = {
   source: "postgres";
 };
 
-const LOCAL_ORG_ID = "local-control-plane";
-const LOCAL_DEVICE_ID = "default-walnutpi";
-const LOCAL_DEVICE_PROFILE = "device";
-const LOCAL_DEVICE_TARGET = "local-walnutpi-device";
-const OWNER_ROLE = "owner";
+export const LOCAL_ORG_ID = "local-control-plane";
+export const LOCAL_DEVICE_ID = "default-walnutpi";
+export const LOCAL_DEVICE_PROFILE = "device";
+export const LOCAL_DEVICE_TARGET = "local-walnutpi-device";
+export const OWNER_ROLE = "owner";
 
 export async function resolveWalnutSubjectBinding(
   userId: string,
@@ -61,7 +61,7 @@ export async function resolveWalnutSubjectBinding(
   }
 }
 
-async function ensureLocalBinding(db: JsonObject, userId: string) {
+export async function ensureLocalBinding(db: JsonObject, userId: string) {
   await db
     .insert(schema.walnutOrgs)
     .values({

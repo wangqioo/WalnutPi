@@ -51,10 +51,20 @@ type AuditEvent = {
 
 type AuthSubject = {
   authenticated: boolean;
+  bindingSource?: string | null;
+  deviceId?: string | null;
+  deviceProfile?: string | null;
   kind: string | null;
+  orgId?: string | null;
   roles: string[];
   sessionId: string | null;
   userId: string | null;
+};
+
+type AuthManagement = {
+  bindings?: Array<{ active?: boolean; deviceId?: string; role?: string; userId?: string }>;
+  devices?: Array<{ active?: boolean; deviceProfile?: string; id?: string; label?: string; target?: string }>;
+  orgs?: Array<{ id?: string; name?: string }>;
 };
 
 type ScreenPlaylistView = {
@@ -132,6 +142,10 @@ export default function WalnutConsolePage() {
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  const [authManagement, setAuthManagement] = useState<AuthManagement | null>(null);
+  const [bindingDeviceLabel, setBindingDeviceLabel] = useState("Default WalnutPi Device");
+  const [bindingTarget, setBindingTarget] = useState("root@192.168.44.126");
+  const [bindingRole, setBindingRole] = useState("owner");
   const [authNotice, setAuthNotice] = useState("");
   const [screenPlaylist, setScreenPlaylist] = useState<ScreenPlaylistView | null>(null);
   const [screenRecords, setScreenRecords] = useState<ScreenRecordSummary[]>([]);
@@ -151,6 +165,7 @@ export default function WalnutConsolePage() {
   useEffect(() => {
     setSessionId(getSessionId());
     refreshAuthSubject();
+    refreshAuthManagement();
     refreshAuditEvents();
     refreshScreenWorkspace();
   }, []);
@@ -171,6 +186,7 @@ export default function WalnutConsolePage() {
       const turn = await postTurn({ text, sessionId });
       acceptTurn(turn);
       await refreshAuthSubject();
+      await refreshAuthManagement();
       await refreshAuditEvents();
     } catch (caught: any) {
       setError(caught.message);
@@ -188,6 +204,7 @@ export default function WalnutConsolePage() {
       const turn = await postTurn({ sessionId, ...input });
       acceptTurn(turn);
       await refreshAuthSubject();
+      await refreshAuthManagement();
       await refreshAuditEvents();
       if (String(input.capability || "").startsWith("screen.")) {
         await refreshScreenWorkspace();
@@ -219,6 +236,7 @@ export default function WalnutConsolePage() {
       const ok = Boolean(turn.toolResults?.at(-1)?.ok);
       setApprovals((items) => items.map((item) => item.decisionId === approval.decisionId ? { ...item, status: ok ? "committed" : "failed" } : item));
       await refreshAuthSubject();
+      await refreshAuthManagement();
       await refreshAuditEvents();
     } catch (caught: any) {
       setError(caught.message);
@@ -259,6 +277,25 @@ export default function WalnutConsolePage() {
       setAuthSubject(data.subject || null);
     } catch {
       setAuthSubject(null);
+    }
+  }
+
+  async function refreshAuthManagement() {
+    try {
+      const response = await fetch("/api/auth/bindings", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok || data.ok === false) {
+        setAuthManagement(null);
+        return;
+      }
+      setAuthManagement(data);
+      const defaultDevice = Array.isArray(data.devices) ? data.devices[0] : null;
+      const defaultBinding = Array.isArray(data.bindings) ? data.bindings[0] : null;
+      if (defaultDevice?.label) setBindingDeviceLabel(String(defaultDevice.label));
+      if (defaultDevice?.target) setBindingTarget(String(defaultDevice.target));
+      if (defaultBinding?.role) setBindingRole(String(defaultBinding.role));
+    } catch {
+      setAuthManagement(null);
     }
   }
 
@@ -432,6 +469,36 @@ export default function WalnutConsolePage() {
       await fetch("/api/auth/sign-out", { method: "POST" });
       setAuthNotice("Signed out. Local owner profile remains server-derived for development.");
       await refreshAuthSubject();
+      await refreshAuthManagement();
+    } catch (caught: any) {
+      setAuthNotice(caught.message);
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function saveAuthBinding() {
+    setAuthBusy(true);
+    setAuthNotice("");
+    setError("");
+    try {
+      const data = await postJson("/api/auth/bindings/upsert", {
+        org: { id: authSubject?.orgId || "local-control-plane", name: "Local WalnutPi Control Plane" },
+        device: {
+          id: authSubject?.deviceId || "default-walnutpi",
+          label: bindingDeviceLabel,
+          deviceProfile: "device",
+          target: bindingTarget,
+          active: true,
+        },
+        binding: {
+          role: bindingRole,
+          active: true,
+        },
+      });
+      setAuthNotice(`Saved server-owned device binding for ${data.device?.target || bindingTarget}.`);
+      await refreshAuthSubject();
+      await refreshAuthManagement();
     } catch (caught: any) {
       setAuthNotice(caught.message);
     } finally {
@@ -522,6 +589,9 @@ export default function WalnutConsolePage() {
                       <KeyValue label="subject" value={authSubject?.kind || "-"} />
                       <KeyValue label="auth" value={authSubject?.authenticated ? "true" : "false"} />
                       <KeyValue label="roles" value={authSubject?.roles?.join(", ") || "-"} />
+                      <KeyValue label="org" value={authSubject?.orgId || "-"} />
+                      <KeyValue label="device" value={authSubject?.deviceId || "-"} />
+                      <KeyValue label="profile" value={authSubject?.deviceProfile || "-"} />
                     </div>
                     <div className="grid gap-2">
                       <input
@@ -554,6 +624,51 @@ export default function WalnutConsolePage() {
                         </button>
                       </div>
                       {authNotice ? <div className="border border-[#35403f] bg-[#0d0f0f] px-3 py-2 text-xs leading-5 text-[#bfc8c3]">{authNotice}</div> : null}
+                    </div>
+                  </div>
+                </Panel>
+
+                <Panel title="Org Device Binding">
+                  <div className="grid gap-3">
+                    <div className="grid gap-2 font-mono text-xs text-[#aeb8b3]">
+                      <KeyValue label="orgs" value={String(authManagement?.orgs?.length ?? "-")} />
+                      <KeyValue label="devices" value={String(authManagement?.devices?.length ?? "-")} />
+                      <KeyValue label="bindings" value={String(authManagement?.bindings?.length ?? "-")} />
+                    </div>
+                    <div className="grid gap-2">
+                      <input
+                        className="border border-[#35403f] bg-[#0e1111] px-3 py-2 text-sm text-[#f4efe2]"
+                        disabled={authBusy || authSubject?.kind !== "better-auth-user"}
+                        onChange={(event) => setBindingDeviceLabel(event.target.value)}
+                        placeholder="Device label"
+                        value={bindingDeviceLabel}
+                      />
+                      <input
+                        className="border border-[#35403f] bg-[#0e1111] px-3 py-2 text-sm text-[#f4efe2]"
+                        disabled={authBusy || authSubject?.kind !== "better-auth-user"}
+                        onChange={(event) => setBindingTarget(event.target.value)}
+                        placeholder="root@192.168.44.126"
+                        value={bindingTarget}
+                      />
+                      <select
+                        className="border border-[#35403f] bg-[#0e1111] px-3 py-2 text-sm text-[#f4efe2]"
+                        disabled={authBusy || authSubject?.kind !== "better-auth-user"}
+                        onChange={(event) => setBindingRole(event.target.value)}
+                        value={bindingRole}
+                      >
+                        <option value="owner">owner</option>
+                        <option value="operator">operator</option>
+                        <option value="viewer">viewer</option>
+                      </select>
+                      <button
+                        className="border border-[#5f827d] bg-[#142523] px-3 py-2 text-xs font-semibold text-[#eafffb] disabled:opacity-50"
+                        disabled={authBusy || authSubject?.kind !== "better-auth-user"}
+                        onClick={saveAuthBinding}
+                        type="button"
+                      >
+                        Save server binding
+                      </button>
+                      {authSubject?.kind !== "better-auth-user" ? <EmptyLine text="Sign in before editing org/device bindings." /> : null}
                     </div>
                   </div>
                 </Panel>
