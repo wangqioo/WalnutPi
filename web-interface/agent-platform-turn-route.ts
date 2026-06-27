@@ -4,7 +4,7 @@ import {
   isMastraAgentTurnCapability,
   runMastraAgentTurnWorkflow,
 } from "./platform/mastra/agent-turn-workflows.ts";
-import { setWalnutSpanAttributes, withWalnutSpan } from "./platform/observability/tracing.ts";
+import { activeWalnutTraceId, setWalnutSpanAttributes, withWalnutSpan } from "./platform/observability/tracing.ts";
 import { failedToolResult, toolResult, type WalnutToolResult } from "./walnut-tool-results.ts";
 
 type JsonObject = Record<string, any>;
@@ -84,10 +84,12 @@ export async function runAgentPlatformTurn({
     "walnut.session_id": cleanOptionalText(body.sessionId),
   }, async (turnSpan) => {
   const startedAt = new Date().toISOString();
+  const traceId = activeWalnutTraceId();
   const turn = {
     ok: false,
     schema: TURN_SCHEMA,
     turnId: `turn-${randomUUID()}`,
+    traceId,
     sessionId: cleanOptionalText(body.sessionId),
     status: "running",
     startedAt,
@@ -107,11 +109,13 @@ export async function runAgentPlatformTurn({
         totalSteps: 0,
         failures: 0,
       },
+      traceId,
       persistence: null as JsonObject | null,
     },
     userSummary: "",
   };
   setWalnutSpanAttributes(turnSpan, {
+    "walnut.trace_id": turn.traceId,
     "walnut.session_id": turn.sessionId,
     "walnut.turn_id": turn.turnId,
   });
@@ -126,6 +130,7 @@ export async function runAgentPlatformTurn({
 
     turn.route = classified.classification;
     setWalnutSpanAttributes(turnSpan, {
+      "walnut.trace_id": turn.traceId,
       "walnut.route": routeAttribute(classified.classification),
     });
     pushStep(turn, "router", "intent.classify", toolResult("diagnostics", {
@@ -175,6 +180,7 @@ async function classifyTurnInput({ body, classifyIntent, turn }: JsonObject) {
   const classified = await withWalnutSpan("walnut.intent.route", {
     "walnut.session_id": turn.sessionId,
     "walnut.turn_id": turn.turnId,
+    "walnut.trace_id": turn.traceId,
   }, async (routeSpan) => {
     const result = await classifyIntent(turn.input.text, {
       sessionId: turn.sessionId,
@@ -185,6 +191,7 @@ async function classifyTurnInput({ body, classifyIntent, turn }: JsonObject) {
     if (result.ok) {
       setWalnutSpanAttributes(routeSpan, {
         "walnut.route": routeAttribute(result.classification),
+        "walnut.trace_id": turn.traceId,
       });
     }
     return result;
@@ -236,6 +243,7 @@ async function dispatchPlatformCapability({
       body,
       sessionId: turn.sessionId,
       turnId: turn.turnId,
+      traceId: turn.traceId,
     });
   }
   return runMastraAgentTurnWorkflow({
@@ -243,6 +251,7 @@ async function dispatchPlatformCapability({
     params: objectOrNull(classification?.parameters) || {},
     sessionId: turn.sessionId,
     turnId: turn.turnId,
+    traceId: turn.traceId,
   });
 }
 

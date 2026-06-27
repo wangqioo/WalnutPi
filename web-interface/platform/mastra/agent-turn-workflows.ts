@@ -36,6 +36,7 @@ export type AgentTurnWorkflowOptions = WalnutMastraMcpClientOptions & {
   params?: JsonObject;
   sessionId?: string | null;
   turnId?: string | null;
+  traceId?: string | null;
 };
 
 const MCP_TOOL_BY_CAPABILITY: Record<MastraAgentTurnCapability, string> = {
@@ -102,10 +103,12 @@ export async function runMastraAgentTurnWorkflow({
   params = {},
   sessionId = null,
   turnId = null,
+  traceId = null,
   timeoutMs = 30_000,
   ...clientOptions
 }: AgentTurnWorkflowOptions): Promise<WalnutToolResult> {
   return withWalnutSpan("walnut.tool.call", {
+    "walnut.trace_id": traceId,
     "walnut.session_id": sessionId,
     "walnut.turn_id": turnId,
     "walnut.tool_name": MCP_TOOL_BY_CAPABILITY[capability],
@@ -129,11 +132,13 @@ export async function runMastraAgentTurnWorkflow({
       ...params,
       sessionId,
       turnId,
+      traceId,
     } as any, {} as any);
     return normalizeToolResult(result, {
       operation: `mastra.mcp.${capability}`,
       capability,
       mcpToolName,
+      traceId,
     });
   } finally {
     await client.disconnect();
@@ -149,11 +154,13 @@ export function createMastraAgentTurnWorkflowDispatcher(
     body,
     sessionId = null,
     turnId = null,
+    traceId = null,
   }: {
     classification: JsonObject;
     body?: JsonObject;
     sessionId?: string | null;
     turnId?: string | null;
+    traceId?: string | null;
   }) {
     const capability = capabilityFromIntent(String(classification?.intent || ""));
     if (!capability) {
@@ -165,6 +172,7 @@ export function createMastraAgentTurnWorkflowDispatcher(
       params: paramsForCapability(capability, body, classification),
       sessionId,
       turnId,
+      traceId,
     });
   };
 }

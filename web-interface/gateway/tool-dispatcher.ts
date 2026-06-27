@@ -2,6 +2,7 @@ import { type WalnutToolResult, failedToolResult, toolResult } from "../walnut-t
 import { createMemoryProductStateStore } from "../platform/memory/product-state-store.ts";
 import { createActionApprovalService } from "../platform/policy/action-approval-service.ts";
 import { createWalnutMastraAgentApi } from "../mastra-agent-api.ts";
+import { withWalnutSpan, type WalnutSpanName } from "../platform/observability/tracing.ts";
 
 type JsonObject = Record<string, any>;
 
@@ -29,16 +30,20 @@ export function createToolDispatcher({
     if (toolName.startsWith("policy.")) {
       return handlePolicyTool(toolName, params, turn);
     }
-    if (toolName.startsWith("screen.")) return handleScreenTool(toolName, params, turn);
-    if (toolName.startsWith("memory.")) return handleMemoryTool(toolName, params, turn);
+    if (toolName.startsWith("screen.")) {
+      return withToolSpan(screenSpanName(toolName), toolName, params, turn, () => handleScreenTool(toolName, params, turn));
+    }
+    if (toolName.startsWith("memory.")) {
+      return withToolSpan("walnut.memory.retrieve", toolName, params, turn, () => handleMemoryTool(toolName, params, turn));
+    }
     if (toolName.startsWith("diagnostics.")) return handleDiagnosticsTool(toolName, params, turn);
     if (toolName.startsWith("device.")) {
-      return runPolicyGatedAction({
+      return withToolSpan("walnut.device.action", toolName, params, turn, () => runPolicyGatedAction({
         actionId: mapToolToActionId(toolName),
         body: params,
         turn,
         operation: "device.action",
-      });
+      }));
     }
     return failedToolResult("diagnostics", `Unsupported tool group for ${toolName}`);
   }
@@ -307,6 +312,33 @@ export function createToolDispatcher({
       sideEffects: normalizeActionSideEffects(payload.sideEffects),
       diagnostics,
     });
+  }
+
+  function withToolSpan<T>(
+    spanName: WalnutSpanName,
+    toolName: string,
+    params: JsonObject,
+    turn: JsonObject,
+    callback: () => T,
+  ): T {
+    return withWalnutSpan(spanName, {
+      "walnut.trace_id": turn.traceId || null,
+      "walnut.session_id": turn.sessionId || null,
+      "walnut.turn_id": turn.turnId || null,
+      "walnut.tool_name": toolName,
+      "walnut.action_id": toolName.startsWith("device.") ? mapToolToActionId(toolName) : null,
+      "walnut.device_profile": turn.auth?.environment?.deviceProfile || null,
+      "walnut.operation": toolName,
+      "walnut.playlist_hash": safeOptionalAttribute(params.playlistHash),
+      "walnut.build_id": safeOptionalAttribute(params.buildId),
+    }, callback);
+  }
+
+  function screenSpanName(toolName: string): WalnutSpanName {
+    if (toolName === "screen.syncPlaylist") return "walnut.screen.sync";
+    if (toolName === "screen.widgetApp.sync") return "walnut.widget_app.sync";
+    if (toolName === "screen.renderWallpaper") return "walnut.screen.render";
+    return "walnut.screen.command";
   }
 
   async function handlePolicyTool(toolName: string, body: JsonObject, turn: JsonObject) {
@@ -779,6 +811,11 @@ export function createToolDispatcher({
   function cleanOptionalId(value: any) {
     const text = cleanOptionalText(value);
     return /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,96}$/.test(text) ? text : "";
+  }
+
+  function safeOptionalAttribute(value: any) {
+    if (typeof value !== "string" && typeof value !== "number") return null;
+    return String(value);
   }
 
   function normalizeActionSideEffects(value: any) {

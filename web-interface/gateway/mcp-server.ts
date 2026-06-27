@@ -36,6 +36,7 @@ export type ProductGatewayAppDeps = {
   screenWorkspaceApi: GatewayService;
   screenDiagnosticsApi: GatewayService;
   auditLedger: GatewayService;
+  observabilityStatus?: () => JsonObject;
   staticUiHost: {
     handle(pathname: string): Promise<Response | undefined> | Response | undefined;
   };
@@ -58,6 +59,7 @@ export function createProductGatewayApp({
   screenWorkspaceApi,
   screenDiagnosticsApi,
   auditLedger,
+  observabilityStatus,
   staticUiHost,
 }: ProductGatewayAppDeps) {
   const app = new Hono();
@@ -75,6 +77,7 @@ export function createProductGatewayApp({
     webMetricsLedger,
     gatewayTools,
     auditLedger,
+    observabilityStatus,
     readJsonRequest,
   });
   registerAgentRoutes(app, {
@@ -164,8 +167,15 @@ function registerGatewayRoutes(app: Hono, {
   agentPlatform,
   gatewayTools,
   auditLedger,
+  observabilityStatus,
 }: JsonObject) {
   app.get("/api/gateway/tools", () => json(gatewayTools.listTools()));
+  app.get("/api/observability/status", () => json(observabilityStatus?.() || {
+    ok: false,
+    schema: "walnutpi.observability.status.v1",
+    started: false,
+    error: "observability status provider is not configured",
+  }));
   app.get("/api/gateway/audit-events", async (c) => {
     const url = new URL(c.req.url);
     const limit = Number(url.searchParams.get("limit") || 50);

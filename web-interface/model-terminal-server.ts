@@ -35,6 +35,7 @@ import { createToolDispatcher } from "./gateway/tool-dispatcher.ts";
 import { createGatewayAuditLedger } from "./gateway/audit-ledger.ts";
 import { createOpaPolicyBoundary } from "./platform/policy/opa-boundary.ts";
 import { getAiModelConfig } from "./platform/config/platform-config.ts";
+import { getWalnutObservabilityStatus, startWalnutObservability } from "./platform/observability/tracing.ts";
 import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-classifier.ts";
 import { compactRetrievalForPrompt } from "./walnut-retrieval.ts";
 import { createCuratedRetrievalStore } from "./platform/memory/curated-retrieval-store.ts";
@@ -100,6 +101,7 @@ const WEB_CONFIG = {
   WEB_METRICS_PATH,
   WEB_SESSION_EVENT_LIMIT,
 };
+const walnutObservability = startWalnutObservability();
 type JsonObject = Record<string, any>;
 const ACTION_POLICY_MANIFEST = await loadActionPolicyManifest(ACTION_POLICY_MANIFEST_PATH);
 const WEB_ACTIONS = actionsForExecutor(ACTION_POLICY_MANIFEST, "web");
@@ -788,6 +790,7 @@ const productGateway = createProductGatewayApp({
   screenWorkspaceApi,
   screenDiagnosticsApi,
   auditLedger: gatewayAuditLedger,
+  observabilityStatus: () => getWalnutObservabilityStatus(),
   staticUiHost,
 });
 const gatewayFetch = createProductGatewayFetch(productGateway);
@@ -802,3 +805,4 @@ const server = Bun.serve({
 console.log(`Serving model terminal at http://${server.hostname}:${server.port}/`);
 console.log(`Target: ${SSH_USER}@${SSH_HOST}`);
 console.log(`Remote project root: ${REMOTE_PROJECT_ROOT}`);
+console.log(`Observability: ${walnutObservability.started ? "started" : "not-started"}; Langfuse exporter: ${walnutObservability.exporterEnabled ? "enabled" : "disabled"}`);

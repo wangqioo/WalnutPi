@@ -7,26 +7,48 @@ import { LangfuseClient } from "@langfuse/client";
 import { getLangfuseConfig } from "../config/platform-config.ts";
 
 let sdk: NodeSDK | null = null;
+let lastStartStatus: WalnutObservabilityStatus | null = null;
 
 export type WalnutSpanName =
   | "walnut.agent.turn"
   | "walnut.intent.route"
   | "walnut.tool.call"
-  | "walnut.policy.decision";
+  | "walnut.policy.decision"
+  | "walnut.screen.command"
+  | "walnut.screen.render"
+  | "walnut.screen.sync"
+  | "walnut.device.action"
+  | "walnut.memory.retrieve"
+  | "walnut.widget_app.sync";
 
 export const WALNUT_SPAN_ATTRIBUTE_ALLOWLIST = [
+  "walnut.trace_id",
   "walnut.session_id",
   "walnut.turn_id",
   "walnut.route",
   "walnut.tool_name",
   "walnut.action_id",
   "walnut.policy_decision_id",
+  "walnut.device_profile",
+  "walnut.operation",
   "walnut.playlist_hash",
   "walnut.build_id",
 ] as const;
 
 export type WalnutSpanAttributeKey = (typeof WALNUT_SPAN_ATTRIBUTE_ALLOWLIST)[number];
 export type WalnutSpanAttributes = Partial<Record<WalnutSpanAttributeKey, string | null | undefined>>;
+export type WalnutObservabilityStatus = {
+  ok: boolean;
+  schema: "walnutpi.observability.status.v1";
+  enabled: boolean;
+  configured: boolean;
+  exporterEnabled: boolean;
+  started: boolean;
+  alreadyStarted: boolean;
+  baseUrlHost: string | null;
+  publicKeyPrefix: string | null;
+  error: string | null;
+};
 
 export function getWalnutTracer() {
   return trace.getTracer("walnutpi-agent-platform", "0.1.0");
@@ -55,6 +77,7 @@ export function startWalnutSpan(
 ) {
   const span = getWalnutTracer().startSpan(name, options);
   setWalnutSpanAttributes(span, attributes);
+  setLangfuseTraceAttributes(span, name, attributes);
   return span;
 }
 
@@ -117,10 +140,51 @@ export function createWalnutOpenTelemetrySdk({
 }
 
 export function startWalnutObservability() {
-  if (sdk) return { ok: true, alreadyStarted: true, sdk };
-  sdk = createWalnutOpenTelemetrySdk();
-  sdk.start();
-  return { ok: true, alreadyStarted: false, sdk };
+  if (sdk) {
+    lastStartStatus = createObservabilityStatus({
+      ok: true,
+      started: true,
+      alreadyStarted: true,
+      error: null,
+    });
+    return { ...lastStartStatus, sdk };
+  }
+  try {
+    sdk = createWalnutOpenTelemetrySdk();
+    sdk.start();
+    lastStartStatus = createObservabilityStatus({
+      ok: true,
+      started: true,
+      alreadyStarted: false,
+      error: null,
+    });
+    return { ...lastStartStatus, sdk };
+  } catch (error: any) {
+    sdk = null;
+    lastStartStatus = createObservabilityStatus({
+      ok: false,
+      started: false,
+      alreadyStarted: false,
+      error: error?.message || "failed to start WalnutPi observability",
+    });
+    return { ...lastStartStatus, sdk: null };
+  }
+}
+
+export function getWalnutObservabilityStatus(): WalnutObservabilityStatus {
+  return lastStartStatus || createObservabilityStatus({
+    ok: false,
+    started: false,
+    alreadyStarted: false,
+    error: "WalnutPi observability has not been started",
+  });
+}
+
+export function activeWalnutTraceId() {
+  const spanContext = trace.getActiveSpan()?.spanContext();
+  return spanContext?.traceId && spanContext.traceId !== "00000000000000000000000000000000"
+    ? spanContext.traceId
+    : null;
 }
 
 export function createWalnutLangfuseClient() {
@@ -143,6 +207,62 @@ export function createWalnutLangfuseClient() {
       timeout: 2,
     }),
   };
+}
+
+function setLangfuseTraceAttributes(
+  span: Span,
+  name: WalnutSpanName,
+  attributes: WalnutSpanAttributes = {},
+) {
+  const safe: Record<string, string> = {
+    "langfuse.trace.name": name,
+  };
+  const sessionId = sanitizeLangfuseId(attributes["walnut.session_id"]);
+  if (sessionId) {
+    safe["session.id"] = sessionId;
+    safe["langfuse.session.id"] = sessionId;
+  }
+  span.setAttributes(safe);
+}
+
+function createObservabilityStatus({
+  ok,
+  started,
+  alreadyStarted,
+  error,
+}: {
+  ok: boolean;
+  started: boolean;
+  alreadyStarted: boolean;
+  error: string | null;
+}): WalnutObservabilityStatus {
+  const langfuse = getLangfuseConfig();
+  return {
+    ok,
+    schema: "walnutpi.observability.status.v1",
+    enabled: Boolean(langfuse.enabled),
+    configured: Boolean(langfuse.configured),
+    exporterEnabled: Boolean(langfuse.enabled && langfuse.configured),
+    started,
+    alreadyStarted,
+    baseUrlHost: hostOnly(langfuse.baseUrl),
+    publicKeyPrefix: langfuse.publicKey ? `${langfuse.publicKey.slice(0, 8)}...` : null,
+    error,
+  };
+}
+
+function hostOnly(value: string) {
+  try {
+    return new URL(value).host || null;
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeLangfuseId(value: string | null | undefined) {
+  const text = String(value || "").trim();
+  if (!text || text.length > 200) return null;
+  return /^[\x20-\x7E]+$/.test(text) ? text : null;
 }
 
 function isPromiseLike<T>(value: T | PromiseLike<Awaited<T>>): value is PromiseLike<Awaited<T>> {

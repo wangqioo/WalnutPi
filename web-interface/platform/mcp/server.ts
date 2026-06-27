@@ -5,6 +5,12 @@ import { mergeToolAuthContext } from "../../gateway/auth-context.ts";
 
 type JsonObject = Record<string, any>;
 
+const REQUEST_CONTEXT_SCHEMA = {
+  sessionId: z.string().optional(),
+  turnId: z.string().optional(),
+  traceId: z.string().optional(),
+};
+
 const TOOL_POLICIES: Record<string, {
   destructive: boolean;
   idempotent: boolean;
@@ -19,8 +25,7 @@ const TOOL_POLICIES: Record<string, {
     openWorld: false,
     inputSchema: {
       playlistId: z.string().optional(),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "screen.captureFrame": {
@@ -30,8 +35,7 @@ const TOOL_POLICIES: Record<string, {
     openWorld: false,
     inputSchema: {
       buildId: z.string().optional(),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "screen.syncPlaylist": {
@@ -44,8 +48,7 @@ const TOOL_POLICIES: Record<string, {
       evidenceMode: z.enum(["fast", "full"]).optional(),
       mode: z.enum(["remote", "preview"]).optional(),
       previewOnly: z.boolean().optional(),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "screen.renderWallpaper": {
@@ -68,8 +71,7 @@ const TOOL_POLICIES: Record<string, {
       outputType: z.enum(["static", "animated"]).optional(),
       title: z.string().optional(),
       description: z.string().optional(),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "screen.writePlaylist": {
@@ -83,8 +85,7 @@ const TOOL_POLICIES: Record<string, {
       mode: z.enum(["replace", "append"]),
       durationMs: z.number().int().positive().optional(),
       loop: z.boolean().optional(),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "screen.widgetApp.sync": {
@@ -96,8 +97,7 @@ const TOOL_POLICIES: Record<string, {
       appId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,96}$/).optional(),
       versionId: z.string().min(1).max(160).optional(),
       evidenceMode: z.enum(["fast", "full"]).optional(),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "screen.widgetApp.action": {
@@ -108,8 +108,7 @@ const TOOL_POLICIES: Record<string, {
     inputSchema: {
       action: z.string().min(1).max(120),
       params: z.record(z.string(), z.any()).optional(),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "device.status.read": readOnlyToolSchema(),
@@ -121,8 +120,7 @@ const TOOL_POLICIES: Record<string, {
     openWorld: false,
     inputSchema: {
       text: z.string().min(1).max(4000),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "device.network.read": readOnlyToolSchema(),
@@ -137,8 +135,7 @@ const TOOL_POLICIES: Record<string, {
     openWorld: false,
     inputSchema: {
       text: z.string().min(1).max(1000),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "memory.sessionSummary": readOnlyToolSchema(),
@@ -149,8 +146,7 @@ const TOOL_POLICIES: Record<string, {
     openWorld: false,
     inputSchema: {
       text: z.string().min(1).max(1000),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "memory.approve": {
@@ -160,8 +156,7 @@ const TOOL_POLICIES: Record<string, {
     openWorld: false,
     inputSchema: {
       candidateId: z.string().regex(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "memory.sensitiveSkip": {
@@ -171,8 +166,7 @@ const TOOL_POLICIES: Record<string, {
     openWorld: false,
     inputSchema: {
       text: z.string().min(1).max(1000),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "policy.action.prepare": {
@@ -183,8 +177,7 @@ const TOOL_POLICIES: Record<string, {
     inputSchema: {
       actionId: z.string().min(1),
       params: z.record(z.string(), z.any()).optional(),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
   "policy.action.commit": {
@@ -198,8 +191,7 @@ const TOOL_POLICIES: Record<string, {
       params: z.record(z.string(), z.any()).optional(),
       approvalToken: z.string().min(1),
       execute: z.boolean().optional(),
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
     },
   },
 };
@@ -306,9 +298,6 @@ function readOnlyToolSchema() {
     destructive: false,
     idempotent: true,
     openWorld: false,
-    inputSchema: {
-      sessionId: z.string().optional(),
-      turnId: z.string().optional(),
-    },
+    inputSchema: REQUEST_CONTEXT_SCHEMA,
   };
 }

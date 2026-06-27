@@ -88,6 +88,13 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   16, React 19, AI SDK, better-auth, Inngest, OTel, Langfuse, Drizzle/Postgres,
   `@mastra/pg`, and drizzle-kit. `web-interface/platform/` now owns the first module
   boundaries for those packages.
+- Web server startup now calls the WalnutPi observability boundary before the
+  Hono routes are served. `walnut.*` OpenTelemetry spans are exported through
+  Langfuse when configured, with `mediaUploadEnabled: false`, trace/session
+  correlation attributes, and a strict attribute allowlist. The active
+  `/api/agent/turn` path records the OTel trace id on the turn projection,
+  passes it through Mastra MCP tool execution into MCP/OPA/audit request
+  context, and exposes only a redacted `/api/observability/status` projection.
 - Mastra registry storage now uses `@mastra/pg` `PostgresStore` through
   `web-interface/platform/mastra/storage.ts`. The local control-plane database
   owns Mastra-managed `mastra_*` tables; the platform no longer accepts the
@@ -375,6 +382,12 @@ local-only or mock verification.
   references are reported as typed artifact references rather than raw output,
   public delivery stages expose only output hashes and lengths, and the
   dispatcher projection contains no raw command or raw output fields.
+- After wiring Langfuse/OpenTelemetry startup and turn/tool correlation,
+  `bun run check` passes. Local observability probes showed raw command,
+  private text, and raw params are dropped by the span-attribute allowlist; the
+  redacted status projection reports only configuration state, host, and public
+  key prefix; and a structured `device.status.read` turn carries the same OTel
+  trace id from the turn projection into the Mastra dispatcher.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -415,6 +428,9 @@ device-profile verification, not offline verification.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.
+- Confirm live Langfuse backend receipt for the active `walnut.agent.turn`,
+  `walnut.tool.call`, dispatcher, and policy spans using the operator's
+  configured Langfuse project.
 - Add curated eval scaffolding without restoring deleted generated benchmark
   harnesses.
 
