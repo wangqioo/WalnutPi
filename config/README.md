@@ -26,3 +26,11 @@ LANGFUSE_BASE_URL=http://localhost:3000
 
 Do not rewrite that local URL to `http://127.0.0.1:3000`; the Langfuse OTLP
 trace endpoint is reachable through `localhost` in the current local setup.
+
+Retrieval embeddings are disabled by default. To enable the approved provider
+path for curated corpus rows, add a machine-local `retrievalEmbeddings` block to
+`platform.local.json` with an OpenAI-compatible embedding base URL, model, and
+credential source. Retrieval embeddings do not reuse the chat model credentials
+implicitly. Do not enable remote embedding for approved memory unless the
+memory record metadata explicitly records `embeddingConsent: "approved"` and
+`remoteEmbeddingAllowed: true`.

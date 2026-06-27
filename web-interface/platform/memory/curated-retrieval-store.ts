@@ -60,7 +60,7 @@ export function createCuratedRetrievalStore({
         reason: null,
         index: {
           source: "pgvector",
-          embeddingModel: "walnutpi.local-hash.384",
+          embeddingModels: [...new Set(indexedRows.map((row: JsonObject) => row.embeddingModel).filter(Boolean))],
           indexed: indexedRows.length,
           writePath: "inngest.retrieval.reindex",
         },
@@ -82,6 +82,7 @@ async function readIndexedSourceRows(db: JsonObject, ids: string[]) {
     .select({
       sourceKind: retrievalEmbeddingRecords.sourceKind,
       sourceId: retrievalEmbeddingRecords.sourceId,
+      embeddingModel: retrievalEmbeddingRecords.embeddingModel,
     })
     .from(retrievalEmbeddingRecords)
     .where(and(

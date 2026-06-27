@@ -27,6 +27,13 @@
       "path": "~/secret.md"
     }
   },
+  "retrievalEmbeddings": {
+    "enabled": false,
+    "provider": "openai-compatible",
+    "baseUrl": "",
+    "model": "",
+    "dimensions": 384
+  },
   "mcp": {
     "endpoint": "http://127.0.0.1:4173/mcp"
   },

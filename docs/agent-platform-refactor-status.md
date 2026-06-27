@@ -244,11 +244,17 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   scanner was removed; `walnut-ai-terminal/skills` and `walnut-ai-terminal/corpus`
   remain archived/prototype seed material only.
 - `web-interface/platform/memory/retrieval-embedding-index.ts` owns the
-  pgvector indexing seam. It writes `retrieval_embedding_records` only for
+  pgvector indexing seam. The old deterministic local-hash embedding generator
+  has been removed from the active path. Reindex now requires an explicitly
+  configured OpenAI-compatible retrieval embedding provider and returns an
+  honest provider-unconfigured failure when that provider is disabled or
+  incomplete. It writes `retrieval_embedding_records` only for
   `approved_memory` and `curated_corpus` source kinds, with DB check
-  constraints enforcing those source kinds. Raw session logs and raw daily
-  notes are rejected before index writes and cannot satisfy the table
-  constraints.
+  constraints enforcing those source kinds. Curated corpus rows may be sent to
+  the configured embedding provider; approved memory is refused unless its
+  metadata explicitly records `embeddingConsent: "approved"` and
+  `remoteEmbeddingAllowed: true`. Raw session logs and raw daily notes are
+  rejected before index writes and cannot satisfy the table constraints.
 - `web-interface/platform/memory/retrieval-reindex-workflow.ts` owns the
   retrieval reindex workflow. The Inngest function
   `walnut/retrieval.reindex.requested` runs that workflow, so retrieval reads
@@ -428,6 +434,11 @@ local-only or mock verification.
   returned `received: true` with `walnut.agent.turn`, `walnut.tool.call`, and
   `walnut.device.action`. The receipt projection returned only trace id, trace
   URL/path, span names, counts, and redaction flags.
+- After replacing the deterministic local retrieval embedding seam,
+  `bun run check` passes. Local contract probes showed reindex refuses to
+  index curated corpus when the provider is disabled instead of falling back to
+  hash embeddings, and refuses approved memory before provider invocation when
+  remote embedding consent is absent.
 - After moving the next Screen Workspace authoring/detail slice into the
   Next/Tailwind console and adding typed Widget App read action execution,
   `bun run check` passes. Local dispatcher probes showed
@@ -469,8 +480,9 @@ device-profile verification, not offline verification.
 
 - Add multi-org/device management and role-assignment UI/API on top of the
   current Postgres-backed better-auth subject binding tables.
-- Replace the deterministic local embedding seam with an approved embedding
-  provider without sending raw/private content.
+- Configure and live-smoke the approved retrieval embedding provider for
+  curated corpus rows. Approved memory remains blocked from remote embedding
+  until explicit per-record consent metadata exists.
 - Remove or archive the now-unserved static HTML files after confirming no
   operator-only workflow still opens them directly.
 - Collect device-profile evidence for approved Widget App restart/reboot through

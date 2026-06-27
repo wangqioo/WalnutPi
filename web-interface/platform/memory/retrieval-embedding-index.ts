@@ -2,17 +2,17 @@ import { createHash } from "node:crypto";
 import { and, inArray, sql } from "drizzle-orm";
 import { createWalnutPostgresClient } from "../db/client.ts";
 import { retrievalEmbeddingRecords } from "../db/schema.ts";
+import { createRetrievalEmbeddingProvider } from "./embedding-provider.ts";
 
 type JsonObject = Record<string, any>;
 
 export const RETRIEVAL_EMBEDDING_DIMENSIONS = 384;
-export const RETRIEVAL_EMBEDDING_MODEL = `walnutpi.local-hash.${RETRIEVAL_EMBEDDING_DIMENSIONS}`;
 const ALLOWED_SOURCE_KINDS = new Set(["approved_memory", "curated_corpus"]);
 const ALLOWED_SOURCE_TABLES = new Set(["durable_memory_records", "retrieval_documents"]);
 
 export function createRetrievalEmbeddingIndex({
   postgresClientFactory = createWalnutPostgresClient,
-  embedText = deterministicEmbedding,
+  embeddingProvider = createRetrievalEmbeddingProvider(),
 }: JsonObject = {}) {
   async function upsertSource(source: JsonObject) {
     const normalized = normalizeSource(source);
@@ -21,6 +21,26 @@ export function createRetrievalEmbeddingIndex({
         ok: false,
         indexed: false,
         reason: normalized.reason,
+      };
+    }
+    if (!embeddingProvider?.configured) {
+      return {
+        ok: false,
+        indexed: false,
+        sourceKind: normalized.sourceKind,
+        sourceId: normalized.sourceId,
+        reason: embeddingProvider?.reason || "retrieval embedding provider is not configured",
+        embeddingProviderConfigured: false,
+      };
+    }
+    if (!sourceMayLeaveControlPlane(normalized)) {
+      return {
+        ok: false,
+        indexed: false,
+        sourceKind: normalized.sourceKind,
+        sourceId: normalized.sourceId,
+        reason: "source is not approved for remote embedding",
+        embeddingProviderConfigured: true,
       };
     }
     const client = postgresClientFactory();
@@ -33,9 +53,10 @@ export function createRetrievalEmbeddingIndex({
     }
     try {
       const textHash = hashText(normalized.text);
-      const embedding = await embedText(normalized.text, {
+      const embedding = await embeddingProvider.embedText(normalized.text, {
         dimensions: RETRIEVAL_EMBEDDING_DIMENSIONS,
         sourceKind: normalized.sourceKind,
+        textHash,
       });
       if (!Array.isArray(embedding) || embedding.length !== RETRIEVAL_EMBEDDING_DIMENSIONS) {
         return {
@@ -44,6 +65,7 @@ export function createRetrievalEmbeddingIndex({
           reason: `embedding dimension mismatch: expected ${RETRIEVAL_EMBEDDING_DIMENSIONS}`,
         };
       }
+      const embeddingModel = cleanEmbeddingModel(embeddingProvider.model);
       await client.db
         .insert(retrievalEmbeddingRecords)
         .values({
@@ -52,7 +74,7 @@ export function createRetrievalEmbeddingIndex({
           sourceId: normalized.sourceId,
           source: normalized.source,
           textHash,
-          embeddingModel: RETRIEVAL_EMBEDDING_MODEL,
+          embeddingModel,
           embedding,
           metadata: normalized.metadata,
         })
@@ -62,7 +84,7 @@ export function createRetrievalEmbeddingIndex({
             sourceTable: normalized.sourceTable,
             source: normalized.source,
             textHash,
-            embeddingModel: RETRIEVAL_EMBEDDING_MODEL,
+            embeddingModel,
             embedding,
             metadata: normalized.metadata,
             updatedAt: sql`now()`,
@@ -74,7 +96,7 @@ export function createRetrievalEmbeddingIndex({
         sourceKind: normalized.sourceKind,
         sourceId: normalized.sourceId,
         textHash,
-        embeddingModel: RETRIEVAL_EMBEDDING_MODEL,
+        embeddingModel,
       };
     } finally {
       await client.sql?.end?.({ timeout: 1 });
@@ -87,7 +109,11 @@ export function createRetrievalEmbeddingIndex({
       results.push(await upsertSource(source));
     }
     return {
-      ok: results.every((result) => result.ok || result.reason === "source kind is not indexable"),
+      ok: results.every((result) =>
+        result.ok
+        || result.reason === "source kind is not indexable"
+        || result.reason === "source is not approved for remote embedding"
+      ),
       indexed: results.filter((result) => result.indexed).length,
       refused: results.filter((result) => !result.indexed),
       results,
@@ -145,7 +171,7 @@ function normalizeSource(source: JsonObject) {
 function publicMetadata(value: any) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const out: JsonObject = {};
-  for (const key of ["categoryKey", "sourceTool", "documentKind", "approvedAt"]) {
+  for (const key of ["categoryKey", "sourceTool", "documentKind", "approvedAt", "embeddingConsent", "remoteEmbeddingAllowed"]) {
     if (value[key] !== undefined) out[key] = value[key];
   }
   return out;
@@ -155,16 +181,14 @@ function hashText(value: string) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
-function deterministicEmbedding(value: string, { dimensions = RETRIEVAL_EMBEDDING_DIMENSIONS }: JsonObject = {}) {
-  const vector = Array.from({ length: dimensions }, () => 0);
-  const tokens = String(value || "").toLowerCase().match(/[a-z0-9_./:-]+|[\u4e00-\u9fff]{1,}/g) || [];
-  for (const token of tokens) {
-    const digest = createHash("sha256").update(token).digest();
-    for (let offset = 0; offset < digest.length; offset += 2) {
-      const bucket = ((digest[offset] << 8) + digest[offset + 1]) % dimensions;
-      vector[bucket] += 1;
-    }
-  }
-  const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
-  return vector.map((value) => Number((value / norm).toFixed(8)));
+function sourceMayLeaveControlPlane(source: JsonObject) {
+  if (source.sourceKind === "curated_corpus") return true;
+  if (source.sourceKind !== "approved_memory") return false;
+  return source.metadata?.embeddingConsent === "approved" && source.metadata?.remoteEmbeddingAllowed === true;
+}
+
+function cleanEmbeddingModel(value: any) {
+  const model = String(value || "").trim();
+  if (!model) throw new Error("retrieval embedding model is not configured");
+  return model;
 }
