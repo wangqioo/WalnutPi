@@ -5,6 +5,7 @@ export const TOOL_RESULT_SCHEMAS = {
   diagnostics: "walnutpi.toolResult.diagnostics.v1",
   policy: "walnutpi.toolResult.policy.v1",
   chat: "walnutpi.toolResult.chat.v1",
+  eval: "walnutpi.toolResult.eval.v1",
 } as const;
 
 type ToolFamily = keyof typeof TOOL_RESULT_SCHEMAS;

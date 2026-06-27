@@ -116,6 +116,27 @@ const TOOL_POLICIES: Record<string, {
   },
   "device.status.read": readOnlyToolSchema(),
   "diagnostics.recentFailure": readOnlyToolSchema(),
+  "eval.curated.list": {
+    readOnly: true,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+    inputSchema: {
+      suite: z.enum(["curated", "regression", "safety", "device"]).optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
+    },
+  },
+  "eval.curated.scoreShape": {
+    readOnly: true,
+    destructive: false,
+    idempotent: true,
+    openWorld: false,
+    inputSchema: {
+      caseId: z.string().min(1).max(120),
+      variantId: z.string().min(1).max(120).optional(),
+      ...REQUEST_CONTEXT_SCHEMA,
+    },
+  },
   "ai.chat": {
     readOnly: true,
     destructive: false,

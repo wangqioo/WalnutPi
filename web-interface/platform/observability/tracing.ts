@@ -19,7 +19,8 @@ export type WalnutSpanName =
   | "walnut.screen.sync"
   | "walnut.device.action"
   | "walnut.memory.retrieve"
-  | "walnut.widget_app.sync";
+  | "walnut.widget_app.sync"
+  | "walnut.eval.score";
 
 export const WALNUT_SPAN_ATTRIBUTE_ALLOWLIST = [
   "walnut.trace_id",
@@ -33,6 +34,9 @@ export const WALNUT_SPAN_ATTRIBUTE_ALLOWLIST = [
   "walnut.operation",
   "walnut.playlist_hash",
   "walnut.build_id",
+  "walnut.eval_case_id",
+  "walnut.eval_granularity",
+  "walnut.evidence_layer",
 ] as const;
 
 export type WalnutSpanAttributeKey = (typeof WALNUT_SPAN_ATTRIBUTE_ALLOWLIST)[number];

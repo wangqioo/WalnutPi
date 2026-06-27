@@ -27,6 +27,8 @@ export const MASTRA_AGENT_TURN_CAPABILITIES = [
   "ai.chat",
   "policy.action.prepare",
   "policy.action.commit",
+  "eval.curated.list",
+  "eval.curated.scoreShape",
 ] as const;
 
 export type MastraAgentTurnCapability = (typeof MASTRA_AGENT_TURN_CAPABILITIES)[number];
@@ -62,6 +64,8 @@ const MCP_TOOL_BY_CAPABILITY: Record<MastraAgentTurnCapability, string> = {
   "ai.chat": "walnutpi_ai.chat",
   "policy.action.prepare": "walnutpi_policy.action.prepare",
   "policy.action.commit": "walnutpi_policy.action.commit",
+  "eval.curated.list": "walnutpi_eval.curated.list",
+  "eval.curated.scoreShape": "walnutpi_eval.curated.scoreShape",
 };
 
 const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["family"]> = {
@@ -87,6 +91,8 @@ const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["
   "ai.chat": "chat",
   "policy.action.prepare": "policy",
   "policy.action.commit": "policy",
+  "eval.curated.list": "eval",
+  "eval.curated.scoreShape": "eval",
 };
 
 export function capabilityFromIntent(intent: string): MastraAgentTurnCapability | null {
@@ -276,6 +282,19 @@ function paramsForCapability(
       params: body.params || parameters.params || {},
       approvalToken: body.approvalToken || parameters.approvalToken,
       execute: body.execute === true || parameters.execute === true,
+    };
+  }
+  if (capability === "eval.curated.list") {
+    return {
+      ...parameters,
+      suite: body.suite || parameters.suite || undefined,
+    };
+  }
+  if (capability === "eval.curated.scoreShape") {
+    return {
+      ...parameters,
+      caseId: body.caseId || parameters.caseId,
+      variantId: body.variantId || parameters.variantId || undefined,
     };
   }
   return parameters;

@@ -3,6 +3,7 @@ import { type WalnutToolResult, failedToolResult, toolResult } from "../walnut-t
 import { createMemoryProductStateStore } from "../platform/memory/product-state-store.ts";
 import { createActionApprovalService } from "../platform/policy/action-approval-service.ts";
 import { createWalnutMastraAgentApi } from "../mastra-agent-api.ts";
+import { createPendingEvalScore, getCuratedEvalCase, listCuratedEvalCases } from "../platform/eval/curated-eval.ts";
 import { withWalnutSpan, type WalnutSpanName } from "../platform/observability/tracing.ts";
 
 type JsonObject = Record<string, any>;
@@ -38,6 +39,9 @@ export function createToolDispatcher({
       return withToolSpan("walnut.memory.retrieve", toolName, params, turn, () => handleMemoryTool(toolName, params, turn));
     }
     if (toolName.startsWith("diagnostics.")) return handleDiagnosticsTool(toolName, params, turn);
+    if (toolName.startsWith("eval.")) {
+      return withToolSpan("walnut.eval.score", toolName, params, turn, () => handleEvalTool(toolName, params, turn));
+    }
     if (toolName.startsWith("device.")) {
       return withToolSpan("walnut.device.action", toolName, params, turn, () => runPolicyGatedAction({
         actionId: mapToolToActionId(toolName),
@@ -862,6 +866,66 @@ export function createToolDispatcher({
   async function handleDiagnosticsTool(toolName: string, _params: JsonObject, turn: JsonObject) {
     if (toolName === "diagnostics.recentFailure") return recentFailure(turn);
     return failedToolResult("diagnostics", `Unknown diagnostics tool ${toolName}`);
+  }
+
+  async function handleEvalTool(toolName: string, params: JsonObject, turn: JsonObject) {
+    if (toolName === "eval.curated.list") {
+      const suite = cleanOptionalText(params.suite);
+      const cases = listCuratedEvalCases().filter((evalCase: JsonObject) => !suite || evalCase.suite === suite);
+      return toolResult("eval", {
+        summary: `Listed ${cases.length} curated eval case${cases.length === 1 ? "" : "s"}.`,
+        result: {
+          operation: "eval.curated.list",
+          cases,
+          caseCount: cases.length,
+        },
+        evidence: {
+          curatedHumanLabeledShape: true,
+          generatedBenchmarkHarnessRestored: false,
+          noRawSessionLogsIndexed: true,
+          noRawDailyNotesIndexed: true,
+          noPrivateContentInScore: true,
+          requestContext: {
+            sessionId: turn.sessionId || null,
+            turnId: turn.turnId || null,
+          },
+        },
+        diagnostics: {
+          operation: "eval.curated.list",
+        },
+      });
+    }
+    if (toolName === "eval.curated.scoreShape") {
+      const evalCase = getCuratedEvalCase(cleanOptionalText(params.caseId));
+      if (!evalCase) return failedToolResult("eval", "Unknown curated eval case.", { operation: "eval.curated.scoreShape" });
+      const score = createPendingEvalScore(evalCase, {
+        variantId: cleanOptionalText(params.variantId) || "local-platform",
+        reason: "score shape only; execution must attach redacted Mastra/MCP trace evidence",
+        evidenceRefs: [`curated-eval-case:${evalCase.id}`],
+      });
+      return toolResult("eval", {
+        summary: `Prepared pending score shape for ${evalCase.id}.`,
+        result: {
+          operation: "eval.curated.scoreShape",
+          case: evalCase,
+          score,
+        },
+        evidence: {
+          curatedHumanLabeledShape: true,
+          graderClassification: evalCase.grader,
+          requiredEvidence: evalCase.requiredEvidence,
+          forbiddenSideEffects: evalCase.forbiddenSideEffects,
+          generatedBenchmarkHarnessRestored: false,
+          noPrivateContentInScore: true,
+          noSideEffects: true,
+        },
+        diagnostics: {
+          operation: "eval.curated.scoreShape",
+          caseId: evalCase.id,
+        },
+      });
+    }
+    return failedToolResult("eval", `Unknown eval tool ${toolName}`);
   }
 
   function mapToolToActionId(toolName: string) {
