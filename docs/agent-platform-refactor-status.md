@@ -500,6 +500,11 @@ local-only or mock verification.
   passes. A live smoke against the already-running Web server on port 4173
   still returned `Unsupported structured capability eval.curated.list`,
   confirming that process was running pre-change code; it was left untouched.
+- After deriving the in-process Mastra MCP endpoint from the active Web
+  `HOST`/`PORT`, a temporary Web server on port 4184 returned two safety cases
+  from `/api/eval/curated?suite=safety` and completed structured
+  `/api/agent/turn` for `eval.curated.list` with final diagnostics operation
+  `mastra.mcp.eval.curated.list` and `walnutpi.toolResult.eval.v1`.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active

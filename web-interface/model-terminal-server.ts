@@ -107,6 +107,7 @@ const WEB_CONFIG = {
 };
 const walnutObservability = startWalnutObservability();
 type JsonObject = Record<string, any>;
+const LOCAL_MCP_ENDPOINT = `http://${HOST}:${PORT}/mcp`;
 const ACTION_POLICY_MANIFEST = await loadActionPolicyManifest(ACTION_POLICY_MANIFEST_PATH);
 const WEB_ACTIONS = actionsForExecutor(ACTION_POLICY_MANIFEST, "web");
 const aiApiKey = getAiModelConfig().apiKey;
@@ -751,7 +752,7 @@ const agentPlatform = createAgentPlatformTurnRoute({
       });
       return {
         dispatch: createMastraAgentTurnWorkflowDispatcher({
-          endpoint: "http://127.0.0.1:4173/mcp",
+          endpoint: LOCAL_MCP_ENDPOINT,
           fetchImpl: ((url, init) => handleWalnutMcpRequest(new Request(url, init), {
             auditLedger: gatewayAuditLedger,
             authContext,
