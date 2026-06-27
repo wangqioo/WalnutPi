@@ -101,7 +101,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   correlation attributes, and a strict attribute allowlist. The active
   `/api/agent/turn` path records the OTel trace id on the turn projection,
   passes it through Mastra MCP tool execution into MCP/OPA/audit request
-  context, and exposes only a redacted `/api/observability/status` projection.
+  context, and exposes only redacted `/api/observability/status` and
+  `/api/observability/langfuse/receipt?traceId=...` projections. The receipt
+  projection reads only trace/observation receipt metadata and never returns
+  Langfuse input, output, metadata payloads, raw attributes, raw user text, raw
+  params, raw command strings, or raw device output.
 - Mastra registry storage now uses `@mastra/pg` `PostgresStore` through
   `web-interface/platform/mastra/storage.ts`. The local control-plane database
   owns Mastra-managed `mastra_*` tables; the platform no longer accepts the
@@ -202,6 +206,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   no longer expose raw shell, SSH, or Walnut CLI command strings. Command
   construction remains inside the dispatcher/adapter boundary and raw command
   records stay limited to internal diagnostic/audit boundaries.
+- Device action tool projections no longer lift dispatcher raw device output
+  into Mastra or `/api/agent/turn` results. Public device results expose only
+  status/code, policy summary, device-boundary evidence, and raw output
+  hash/length/line-count evidence; raw output remains inside the internal
+  dispatcher/audit boundary.
 - Gateway policy/action/MCP audit events now persist through the control-plane
   Postgres `audit_events` table. `web-interface/gateway/audit-ledger.ts` no
   longer writes `data/gateway-audit.jsonl`; DB-unavailable writes report an
@@ -401,6 +410,24 @@ local-only or mock verification.
   redacted status projection reports only configuration state, host, and public
   key prefix; and a structured `device.status.read` turn carries the same OTel
   trace id from the turn projection into the Mastra dispatcher.
+- After adding the redacted Langfuse receipt projection and tightening device
+  action public output projection, `bun run check` passes. Live
+  `device.status.read` through `/api/agent/turn` reached final diagnostics
+  operation `mastra.mcp.device.status.read` with OPA/device-boundary evidence
+  and no raw command, command string, service table, memory table, or raw device
+  output in the public turn projection. The public output evidence was limited
+  to SHA-256, length, and line count.
+- Live Langfuse receipt is now verified against the local Docker Compose
+  Langfuse stack. The local control-plane Langfuse base URL must be
+  `http://localhost:3000`; `http://127.0.0.1:3000` returned `404 Not Found` for
+  OTLP POST in the Windows host setup. After switching the local config to
+  `localhost`, a structured `/api/agent/turn` `device.status.read` call reached
+  final diagnostics operation `mastra.mcp.device.status.read`, Langfuse
+  ClickHouse recorded trace id `46d19911ac4b3531dd809817d8aebbfa`, and
+  `/api/observability/langfuse/receipt?traceId=46d19911ac4b3531dd809817d8aebbfa`
+  returned `received: true` with `walnut.agent.turn`, `walnut.tool.call`, and
+  `walnut.device.action`. The receipt projection returned only trace id, trace
+  URL/path, span names, counts, and redaction flags.
 - After moving the next Screen Workspace authoring/detail slice into the
   Next/Tailwind console and adding typed Widget App read action execution,
   `bun run check` passes. Local dispatcher probes showed
@@ -453,9 +480,9 @@ device-profile verification, not offline verification.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.
-- Confirm live Langfuse backend receipt for the active `walnut.agent.turn`,
-  `walnut.tool.call`, dispatcher, and policy spans using the operator's
-  configured Langfuse project.
+- Extend Langfuse-backed observability from receipt confirmation into curated
+  eval datasets, Mastra eval scores, and Inngest fanout without adding raw
+  private content to traces or scores.
 - Add curated eval scaffolding without restoring deleted generated benchmark
   harnesses.
 

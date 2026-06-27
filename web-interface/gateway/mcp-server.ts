@@ -37,6 +37,7 @@ export type ProductGatewayAppDeps = {
   screenDiagnosticsApi: GatewayService;
   auditLedger: GatewayService;
   observabilityStatus?: () => JsonObject;
+  langfuseReceipt?: (traceId: string | null) => Promise<JsonObject> | JsonObject;
   staticUiHost: {
     handle(pathname: string): Promise<Response | undefined> | Response | undefined;
   };
@@ -60,6 +61,7 @@ export function createProductGatewayApp({
   screenDiagnosticsApi,
   auditLedger,
   observabilityStatus,
+  langfuseReceipt,
   staticUiHost,
 }: ProductGatewayAppDeps) {
   const app = new Hono();
@@ -94,6 +96,8 @@ export function createProductGatewayApp({
     agentPlatform,
     gatewayTools,
     auditLedger,
+    observabilityStatus,
+    langfuseReceipt,
     readJsonRequest,
   });
   registerAuthRoutes(app, { json, config });
@@ -169,6 +173,7 @@ function registerGatewayRoutes(app: Hono, {
   gatewayTools,
   auditLedger,
   observabilityStatus,
+  langfuseReceipt,
 }: JsonObject) {
   app.get("/api/gateway/tools", () => json(gatewayTools.listTools()));
   app.get("/api/observability/status", () => json(observabilityStatus?.() || {
@@ -177,6 +182,33 @@ function registerGatewayRoutes(app: Hono, {
     started: false,
     error: "observability status provider is not configured",
   }));
+  app.get("/api/observability/langfuse/receipt", async (c) => {
+    const traceId = new URL(c.req.url).searchParams.get("traceId");
+    return json(langfuseReceipt
+      ? await langfuseReceipt(traceId)
+      : {
+        ok: false,
+        schema: "walnutpi.langfuseReceipt.v1",
+        configured: false,
+        traceId,
+        received: false,
+        trace: null,
+        observations: {
+          total: 0,
+          walnut: 0,
+          names: [],
+          receivedRequired: [],
+          missingRequired: [],
+        },
+        redaction: {
+          input: false,
+          output: false,
+          metadata: false,
+          rawAttributes: false,
+        },
+        error: "Langfuse receipt provider is not configured",
+      });
+  });
   app.get("/api/gateway/audit-events", async (c) => {
     const url = new URL(c.req.url);
     const limit = Number(url.searchParams.get("limit") || 50);

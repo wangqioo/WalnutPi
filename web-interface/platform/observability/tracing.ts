@@ -43,10 +43,39 @@ export type WalnutObservabilityStatus = {
   enabled: boolean;
   configured: boolean;
   exporterEnabled: boolean;
+  otlpEndpoint: string | null;
   started: boolean;
   alreadyStarted: boolean;
   baseUrlHost: string | null;
   publicKeyPrefix: string | null;
+  error: string | null;
+};
+export type WalnutLangfuseReceipt = {
+  ok: boolean;
+  schema: "walnutpi.langfuseReceipt.v1";
+  configured: boolean;
+  traceId: string | null;
+  received: boolean;
+  trace: {
+    id: string;
+    name: string | null;
+    timestamp: string | null;
+    htmlPath: string | null;
+    traceUrl: string | null;
+  } | null;
+  observations: {
+    total: number;
+    walnut: number;
+    names: string[];
+    receivedRequired: string[];
+    missingRequired: string[];
+  };
+  redaction: {
+    input: false;
+    output: false;
+    metadata: false;
+    rawAttributes: false;
+  };
   error: string | null;
 };
 
@@ -209,6 +238,76 @@ export function createWalnutLangfuseClient() {
   };
 }
 
+export async function readWalnutLangfuseReceipt({
+  traceId,
+  requiredNames = ["walnut.agent.turn", "walnut.tool.call"],
+}: {
+  traceId: string | null | undefined;
+  requiredNames?: string[];
+}): Promise<WalnutLangfuseReceipt> {
+  const cleanTraceId = sanitizeLangfuseId(traceId);
+  const base = createLangfuseReceipt({
+    configured: getLangfuseConfig().configured,
+    traceId: cleanTraceId,
+  });
+  if (!cleanTraceId) {
+    return {
+      ...base,
+      ok: false,
+      error: "traceId is required",
+    };
+  }
+  const langfuse = createWalnutLangfuseClient();
+  if (!langfuse.client) {
+    return {
+      ...base,
+      ok: false,
+      error: langfuse.reason || "Langfuse is not configured",
+    };
+  }
+
+  try {
+    const traceReceipt = await langfuse.client.api.trace.get(cleanTraceId, { fields: "core,observations" });
+    const traceObservations = Array.isArray((traceReceipt as any).observations)
+      ? (traceReceipt as any).observations
+      : [];
+    const observations = traceObservations;
+    const names = uniqueSorted(
+      observations
+        .map((item: any) => cleanOptionalString(item?.name))
+        .filter((name: string | null): name is string => Boolean(name)),
+    );
+    const walnutNames = names.filter((name) => name.startsWith("walnut."));
+    const receivedRequired = requiredNames.filter((name) => names.includes(name));
+    return {
+      ...base,
+      ok: true,
+      received: true,
+      trace: {
+        id: cleanOptionalString((traceReceipt as any).id) || cleanTraceId,
+        name: cleanOptionalString((traceReceipt as any).name),
+        timestamp: cleanOptionalString((traceReceipt as any).timestamp),
+        htmlPath: cleanOptionalString((traceReceipt as any).htmlPath),
+        traceUrl: await safeTraceUrl(langfuse.client, cleanTraceId),
+      },
+      observations: {
+        total: observations.length,
+        walnut: walnutNames.length,
+        names: walnutNames,
+        receivedRequired,
+        missingRequired: requiredNames.filter((name) => !receivedRequired.includes(name)),
+      },
+    };
+  } catch (error: any) {
+    return {
+      ...base,
+      ok: false,
+      received: false,
+      error: error?.message || "failed to read Langfuse trace receipt",
+    };
+  }
+}
+
 function setLangfuseTraceAttributes(
   span: Span,
   name: WalnutSpanName,
@@ -243,12 +342,61 @@ function createObservabilityStatus({
     enabled: Boolean(langfuse.enabled),
     configured: Boolean(langfuse.configured),
     exporterEnabled: Boolean(langfuse.enabled && langfuse.configured),
+    otlpEndpoint: langfuse.enabled && langfuse.configured ? `${langfuse.baseUrl.replace(/\/+$/, "")}/api/public/otel/v1/traces` : null,
     started,
     alreadyStarted,
     baseUrlHost: hostOnly(langfuse.baseUrl),
     publicKeyPrefix: langfuse.publicKey ? `${langfuse.publicKey.slice(0, 8)}...` : null,
     error,
   };
+}
+
+function createLangfuseReceipt({
+  configured,
+  traceId,
+}: {
+  configured: boolean;
+  traceId: string | null;
+}): WalnutLangfuseReceipt {
+  return {
+    ok: false,
+    schema: "walnutpi.langfuseReceipt.v1",
+    configured,
+    traceId,
+    received: false,
+    trace: null,
+    observations: {
+      total: 0,
+      walnut: 0,
+      names: [],
+      receivedRequired: [],
+      missingRequired: [],
+    },
+    redaction: {
+      input: false,
+      output: false,
+      metadata: false,
+      rawAttributes: false,
+    },
+    error: null,
+  };
+}
+
+async function safeTraceUrl(client: LangfuseClient, traceId: string) {
+  try {
+    return await client.getTraceUrl(traceId);
+  } catch {
+    return null;
+  }
+}
+
+function uniqueSorted(values: string[]) {
+  return [...new Set(values)].sort();
+}
+
+function cleanOptionalString(value: any) {
+  const text = String(value || "").trim();
+  return text || null;
 }
 
 function hostOnly(value: string) {

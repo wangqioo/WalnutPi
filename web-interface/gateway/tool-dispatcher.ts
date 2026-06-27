@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { type WalnutToolResult, failedToolResult, toolResult } from "../walnut-tool-results.ts";
 import { createMemoryProductStateStore } from "../platform/memory/product-state-store.ts";
 import { createActionApprovalService } from "../platform/policy/action-approval-service.ts";
@@ -291,24 +292,36 @@ export function createToolDispatcher({
     });
     const payload = objectOrEmpty(response.body);
     const diagnostics = objectOrEmpty(payload.diagnostics);
+    const outputSummary = summarizeRawOutput(payload.output);
     return toolResult(actionId === "ai" ? "chat" : "device", {
       ok: Boolean(payload.ok),
-      summary: payload.summary || payload.reply || payload.output || "",
+      summary: summarizeActionResult({
+        actionId,
+        operation,
+        ok: Boolean(payload.ok),
+        responseStatus: response.status || 500,
+      }),
       result: {
         operation,
         actionId,
         status: response.status || 500,
         code: payload.code ?? null,
         remoteOk: typeof payload.remoteOk === "boolean" ? payload.remoteOk : null,
-        output: payload.output || null,
+        output: outputSummary,
         policyDecision: objectOrEmpty(payload.policyDecision),
-        contextUsed: payload.contextUsed || null,
+        contextUsed: summarizeContextUsed(payload.contextUsed),
         diagnostics: {
           traceId: diagnostics.traceId || null,
           policyDecisionId: diagnostics.policyDecisionId || null,
         },
       },
-      evidence: objectOrEmpty(payload.evidence || payload.actionEvidence),
+      evidence: {
+        ...objectOrEmpty(payload.evidence || payload.actionEvidence),
+        deviceBoundaryReached: true,
+        noRawCommandExposure: true,
+        noRawDeviceOutputExposure: true,
+        output: outputSummary,
+      },
       sideEffects: normalizeActionSideEffects(payload.sideEffects),
       diagnostics,
     });
@@ -966,6 +979,49 @@ export function createToolDispatcher({
   function safeOptionalAttribute(value: any) {
     if (typeof value !== "string" && typeof value !== "number") return null;
     return String(value);
+  }
+
+  function summarizeActionResult({
+    actionId,
+    operation,
+    ok,
+    responseStatus,
+  }: {
+    actionId: string;
+    operation: string;
+    ok: boolean;
+    responseStatus: number;
+  }) {
+    const status = ok ? "completed" : "failed";
+    return `${operation} ${status} for ${actionId} with HTTP status ${responseStatus}.`;
+  }
+
+  function summarizeRawOutput(value: any) {
+    const text = typeof value === "string" ? value : "";
+    if (!text) {
+      return {
+        present: false,
+        sha256: null,
+        length: 0,
+        lineCount: 0,
+      };
+    }
+    return {
+      present: true,
+      sha256: createHash("sha256").update(text).digest("hex"),
+      length: text.length,
+      lineCount: text.split(/\r?\n/).length,
+    };
+  }
+
+  function summarizeContextUsed(value: any) {
+    const context = objectOrEmpty(value);
+    if (!Object.keys(context).length) return null;
+    return {
+      delegatedTo: cleanOptionalText(context.delegatedTo) || null,
+      items: Array.isArray(context.items) ? context.items.length : null,
+      sourceCount: Array.isArray(context.sources) ? context.sources.length : null,
+    };
   }
 
   function normalizeActionSideEffects(value: any) {
