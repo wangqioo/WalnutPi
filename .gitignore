@@ -49,6 +49,7 @@ screen/outputs/agent-widget-*/
 screen/outputs/api-*/
 screen/outputs/benchmark-*/
 screen/outputs/codex-*/
+screen/outputs/lvgl-preview/
 screen/outputs/v1-*/
 screen/plans/agent-freeform-*-plan.json
 screen/plans/agent-widget-*-plan.json

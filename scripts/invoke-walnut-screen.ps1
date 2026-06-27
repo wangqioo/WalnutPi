@@ -2,7 +2,7 @@ param(
     [ValidateSet("state", "frame", "capture", "capture-base64", "start", "stop", "toggle", "lvgl", "lightfield")]
     [string]$Action = "state",
     [Alias("Host")]
-    [string]$HostName = "192.168.1.24",
+    [string]$HostName = "192.168.44.126",
     [string]$User = "root",
     [string]$Password = "root"
 )

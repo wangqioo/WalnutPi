@@ -1,6 +1,6 @@
 # Agent Platform Refactor Status
 
-Date: 2026-06-26
+Date: 2026-06-27
 
 This status note records the current destructive refactor checkpoint. The
 source of truth remains `docs/agent-platform-refactor-spec.md`.
@@ -194,6 +194,16 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - The `/api/agent/turn` slices above share the same Mastra MCP
   workflow dispatcher. Final tool result diagnostics use
   `mastra.mcp.<capability>`.
+- `ai.chat` is now a first-class MCP/Mastra capability. Natural-language chat
+  and explicit structured chat turns reach the `walnutpi_ai.chat` MCP tool and
+  project final diagnostics as `mastra.mcp.ai.chat`; `/api/agent/turn` no longer
+  has a direct chat-agent branch that bypasses the workflow dispatcher.
+- The old monolithic platform verification harness and package script have been
+  removed. Automatic local verification is `bun run check`; platform API and
+  real-device verification are manual operator checks recorded as evidence, not
+  skip-able platform wiring probes.
+- Default WalnutPi device access now targets `192.168.44.126` in Web config and
+  real-device helper scripts.
 - `web-interface/next-app/` now contains the first Tailwind-based Next.js
   Walnut Agent Console slice. It provides a fixed-height chat workspace, quick
   Mastra/MCP capability actions, read-only device diagnostics buttons, and an
@@ -233,81 +243,24 @@ local-only or mock verification.
 
 ## Verified
 
-- `bun run check`
-- `bun run verify:platform`
+- `bun run check` passes with TypeScript pinned to `5.9.3` and
+  `skipLibCheck: true`.
+- Before retiring the harness, the platform path was manually exercised through
+  the former local verification harness with 20 SDK MCP tools including
+  `walnutpi_ai.chat`; structured `ai.chat` reached final diagnostics operation
+  `mastra.mcp.ai.chat` and exposed no raw command field. This was a one-time
+  operator check, not a retained script.
+- Live API/device checks are now expected to be run manually by the operator.
+  Current device helper defaults point to `root@192.168.44.126`.
+- Historical evidence below remains useful context, but it is not an active
+  automated platform gate.
 - OPA CLI `version` and minimal Rego eval pass on the local control plane.
 - Live `bun run web` `/mcp` verification listed the migrated read-only tool
   surface through `@mastra/mcp`.
 - Live `POST /api/agent/turn` with a structured `device.status.read`
   continuation completed through `mastra.mcp.device.status.read`.
-- `bun run verify:platform` now verifies at least 19 `/mcp` tools/list
-  entries, 18 MCP tools/call invocations, and 14 structured
-  `/api/agent/turn` slices through Mastra MCP workflow dispatch.
-- `bun run verify:platform` also verifies OPA-unavailable degraded behavior:
-  read actions may local-allow, while write-low actions fail closed with
-  `noCommandExecution`.
-- `bun run verify:platform` verifies MCP auth/device context reaches gateway
-  policy audit for an OPA-gated tool call.
-- `bun run verify:platform` verifies spoofed subject/role headers are ignored
-  by the MCP subject resolver.
-- `bun run verify:platform` verifies better-auth is Postgres-backed, creates a
-  real signed-in test session, resolves it as `better-auth-user`, and carries
-  that signed subject through the `/api/agent/turn` -> Mastra MCP ->
-  OPA/audit path without accepting spoofed subject/role headers.
-- `bun run verify:platform` verifies signed better-auth users resolve through
-  Postgres-backed org/device/owner bindings, and that OPA receives matching
-  subject and environment binding ids.
-- `bun run verify:platform` verifies signed subject device target/profile stay
-  server-owned even when request environment attempts to spoof them.
-- `bun run verify:platform` verifies the `/api/agent/turn` Mastra MCP workflow
-  path uses request-derived auth context, reaches the `policy.action.prepare`
-  no-command boundary, and does not admit spoofed subject/role headers into the
-  MCP or approval audit rows.
-- `bun run verify:platform` verifies `/api/agent/turn?nossh=1` still reaches
-  the structured Mastra/MCP path instead of returning the old preview skip.
-- `bun run verify:platform` verifies the public gateway audit projection redacts
-  raw command strings, private device output, private evidence, and private
-  params.
-- `bun run verify:platform` verifies `policy.action.prepare` produces no command
-  execution, `policy.action.commit` requires the approval proof, and high-risk
-  direct Web execution remains blocked without exposing command strings.
-- `bun run verify:platform` verifies the `actionApprovalRecords` Drizzle schema
-  is present.
-- `bun run verify:platform` verifies Mastra registry storage is a
-  `PostgresStore` and that the control-plane Postgres database contains
-  Mastra-managed tables including `mastra_agents`, `mastra_messages`, and
-  `mastra_threads`.
-- `bun run verify:platform` injects a stub raw command into the device action
-  dispatcher and recursively verifies MCP/Mastra/agent-turn results do not
-  expose raw command fields.
-- `bun run verify:platform` verifies the memory product-state schema and the
-  memory tool seam, including candidate capture, explicit approved durable
-  memory writes by candidate id, and that `memory.sensitiveSkip` does not
-  expose raw sensitive text.
-- `bun run verify:platform` verifies the curated DB retrieval path returns
-  approved durable memory and curated corpus documents while refusing raw
-  session-log and raw daily-note rows.
-- `bun run verify:platform` verifies pgvector-backed
-  `retrieval_embedding_records` are written for approved durable memory and
-  curated corpus only through the reindex workflow, and that a raw session-log
-  embedding attempt is refused.
-- `bun run verify:platform` verifies the Drizzle schema exports for
-  `agentTurnSnapshots`, `agentTurnEvents`, and `webSessionEvents`.
-- `bun run verify:platform` verifies the Drizzle schema exports and live
-  Postgres tables for better-auth `auth_user`, `auth_session`, `auth_account`,
-  and `auth_verification`.
-- `bun run verify:platform` verifies the Drizzle schema exports and live
-  Postgres tables for DB-backed memory product state: `memory_candidates`,
-  `durable_memory_records`, and `memory_sensitive_skips`.
-- `bun run verify:platform` verifies `retrieval_documents` has
-  `source_kind` and `status` columns for curated retrieval filtering.
-- `bun run verify:platform` verifies the `vector` extension plus
-  `retrieval_embedding_records` columns and policy check constraints.
-- `bun run verify:platform` verifies the Drizzle schema exports and live
-  Postgres tables for WalnutPi auth subject binding: `walnut_orgs`,
-  `walnut_devices`, and `walnut_user_bindings`.
 - `/api/agent/turn` smoke returned `walnutpi.agentPlatformTurn.v1` with typed
-tool results.
+  tool results.
 - Policy pending smoke returned `noCommandExecution` evidence.
 - Screen DSL contract probe covered preview no-write, stale hash refusal, and
   capture evidence shape without adding a legacy local probe file.
@@ -316,12 +269,6 @@ tool results.
 - Device-profile `/api/agent/turn` read-only screen flow returned typed
   `walnutpi.toolResult.screen.v1` and `walnutpi.screenCaptureEvidence.v1`
   without embedding PNG base64 in the turn ledger.
-- Offline platform verification covers `screen.captureFrame` with typed capture
-  metadata, `screen.syncPlaylist` in preview no-write mode, and
-  `screen.renderWallpaper`/`screen.writePlaylist` against a temporary Screen
-  Workspace so verification does not mutate the tracked default playlist.
-  Verification also asserts OPA policy decisions for screen sync/write
-  `tools/call`.
 - Device-profile MCP `screen.syncPlaylist` was run against the WalnutPi Device
   after starting `walnut-screen.service`; the call passed OPA with
   `policyStatus: allow`, completed remote delivery/activation, and returned
@@ -332,8 +279,6 @@ tool results.
   the tracked `seed-terminal-ops` playlist output hash.
 - ADR 0025 and `CONTEXT.md` record the split between generated Widget App
   Artifacts and Screen Playlist playback.
-- `bun run check` passes after removing the old generated-source-to-Widget-App
-  path.
 - `scripts/collect-screen-sync-evidence.ps1 -Sync` now preflights the tracked
   default playlist before sync. If the playlist references missing or old
   generated manifests that do not satisfy the frame hash schema, the script
@@ -360,8 +305,7 @@ tool results.
   and device profile context. The final tool result diagnostics still use
   `mastra.mcp.*` operations.
 - `@mastra/pg` was installed and the Mastra registry was rebound to
-  Postgres-backed storage. `verify:platform` now fails if Mastra storage is not
-  `PostgresStore`; the previous in-memory storage warning is gone.
+  Postgres-backed storage.
 - Live `/api/agent/turn` smoke for `device.status.read` and
   `memory.preference` completed through final diagnostics operations
   `mastra.mcp.device.status.read` and `mastra.mcp.memory.preference`; both turn

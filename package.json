@@ -9,8 +9,7 @@
     "next:build": "bun run --cwd web-interface/next-app build",
     "next:check": "bunx tsc --noEmit -p web-interface/next-app/tsconfig.json",
     "db:migrate": "bun scripts/db-migrate.ts",
-    "check": "bunx tsc --noEmit && bun run next:check",
-    "verify:platform": "bun scripts/verify-platform.ts"
+    "check": "bunx tsc --noEmit && bun run next:check"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "3.0.0",

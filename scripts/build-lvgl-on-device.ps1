@@ -1,6 +1,6 @@
 param(
     [Alias("Host")]
-    [string]$HostName = "192.168.1.24",
+    [string]$HostName = "192.168.44.126",
     [string]$User = "root",
     [string]$Password = "root",
     [string]$RemoteProjectRoot = "/home/pi/projects/WalnutPi",

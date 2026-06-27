@@ -14,7 +14,7 @@ export const PORT = Number(process.env.PORT || 4173);
 export const MODEL_FILE = "0c6390ea8b1ccf186ec099456954fd42.glb";
 
 // ── SSH ──────────────────────────────────────────────────────────────
-export const SSH_HOST = process.env.SSH_HOST || "192.168.1.24";
+export const SSH_HOST = process.env.SSH_HOST || "192.168.44.126";
 export const SSH_USER = process.env.SSH_USER || "root";
 export const SSH_PASSWORD = process.env.SSH_PASSWORD || "root";
 export const REMOTE_PROJECT_ROOT = process.env.WALNUT_REMOTE_PROJECT_ROOT || process.env.WALNUT_PROJECT_ROOT || "/home/pi/projects/WalnutPi";
