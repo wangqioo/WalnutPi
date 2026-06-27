@@ -8,3 +8,7 @@ export {
   createWallpaperRenderer,
   type WallpaperRenderer,
 } from "./wallpaper-renderer.ts";
+export {
+  createTerminalPrintRenderer,
+  type TerminalPrintRenderer,
+} from "./terminal-print-renderer.ts";

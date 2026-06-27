@@ -26,8 +26,6 @@ import {
   compactText,
   freeformTitle,
   readTerminalPrintTemplate,
-  writeGeneratedAnimatedScreenOutput,
-  writeGeneratedPromptSource,
 } from "./terminal-print-screen-source.ts";
 
 export function createScreenWorkspaceApi({
@@ -38,6 +36,7 @@ export function createScreenWorkspaceApi({
   workspaceErrorResponse,
   webMetricsLedger,
   wallpaperRenderer,
+  terminalPrintRenderer,
   appendScreenPlaylistItem,
   writeDefaultScreenPlaylist,
   runtimeAssetRenderer,
@@ -54,6 +53,9 @@ export function createScreenWorkspaceApi({
 }) {
   if (!wallpaperRenderer || typeof wallpaperRenderer.renderWallpaper !== "function") {
     throw new Error("Screen Workspace API requires a WallpaperRenderer");
+  }
+  if (!terminalPrintRenderer || typeof terminalPrintRenderer.writePromptSource !== "function" || typeof terminalPrintRenderer.writeAnimatedScreenOutput !== "function") {
+    throw new Error("Screen Workspace API requires a TerminalPrintRenderer");
   }
   if (!runtimeAssetRenderer || typeof runtimeAssetRenderer.renderRuntimeAssets !== "function") {
     throw new Error("Screen Workspace API requires a RuntimeAssetRenderer");
@@ -363,14 +365,13 @@ export function createScreenWorkspaceApi({
         facts,
       });
       if (cleanWorkspaceOutputType(request.outputType || "static") === "animated") {
-        const result = await writeGeneratedAnimatedScreenOutput({
+        const result = await terminalPrintRenderer.writeAnimatedScreenOutput({
           workspaceRoot: SCREEN_WORKSPACE_ROOT,
           screenId,
           sourceId,
           prompt,
           screenSpec,
           template,
-          facts,
         });
         let playlist = null;
         if (request.playlist !== false) {
@@ -411,7 +412,7 @@ export function createScreenWorkspaceApi({
           },
         };
       }
-      const source = await writeGeneratedPromptSource({
+      const source = await terminalPrintRenderer.writePromptSource({
         workspaceRoot: SCREEN_WORKSPACE_ROOT,
         sourceId,
         prompt,
