@@ -245,6 +245,8 @@ function registerScreenRoutes(app: Hono, {
   readJsonRequest,
 }: JsonObject) {
   app.get("/api/screen/workspace/playlist", (c) => screenWorkspaceApi.handleScreenWorkspacePlaylist(new URL(c.req.url)));
+  app.get("/api/screen/workspace/manifest/:manifestId", (c) => screenWorkspaceApi.handleScreenWorkspaceManifest(c.req.param("manifestId")));
+  app.get("/api/screen/workspace/assets/*", (c) => screenWorkspaceApi.handleScreenWorkspaceAsset(new URL(c.req.url)));
   app.post("/api/screen/workspace/process", (c) => screenWorkspaceApi.handleScreenWorkspaceProcess(c.req));
   app.post("/api/screen/workspace/import", (c) => screenWorkspaceApi.handleScreenWorkspaceImport(c.req));
   app.post("/api/screen/workspace/generate", (c) => screenWorkspaceApi.handleScreenWorkspaceGenerate(c.req));

@@ -82,6 +82,26 @@ type ScreenRecordSummary = {
   webDeviceFrameDiffStatus?: string | null;
 };
 
+type ScreenManifestDetail = {
+  manifest?: JsonObject | null;
+  manifestHash?: string | null;
+  ok?: boolean;
+};
+
+type ScreenRecordDetail = {
+  framePng?: { url?: string | null } | null;
+  buildId?: string | null;
+  manifestHash?: string | null;
+  playlistHash?: string | null;
+  visualMatch?: string | null;
+  webDeviceFrameDiff?: JsonObject | null;
+};
+
+type ScreenLvglPreview = {
+  frames?: Array<{ png?: string; ms?: number }>;
+  playlistHash?: string | null;
+};
+
 type SidePanelTab = "status" | "screen" | "advanced";
 
 const QUICK_CAPABILITIES = [
@@ -115,6 +135,12 @@ export default function WalnutConsolePage() {
   const [authNotice, setAuthNotice] = useState("");
   const [screenPlaylist, setScreenPlaylist] = useState<ScreenPlaylistView | null>(null);
   const [screenRecords, setScreenRecords] = useState<ScreenRecordSummary[]>([]);
+  const [screenPrompt, setScreenPrompt] = useState("");
+  const [screenSourceUrl, setScreenSourceUrl] = useState("");
+  const [screenSourceId, setScreenSourceId] = useState("");
+  const [screenManifestDetail, setScreenManifestDetail] = useState<ScreenManifestDetail | null>(null);
+  const [screenRecordDetail, setScreenRecordDetail] = useState<ScreenRecordDetail | null>(null);
+  const [screenPreview, setScreenPreview] = useState<ScreenLvglPreview | null>(null);
   const [screenBusy, setScreenBusy] = useState(false);
   const [error, setError] = useState("");
   const [sidePanelTab, setSidePanelTab] = useState<SidePanelTab>("status");
@@ -250,6 +276,115 @@ export default function WalnutConsolePage() {
     } catch {
       setScreenPlaylist(null);
       setScreenRecords([]);
+    } finally {
+      setScreenBusy(false);
+    }
+  }
+
+  async function generateScreenWorkspace() {
+    const prompt = screenPrompt.trim();
+    if (!prompt) return;
+    setScreenBusy(true);
+    setError("");
+    try {
+      const data = await postJson("/api/screen/workspace/generate", {
+        prompt,
+        outputType: "static",
+        playlist: "default",
+        preset: "fit-cover:480x320",
+        sessionId,
+      });
+      await refreshScreenWorkspace();
+      if (data.screenId) await loadManifestDetail(data.screenId);
+    } catch (caught: any) {
+      setError(caught.message);
+    } finally {
+      setScreenBusy(false);
+    }
+  }
+
+  async function importScreenSource() {
+    const url = screenSourceUrl.trim();
+    if (!url) return;
+    setScreenBusy(true);
+    setError("");
+    try {
+      const data = await postJson("/api/screen/workspace/import", {
+        url,
+        sourceId: screenSourceId.trim() || undefined,
+        license: "unknown-personal-sync",
+      });
+      setScreenSourceId(data.sourceAssetId || data.source?.id || screenSourceId);
+      await refreshScreenWorkspace();
+    } catch (caught: any) {
+      setError(caught.message);
+    } finally {
+      setScreenBusy(false);
+    }
+  }
+
+  async function processImportedSource() {
+    const sourceAssetId = screenSourceId.trim();
+    if (!sourceAssetId) return;
+    setScreenBusy(true);
+    setError("");
+    try {
+      const screenId = `next-${Date.now()}`;
+      const data = await postJson("/api/screen/workspace/process", {
+        sourceAssetId,
+        screenId,
+        outputType: "static",
+        playlist: "default",
+        playlistMode: "replace",
+        preset: "fit-cover:480x320",
+      });
+      await refreshScreenWorkspace();
+      await loadManifestDetail(data.screenId || screenId);
+    } catch (caught: any) {
+      setError(caught.message);
+    } finally {
+      setScreenBusy(false);
+    }
+  }
+
+  async function renderLvglPreview() {
+    setScreenBusy(true);
+    setError("");
+    try {
+      const data = await postJson("/api/screen/workspace/lvgl-preview", {});
+      setScreenPreview(data);
+    } catch (caught: any) {
+      setError(caught.message);
+    } finally {
+      setScreenBusy(false);
+    }
+  }
+
+  async function loadManifestDetail(manifestId: string) {
+    const cleanId = String(manifestId || "").trim();
+    if (!cleanId) return;
+    setScreenBusy(true);
+    try {
+      const response = await fetch(`/api/screen/workspace/manifest/${encodeURIComponent(cleanId)}`, { cache: "no-store" });
+      const data = await response.json();
+      setScreenManifestDetail(data?.ok ? data : null);
+    } catch {
+      setScreenManifestDetail(null);
+    } finally {
+      setScreenBusy(false);
+    }
+  }
+
+  async function loadRecordDetail(buildId: string) {
+    const cleanId = String(buildId || "").trim();
+    if (!cleanId) return;
+    setScreenBusy(true);
+    try {
+      const response = await fetch(`/api/screen/records/${encodeURIComponent(cleanId)}`, { cache: "no-store" });
+      const data = await response.json();
+      setScreenRecordDetail(data?.ok ? data.record : null);
+    } catch {
+      setScreenRecordDetail(null);
     } finally {
       setScreenBusy(false);
     }
@@ -458,11 +593,26 @@ export default function WalnutConsolePage() {
               <div className="grid h-full min-h-0 content-start gap-3 overflow-auto pr-1">
                 <ScreenWorkspacePanel
                   busy={busy}
+                  manifestDetail={screenManifestDetail}
                   onRefresh={refreshScreenWorkspace}
+                  onGenerate={generateScreenWorkspace}
+                  onImportSource={importScreenSource}
+                  onLoadManifest={loadManifestDetail}
+                  onLoadRecord={loadRecordDetail}
+                  onPreview={renderLvglPreview}
+                  onProcessImported={processImportedSource}
                   onRunCapability={runCapability}
                   playlist={screenPlaylist}
+                  preview={screenPreview}
+                  recordDetail={screenRecordDetail}
                   records={screenRecords}
                   screenBusy={screenBusy}
+                  screenPrompt={screenPrompt}
+                  screenSourceId={screenSourceId}
+                  screenSourceUrl={screenSourceUrl}
+                  setScreenPrompt={setScreenPrompt}
+                  setScreenSourceId={setScreenSourceId}
+                  setScreenSourceUrl={setScreenSourceUrl}
                 />
               </div>
             ) : null}
@@ -512,18 +662,48 @@ export default function WalnutConsolePage() {
 
 function ScreenWorkspacePanel({
   busy,
+  manifestDetail,
   onRefresh,
+  onGenerate,
+  onImportSource,
+  onLoadManifest,
+  onLoadRecord,
+  onPreview,
+  onProcessImported,
   onRunCapability,
   playlist,
+  preview,
+  recordDetail,
   records,
   screenBusy,
+  screenPrompt,
+  screenSourceId,
+  screenSourceUrl,
+  setScreenPrompt,
+  setScreenSourceId,
+  setScreenSourceUrl,
 }: {
   busy: boolean;
+  manifestDetail: ScreenManifestDetail | null;
   onRefresh: () => void;
+  onGenerate: () => void;
+  onImportSource: () => void;
+  onLoadManifest: (manifestId: string) => void;
+  onLoadRecord: (buildId: string) => void;
+  onPreview: () => void;
+  onProcessImported: () => void;
   onRunCapability: (input: JsonObject) => void;
   playlist: ScreenPlaylistView | null;
+  preview: ScreenLvglPreview | null;
+  recordDetail: ScreenRecordDetail | null;
   records: ScreenRecordSummary[];
   screenBusy: boolean;
+  screenPrompt: string;
+  screenSourceId: string;
+  screenSourceUrl: string;
+  setScreenPrompt: (value: string) => void;
+  setScreenSourceId: (value: string) => void;
+  setScreenSourceUrl: (value: string) => void;
 }) {
   return (
     <Panel title="Screen workspace">
@@ -572,10 +752,78 @@ function ScreenWorkspacePanel({
             Preview sync
           </button>
         </div>
-        {playlist ? <ScreenPlaylistPanel playlist={playlist} /> : <EmptyLine text="Playlist unavailable." />}
+        <div className="grid gap-2 border border-[#252b2b] bg-[#0d0f0f] p-3">
+          <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#77807b]">Authoring</div>
+          <textarea
+            className="h-20 resize-none border border-[#35403f] bg-[#101313] px-3 py-2 text-sm leading-5 text-[#f4efe2]"
+            disabled={screenBusy}
+            onChange={(event) => setScreenPrompt(event.target.value)}
+            placeholder="Generate a terminal-style screen output for the current playlist."
+            value={screenPrompt}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              className="border border-[#5f827d] bg-[#142523] px-2 py-2 text-xs font-semibold text-[#eafffb] disabled:opacity-50"
+              disabled={screenBusy || !screenPrompt.trim()}
+              onClick={onGenerate}
+              type="button"
+            >
+              Generate
+            </button>
+            <button
+              className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] disabled:opacity-50"
+              disabled={screenBusy}
+              onClick={onPreview}
+              type="button"
+            >
+              LVGL preview
+            </button>
+          </div>
+          <input
+            className="border border-[#35403f] bg-[#101313] px-3 py-2 text-xs text-[#f4efe2]"
+            disabled={screenBusy}
+            onChange={(event) => setScreenSourceUrl(event.target.value)}
+            placeholder="https://... source image/gif/video"
+            value={screenSourceUrl}
+          />
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+            <input
+              className="min-w-0 border border-[#35403f] bg-[#101313] px-3 py-2 text-xs text-[#f4efe2]"
+              disabled={screenBusy}
+              onChange={(event) => setScreenSourceId(event.target.value)}
+              placeholder="source id"
+              value={screenSourceId}
+            />
+            <button
+              className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] disabled:opacity-50"
+              disabled={screenBusy || !screenSourceUrl.trim()}
+              onClick={onImportSource}
+              type="button"
+            >
+              Import
+            </button>
+            <button
+              className="border border-[#35403f] bg-[#101313] px-2 py-2 text-xs font-semibold text-[#d7d2c6] disabled:opacity-50"
+              disabled={screenBusy || !screenSourceId.trim()}
+              onClick={onProcessImported}
+              type="button"
+            >
+              Process
+            </button>
+          </div>
+        </div>
+        {preview?.frames?.[0]?.png ? (
+          <div className="grid gap-2 border border-[#252b2b] bg-[#0d0f0f] p-3">
+            <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#77807b]">LVGL preview</div>
+            <img alt="LVGL playlist preview" className="aspect-[3/2] w-full border border-[#35403f] bg-black object-contain" src={assetUrl(preview.frames[0].png)} />
+            <div className="font-mono text-[11px] text-[#9fa9a4]">frames {preview.frames.length} / playlist {preview.playlistHash ? shortId(String(preview.playlistHash)) : "-"}</div>
+          </div>
+        ) : null}
+        {playlist ? <ScreenPlaylistPanel onLoadManifest={onLoadManifest} playlist={playlist} /> : <EmptyLine text="Playlist unavailable." />}
+        <ScreenArtifactDetail manifestDetail={manifestDetail} recordDetail={recordDetail} />
         <div className="grid gap-2">
           {records.length ? records.slice(0, 3).map((record, index) => (
-            <ScreenRecordRow key={record.buildId || `screen-record-${index}`} record={record} />
+            <ScreenRecordRow key={record.buildId || `screen-record-${index}`} onLoadRecord={onLoadRecord} record={record} />
           )) : <EmptyLine text="No screen evidence records." />}
         </div>
       </div>
@@ -610,7 +858,7 @@ function TabButton({ active, children, onClick }: { active: boolean; children: R
   );
 }
 
-function ScreenPlaylistPanel({ playlist }: { playlist: ScreenPlaylistView }) {
+function ScreenPlaylistPanel({ onLoadManifest, playlist }: { onLoadManifest: (manifestId: string) => void; playlist: ScreenPlaylistView }) {
   const items = Array.isArray(playlist.items) ? playlist.items : [];
   return (
     <div className="grid gap-3">
@@ -631,6 +879,13 @@ function ScreenPlaylistPanel({ playlist }: { playlist: ScreenPlaylistView }) {
               <div>duration {String(item.durationMs || "-")} ms</div>
               <div>asset {safeAssetLabel(item.output?.url)}</div>
             </div>
+            <button
+              className="justify-self-start border border-[#35403f] bg-[#101313] px-2 py-1 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6]"
+              onClick={() => onLoadManifest(String(item.manifestId || ""))}
+              type="button"
+            >
+              Details
+            </button>
           </article>
         ))}
       </div>
@@ -638,7 +893,42 @@ function ScreenPlaylistPanel({ playlist }: { playlist: ScreenPlaylistView }) {
   );
 }
 
-function ScreenRecordRow({ record }: { record: ScreenRecordSummary }) {
+function ScreenArtifactDetail({
+  manifestDetail,
+  recordDetail,
+}: {
+  manifestDetail: ScreenManifestDetail | null;
+  recordDetail: ScreenRecordDetail | null;
+}) {
+  const manifest = manifestDetail?.manifest || null;
+  const output = manifest?.output || null;
+  if (!manifestDetail && !recordDetail) return null;
+  return (
+    <div className="grid gap-2 border border-[#252b2b] bg-[#0d0f0f] p-3">
+      <div className="font-mono text-[10px] uppercase tracking-[0.18em] text-[#77807b]">Artifact detail</div>
+      {manifestDetail ? (
+        <div className="grid gap-1 font-mono text-[11px] leading-5 text-[#9fa9a4]">
+          <div>manifest {manifest?.id || "-"}</div>
+          <div>schema {manifest?.schema || "-"}</div>
+          <div>hash {manifestDetail.manifestHash ? shortId(String(manifestDetail.manifestHash)) : "-"}</div>
+          <div>output {output?.type || "-"}</div>
+          <div>asset {safeAssetLabel(output?.url || output?.path)}</div>
+        </div>
+      ) : null}
+      {recordDetail ? (
+        <div className="grid gap-1 font-mono text-[11px] leading-5 text-[#9fa9a4]">
+          <div>record {recordDetail.buildId ? shortId(String(recordDetail.buildId)) : "-"}</div>
+          <div>playlist {recordDetail.playlistHash ? shortId(String(recordDetail.playlistHash)) : "-"}</div>
+          <div>manifest {recordDetail.manifestHash ? shortId(String(recordDetail.manifestHash)) : "-"}</div>
+          <div>visual {recordDetail.visualMatch || recordDetail.webDeviceFrameDiff?.status || "unknown"}</div>
+          {recordDetail.framePng?.url ? <img alt="Screen evidence frame" className="mt-2 aspect-[3/2] w-full border border-[#35403f] bg-black object-contain" src={recordDetail.framePng.url} /> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ScreenRecordRow({ onLoadRecord, record }: { onLoadRecord: (buildId: string) => void; record: ScreenRecordSummary }) {
   const status = record.ok === true ? "ok" : record.ok === false ? "failed" : "seen";
   return (
     <article className="grid gap-2 border border-[#252b2b] bg-[#0d0f0f] p-3">
@@ -654,6 +944,14 @@ function ScreenRecordRow({ record }: { record: ScreenRecordSummary }) {
         <div>visual {record.visualMatch || record.webDeviceFrameDiffStatus || "unknown"}</div>
         {record.frameUrl && record.hasFramePng ? <a className="text-[#8bcfc6] hover:text-[#d4fff9]" href={record.frameUrl}>frame evidence</a> : null}
       </div>
+      <button
+        className="justify-self-start border border-[#35403f] bg-[#101313] px-2 py-1 text-xs font-semibold text-[#d7d2c6] hover:border-[#7fbdb6]"
+        disabled={!record.buildId}
+        onClick={() => onLoadRecord(String(record.buildId || ""))}
+        type="button"
+      >
+        Details
+      </button>
     </article>
   );
 }
@@ -757,6 +1055,19 @@ async function postTurn(body: JsonObject): Promise<PlatformTurn> {
   return data;
 }
 
+async function postJson(url: string, body: JsonObject): Promise<JsonObject> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.summary || data.output || data.error || `${url} failed`);
+  }
+  return data;
+}
+
 function isTypedPlatformTurn(value: JsonObject) {
   return value?.schema === "walnutpi.agentPlatformTurn.v1"
     && Array.isArray(value.toolResults)
@@ -823,6 +1134,12 @@ function safeAssetLabel(value: any) {
   if (!text) return "-";
   const parts = text.split("/");
   return parts.at(-1) || text.slice(0, 80);
+}
+
+function assetUrl(value: string) {
+  const text = String(value || "");
+  if (!text) return "";
+  return text.startsWith("/api/") ? text : `/api/screen/workspace/assets/${encodeURIComponent(text.replace(/^screen\//, ""))}`;
 }
 
 function redactToolEvidence(evidence: JsonObject) {

@@ -63,7 +63,10 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   id and reaches OPA before invoking a typed Widget App device delivery
   adapter; Widget App action maps only known catalog actions (`refresh_device_status`,
   `restart_walnut_screen_service`, `reboot_device`) into policy actions.
-  Pending/refused Widget App actions still return before command construction.
+  The read-only `refresh_device_status` action now executes through the typed
+  Widget App device adapter after MCP/OPA allow and returns only redacted status
+  binding evidence. Pending/refused Widget App actions still return before
+  command construction.
 - The static console has been adjusted to read `route`, `userSummary`, and
   `toolResults[]` from the new platform turn shape.
 - Legacy TypeScript local probe files and the old `walnut-ai` local probe entry
@@ -258,9 +261,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   not display or submit raw command strings. The right control deck is now
   split into Status, Screen, and Details tabs so beginner status/actions stay
   first, while route, evidence, audit, manifest/output artifact summaries,
-  recent screen evidence records, read/capture actions, and preview no-write
-  sync remain available without exposing raw device output. Next rewrites
-  `/api/*` and `/mcp` to the Hono platform server during local development.
+  recent screen evidence records, read/capture actions, preview no-write sync,
+  Screen Workspace generate/import/process authoring, LVGL preview, manifest
+  detail, and screen evidence record detail remain available without exposing
+  raw device output. Next rewrites `/api/*` and `/mcp` to the Hono platform
+  server during local development.
 - `web-interface/platform/policy/opa-boundary.ts` runs OPA CLI decisions for
   the active tool-dispatch policy gate, with local manifest fail-closed behavior
   when OPA is unavailable.
@@ -388,6 +393,12 @@ local-only or mock verification.
   redacted status projection reports only configuration state, host, and public
   key prefix; and a structured `device.status.read` turn carries the same OTel
   trace id from the turn projection into the Mastra dispatcher.
+- After moving the next Screen Workspace authoring/detail slice into the
+  Next/Tailwind console and adding typed Widget App read action execution,
+  `bun run check` passes. Local dispatcher probes showed
+  `screen.widgetApp.action` for `refresh_device_status` reaches OPA and the
+  typed adapter boundary, returns `executed: true`, and exposes no raw command
+  string.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -420,11 +431,11 @@ device-profile verification, not offline verification.
   current Postgres-backed better-auth subject binding tables.
 - Replace the deterministic local embedding seam with an approved embedding
   provider without sending raw/private content.
-- Move Screen Workspace authoring and artifact detail panels into the
-  Next/Tailwind console, then retire the static HTML console.
+- Finish replacing any static HTML-only Screen Workspace workflows, then retire
+  the static HTML console.
 - Extend typed Widget App action execution behind `screen.widgetApp.action`.
-  Keep command strings inside the device adapter boundary and preserve OPA/audit
-  typed results.
+  Keep command strings inside the device adapter boundary, preserve OPA/audit
+  typed results, and do not enable direct Web execution for high-risk actions.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.
