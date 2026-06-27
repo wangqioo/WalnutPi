@@ -5,7 +5,7 @@ import { handleWalnutMcpRequest } from "../platform/mcp/server.ts";
 import { createMcpAuthContext } from "./auth-context.ts";
 import { createWalnutAuth, resolveWalnutSubjectFromRequest } from "../platform/auth/auth.ts";
 import { readWalnutSubjectManagement, upsertWalnutSubjectManagement } from "../platform/auth/subject-management.ts";
-import { createPendingEvalScore, getCuratedEvalCase, listCuratedEvalCases } from "../platform/eval/curated-eval.ts";
+import { createPendingEvalScore, getCuratedEvalCase, listCuratedEvalCases, runCuratedEvalCase } from "../platform/eval/curated-eval.ts";
 import type { ActionPolicyManifest } from "../action-policy.ts";
 import type { GatewayJson } from "./gateway-interfaces.ts";
 
@@ -103,7 +103,7 @@ export function createProductGatewayApp({
     readJsonRequest,
   });
   registerAuthRoutes(app, { json, config });
-  registerEvalRoutes(app, { json });
+  registerEvalRoutes(app, { agentPlatform, json });
   registerScreenRoutes(app, {
     json,
     previewOnly,
@@ -154,7 +154,7 @@ function registerProductRoutes(app: Hono, {
   app.all("/api/session", (c) => projectMemoryApi.handleSession(c.req, new URL(c.req.url)));
 }
 
-function registerEvalRoutes(app: Hono, { json }: JsonObject) {
+function registerEvalRoutes(app: Hono, { agentPlatform, json }: JsonObject) {
   app.get("/api/eval/curated", (c) => {
     const suite = new URL(c.req.url).searchParams.get("suite");
     const cases = listCuratedEvalCases().filter((evalCase: JsonObject) => !suite || evalCase.suite === suite);
@@ -194,6 +194,61 @@ function registerEvalRoutes(app: Hono, { json }: JsonObject) {
       },
     });
   });
+  app.post("/api/eval/curated/run", async (c) => {
+    let body: JsonObject;
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+    const allowDevice = body.allowDevice === true;
+    const suite = body.suite ? String(body.suite) : null;
+    const requestedCaseId = body.caseId ? String(body.caseId) : null;
+    const selected = requestedCaseId
+      ? [getCuratedEvalCase(requestedCaseId)].filter(Boolean)
+      : listCuratedEvalCases()
+        .map((item: JsonObject) => getCuratedEvalCase(item.id))
+        .filter((item: JsonObject | null): item is JsonObject => Boolean(item))
+        .filter((item: JsonObject) => !suite || item.suite === suite);
+    if (requestedCaseId && selected.length === 0) {
+      return json({ ok: false, schema: "walnutpi.curatedEvalRun.v1", error: "unknown curated eval case" }, 404);
+    }
+    const results = [];
+    for (const evalCase of selected) {
+      results.push(await runCuratedEvalCase({
+        evalCase,
+        variantId: body.variantId ? String(body.variantId) : "local-platform",
+        allowDevice,
+        runAgentTurn: (turnBody: JsonObject) => runAgentTurnViaPlatform(agentPlatform, turnBody),
+      }));
+    }
+    return json({
+      ok: results.every((item: JsonObject) => item.ok || item.skipped),
+      schema: "walnutpi.curatedEvalRun.v1",
+      caseCount: results.length,
+      passed: results.filter((item: JsonObject) => item.score?.verdict === "pass").length,
+      failed: results.filter((item: JsonObject) => item.score?.verdict === "fail").length,
+      skipped: results.filter((item: JsonObject) => item.skipped || item.score?.verdict === "skip").length,
+      allowDevice,
+      results,
+      generatedBenchmarkHarnessRestored: false,
+      redaction: {
+        rawUserText: false,
+        rawSessionLogs: false,
+        rawDailyNotes: false,
+        rawCommand: false,
+      },
+    });
+  });
+}
+
+async function runAgentTurnViaPlatform(agentPlatform: JsonObject, body: JsonObject) {
+  const response = await agentPlatform.handleTurn(new Request("http://127.0.0.1/api/agent/turn", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  }));
+  return response.json();
 }
 
 function registerAuthRoutes(app: Hono, { json, config }: JsonObject) {

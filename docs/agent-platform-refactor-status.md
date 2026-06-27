@@ -293,6 +293,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   The active Next console includes a quick action for listing curated cases.
   They expose curated case metadata and pending score shapes only; they do not
   execute scoring, restore generated harnesses, or include raw private content.
+- `/api/eval/curated/run` executes selected curated cases through the active
+  `/api/agent/turn` platform path and mechanically scores the current code
+  grader seed cases. Device-profile cases are skipped unless the caller passes
+  `allowDevice: true`. Eval run results expose redacted turn summaries, score
+  records, trace/turn refs, evidence keys, and grader metadata only.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -505,6 +510,10 @@ local-only or mock verification.
   from `/api/eval/curated?suite=safety` and completed structured
   `/api/agent/turn` for `eval.curated.list` with final diagnostics operation
   `mastra.mcp.eval.curated.list` and `walnutpi.toolResult.eval.v1`.
+- After adding `/api/eval/curated/run`, `bun run check` passes. A temporary Web
+  server on port 4185 ran the safety suite with `allowDevice: false`; both
+  seed cases passed, no cases were skipped, and the run projection contained no
+  command-like strings such as service-manager or shell command text.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -542,9 +551,8 @@ device-profile verification, not offline verification.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path after the redaction change: remote delivery, activation, service state,
   and frame comparison should still prove through Mastra/MCP/OPA/typed adapter.
-- Execute the curated eval seed cases through Mastra workflows, attach
-  redacted Langfuse dataset items and scores, and keep subjective grading behind
-  explicit human review.
+- Attach curated eval run results to redacted Langfuse dataset items and scores,
+  and keep subjective grading behind explicit human review.
 - Retrieval embedding provider wiring is intentionally skipped for this round.
   Reindex should continue to return honest provider-unconfigured failure until
   an approved provider is selected.
