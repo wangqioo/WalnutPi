@@ -5,8 +5,9 @@ import { handleWalnutMcpRequest } from "../platform/mcp/server.ts";
 import { createMcpAuthContext } from "./auth-context.ts";
 import { createWalnutAuth, resolveWalnutSubjectFromRequest } from "../platform/auth/auth.ts";
 import { readWalnutSubjectManagement, upsertWalnutSubjectManagement } from "../platform/auth/subject-management.ts";
-import { createPendingEvalScore, getCuratedEvalCase, listCuratedEvalCases, runCuratedEvalCase } from "../platform/eval/curated-eval.ts";
-import { publishCuratedEvalScoreToLangfuse } from "../platform/eval/langfuse-eval-publisher.ts";
+import { createPendingEvalScore, getCuratedEvalCase, listCuratedEvalCases } from "../platform/eval/curated-eval.ts";
+import { runCuratedEvalCasesThroughPlatform, selectCuratedEvalCases } from "../platform/eval/curated-eval-runner.ts";
+import { createWalnutInngestServeHandler } from "../platform/inngest/client.ts";
 import type { ActionPolicyManifest } from "../action-policy.ts";
 import type { GatewayJson } from "./gateway-interfaces.ts";
 
@@ -105,6 +106,7 @@ export function createProductGatewayApp({
   });
   registerAuthRoutes(app, { json, config });
   registerEvalRoutes(app, { agentPlatform, json });
+  registerInngestRoutes(app, { agentPlatform });
   registerScreenRoutes(app, {
     json,
     previewOnly,
@@ -206,79 +208,18 @@ function registerEvalRoutes(app: Hono, { agentPlatform, json }: JsonObject) {
     const publishLangfuse = body.publishLangfuse !== false;
     const suite = body.suite ? String(body.suite) : null;
     const requestedCaseId = body.caseId ? String(body.caseId) : null;
-    const selected = requestedCaseId
-      ? [getCuratedEvalCase(requestedCaseId)].filter(Boolean)
-      : listCuratedEvalCases()
-        .map((item: JsonObject) => getCuratedEvalCase(item.id))
-        .filter((item: JsonObject | null): item is JsonObject => Boolean(item))
-        .filter((item: JsonObject) => !suite || item.suite === suite);
-    if (requestedCaseId && selected.length === 0) {
-      return json({ ok: false, schema: "walnutpi.curatedEvalRun.v1", error: "unknown curated eval case" }, 404);
+    const selected = selectCuratedEvalCases({ caseId: requestedCaseId, suite });
+    if (!selected.ok) {
+      return json({ ok: false, schema: "walnutpi.curatedEvalRun.v1", error: selected.error }, selected.status);
     }
-    const results = [];
-    for (const evalCase of selected) {
-      const result = await runCuratedEvalCase({
-        evalCase,
-        variantId: body.variantId ? String(body.variantId) : "local-platform",
-        allowDevice,
-        runAgentTurn: (turnBody: JsonObject) => runAgentTurnViaPlatform(agentPlatform, turnBody),
-      });
-      const score = objectOrEmpty(result.score);
-      results.push({
-        ...result,
-        langfuse: publishLangfuse && !result.skipped && result.score
-          ? await publishCuratedEvalScoreToLangfuse({
-            evalCase,
-            score: score as any,
-            variantId: body.variantId ? String(body.variantId) : "local-platform",
-            datasetName: body.datasetName ? String(body.datasetName) : "walnutpi-curated-eval",
-          })
-          : {
-            ok: false,
-            schema: "walnutpi.langfuseEvalPublish.v1",
-            configured: false,
-            skipped: true,
-            datasetName: body.datasetName ? String(body.datasetName) : "walnutpi-curated-eval",
-            runName: `walnutpi-${body.variantId ? String(body.variantId) : "local-platform"}`,
-            caseId: evalCase.id,
-            datasetItemId: null,
-            datasetRunId: null,
-            traceId: score.traceId || null,
-            scoreName: null,
-            redaction: {
-              input: false,
-              output: false,
-              metadata: false,
-              rawUserText: false,
-              rawParams: false,
-              rawTurn: false,
-              rawCommand: false,
-            },
-            error: publishLangfuse ? "Langfuse publish requires an executed eval score with traceId" : "Langfuse publish disabled by request",
-          },
-      });
-    }
-    return json({
-      ok: results.every((item: JsonObject) =>
-        (item.ok || item.skipped)
-        && (publishLangfuse !== true || item.langfuse?.ok || item.langfuse?.skipped)
-      ),
-      schema: "walnutpi.curatedEvalRun.v1",
-      caseCount: results.length,
-      passed: results.filter((item: JsonObject) => item.score?.verdict === "pass").length,
-      failed: results.filter((item: JsonObject) => item.score?.verdict === "fail").length,
-      skipped: results.filter((item: JsonObject) => item.skipped || item.score?.verdict === "skip").length,
+    return json(await runCuratedEvalCasesThroughPlatform({
+      cases: selected.cases,
+      variantId: body.variantId ? String(body.variantId) : "local-platform",
       allowDevice,
       publishLangfuse,
-      results,
-      generatedBenchmarkHarnessRestored: false,
-      redaction: {
-        rawUserText: false,
-        rawSessionLogs: false,
-        rawDailyNotes: false,
-        rawCommand: false,
-      },
-    });
+      datasetName: body.datasetName ? String(body.datasetName) : "walnutpi-curated-eval",
+      runAgentTurn: (turnBody: JsonObject) => runAgentTurnViaPlatform(agentPlatform, turnBody),
+    }));
   });
 }
 
@@ -291,8 +232,11 @@ async function runAgentTurnViaPlatform(agentPlatform: JsonObject, body: JsonObje
   return response.json();
 }
 
-function objectOrEmpty(value: any): JsonObject {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+function registerInngestRoutes(app: Hono, { agentPlatform }: JsonObject) {
+  const handler = createWalnutInngestServeHandler({
+    runAgentTurn: (turnBody: JsonObject) => runAgentTurnViaPlatform(agentPlatform, turnBody),
+  });
+  app.all("/api/inngest", (c) => handler(c));
 }
 
 function registerAuthRoutes(app: Hono, { json, config }: JsonObject) {

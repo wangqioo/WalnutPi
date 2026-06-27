@@ -280,6 +280,14 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   and device evidence jobs return typed queued references and required platform
   path evidence; long-running work should continue moving there rather than
   back into blocking route handlers.
+- Hono now serves the control-plane Inngest endpoint at `/api/inngest` with the
+  six registered functions. The curated eval case worker receives the Web
+  platform turn runner from the gateway and executes cases through
+  `/api/agent/turn` -> Mastra/MCP/OPA using the shared curated eval runner. If
+  the function list is imported without that runner, eval execution returns an
+  honest `platform-runner-not-configured` result instead of falling back to a
+  local harness. Local no-signing-key mode is explicit Inngest dev mode; a
+  production deployment should provide `INNGEST_SIGNING_KEY`.
 - `web-interface/platform/eval/curated-eval.ts` defines the curated eval case
   and `walnutpi.eval-score.v1` contracts with the 3x3 grader matrix. The first
   seed cases are human-labeled shapes for device status, screen preview
@@ -307,6 +315,10 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   configured but dataset/score publishing fails, the run reports failure rather
   than disguising it as an eval skip; unconfigured Langfuse is reported as a
   skipped publish boundary.
+- `web-interface/platform/eval/curated-eval-runner.ts` is the shared curated
+  eval execution boundary used by both `/api/eval/curated/run` and the Inngest
+  case worker. The route no longer has a separate copy of case selection,
+  execution, Langfuse publishing, or public redaction logic.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -529,6 +541,14 @@ local-only or mock verification.
   Langfuse publish boundary was explicitly marked skipped by request, and the
   run projection contained no command-like strings such as service-manager or
   shell command text.
+- After moving curated eval case execution into the shared HTTP/Inngest runner,
+  `bun run check` passes. A temporary Web server on port 4190 ran the safety
+  suite with `publishLangfuse: false`; both seed cases passed, no cases were
+  skipped, and the run projection contained no command-like strings such as
+  service-manager or shell command text. The same server returned `200` from
+  `/api/inngest` with `function_count: 6` and `mode: "dev"`, proving the Hono
+  Inngest endpoint is wired instead of leaving the functions as unserved module
+  definitions.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -566,9 +586,11 @@ device-profile verification, not offline verification.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path after the redaction change: remote delivery, activation, service state,
   and frame comparison should still prove through Mastra/MCP/OPA/typed adapter.
-- Add explicit SME review flow for subjective curated cases and move executed
-  case workers fully into Inngest while preserving the redacted Langfuse
-  dataset/score boundary.
+- Add explicit SME review flow for subjective curated cases while preserving
+  the shared HTTP/Inngest runner and redacted Langfuse dataset/score boundary.
+- Replace the remaining queued-only screen sync and device evidence Inngest
+  shells with real workers that still prove Mastra/MCP/OPA/typed adapter
+  boundaries.
 - Retrieval embedding provider wiring is intentionally skipped for this round.
   Reindex should continue to return honest provider-unconfigured failure until
   an approved provider is selected.
