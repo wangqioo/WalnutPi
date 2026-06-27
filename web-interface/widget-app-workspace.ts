@@ -1,15 +1,9 @@
 import { existsSync } from "node:fs";
-import { appendFile, copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
-  WALNUT_WIDGET_APP_SCHEMA,
-  WALNUT_WIDGET_APP_SOURCE_SCHEMA,
-  WALNUT_WIDGET_SNAPSHOT_SOURCE_SCHEMA,
-  a2uiSurfaceFromWalnutCatalog,
-  runtimeWidgetsFromWalnutCatalog,
-  validateWalnutLvglWidgetCatalog,
   validateWalnutWidgetApp,
 } from "../scripts/walnut-lvgl-widget-catalog.ts";
 
@@ -25,9 +19,13 @@ export function createWidgetAppWorkspace({
   webMetricsLedger,
   generateWidgetCatalog,
   lvglRuntimePreviewRenderer,
+  widgetAppRenderer,
 }) {
   const WIDGET_APPS_ROOT = path.join(screenWorkspaceRoot, "apps");
   const WIDGET_RUNTIME_ROOT = path.join(screenWorkspaceRoot, "widget-runtime");
+  if (!widgetAppRenderer || typeof widgetAppRenderer.writeFromCatalog !== "function" || typeof widgetAppRenderer.writeRuntimeFiles !== "function") {
+    throw new Error("Widget App workspace requires a WidgetAppRenderer");
+  }
   const LOCAL_WIDGET_ACTION_HANDLERS = {
     pomodoro: pomodoroBindings,
   };
@@ -82,7 +80,7 @@ export function createWidgetAppWorkspace({
       if (!generatedCatalog) {
         throw new Error("widget app creation requires a valid LVGL widget catalog");
       }
-      const widgetApp = await writeFromCatalog({
+      const widgetApp = await widgetAppRenderer.writeFromCatalog({
         appId: request.appId,
         prompt: request.prompt,
         catalog: generatedCatalog,
@@ -135,7 +133,7 @@ export function createWidgetAppWorkspace({
     try {
       const body = await requestBody(reqOrBody);
       const app = await readWidgetApp(body.appId || body.id);
-      return json({ ok: true, ...await activateApp(app, body.versionId) });
+      return json({ ok: true, ...await widgetAppRenderer.activateApp(app, body.versionId) });
     } catch (error) {
       return workspaceErrorResponse(error, json);
     }
@@ -191,8 +189,8 @@ export function createWidgetAppWorkspace({
         bindings: deviceStatusBindings(result.output),
         latestAction: { name: "refresh_device_status", ok: result.ok, code: result.code, at: new Date().toISOString() },
       };
-      await writeWidgetRuntimeFiles(app, current, state);
-      await appendWidgetEvent({ type: "action", appId: app.id, action: state.latestAction });
+      await widgetAppRenderer.writeRuntimeFiles(app, current, state);
+      await widgetAppRenderer.appendRuntimeEvent({ type: "action", appId: app.id, action: state.latestAction });
       return json({ ok: result.ok, current, state, output: result.output }, result.ok ? 200 : 500);
     } catch (error) {
       return workspaceErrorResponse(error, json);
@@ -211,7 +209,7 @@ export function createWidgetAppWorkspace({
       const localActionHandler = LOCAL_WIDGET_ACTION_HANDLERS[app.id];
       if (localActionHandler) {
         const previousState = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json")).catch(() => ({
-          bindings: defaultWidgetAppState(app),
+          bindings: widgetAppRenderer.defaultState(app),
         }));
         const state = {
           schema: "walnutpi.widget-runtime-state.v1",
@@ -221,8 +219,8 @@ export function createWidgetAppWorkspace({
           bindings: localActionHandler(actionName, previousState.bindings),
           latestAction: { name: actionName, ok: true, code: 0, at: new Date().toISOString() },
         };
-        await writeWidgetRuntimeFiles(app, current, state);
-        await appendWidgetEvent({ type: "action", appId: app.id, action: state.latestAction });
+        await widgetAppRenderer.writeRuntimeFiles(app, current, state);
+        await widgetAppRenderer.appendRuntimeEvent({ type: "action", appId: app.id, action: state.latestAction });
         return json({ ok: true, state, output: JSON.stringify({ ok: true, bindings: state.bindings }) });
       }
       const command = actionName === "refresh_device_status"
@@ -230,7 +228,7 @@ export function createWidgetAppWorkspace({
         : `walnut action prepare ${shellQuote(actionName)} --json`;
       const result = await runRemote(command, 25_000, 40_000);
       const previousState = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json")).catch(() => ({
-        bindings: defaultWidgetAppState(app),
+        bindings: widgetAppRenderer.defaultState(app),
       }));
       const state = {
         schema: "walnutpi.widget-runtime-state.v1",
@@ -246,8 +244,8 @@ export function createWidgetAppWorkspace({
           pending: parseJsonObject(result.output),
         },
       };
-      await writeWidgetRuntimeFiles(app, current, state);
-      await appendWidgetEvent({ type: "action", appId: app.id, action: state.latestAction });
+      await widgetAppRenderer.writeRuntimeFiles(app, current, state);
+      await widgetAppRenderer.appendRuntimeEvent({ type: "action", appId: app.id, action: state.latestAction });
       return json({ ok: result.ok, state, output: result.output }, result.ok ? 200 : 500);
     } catch (error) {
       return workspaceErrorResponse(error, json);
@@ -259,7 +257,7 @@ export function createWidgetAppWorkspace({
       const current = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "current.json"));
       const app = await readWidgetApp(current.appId);
       const state = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json"));
-      await writeWidgetRuntimeFiles(app, current, state);
+      await widgetAppRenderer.writeRuntimeFiles(app, current, state);
       const files = await widgetSyncFiles(app.id);
       const archive = await createTarArchive(files);
       const remoteRoot = process.env.WALNUT_REMOTE_PROJECT_ROOT || process.env.WALNUT_PROJECT_ROOT || "/home/pi/projects/WalnutPi";
@@ -281,7 +279,7 @@ export function createWidgetAppWorkspace({
         "walnut screen state",
       ].join("; ");
       const result = await runRemoteWithInput(`sudo -n sh -lc ${shellQuote(script)}`, archive, 180_000, 60_000);
-      await appendWidgetEvent({ type: "sync", appId: app.id, ok: result.ok, at: new Date().toISOString() });
+      await widgetAppRenderer.appendRuntimeEvent({ type: "sync", appId: app.id, ok: result.ok, at: new Date().toISOString() });
       return json({
         ok: result.ok,
         schema: "walnutpi.widget-app-sync-result.v1",
@@ -333,72 +331,6 @@ export function createWidgetAppWorkspace({
     return apps;
   }
 
-  async function writeFromCatalog({ appId, prompt, catalog }) {
-    const appDir = path.join(WIDGET_APPS_ROOT, appId);
-    const createdAt = new Date().toISOString();
-    const widgetCatalog = validateWalnutLvglWidgetCatalog({
-      ...catalog,
-      id: appId,
-      size: { width: 480, height: 320 },
-    });
-    const app = validateWalnutWidgetApp({
-      schema: WALNUT_WIDGET_APP_SCHEMA,
-      id: appId,
-      title: widgetCatalog.title,
-      createdAt,
-      prompt,
-      a2uiSurface: a2uiSurfaceFromWalnutCatalog(widgetCatalog),
-      catalog: widgetCatalog,
-      actions: [],
-    });
-    await mkdir(appDir, { recursive: true });
-    await writeFile(path.join(appDir, "app.json"), `${JSON.stringify(app, null, 2)}\n`, "utf8");
-    await writeFile(path.join(appDir, "catalog.json"), `${JSON.stringify(app.catalog, null, 2)}\n`, "utf8");
-    await writeFile(path.join(appDir, "surface.a2ui.json"), `${JSON.stringify(app.a2uiSurface, null, 2)}\n`, "utf8");
-    await writeFile(path.join(appDir, "snapshot-source.json"), `${JSON.stringify({
-      schema: WALNUT_WIDGET_SNAPSHOT_SOURCE_SCHEMA,
-      appId,
-      source: "lvgl-widget-catalog",
-      createdAt,
-    }, null, 2)}\n`, "utf8");
-    return {
-      app,
-      provenance: {
-        schema: WALNUT_WIDGET_APP_SOURCE_SCHEMA,
-        mode: "widget_app",
-        app: `../apps/${appId}/app.json`,
-        catalog: `../apps/${appId}/catalog.json`,
-        a2uiSurface: `../apps/${appId}/surface.a2ui.json`,
-        snapshotSource: `../apps/${appId}/snapshot-source.json`,
-      },
-    };
-  }
-
-  async function activateApp(app, versionId) {
-    versionId = versionId || app.createdAt || new Date().toISOString();
-    const activatedAt = new Date().toISOString();
-    const current = {
-      schema: "walnutpi.widget-runtime-current.v1",
-      appId: app.id,
-      versionId,
-      activatedAt,
-      app: `../apps/${app.id}/app.json`,
-      catalog: `../apps/${app.id}/catalog.json`,
-      a2uiSurface: `../apps/${app.id}/surface.a2ui.json`,
-    };
-    const state = {
-      schema: "walnutpi.widget-runtime-state.v1",
-      appId: app.id,
-      versionId,
-      updatedAt: activatedAt,
-      bindings: defaultWidgetAppState(app),
-      latestAction: null,
-    };
-    await writeWidgetRuntimeFiles(app, current, state);
-    await appendWidgetEvent({ type: "activated", appId: app.id, versionId, at: activatedAt });
-    return { current, state };
-  }
-
   async function readWidgetApp(appId) {
     const id = cleanWidgetAppId(appId || "", "appId");
     const appPath = path.join(WIDGET_APPS_ROOT, id, "app.json");
@@ -409,27 +341,6 @@ export function createWidgetAppWorkspace({
 
   async function readJsonFile(filePath) {
     return JSON.parse(await readFile(filePath, "utf8"));
-  }
-
-  async function writeWidgetRuntimeFiles(app, current, state) {
-    await mkdir(WIDGET_RUNTIME_ROOT, { recursive: true });
-    await writeFile(path.join(WIDGET_RUNTIME_ROOT, "current.json"), `${JSON.stringify(current, null, 2)}\n`, "utf8");
-    await writeFile(path.join(WIDGET_RUNTIME_ROOT, "state.json"), `${JSON.stringify(state, null, 2)}\n`, "utf8");
-    await writeFile(path.join(WIDGET_RUNTIME_ROOT, "current.txt"), widgetRuntimeText(app, state), "utf8");
-  }
-
-  async function appendWidgetEvent(event) {
-    await mkdir(WIDGET_RUNTIME_ROOT, { recursive: true });
-    await appendFile(path.join(WIDGET_RUNTIME_ROOT, "events.log"), `${JSON.stringify({
-      schema: "walnutpi.widget-runtime-event.v1",
-      ...event,
-    })}\n`, "utf8");
-  }
-
-  function defaultWidgetAppState(app) {
-    return app.catalog?.data && typeof app.catalog.data === "object" && !Array.isArray(app.catalog.data)
-      ? { ...app.catalog.data }
-      : {};
   }
 
   function deviceStatusBindings(output) {
@@ -522,35 +433,6 @@ export function createWidgetAppWorkspace({
     });
   }
 
-  function widgetRuntimeText(app, state) {
-    const catalog = {
-      ...app.catalog,
-      data: { ...(app.catalog.data || {}), ...(state.bindings || {}) },
-    };
-    const lines = [
-      "schema walnutpi.lvgl-widget-runtime.v1",
-      `appId ${runtimeField(app.id)}`,
-      `versionId ${runtimeField(state.versionId || app.createdAt || "v1")}`,
-      `widgetCount ${catalog.nodes.length}`,
-    ];
-    for (const widget of runtimeWidgetsFromWalnutCatalog(catalog) as Record<string, any>[]) {
-      lines.push([
-        "widget",
-        runtimeField(widget.type),
-        runtimeField(widget.id),
-        widget.x,
-        widget.y,
-        widget.w,
-        widget.h,
-        runtimeField(widget.text || "-"),
-        widget.value || 0,
-        runtimeField(widget.color || "ffffff"),
-        runtimeField(widget.animation || "-"),
-      ].join(" "));
-    }
-    return `${lines.join("\n")}\n`;
-  }
-
   function pomodoroBindings(actionName, previous: Record<string, any> = {}) {
     if (actionName === "pomodoro_start") {
       return { ...previous, remaining: previous.remaining || "25:00", status: "FOCUS", progress: 100, mode: "running" };
@@ -559,11 +441,6 @@ export function createWidgetAppWorkspace({
       return { ...previous, status: "PAUSED", mode: "paused" };
     }
     return { remaining: "25:00", status: "READY", progress: 100, mode: "idle" };
-  }
-
-  function runtimeField(value) {
-    const text = String(value || "-").replace(/\s+/g, "_").replace(/[^A-Za-z0-9._:+%-]/g, "").slice(0, 64);
-    return text || "-";
   }
 
   function cleanWidgetAppId(value, field) {
@@ -600,6 +477,5 @@ export function createWidgetAppWorkspace({
     handleWidgetAppSync,
     handleWidgetAppDownload,
     readWidgetAppCards,
-    writeFromCatalog,
   };
 }

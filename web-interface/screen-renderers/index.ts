@@ -12,3 +12,7 @@ export {
   createTerminalPrintRenderer,
   type TerminalPrintRenderer,
 } from "./terminal-print-renderer.ts";
+export {
+  createWidgetAppRenderer,
+  type WidgetAppRenderer,
+} from "./widget-app-renderer.ts";

@@ -36,16 +36,20 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   stale-hash refusal evidence, and read-only frame capture evidence through
   typed screen tool results.
 - `web-interface/screen-renderers/` now contains explicit `WallpaperRenderer`
-  `TerminalPrintRenderer`, and `RuntimeAssetRenderer` adapters. The Screen
-  Workspace API, Screen Command DSL runner, LVGL preview path, terminal-print
-  source generation path, runtime generation CLI, and SSH delivery adapter
-  receive these renderer contracts rather than importing the low-level
-  wallpaper pipeline, terminal-print artifact writer, or runtime asset writer
-  directly. `terminal-print-screen-source.ts` now keeps terminal-print schemas,
-  template loading, and source-spec construction while `TerminalPrintRenderer`
-  owns PNG/SVG rendering plus terminal-print source/output artifact writes. SSH
-  delivery now sends rendered runtime assets from the control plane and no
-  longer ships the runtime generation script as a device-side content path.
+  `TerminalPrintRenderer`, `RuntimeAssetRenderer`, and `WidgetAppRenderer`
+  adapters. The Screen Workspace API, Screen Command DSL runner, LVGL preview
+  path, terminal-print source generation path, Widget App artifact/runtime
+  generation path, runtime generation CLI, and SSH delivery adapter receive
+  these renderer contracts rather than importing the low-level wallpaper
+  pipeline, terminal-print artifact writer, Widget App catalog/runtime writer,
+  or runtime asset writer directly. `terminal-print-screen-source.ts` now keeps
+  terminal-print schemas, template loading, and source-spec construction while
+  `TerminalPrintRenderer` owns PNG/SVG rendering plus terminal-print
+  source/output artifact writes. `widget-app-workspace.ts` keeps HTTP, device
+  sync, and event orchestration while `WidgetAppRenderer` owns catalog-to-app
+  artifacts and Widget App runtime files. SSH delivery now sends rendered
+  runtime assets from the control plane and no longer ships the runtime
+  generation script as a device-side content path.
 - The static console has been adjusted to read `route`, `userSummary`, and
   `toolResults[]` from the new platform turn shape.
 - Legacy TypeScript local probe files and the old `walnut-ai` local probe entry
@@ -330,6 +334,8 @@ local-only or mock verification.
   run; those checks are manual operator evidence now.
 - After splitting `TerminalPrintRenderer`, `bun run check` passes. No platform
   verification harness or device-profile check was run.
+- After splitting `WidgetAppRenderer`, `bun run check` passes. No platform
+  verification harness or device-profile check was run.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -364,8 +370,8 @@ device-profile verification, not offline verification.
   provider without sending raw/private content.
 - Move Screen Workspace authoring and artifact detail panels into the
   Next/Tailwind console, then retire the static HTML console.
-- Split `WidgetAppRenderer` into an explicit renderer module without crossing
-  Wallpaper Mode and Widget App Mode contracts.
+- Move Widget App remote sync/action delivery behind policy-gated platform tools
+  rather than workspace-local remote commands.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.

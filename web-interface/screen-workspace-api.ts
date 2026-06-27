@@ -37,6 +37,7 @@ export function createScreenWorkspaceApi({
   webMetricsLedger,
   wallpaperRenderer,
   terminalPrintRenderer,
+  widgetAppRenderer,
   appendScreenPlaylistItem,
   writeDefaultScreenPlaylist,
   runtimeAssetRenderer,
@@ -56,6 +57,9 @@ export function createScreenWorkspaceApi({
   }
   if (!terminalPrintRenderer || typeof terminalPrintRenderer.writePromptSource !== "function" || typeof terminalPrintRenderer.writeAnimatedScreenOutput !== "function") {
     throw new Error("Screen Workspace API requires a TerminalPrintRenderer");
+  }
+  if (!widgetAppRenderer || typeof widgetAppRenderer.writeFromCatalog !== "function" || typeof widgetAppRenderer.writeRuntimeFiles !== "function") {
+    throw new Error("Screen Workspace API requires a WidgetAppRenderer");
   }
   if (!runtimeAssetRenderer || typeof runtimeAssetRenderer.renderRuntimeAssets !== "function") {
     throw new Error("Screen Workspace API requires a RuntimeAssetRenderer");
@@ -104,6 +108,7 @@ export function createScreenWorkspaceApi({
     webMetricsLedger,
     generateWidgetCatalog,
     lvglRuntimePreviewRenderer,
+    widgetAppRenderer,
   });
   const screenWorkspaceWorkflows = createScreenWorkspaceWorkflows({
     workspaceRoot: SCREEN_WORKSPACE_ROOT,

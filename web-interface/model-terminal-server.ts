@@ -39,7 +39,7 @@ import { compactRetrievalForPrompt } from "./walnut-retrieval.ts";
 import { createCuratedRetrievalStore } from "./platform/memory/curated-retrieval-store.ts";
 import { appendScreenPlaylistItem, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.ts";
 import { stableStringify } from "../scripts/screen-workspace-vocabulary.ts";
-import { createRuntimeAssetRenderer, createTerminalPrintRenderer, createWallpaperRenderer } from "./screen-renderers/index.ts";
+import { createRuntimeAssetRenderer, createTerminalPrintRenderer, createWallpaperRenderer, createWidgetAppRenderer } from "./screen-renderers/index.ts";
 import {
   ACTION_OUTPUT_LIMIT,
   ACTION_POLICY_MANIFEST_PATH,
@@ -575,6 +575,10 @@ const screenWorkspaceStore = createScreenWorkspaceStore({
 const wallpaperRenderer = createWallpaperRenderer();
 const runtimeAssetRenderer = createRuntimeAssetRenderer();
 const terminalPrintRenderer = createTerminalPrintRenderer();
+const widgetAppRenderer = createWidgetAppRenderer({
+  appsRoot: path.join(SCREEN_WORKSPACE_ROOT, "apps"),
+  runtimeRoot: path.join(SCREEN_WORKSPACE_ROOT, "widget-runtime"),
+});
 
 const screenDeliveryAdapters = new Map([
   [
@@ -684,6 +688,7 @@ const screenWorkspaceApi = createScreenWorkspaceApi({
   webMetricsLedger,
   wallpaperRenderer,
   terminalPrintRenderer,
+  widgetAppRenderer,
   appendScreenPlaylistItem,
   writeDefaultScreenPlaylist,
   runtimeAssetRenderer,
