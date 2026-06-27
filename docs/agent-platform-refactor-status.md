@@ -35,6 +35,13 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - The Screen Command DSL now carries explicit preview no-write sync mode,
   stale-hash refusal evidence, and read-only frame capture evidence through
   typed screen tool results.
+- `web-interface/screen-renderers/` now contains explicit `WallpaperRenderer`
+  and `RuntimeAssetRenderer` adapters. The Screen Workspace API, Screen
+  Command DSL runner, LVGL preview path, runtime generation CLI, and SSH
+  delivery adapter receive these renderer contracts rather than importing the
+  low-level wallpaper pipeline or runtime asset writer directly. SSH delivery
+  now sends rendered runtime assets from the control plane and no longer ships
+  the runtime generation script as a device-side content path.
 - The static console has been adjusted to read `route`, `userSummary`, and
   `toolResults[]` from the new platform turn shape.
 - Legacy TypeScript local probe files and the old `walnut-ai` local probe entry
@@ -314,6 +321,9 @@ local-only or mock verification.
   `/api/agent/turn-events` returned four Postgres-backed events, and neither
   response exposed raw command fields.
 - `bun run next:build` passes for the Next/Tailwind console.
+- After splitting `WallpaperRenderer` and `RuntimeAssetRenderer`, `bun run
+  check` passes. No platform verification harness or device-profile check was
+  run; those checks are manual operator evidence now.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -348,6 +358,8 @@ device-profile verification, not offline verification.
   provider without sending raw/private content.
 - Move Screen Workspace authoring and artifact detail panels into the
   Next/Tailwind console, then retire the static HTML console.
+- Split `TerminalPrintRenderer` and `WidgetAppRenderer` into explicit renderer
+  modules without crossing Wallpaper Mode and Widget App Mode contracts.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.

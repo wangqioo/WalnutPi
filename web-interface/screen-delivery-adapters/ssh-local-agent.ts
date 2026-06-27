@@ -3,7 +3,6 @@ import { spawn } from "node:child_process";
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { generateLvglScreenWorkspaceRuntimeAssets } from "../../scripts/generate-lvgl-screen-workspace-runtime-assets.ts";
 import {
   buildScreenSyncEvidence,
   parseFrameEvidence,
@@ -35,7 +34,12 @@ export function createSshLocalAgentAdapter({
   validSha256,
   limitedOutput,
   frameUrl,
+  runtimeAssetRenderer,
 }) {
+  if (!runtimeAssetRenderer || typeof runtimeAssetRenderer.renderRuntimeAssets !== "function") {
+    throw new Error("SSH local agent screen delivery requires a RuntimeAssetRenderer");
+  }
+
   return {
     id: "ssh-local-agent",
     async deliverWorkspacePlaylist({ buildId, playlistEnvelope, evidenceMode = "fast" }) {
@@ -44,7 +48,7 @@ export function createSshLocalAgentAdapter({
       const commandRunner = fullEvidence ? runRemote : (runRemoteRaw || runRemote);
       const scriptRunner = fullEvidence ? runRemoteScript : (runRemoteRawScript || runRemoteScript);
       const playlistHash = playlistEnvelope.playlistHash;
-      const screenSlice = await buildRuntimeDeliverySlice({ playlistEnvelope });
+      const screenSlice = await buildRuntimeDeliverySlice({ playlistEnvelope, runtimeAssetRenderer });
       const archive = await createSliceArchive(screenSlice.files);
       const remoteSliceCommand = buildRemoteSliceInputCommand({
         remoteProjectRoot,
@@ -110,6 +114,7 @@ export function createSshLocalAgentAdapter({
         const fullSlice = await buildWorkspaceDeliverySlice({
           localProjectRoot,
           playlistEnvelope,
+          runtimeAssetRenderer,
         });
         const fullArchive = await createSliceArchive(fullSlice.files);
         const fullSliceCommand = buildRemoteSliceInputCommand({
@@ -315,7 +320,6 @@ const SCREEN_SLICE_FILES = [
   "package.json",
   "scripts/build-lvgl-app.sh",
   "scripts/fetch-lvgl.sh",
-  "scripts/generate-lvgl-screen-workspace-runtime-assets.ts",
   "scripts/screen-workspace-vocabulary.ts",
   "lvgl_app/CMakeLists.txt",
   "lvgl_app/lv_conf.h",
@@ -324,7 +328,7 @@ const SCREEN_SLICE_FILES = [
   "lvgl_app/systemd/walnut-screen.service",
 ];
 
-async function buildWorkspaceDeliverySlice({ localProjectRoot, playlistEnvelope }) {
+async function buildWorkspaceDeliverySlice({ localProjectRoot, playlistEnvelope, runtimeAssetRenderer }) {
   const files = [];
   for (const relativePath of SCREEN_SLICE_FILES) {
     files.push({
@@ -335,7 +339,7 @@ async function buildWorkspaceDeliverySlice({ localProjectRoot, playlistEnvelope 
     });
   }
 
-  const runtimeAssets = await generateLvglScreenWorkspaceRuntimeAssets({
+  const runtimeAssets = await runtimeAssetRenderer.renderRuntimeAssets({
     workspaceRoot: playlistEnvelope.workspaceRoot,
     playlistId: playlistEnvelope.playlist.id,
   });
@@ -356,9 +360,9 @@ async function buildWorkspaceDeliverySlice({ localProjectRoot, playlistEnvelope 
   return { files };
 }
 
-async function buildRuntimeDeliverySlice({ playlistEnvelope }) {
+async function buildRuntimeDeliverySlice({ playlistEnvelope, runtimeAssetRenderer }) {
   const files = [];
-  const runtimeAssets = await generateLvglScreenWorkspaceRuntimeAssets({
+  const runtimeAssets = await runtimeAssetRenderer.renderRuntimeAssets({
     workspaceRoot: playlistEnvelope.workspaceRoot,
     playlistId: playlistEnvelope.playlist.id,
   });

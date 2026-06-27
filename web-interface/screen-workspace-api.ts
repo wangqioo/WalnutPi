@@ -37,10 +37,10 @@ export function createScreenWorkspaceApi({
   json,
   workspaceErrorResponse,
   webMetricsLedger,
-  processSourceAssetToScreenOutput,
+  wallpaperRenderer,
   appendScreenPlaylistItem,
   writeDefaultScreenPlaylist,
-  generateLvglScreenWorkspaceRuntimeAssets,
+  runtimeAssetRenderer,
   persistScreenSyncResult,
   runRemote,
   runRemoteWithInput,
@@ -52,6 +52,13 @@ export function createScreenWorkspaceApi({
   screenSourceImportMaxBytes,
   generateWidgetCatalog,
 }) {
+  if (!wallpaperRenderer || typeof wallpaperRenderer.renderWallpaper !== "function") {
+    throw new Error("Screen Workspace API requires a WallpaperRenderer");
+  }
+  if (!runtimeAssetRenderer || typeof runtimeAssetRenderer.renderRuntimeAssets !== "function") {
+    throw new Error("Screen Workspace API requires a RuntimeAssetRenderer");
+  }
+
   const PROJECT_ROOT = projectRoot;
   const SCREEN_WORKSPACE_ROOT = screenWorkspaceRoot;
   const SCREEN_SOURCE_IMPORT_MAX_BYTES = screenSourceImportMaxBytes;
@@ -99,7 +106,7 @@ export function createScreenWorkspaceApi({
   const screenWorkspaceWorkflows = createScreenWorkspaceWorkflows({
     workspaceRoot: SCREEN_WORKSPACE_ROOT,
     readSourceAsset: readWorkspaceSourceAsset,
-    processSourceAssetToScreenOutput,
+    wallpaperRenderer,
     appendScreenPlaylistItem,
     writeDefaultScreenPlaylist,
     cleanId: cleanScreenWorkspaceId,
@@ -190,7 +197,7 @@ export function createScreenWorkspaceApi({
         demo: registryEntry.upstream.name,
         stem: `lvgl-demo-${registryEntry.upstream.name}`,
       }));
-      const result = await processSourceAssetToScreenOutput({
+      const result = await wallpaperRenderer.renderWallpaper({
         workspaceRoot: SCREEN_WORKSPACE_ROOT,
         plan: {
           id: `${app.id}-plan`,
@@ -411,7 +418,7 @@ export function createScreenWorkspaceApi({
         screenSpec,
         template,
       });
-      const result = await processSourceAssetToScreenOutput({
+      const result = await wallpaperRenderer.renderWallpaper({
         workspaceRoot: SCREEN_WORKSPACE_ROOT,
         plan: {
           id: `${screenId}-plan`,
@@ -496,7 +503,7 @@ export function createScreenWorkspaceApi({
     return runExclusiveLvglPreview(async () => {
       if (req) await readJsonRequest(req).catch(() => ({}));
       const envelope = await screenWorkspaceStore.readPlaylistEnvelope("default");
-      const runtimeAssets = await generateLvglScreenWorkspaceRuntimeAssets({
+      const runtimeAssets = await runtimeAssetRenderer.renderRuntimeAssets({
         workspaceRoot: SCREEN_WORKSPACE_ROOT,
         playlistId: "default",
       });

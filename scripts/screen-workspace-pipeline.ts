@@ -46,7 +46,7 @@ type ScreenPlanInput = JsonRecord & {
   requestedAt?: string | Date;
   animation?: Partial<AnimationBudget>;
 };
-type ProcessSourceOptions = {
+export type ProcessSourceOptions = {
   workspaceRoot?: string;
   plan?: ScreenPlanInput;
   sourceAsset: SourceAssetInput;
@@ -54,7 +54,7 @@ type ProcessSourceOptions = {
   preset?: ProcessingPreset | string;
   now?: () => Date;
 };
-type ProcessSourceResult = {
+export type ProcessSourceResult = {
   workspaceRoot: string;
   screenId: string;
   planPath: string;

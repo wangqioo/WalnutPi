@@ -37,9 +37,9 @@ import { getAiModelConfig } from "./platform/config/platform-config.ts";
 import { CLASSIFIER_INTENTS, createWalnutIntentClassifier } from "./intent-classifier.ts";
 import { compactRetrievalForPrompt } from "./walnut-retrieval.ts";
 import { createCuratedRetrievalStore } from "./platform/memory/curated-retrieval-store.ts";
-import { appendScreenPlaylistItem, processSourceAssetToScreenOutput, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.ts";
+import { appendScreenPlaylistItem, writeDefaultScreenPlaylist } from "../scripts/screen-workspace-pipeline.ts";
 import { stableStringify } from "../scripts/screen-workspace-vocabulary.ts";
-import { generateLvglScreenWorkspaceRuntimeAssets } from "../scripts/generate-lvgl-screen-workspace-runtime-assets.ts";
+import { createRuntimeAssetRenderer, createWallpaperRenderer } from "./screen-renderers/index.ts";
 import {
   ACTION_OUTPUT_LIMIT,
   ACTION_POLICY_MANIFEST_PATH,
@@ -572,6 +572,8 @@ function validSha256(value) {
 const screenWorkspaceStore = createScreenWorkspaceStore({
   workspaceRoot: SCREEN_WORKSPACE_ROOT,
 });
+const wallpaperRenderer = createWallpaperRenderer();
+const runtimeAssetRenderer = createRuntimeAssetRenderer();
 
 const screenDeliveryAdapters = new Map([
   [
@@ -595,6 +597,7 @@ const screenDeliveryAdapters = new Map([
       validSha256,
       limitedOutput,
       frameUrl,
+      runtimeAssetRenderer,
     }),
   ],
 ]);
@@ -678,10 +681,10 @@ const screenWorkspaceApi = createScreenWorkspaceApi({
   json,
   workspaceErrorResponse,
   webMetricsLedger,
-  processSourceAssetToScreenOutput,
+  wallpaperRenderer,
   appendScreenPlaylistItem,
   writeDefaultScreenPlaylist,
-  generateLvglScreenWorkspaceRuntimeAssets,
+  runtimeAssetRenderer,
   persistScreenSyncResult,
   runRemote,
   runRemoteWithInput,
@@ -699,7 +702,7 @@ const screenCommandRunner = createScreenCommandRunner({
   workspaceRoot: SCREEN_WORKSPACE_ROOT,
   screenWorkspaceStore,
   screenWorkspaceSyncWorkflow,
-  processSourceAssetToScreenOutput,
+  wallpaperRenderer,
   appendScreenPlaylistItem,
   writeDefaultScreenPlaylist,
   walnutRemote,

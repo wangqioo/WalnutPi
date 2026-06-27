@@ -11,7 +11,7 @@ export function createScreenCommandRunner({
   workspaceRoot,
   screenWorkspaceStore,
   screenWorkspaceSyncWorkflow,
-  processSourceAssetToScreenOutput,
+  wallpaperRenderer,
   appendScreenPlaylistItem,
   writeDefaultScreenPlaylist,
   walnutRemote,
@@ -20,6 +20,9 @@ export function createScreenCommandRunner({
 }: JsonObject) {
   const project = path.resolve(projectRoot);
   const workspace = path.resolve(workspaceRoot);
+  if (!wallpaperRenderer || typeof wallpaperRenderer.renderWallpaper !== "function") {
+    throw new Error("Screen Command DSL requires a WallpaperRenderer");
+  }
 
   async function run(rawCommand: unknown) {
     const command = parseScreenCommand(rawCommand);
@@ -85,7 +88,7 @@ export function createScreenCommandRunner({
   async function renderWallpaper(command: Extract<ScreenCommand, { kind: "screen.renderWallpaper" }>) {
     const sourcePath = resolveProjectPath(command.source.path, "source.path");
     const sourceId = command.source.sourceId || `${command.screenId}-source`;
-    const rendered = await processSourceAssetToScreenOutput({
+    const rendered = await wallpaperRenderer.renderWallpaper({
       workspaceRoot: workspace,
       plan: {
         id: `${command.screenId}-plan`,

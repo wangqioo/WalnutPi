@@ -1,7 +1,7 @@
 export function createScreenWorkspaceWorkflows({
   workspaceRoot,
   readSourceAsset,
-  processSourceAssetToScreenOutput,
+  wallpaperRenderer,
   appendScreenPlaylistItem,
   writeDefaultScreenPlaylist,
   cleanId,
@@ -12,6 +12,10 @@ export function createScreenWorkspaceWorkflows({
   cleanPlaylistMode,
   cleanInteger,
 }) {
+  if (!wallpaperRenderer || typeof wallpaperRenderer.renderWallpaper !== "function") {
+    throw new Error("Screen Workspace workflows require a WallpaperRenderer");
+  }
+
   async function processSourceRequest(body) {
     const sourceAssetRecord = body.sourceAssetId ? await readSourceAsset(body.sourceAssetId) : null;
     const sourcePath = sourceAssetRecord?.originalPath || cleanSourcePath(body.sourcePath || body.path);
@@ -22,7 +26,7 @@ export function createScreenWorkspaceWorkflows({
     const outputType = cleanOutputType(body.outputType || body.type || "static");
     const preset = cleanPreset(body.preset || "fit-cover:480x320");
     const animation = cleanAnimation(body.animation || {});
-    const result = await processSourceAssetToScreenOutput({
+    const result = await wallpaperRenderer.renderWallpaper({
       workspaceRoot,
       plan: {
         id: body.planId,

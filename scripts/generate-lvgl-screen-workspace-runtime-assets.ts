@@ -1,10 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  buildRuntimeScreenAssets,
-  writeRuntimeScreenAssets,
-} from "./runtime-screen-assets.ts";
+import { createRuntimeAssetRenderer } from "../web-interface/screen-renderers/runtime-asset-renderer.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(SCRIPT_DIR, "..");
@@ -38,16 +35,11 @@ export async function generateLvglScreenWorkspaceRuntimeAssets({
   playlistId = DEFAULT_PLAYLIST_ID,
   outputDir = path.join(path.resolve(workspaceRoot), "runtime"),
 }: GenerateRuntimeOptions = {}): Promise<GenerateRuntimeResult> {
-  const workspace = path.resolve(workspaceRoot);
-  const runtimeDir = path.resolve(outputDir);
-  const config = await buildRuntimeScreenAssets({ workspace, playlistId });
-  const written = await writeRuntimeScreenAssets(config, { runtimeDir });
-  return {
-    runtimeDir,
-    indexPath: written.indexPath,
-    frames: written.framePaths,
-    playlistHash: config.playlistHash,
-  };
+  return createRuntimeAssetRenderer().renderRuntimeAssets({
+    workspaceRoot,
+    playlistId,
+    outputDir,
+  });
 }
 
 function parseArgs(argv: string[]): CliArgs {
