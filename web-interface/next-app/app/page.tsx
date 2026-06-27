@@ -117,6 +117,7 @@ type SidePanelTab = "status" | "screen" | "advanced";
 const QUICK_CAPABILITIES = [
   { label: "Device status", capability: "device.status.read", text: "device.status.read" },
   { label: "Screen playlist", capability: "screen.readPlaylist", text: "screen.readPlaylist" },
+  { label: "Curated eval", capability: "eval.curated.list", text: "eval.curated.list" },
   { label: "Prepare restart", capability: "policy.action.prepare", text: "prepare restart_walnut_screen_service", actionId: "restart_walnut_screen_service", params: {} },
 ];
 

@@ -120,8 +120,9 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
   `screen.writePlaylist`, `screen.widgetApp.sync`,
   `screen.widgetApp.action`, `memory.preference`, `memory.approve`,
-  `memory.sensitiveSkip`, `device.note.write`, `policy.action.prepare`, and
-  `policy.action.commit`.
+  `memory.sensitiveSkip`, `device.note.write`, `policy.action.prepare`,
+  `policy.action.commit`, `eval.curated.list`, and
+  `eval.curated.scoreShape`.
 - `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
   `screen.writePlaylist` are registered as real MCP SDK tools with explicit
   read/write/destructive annotations and dispatch only through the Screen
@@ -285,6 +286,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   no-write, and high-risk policy prepare. They declare expected behavior,
   required evidence, forbidden side effects, and grader classification. The old
   generated benchmark corpus and harness remain deleted.
+- `eval.curated.list` and `eval.curated.scoreShape` are now typed read-only
+  MCP/Mastra capabilities and project as `walnutpi.toolResult.eval.v1`.
+  The active Next console includes a quick action for listing curated cases.
+  They expose curated case metadata and pending score shapes only; they do not
+  execute scoring, restore generated harnesses, or include raw private content.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -488,6 +494,10 @@ local-only or mock verification.
 - After adding curated eval and Inngest fanout scaffolding, `bun run check`
   passes. The new eval cases are curated shapes with 3x3 grader metadata and
   no restored generated benchmark harness.
+- After exposing curated eval through MCP/Mastra workflows, `bun run check`
+  passes. A live smoke against the already-running Web server on port 4173
+  still returned `Unsupported structured capability eval.curated.list`,
+  confirming that process was running pre-change code; it was left untouched.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
