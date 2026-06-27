@@ -187,6 +187,12 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - The Next/Tailwind console now has a compact session panel for email sign-up,
   sign-in, sign-out, and server-derived subject display. It does not submit
   client-controlled subject or role headers.
+- The Hono auth surface now exposes `/api/auth/bindings` and
+  `/api/auth/bindings/upsert` for signed better-auth owners to manage
+  Postgres-owned org/device/role binding records. The Next/Tailwind console has
+  a compact org/device binding panel. Tool calls still do not accept
+  client-declared roles, subjects, device targets, or device profiles; MCP/OPA
+  receives the server-resolved binding from Postgres.
 - `policy.action.prepare` and `policy.action.commit` are real MCP/Mastra tools.
   Prepare records decision id, action id, normalized params hash, command
   binding id, subject, expiry, explanation, OPA decision, and approval token
@@ -206,6 +212,13 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   no longer expose raw shell, SSH, or Walnut CLI command strings. Command
   construction remains inside the dispatcher/adapter boundary and raw command
   records stay limited to internal diagnostic/audit boundaries.
+- Screen playlist SSH delivery still constructs remote commands inside
+  `web-interface/screen-delivery-adapters/ssh-local-agent.ts`, but it no longer
+  returns the aggregate command string upward. Its public delivery manifest now
+  lists typed operations, frame evidence records `screen.frame.read`, sync
+  output is a redacted digest, and persisted screen sync records store stage
+  output hash/length/line-count/service-state summaries instead of raw remote
+  output.
 - Device action tool projections no longer lift dispatcher raw device output
   into Mastra or `/api/agent/turn` results. Public device results expose only
   status/code, policy summary, device-boundary evidence, and raw output
@@ -259,6 +272,19 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   retrieval reindex workflow. The Inngest function
   `walnut/retrieval.reindex.requested` runs that workflow, so retrieval reads
   no longer write embeddings as a GET side effect.
+- `web-interface/platform/inngest/client.ts` now also registers long-workflow
+  shells for `walnut/screen.sync.requested`,
+  `walnut/device.evidence.requested`, `walnut/eval.curated.requested`,
+  `walnut/eval.curated.case.requested`, and the nightly drift cron. Screen sync
+  and device evidence jobs return typed queued references and required platform
+  path evidence; long-running work should continue moving there rather than
+  back into blocking route handlers.
+- `web-interface/platform/eval/curated-eval.ts` defines the curated eval case
+  and `walnutpi.eval-score.v1` contracts with the 3x3 grader matrix. The first
+  seed cases are human-labeled shapes for device status, screen preview
+  no-write, and high-risk policy prepare. They declare expected behavior,
+  required evidence, forbidden side effects, and grader classification. The old
+  generated benchmark corpus and harness remain deleted.
 - `web-interface/platform/mastra/mcp-client.ts` initializes `@mastra/mcp`
   `MCPClient` against the local `/mcp` endpoint and can list the SDK tools for
   future Mastra agent attachment.
@@ -277,8 +303,8 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   real-device helper scripts.
 - `web-interface/next-app/` now contains the first Tailwind-based Next.js
   Walnut Agent Console slice. It provides a fixed-height chat workspace, quick
-  Mastra/MCP capability actions, read-only device diagnostics buttons, and an
-  approval queue around
+  Mastra/MCP capability actions, read-only device diagnostics buttons, a
+  signed-owner org/device binding panel, and an approval queue around
   `policy.action.prepare`/`policy.action.commit`. The approval UI approves only
   prepared catalog actions plus normalized params and approval proof; it does
   not display or submit raw command strings. The right control deck is now
@@ -450,6 +476,18 @@ local-only or mock verification.
   narrow to `screen.widgetApp.action`; without approval proof the high-risk
   actions still return policy pending with no command execution, while generic
   `policy.action.commit` still blocks direct high-risk Web execution.
+- After redacting screen delivery command evidence, `bun run check` passes.
+  The screen playlist delivery adapter keeps command strings inside the adapter
+  boundary, public sync output is a digest, screen evidence records operation
+  names instead of command strings, and persisted screen record stage evidence
+  stores output hashes/lengths/line counts/service state only.
+- After adding signed-owner org/device binding management, `bun run check`
+  passes. The new API/UI writes Postgres-owned bindings only after a
+  better-auth owner session and does not let tool calls spoof roles, subject,
+  target, or device profile.
+- After adding curated eval and Inngest fanout scaffolding, `bun run check`
+  passes. The new eval cases are curated shapes with 3x3 grader metadata and
+  no restored generated benchmark harness.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -478,11 +516,6 @@ device-profile verification, not offline verification.
 
 ## Next Work
 
-- Add multi-org/device management and role-assignment UI/API on top of the
-  current Postgres-backed better-auth subject binding tables.
-- Configure and live-smoke the approved retrieval embedding provider for
-  curated corpus rows. Approved memory remains blocked from remote embedding
-  until explicit per-record consent metadata exists.
 - Remove or archive the now-unserved static HTML files after confirming no
   operator-only workflow still opens them directly.
 - Collect device-profile evidence for approved Widget App restart/reboot through
@@ -490,13 +523,14 @@ device-profile verification, not offline verification.
   boundary, preserve OPA/audit typed results, and do not enable direct Web
   execution for high-risk actions.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
-  path beyond preview no-write into remote delivery, activation, service state,
-  and frame comparison.
-- Extend Langfuse-backed observability from receipt confirmation into curated
-  eval datasets, Mastra eval scores, and Inngest fanout without adding raw
-  private content to traces or scores.
-- Add curated eval scaffolding without restoring deleted generated benchmark
-  harnesses.
+  path after the redaction change: remote delivery, activation, service state,
+  and frame comparison should still prove through Mastra/MCP/OPA/typed adapter.
+- Execute the curated eval seed cases through Mastra workflows, attach
+  redacted Langfuse dataset items and scores, and keep subjective grading behind
+  explicit human review.
+- Retrieval embedding provider wiring is intentionally skipped for this round.
+  Reindex should continue to return honest provider-unconfigured failure until
+  an approved provider is selected.
 
 For a compact keep / replace / delete view with priority, see
 `docs/agent-platform-refactor-gap-matrix.md`.
