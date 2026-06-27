@@ -8,6 +8,7 @@ type JsonObject = Record<string, any>;
 export function createToolDispatcher({
   actionDispatcher,
   screenCommandRunner,
+  widgetAppDeviceAdapter,
   turnLedger,
   metricsLedger,
   policyManifest,
@@ -583,14 +584,49 @@ export function createToolDispatcher({
       operation: "screen.widgetApp.sync",
     });
     if (!policy.allow) return policy.result;
-    return widgetAppDeviceBoundaryResult({
-      operation: "screen.widgetApp.sync",
-      summary: "Widget App sync reached MCP/OPA and failed closed at the typed device boundary.",
-      actionId: "screen_widget_app_sync",
-      params: body,
-      turn,
-      policyDecision: policy.decision,
-      sideEffects: [],
+    if (!widgetAppDeviceAdapter?.deliverCurrentRuntime) {
+      return widgetAppDeviceBoundaryResult({
+        operation: "screen.widgetApp.sync",
+        summary: "Widget App sync reached MCP/OPA and failed closed because the typed device adapter is not configured.",
+        actionId: "screen_widget_app_sync",
+        params: body,
+        turn,
+        policyDecision: policy.decision,
+        sideEffects: [],
+      });
+    }
+    const delivery = await widgetAppDeviceAdapter.deliverCurrentRuntime({
+      appId: cleanOptionalId(body.appId) || null,
+      versionId: cleanOptionalText(body.versionId) || null,
+      evidenceMode: body.evidenceMode === "full" ? "full" : "fast",
+    });
+    return toolResult("screen", {
+      ok: Boolean(delivery.ok),
+      summary: delivery.summary || "Widget App sync completed through the typed device adapter.",
+      result: {
+        operation: "screen.widgetApp.sync",
+        actionId: "screen_widget_app_sync",
+        current: objectOrEmpty(delivery.current),
+        widgetRuntime: objectOrEmpty(delivery.widgetRuntime),
+        activation: objectOrEmpty(delivery.activation),
+        remoteExecution: objectOrEmpty(delivery.remoteExecution),
+        policyDecision: opaEnforcer.publicDecision(policy.decision),
+      },
+      evidence: {
+        deviceBoundaryReached: true,
+        typedWidgetAppDelivery: true,
+        noRawCommandExposure: true,
+        noRawDeviceOutputExposure: true,
+        policyDecision: opaEnforcer.publicDecision(policy.decision),
+        deliveryStages: objectOrEmpty(delivery.stages),
+      },
+      sideEffects: delivery.ok ? [{ kind: "display-mode-change", target: "widget-app", status: "observed" }] : [],
+      diagnostics: {
+        operation: "screen.widgetApp.sync",
+        policyDecisionId: policy.decision?.decisionId || null,
+        adapter: delivery.adapter || "unknown",
+        reason: delivery.reason || null,
+      },
     });
   }
 

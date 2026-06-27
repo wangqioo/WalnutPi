@@ -20,6 +20,7 @@ import { createActionRegistry } from "./action-registry.ts";
 import { createProjectMemoryApi } from "./project-memory-api.ts";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.ts";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.ts";
+import { createWidgetAppDeviceAdapter } from "./widget-app-device-adapter.ts";
 import { createLvglRuntimePreviewRenderer } from "./lvgl-runtime-preview-renderer.ts";
 import { createScreenCommandRunner } from "./screen-command-runner.ts";
 import { createWalnutMastraAgentApi } from "./mastra-agent-api.ts";
@@ -714,10 +715,20 @@ const screenCommandRunner = createScreenCommandRunner({
   validSha256,
   sha256,
 });
+const widgetAppDeviceAdapter = createWidgetAppDeviceAdapter({
+  screenWorkspaceRoot: SCREEN_WORKSPACE_ROOT,
+  remoteProjectRoot: REMOTE_PROJECT_ROOT,
+  remoteBuildUser: REMOTE_BUILD_USER,
+  sshHost: SSH_HOST,
+  sshUser: SSH_USER,
+  runRemoteRaw,
+  runRemoteRawWithInput,
+});
 
 const toolDispatcher = createToolDispatcher({
   actionDispatcher: agentActionsApi,
   screenCommandRunner,
+  widgetAppDeviceAdapter,
   turnLedger: agentTurnLedger,
   metricsLedger: webMetricsLedger,
   policyManifest: ACTION_POLICY_MANIFEST,

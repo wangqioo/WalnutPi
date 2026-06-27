@@ -60,8 +60,8 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   operations are exposed as first-class MCP/OPA platform tools.
 - `screen.widgetApp.sync` and `screen.widgetApp.action` are now first-class
   MCP/Mastra capabilities. Widget App sync has an Action Policy Manifest action
-  id and reaches OPA before returning a typed device-boundary failure; Widget
-  App action maps only known catalog actions (`refresh_device_status`,
+  id and reaches OPA before invoking a typed Widget App device delivery
+  adapter; Widget App action maps only known catalog actions (`refresh_device_status`,
   `restart_walnut_screen_service`, `reboot_device`) into policy actions.
   Pending/refused Widget App actions still return before command construction.
 - The static console has been adjusted to read `route`, `userSummary`, and
@@ -114,10 +114,12 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   high-risk actions.
 - `screen.widgetApp.sync` and `screen.widgetApp.action` are registered as real
   MCP SDK tools. They do not call workspace-local SSH, shell, `systemctl`, or
-  direct Widget App remote delivery. The current implementation proves the
-  policy-gated dispatcher path and then returns honest `deviceBoundaryReached`
-  / `noCommandExecution` evidence until the typed Widget App delivery surface
-  exists.
+  direct Widget App remote delivery. `screen.widgetApp.sync` now calls
+  `web-interface/widget-app-device-adapter.ts`, which streams the validated
+  `screen/widget-runtime/current.txt` runtime slice to the device, activates it
+  as the active LVGL runtime index, and returns only redacted stage hashes,
+  lengths, service state, and typed delivery evidence to MCP/Mastra. Raw command
+  strings and raw device output stay inside the adapter boundary.
 - `device.note.write` is exposed as an MCP/Mastra tool and remains an
   OPA-gated Agent Action Command. `memory.preference`, `memory.approve`, and
   `memory.sensitiveSkip` are exposed as typed MCP/Mastra memory tools.
@@ -367,6 +369,12 @@ local-only or mock verification.
   typed device boundary with no command execution, and
   `restart_walnut_screen_service` returning a pending policy result with no
   command execution.
+- After adding the typed Widget App device adapter, `bun run check` passes.
+  Local adapter probes showed the current Widget App runtime slice can be
+  packaged from `screen/widget-runtime/current.txt`, missing stale app/catalog
+  references are reported as typed artifact references rather than raw output,
+  public delivery stages expose only output hashes and lengths, and the
+  dispatcher projection contains no raw command or raw output fields.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -401,9 +409,9 @@ device-profile verification, not offline verification.
   provider without sending raw/private content.
 - Move Screen Workspace authoring and artifact detail panels into the
   Next/Tailwind console, then retire the static HTML console.
-- Implement typed Widget App device delivery/action execution behind
-  `screen.widgetApp.sync` and `screen.widgetApp.action`; keep command strings
-  inside the device adapter boundary and preserve OPA/audit typed results.
+- Extend typed Widget App action execution behind `screen.widgetApp.action`.
+  Keep command strings inside the device adapter boundary and preserve OPA/audit
+  typed results.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.
