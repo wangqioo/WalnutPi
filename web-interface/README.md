@@ -29,7 +29,7 @@ user says what they want
 -> Real-Device Verification proves the device result after explicit Sync
 ```
 
-The screen-generation path is the primary implemented loop. The current `/workspace.html` page is a Screen Workspace UI slice, not the complete Walnut Agent Console. The right-side terminal, SSH fallback, and diagnostic panels are supporting surfaces for advanced use and proof, not separate products.
+The screen-generation path is the primary implemented loop. The active browser surface is the Next/Tailwind Walnut Agent Console, with Screen Workspace authoring and diagnostics inside its Screen and Details tabs. The retired static HTML workspace routes are not product entry points.
 
 Normal users should not be pushed into `walnut` menus or `1 / 2 / 3` terminal choices. Those menus remain valid Human CLI Command affordances, but the Walnut Agent Console should call policy-backed Agent Action Commands when it needs device state, media conversion, or sync evidence.
 
@@ -47,7 +47,7 @@ screen-workspace-api.ts         Screen Workspace import/process/LVGL preview rou
 screen-workspace-store.ts       Screen Workspace manifest/playlist store
 screen-workspace-sync-workflow.ts  playlist hash gate and sync orchestration
 screen-delivery-adapters/       Device Transport implementations
-static-ui-host.ts               static Walnut Agent Console / Workspace hosting
+static-ui-host.ts               non-UI static asset hosting for retained local assets
 ```
 
 ## Request Types
@@ -82,7 +82,7 @@ Current material flow:
 
 ```text
 find or generate a PNG/JPEG/GIF/WebP/MP4/WebM/MOV asset
--> import a direct media URL or choose a project-local file in /workspace.html
+-> import a direct media URL or choose a project-local file in the Next console Screen tab
 -> store it under screen/sources/<source-id>/
 -> process it with fit-cover, fit-contain, 120x80@4x, or 240x160@2x
 -> write Screen Manifest v2 and Screen Playlist v1

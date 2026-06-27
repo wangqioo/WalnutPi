@@ -65,10 +65,14 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `restart_walnut_screen_service`, `reboot_device`) into policy actions.
   The read-only `refresh_device_status` action now executes through the typed
   Widget App device adapter after MCP/OPA allow and returns only redacted status
-  binding evidence. Pending/refused Widget App actions still return before
-  command construction.
-- The static console has been adjusted to read `route`, `userSummary`, and
-  `toolResults[]` from the new platform turn shape.
+  binding evidence. Approved high-risk Widget App actions now execute only
+  inside `screen.widgetApp.action` after `policy.action.prepare` state,
+  matching normalized params, approval token proof, and a fresh OPA allow
+  decision are committed. The generic `policy.action.commit` surface still
+  blocks direct high-risk Web execution before command construction.
+- The old static HTML console entry routes have been retired. `/`,
+  `/apps.html`, and `/workspace.html` now return `410` from Hono; active
+  product UI work is in the Next/Tailwind console.
 - Legacy TypeScript local probe files and the old `walnut-ai` local probe entry
   have been removed from the active code path.
 - Agent-generated Widget Apps are now treated as explicit Widget App Artifacts,
@@ -130,6 +134,10 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   as the active LVGL runtime index, and returns only redacted stage hashes,
   lengths, service state, and typed delivery evidence to MCP/Mastra. Raw command
   strings and raw device output stay inside the adapter boundary.
+  `screen.widgetApp.action` uses the same typed adapter boundary for
+  `refresh_device_status`, approved `restart_walnut_screen_service`, and
+  approved `reboot_device`; public results expose stage output hashes/lengths
+  and policy/approval evidence, not command strings or raw device output.
 - `device.note.write` is exposed as an MCP/Mastra tool and remains an
   OPA-gated Agent Action Command. `memory.preference`, `memory.approve`, and
   `memory.sensitiveSkip` are exposed as typed MCP/Mastra memory tools.
@@ -399,6 +407,11 @@ local-only or mock verification.
   `screen.widgetApp.action` for `refresh_device_status` reaches OPA and the
   typed adapter boundary, returns `executed: true`, and exposes no raw command
   string.
+- After wiring approved high-risk Widget App actions and retiring active static
+  HTML console routes, `bun run check` passes. The approved action path is
+  narrow to `screen.widgetApp.action`; without approval proof the high-risk
+  actions still return policy pending with no command execution, while generic
+  `policy.action.commit` still blocks direct high-risk Web execution.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -431,11 +444,12 @@ device-profile verification, not offline verification.
   current Postgres-backed better-auth subject binding tables.
 - Replace the deterministic local embedding seam with an approved embedding
   provider without sending raw/private content.
-- Finish replacing any static HTML-only Screen Workspace workflows, then retire
-  the static HTML console.
-- Extend typed Widget App action execution behind `screen.widgetApp.action`.
-  Keep command strings inside the device adapter boundary, preserve OPA/audit
-  typed results, and do not enable direct Web execution for high-risk actions.
+- Remove or archive the now-unserved static HTML files after confirming no
+  operator-only workflow still opens them directly.
+- Collect device-profile evidence for approved Widget App restart/reboot through
+  `screen.widgetApp.action`. Keep command strings inside the device adapter
+  boundary, preserve OPA/audit typed results, and do not enable direct Web
+  execution for high-risk actions.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.

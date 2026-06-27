@@ -105,6 +105,7 @@ export function createProductGatewayApp({
     screenDiagnosticsApi,
     readJsonRequest,
   });
+  registerRetiredStaticConsoleRoutes(app);
   registerStaticUiFallback(app, staticUiHost);
 
   return app;
@@ -280,6 +281,18 @@ function registerStaticUiFallback(app: Hono, staticUiHost: JsonObject) {
     const response = await staticUiHost.handle(new URL(c.req.url).pathname);
     return response || new Response("Not found", { status: 404 });
   });
+}
+
+function registerRetiredStaticConsoleRoutes(app: Hono) {
+  const retired = {
+    ok: false,
+    schema: "walnutpi.retiredStaticConsole.v1",
+    reason: "static-html-console-retired",
+    activeSurface: "next-tailwind-console",
+  };
+  for (const route of ["/", "/apps.html", "/workspace.html"]) {
+    app.get(route, () => Response.json(retired, { status: 410 }));
+  }
 }
 
 export function createProductGatewayFetch(app: Hono) {

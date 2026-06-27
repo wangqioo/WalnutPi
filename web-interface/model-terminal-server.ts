@@ -127,10 +127,6 @@ const curatedRetrievalStore = createCuratedRetrievalStore({
   resultLimit: RETRIEVAL_RESULT_LIMIT,
 });
 const files = new Map([
-  ["/", "walnut-agent-console.html"],
-  ["/apps.html", "widget-app-gallery.html"],
-  ["/workspace.html", "screen-workspace-preview.html"],
-  ["/vendor/ansi_up.js", path.join(PROJECT_ROOT, "node_modules", "ansi_up", "ansi_up.js")],
   [`/${MODEL_FILE}`, MODEL_FILE],
 ]);
 
@@ -306,7 +302,7 @@ function buildScreenRepairHint(record) {
     summary: record?.summary || "Screen Workspace sync failed before completion.",
     autoRepairAvailable: false,
     suggestedActions: [
-      "Open /workspace.html and refresh the current playlist.",
+      "Open the Next/Tailwind console Screen tab and refresh the current playlist.",
       "Regenerate the Screen Workspace output if the playlist or artifacts are missing.",
       "Retry sync with the current playlistHash.",
     ],
