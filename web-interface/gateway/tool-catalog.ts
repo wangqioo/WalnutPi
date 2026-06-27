@@ -55,6 +55,15 @@ export function createGatewayToolCatalog({
       durationMs: numberSchema(8000),
       loop: booleanSchema(true),
     }),
+    tool("screen.widgetApp.sync", "screen", "Prepare Widget App runtime sync through MCP and OPA before device delivery.", "/api/screen/widget-apps/current/sync", {
+      appId: optionalStringSchema(),
+      versionId: optionalStringSchema(),
+      evidenceMode: enumSchema(["fast", "full"], "fast"),
+    }, "screen_widget_app_sync"),
+    tool("screen.widgetApp.action", "screen", "Run a Widget App action through the platform policy path.", "/api/screen/widget-apps/current/events", {
+      action: stringSchema(),
+      params: objectSchema(),
+    }),
     tool("memory.sessionSummary", "memory", "Summarize recent session activity from local ledgers.", "/api/session", {
       sessionId: optionalStringSchema(),
     }),

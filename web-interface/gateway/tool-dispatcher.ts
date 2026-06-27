@@ -562,7 +562,79 @@ export function createToolDispatcher({
         loop: params.loop !== undefined ? Boolean(params.loop) : true,
       }), policy.decision);
     }
+    if (toolName === "screen.widgetApp.sync") {
+      return syncWidgetApp(params, turn);
+    }
+    if (toolName === "screen.widgetApp.action") {
+      return runWidgetAppAction(params, turn);
+    }
     return failedToolResult("screen", `Unknown screen tool ${toolName}`);
+  }
+
+  async function syncWidgetApp(body: JsonObject, turn: JsonObject) {
+    const policy = await decideToolPolicy({
+      actionId: "screen_widget_app_sync",
+      params: {
+        appId: cleanOptionalId(body.appId),
+        versionId: cleanOptionalText(body.versionId),
+        evidenceMode: body.evidenceMode === "full" ? "full" : "fast",
+      },
+      turn,
+      operation: "screen.widgetApp.sync",
+    });
+    if (!policy.allow) return policy.result;
+    return widgetAppDeviceBoundaryResult({
+      operation: "screen.widgetApp.sync",
+      summary: "Widget App sync reached MCP/OPA and failed closed at the typed device boundary.",
+      actionId: "screen_widget_app_sync",
+      params: body,
+      turn,
+      policyDecision: policy.decision,
+      sideEffects: [],
+    });
+  }
+
+  async function runWidgetAppAction(body: JsonObject, turn: JsonObject) {
+    const widgetAction = cleanOptionalText(body.action || body.name || body.actionId);
+    if (!widgetAction) return failedToolResult("screen", "Widget App action is required.");
+    const actionId = mapWidgetAppActionToPolicyAction(widgetAction);
+    if (!actionId) {
+      return toolResult("screen", {
+        ok: false,
+        summary: "Widget App action is not registered as a platform policy action.",
+        result: {
+          operation: "screen.widgetApp.action",
+          action: widgetAction,
+          executed: false,
+          reason: "unknown-widget-platform-action",
+        },
+        evidence: {
+          refusedWidgetAppAction: true,
+          policyGatedPlatformToolRequired: true,
+          noCommandExecution: true,
+          noRemoteCommandExecution: true,
+        },
+        diagnostics: {
+          operation: "screen.widgetApp.action",
+        },
+      });
+    }
+    const policy = await decideToolPolicy({
+      actionId,
+      params: objectOrEmpty(body.params),
+      turn,
+      operation: "screen.widgetApp.action",
+    });
+    if (!policy.allow) return policy.result;
+    return widgetAppDeviceBoundaryResult({
+      operation: "screen.widgetApp.action",
+      summary: "Widget App action reached MCP/OPA and failed closed at the typed device boundary.",
+      actionId,
+      params: objectOrEmpty(body.params),
+      turn,
+      policyDecision: policy.decision,
+      sideEffects: actionId === "refresh_device_status" ? [] : [{ kind: "device-action", target: "widget-app", status: "blocked" }],
+    });
   }
 
   async function handleMemoryTool(toolName: string, params: JsonObject, turn: JsonObject) {
@@ -589,6 +661,69 @@ export function createToolDispatcher({
     return toolName;
   }
 
+  function widgetAppDeviceBoundaryResult({
+    operation,
+    summary,
+    actionId,
+    params,
+    turn,
+    policyDecision,
+    sideEffects,
+  }: {
+    operation: string;
+    summary: string;
+    actionId: string;
+    params: JsonObject;
+    turn: JsonObject;
+    policyDecision: JsonObject;
+    sideEffects: Array<{ kind: string; target: string; status: string }>;
+  }) {
+    const current = {
+      appId: cleanOptionalId(params.appId) || null,
+      versionId: cleanOptionalText(params.versionId) || null,
+    };
+    return toolResult("screen", {
+      ok: false,
+      summary,
+      result: {
+        operation,
+        actionId,
+        current,
+        executed: false,
+        reason: "widget-app-device-delivery-not-implemented",
+        policyDecision: opaEnforcer.publicDecision(policyDecision),
+      },
+      evidence: {
+        deviceBoundaryReached: true,
+        deviceBoundaryRequired: true,
+        policyGatedPlatformToolRequired: false,
+        noCommandExecution: true,
+        noRemoteCommandExecution: true,
+        noRawCommandExposure: true,
+        policyDecision: opaEnforcer.publicDecision(policyDecision),
+        requestContext: {
+          sessionId: turn.sessionId || null,
+          turnId: turn.turnId || null,
+        },
+      },
+      sideEffects,
+      diagnostics: {
+        operation,
+        policyDecisionId: policyDecision?.decisionId || null,
+      },
+    });
+  }
+
+  function mapWidgetAppActionToPolicyAction(actionName: string) {
+    const normalized = cleanOptionalText(actionName);
+    const known = new Set([
+      "refresh_device_status",
+      "restart_walnut_screen_service",
+      "reboot_device",
+    ]);
+    return known.has(normalized) ? normalized : null;
+  }
+
   function isHighRiskAction(actionId: string) {
     const action = policyManifest?.actions?.[actionId];
     return action?.risk === "high"
@@ -599,6 +734,15 @@ export function createToolDispatcher({
 
   function objectOrEmpty(value: any): JsonObject {
     return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  }
+
+  function cleanOptionalText(value: any) {
+    return String(value || "").trim();
+  }
+
+  function cleanOptionalId(value: any) {
+    const text = cleanOptionalText(value);
+    return /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,96}$/.test(text) ? text : "";
   }
 
   function normalizeActionSideEffects(value: any) {

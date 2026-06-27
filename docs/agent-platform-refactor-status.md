@@ -58,6 +58,12 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `policyGatedPlatformToolRequired`, `deviceBoundaryRequired`,
   `noCommandExecution`, and `noRemoteCommandExecution` evidence until those
   operations are exposed as first-class MCP/OPA platform tools.
+- `screen.widgetApp.sync` and `screen.widgetApp.action` are now first-class
+  MCP/Mastra capabilities. Widget App sync has an Action Policy Manifest action
+  id and reaches OPA before returning a typed device-boundary failure; Widget
+  App action maps only known catalog actions (`refresh_device_status`,
+  `restart_walnut_screen_service`, `reboot_device`) into policy actions.
+  Pending/refused Widget App actions still return before command construction.
 - The static console has been adjusted to read `route`, `userSummary`, and
   `toolResults[]` from the new platform turn shape.
 - Legacy TypeScript local probe files and the old `walnut-ai` local probe entry
@@ -94,7 +100,8 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `device.network.read`, `device.snapshot.read`, `device.i2c.read`,
   `device.gpio.read`, `device.notes.read`, `memory.sessionSummary`,
   `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
-  `screen.writePlaylist`, `memory.preference`, `memory.approve`,
+  `screen.writePlaylist`, `screen.widgetApp.sync`,
+  `screen.widgetApp.action`, `memory.preference`, `memory.approve`,
   `memory.sensitiveSkip`, `device.note.write`, `policy.action.prepare`, and
   `policy.action.commit`.
 - `screen.captureFrame`, `screen.syncPlaylist`, `screen.renderWallpaper`, and
@@ -105,6 +112,12 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   action ids and pass through the OPA policy gate before Screen Command DSL
   execution. OPA-unavailable degraded decisions fail closed for write-low and
   high-risk actions.
+- `screen.widgetApp.sync` and `screen.widgetApp.action` are registered as real
+  MCP SDK tools. They do not call workspace-local SSH, shell, `systemctl`, or
+  direct Widget App remote delivery. The current implementation proves the
+  policy-gated dispatcher path and then returns honest `deviceBoundaryReached`
+  / `noCommandExecution` evidence until the typed Widget App delivery surface
+  exists.
 - `device.note.write` is exposed as an MCP/Mastra tool and remains an
   OPA-gated Agent Action Command. `memory.preference`, `memory.approve`, and
   `memory.sensitiveSkip` are exposed as typed MCP/Mastra memory tools.
@@ -346,6 +359,14 @@ local-only or mock verification.
   verification harness or device-profile check was run.
 - After removing workspace-local Widget App remote execution, `bun run check`
   passes. No platform verification harness or device-profile check was run.
+- After adding first-class `screen.widgetApp.sync` and
+  `screen.widgetApp.action` MCP/Mastra capabilities, `bun run check` passes.
+  Local contract probes showed 22 SDK tool catalog entries, OPA allow for
+  `screen_widget_app_sync` under the server-owned local owner/device binding,
+  Widget App sync/refresh reaching the dispatcher and failing closed at the
+  typed device boundary with no command execution, and
+  `restart_walnut_screen_service` returning a pending policy result with no
+  command execution.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -380,8 +401,9 @@ device-profile verification, not offline verification.
   provider without sending raw/private content.
 - Move Screen Workspace authoring and artifact detail panels into the
   Next/Tailwind console, then retire the static HTML console.
-- Add policy-gated Widget App sync/action MCP tools before restoring Widget App
-  device delivery.
+- Implement typed Widget App device delivery/action execution behind
+  `screen.widgetApp.sync` and `screen.widgetApp.action`; keep command strings
+  inside the device adapter boundary and preserve OPA/audit typed results.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.

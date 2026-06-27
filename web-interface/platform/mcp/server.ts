@@ -87,6 +87,31 @@ const TOOL_POLICIES: Record<string, {
       turnId: z.string().optional(),
     },
   },
+  "screen.widgetApp.sync": {
+    readOnly: false,
+    destructive: true,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      appId: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,96}$/).optional(),
+      versionId: z.string().min(1).max(160).optional(),
+      evidenceMode: z.enum(["fast", "full"]).optional(),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
+  "screen.widgetApp.action": {
+    readOnly: false,
+    destructive: false,
+    idempotent: false,
+    openWorld: false,
+    inputSchema: {
+      action: z.string().min(1).max(120),
+      params: z.record(z.string(), z.any()).optional(),
+      sessionId: z.string().optional(),
+      turnId: z.string().optional(),
+    },
+  },
   "device.status.read": readOnlyToolSchema(),
   "diagnostics.recentFailure": readOnlyToolSchema(),
   "ai.chat": {

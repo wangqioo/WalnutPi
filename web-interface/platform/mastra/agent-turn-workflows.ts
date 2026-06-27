@@ -12,6 +12,8 @@ export const MASTRA_AGENT_TURN_CAPABILITIES = [
   "screen.syncPlaylist",
   "screen.renderWallpaper",
   "screen.writePlaylist",
+  "screen.widgetApp.sync",
+  "screen.widgetApp.action",
   "device.network.read",
   "device.snapshot.read",
   "device.i2c.read",
@@ -44,6 +46,8 @@ const MCP_TOOL_BY_CAPABILITY: Record<MastraAgentTurnCapability, string> = {
   "screen.syncPlaylist": "walnutpi_screen.syncPlaylist",
   "screen.renderWallpaper": "walnutpi_screen.renderWallpaper",
   "screen.writePlaylist": "walnutpi_screen.writePlaylist",
+  "screen.widgetApp.sync": "walnutpi_screen.widgetApp.sync",
+  "screen.widgetApp.action": "walnutpi_screen.widgetApp.action",
   "device.network.read": "walnutpi_device.network.read",
   "device.snapshot.read": "walnutpi_device.snapshot.read",
   "device.i2c.read": "walnutpi_device.i2c.read",
@@ -67,6 +71,8 @@ const FAMILY_BY_CAPABILITY: Record<MastraAgentTurnCapability, WalnutToolResult["
   "screen.syncPlaylist": "screen",
   "screen.renderWallpaper": "screen",
   "screen.writePlaylist": "screen",
+  "screen.widgetApp.sync": "screen",
+  "screen.widgetApp.action": "screen",
   "device.network.read": "device",
   "device.snapshot.read": "device",
   "device.i2c.read": "device",
@@ -209,6 +215,21 @@ function paramsForCapability(
       mode: body.mode || parameters.mode,
       durationMs: body.durationMs || parameters.durationMs || 8000,
       loop: body.loop !== undefined ? body.loop : parameters.loop !== undefined ? parameters.loop : true,
+    };
+  }
+  if (capability === "screen.widgetApp.sync") {
+    return {
+      ...parameters,
+      appId: body.appId || parameters.appId || undefined,
+      versionId: body.versionId || parameters.versionId || undefined,
+      evidenceMode: body.evidenceMode || parameters.evidenceMode || "fast",
+    };
+  }
+  if (capability === "screen.widgetApp.action") {
+    return {
+      ...parameters,
+      action: body.action || body.actionId || parameters.action,
+      params: body.params || parameters.params || {},
     };
   }
   if (capability === "device.note.write" || capability === "memory.preference" || capability === "memory.sensitiveSkip") {

@@ -291,6 +291,41 @@
         "timeoutMs": 15000
       }
     },
+    "screen_widget_app_sync": {
+      "title": "同步 Widget App",
+      "description": "Prepare explicit Widget App runtime sync through the platform policy path before device delivery.",
+      "risk": "write-low",
+      "mode": "remote",
+      "confirmationRequired": false,
+      "allowedExecutors": ["web"],
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "appId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9_-]{0,96}$"
+          },
+          "versionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "evidenceMode": {
+            "type": "string",
+            "enum": ["fast", "full"]
+          }
+        }
+      },
+      "evidence": {
+        "schema": "walnutpi.toolResult.screen.v1",
+        "fields": ["ok", "family", "summary", "result", "evidence", "sideEffects", "diagnostics"]
+      },
+      "web": {
+        "reply": "我会通过 MCP/OPA 平台路径准备 Widget App 同步；当前设备写入仍在 device boundary fail closed。",
+        "timeoutMs": 30000
+      }
+    },
     "ai": {
       "title": "WalnutAI Agent",
       "description": "Delegate a user question to the WalnutAI device-side agent.",
