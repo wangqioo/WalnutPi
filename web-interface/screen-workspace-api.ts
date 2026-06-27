@@ -43,8 +43,6 @@ export function createScreenWorkspaceApi({
   runtimeAssetRenderer,
   persistScreenSyncResult,
   runRemote,
-  runRemoteWithInput,
-  shellQuote,
   lvglRuntimePreviewRenderer,
   sha256,
   projectRoot,
@@ -97,12 +95,8 @@ export function createScreenWorkspaceApi({
   const WORKSPACE_PLAYLIST_MODES = new Set(["replace", "append"]);
   let lvglPreviewQueue: Promise<any> = Promise.resolve();
   const widgetAppWorkspace = createWidgetAppWorkspace({
-    projectRoot,
     screenWorkspaceRoot,
     readJsonRequest,
-    runRemote,
-    runRemoteWithInput,
-    shellQuote,
     json,
     workspaceErrorResponse,
     webMetricsLedger,

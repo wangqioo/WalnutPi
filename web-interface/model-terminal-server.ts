@@ -694,8 +694,6 @@ const screenWorkspaceApi = createScreenWorkspaceApi({
   runtimeAssetRenderer,
   persistScreenSyncResult,
   runRemote,
-  runRemoteWithInput,
-  shellQuote,
   lvglRuntimePreviewRenderer,
   sha256,
   projectRoot: PROJECT_ROOT,

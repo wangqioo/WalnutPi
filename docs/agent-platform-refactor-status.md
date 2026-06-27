@@ -50,6 +50,14 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   artifacts and Widget App runtime files. SSH delivery now sends rendered
   runtime assets from the control plane and no longer ships the runtime
   generation script as a device-side content path.
+- Widget App workspace-local refresh, action event, and sync endpoints no
+  longer construct SSH, shell, Walnut CLI, or `systemctl` commands. Local Widget
+  App create/activate/preview/download still work, and local-only widget
+  actions such as the pomodoro demo may update runtime state. Device-affecting
+  Widget App refresh/action/sync calls now fail closed with
+  `policyGatedPlatformToolRequired`, `deviceBoundaryRequired`,
+  `noCommandExecution`, and `noRemoteCommandExecution` evidence until those
+  operations are exposed as first-class MCP/OPA platform tools.
 - The static console has been adjusted to read `route`, `userSummary`, and
   `toolResults[]` from the new platform turn shape.
 - Legacy TypeScript local probe files and the old `walnut-ai` local probe entry
@@ -336,6 +344,8 @@ local-only or mock verification.
   verification harness or device-profile check was run.
 - After splitting `WidgetAppRenderer`, `bun run check` passes. No platform
   verification harness or device-profile check was run.
+- After removing workspace-local Widget App remote execution, `bun run check`
+  passes. No platform verification harness or device-profile check was run.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -370,8 +380,8 @@ device-profile verification, not offline verification.
   provider without sending raw/private content.
 - Move Screen Workspace authoring and artifact detail panels into the
   Next/Tailwind console, then retire the static HTML console.
-- Move Widget App remote sync/action delivery behind policy-gated platform tools
-  rather than workspace-local remote commands.
+- Add policy-gated Widget App sync/action MCP tools before restoring Widget App
+  device delivery.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
   path beyond preview no-write into remote delivery, activation, service state,
   and frame comparison.

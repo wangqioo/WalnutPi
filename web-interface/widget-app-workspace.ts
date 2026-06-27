@@ -8,12 +8,8 @@ import {
 } from "../scripts/walnut-lvgl-widget-catalog.ts";
 
 export function createWidgetAppWorkspace({
-  projectRoot,
   screenWorkspaceRoot,
   readJsonRequest,
-  runRemote,
-  runRemoteWithInput,
-  shellQuote,
   json,
   workspaceErrorResponse,
   webMetricsLedger,
@@ -180,18 +176,38 @@ export function createWidgetAppWorkspace({
     try {
       const current = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "current.json"));
       const app = await readWidgetApp(current.appId);
-      const result = await runRemote("walnut action run status --json", 25_000, 40_000);
-      const state = {
+      const state = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json")).catch(() => ({
+        schema: "walnutpi.widget-runtime-state.v1",
+        appId: app.id,
+        versionId: current.versionId,
+        bindings: widgetAppRenderer.defaultState(app),
+      }));
+      const latestAction = deviceBoundaryRequiredAction("refresh_device_status");
+      const nextState = {
+        ...state,
         schema: "walnutpi.widget-runtime-state.v1",
         appId: app.id,
         versionId: current.versionId,
         updatedAt: new Date().toISOString(),
-        bindings: deviceStatusBindings(result.output),
-        latestAction: { name: "refresh_device_status", ok: result.ok, code: result.code, at: new Date().toISOString() },
+        bindings: state.bindings || widgetAppRenderer.defaultState(app),
+        latestAction,
       };
-      await widgetAppRenderer.writeRuntimeFiles(app, current, state);
-      await widgetAppRenderer.appendRuntimeEvent({ type: "action", appId: app.id, action: state.latestAction });
-      return json({ ok: result.ok, current, state, output: result.output }, result.ok ? 200 : 500);
+      await widgetAppRenderer.writeRuntimeFiles(app, current, nextState);
+      await widgetAppRenderer.appendRuntimeEvent({ type: "action", appId: app.id, action: latestAction });
+      return json({
+        ok: false,
+        schema: "walnutpi.widget-app-action-result.v1",
+        appId: app.id,
+        current,
+        state: nextState,
+        evidence: {
+          deviceBoundaryRequired: true,
+          policyGatedPlatformToolRequired: true,
+          noRemoteCommandExecution: true,
+          noCommandExecution: true,
+        },
+        error: "Widget App refresh must run through the policy-gated platform tool path.",
+      }, 409);
     } catch (error) {
       return workspaceErrorResponse(error, json);
     }
@@ -217,36 +233,40 @@ export function createWidgetAppWorkspace({
           versionId: current.versionId,
           updatedAt: new Date().toISOString(),
           bindings: localActionHandler(actionName, previousState.bindings),
-          latestAction: { name: actionName, ok: true, code: 0, at: new Date().toISOString() },
+          latestAction: { name: actionName, ok: true, code: 0, at: new Date().toISOString(), localOnly: true },
         };
         await widgetAppRenderer.writeRuntimeFiles(app, current, state);
         await widgetAppRenderer.appendRuntimeEvent({ type: "action", appId: app.id, action: state.latestAction });
         return json({ ok: true, state, output: JSON.stringify({ ok: true, bindings: state.bindings }) });
       }
-      const command = actionName === "refresh_device_status"
-        ? "walnut action run status --json"
-        : `walnut action prepare ${shellQuote(actionName)} --json`;
-      const result = await runRemote(command, 25_000, 40_000);
       const previousState = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json")).catch(() => ({
         bindings: widgetAppRenderer.defaultState(app),
       }));
+      const latestAction = deviceBoundaryRequiredAction(actionName);
       const state = {
         schema: "walnutpi.widget-runtime-state.v1",
         appId: app.id,
         versionId: current.versionId,
         updatedAt: new Date().toISOString(),
-        bindings: actionName === "refresh_device_status" ? deviceStatusBindings(result.output) : previousState.bindings,
-        latestAction: {
-          name: actionName,
-          ok: result.ok,
-          code: result.code,
-          at: new Date().toISOString(),
-          pending: parseJsonObject(result.output),
-        },
+        bindings: previousState.bindings || widgetAppRenderer.defaultState(app),
+        latestAction,
       };
       await widgetAppRenderer.writeRuntimeFiles(app, current, state);
       await widgetAppRenderer.appendRuntimeEvent({ type: "action", appId: app.id, action: state.latestAction });
-      return json({ ok: result.ok, state, output: result.output }, result.ok ? 200 : 500);
+      return json({
+        ok: false,
+        schema: "walnutpi.widget-app-action-result.v1",
+        appId: app.id,
+        current,
+        state,
+        evidence: {
+          deviceBoundaryRequired: true,
+          policyGatedPlatformToolRequired: true,
+          noRemoteCommandExecution: true,
+          noCommandExecution: true,
+        },
+        error: "Widget App device actions must run through the policy-gated platform tool path.",
+      }, 409);
     } catch (error) {
       return workspaceErrorResponse(error, json);
     }
@@ -258,36 +278,27 @@ export function createWidgetAppWorkspace({
       const app = await readWidgetApp(current.appId);
       const state = await readJsonFile(path.join(WIDGET_RUNTIME_ROOT, "state.json"));
       await widgetAppRenderer.writeRuntimeFiles(app, current, state);
-      const files = await widgetSyncFiles(app.id);
-      const archive = await createTarArchive(files);
-      const remoteRoot = process.env.WALNUT_REMOTE_PROJECT_ROOT || process.env.WALNUT_PROJECT_ROOT || "/home/pi/projects/WalnutPi";
-      const script = [
-        "set -e",
-        `ROOT=${shellQuote(remoteRoot)}`,
-        'mkdir -p "$ROOT"',
-        'cd "$ROOT"',
-        "tar -xzf -",
-        "test -f screen/widget-runtime/current.txt",
-        "chmod +x scripts/build-lvgl-app.sh",
-        "if ! test -x build/lvgl_app/walnut-lvgl-screen || ! strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-widget-runtime.v1 >/dev/null; then bash scripts/build-lvgl-app.sh; fi",
-        "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-widget-runtime.v1 >/dev/null",
-        "cp lvgl_app/systemd/walnut-screen.service /etc/systemd/system/walnut-screen.service",
-        "systemctl daemon-reload",
-        "systemctl restart walnut-screen.service",
-        "sleep 0.5",
-        "systemctl is-active walnut-screen.service",
-        "walnut screen state",
-      ].join("; ");
-      const result = await runRemoteWithInput(`sudo -n sh -lc ${shellQuote(script)}`, archive, 180_000, 60_000);
-      await widgetAppRenderer.appendRuntimeEvent({ type: "sync", appId: app.id, ok: result.ok, at: new Date().toISOString() });
+      await widgetAppRenderer.appendRuntimeEvent({
+        type: "sync",
+        appId: app.id,
+        ok: false,
+        at: new Date().toISOString(),
+        reason: "policy-gated-platform-tool-required",
+      });
       return json({
-        ok: result.ok,
+        ok: false,
         schema: "walnutpi.widget-app-sync-result.v1",
         appId: app.id,
         current,
-        fileCount: files.length,
-        output: result.output,
-      }, result.ok ? 200 : 500);
+        state,
+        evidence: {
+          deviceBoundaryRequired: true,
+          policyGatedPlatformToolRequired: true,
+          noRemoteCommandExecution: true,
+          noCommandExecution: true,
+        },
+        error: "Widget App sync must run through a policy-gated platform tool before device delivery.",
+      }, 409);
     } catch (error) {
       return workspaceErrorResponse(error, json);
     }
@@ -343,46 +354,17 @@ export function createWidgetAppWorkspace({
     return JSON.parse(await readFile(filePath, "utf8"));
   }
 
-  function deviceStatusBindings(output) {
-    const parsed = parseJsonObject(output);
-    const text = String(parsed?.output || output || "");
+  function deviceBoundaryRequiredAction(actionName) {
     return {
-      ip: matchValue(text, /wlan0\s+\S+\s+([0-9]{1,3}(?:\.[0-9]{1,3}){3})\//i) || "unknown",
-      memory: matchValue(text, /Mem:\s+\S+\s+\S+\s+\S+\s+\S+\s+\S+\s+([0-9.]+(?:Mi|Gi|MiB|GiB|MB|GB))/i) || "unknown",
-      disk: matchValue(text, /\/dev\/root\s+\S+\s+\S+\s+\S+\s+([0-9]+%)/i) || "unknown",
-      frp: /frp[^\n]*(active|running|online|ok)/i.test(text) ? "active" : (/frp/i.test(text) ? "check" : "unknown"),
-      service: matchValue(text, /walnut-screen\.service\s+([a-z-]+)/i) || matchValue(text, /frpc\s+active=([a-z-]+)/i) || "unknown",
+      name: actionName,
+      ok: false,
+      code: null,
+      at: new Date().toISOString(),
+      deviceBoundaryRequired: true,
+      policyGatedPlatformToolRequired: true,
+      noRemoteCommandExecution: true,
+      noCommandExecution: true,
     };
-  }
-
-  function parseJsonObject(text) {
-    try {
-      const parsed = JSON.parse(String(text || ""));
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
-    } catch {
-      return null;
-    }
-  }
-
-  function matchValue(text, regex) {
-    const match = String(text || "").match(regex);
-    return match?.[1]?.trim() || "";
-  }
-
-  async function widgetSyncFiles(appId) {
-    const files = await widgetAppArchiveFiles(appId);
-    for (const name of ["current.json", "state.json", "current.txt", "events.log"]) {
-      const absolutePath = path.join(WIDGET_RUNTIME_ROOT, name);
-      if (existsSync(absolutePath)) files.push({ absolutePath, archivePath: `screen/widget-runtime/${name}` });
-    }
-    files.push(
-      { absolutePath: path.join(projectRoot, "lvgl_app", "src", "main.c"), archivePath: "lvgl_app/src/main.c" },
-      { absolutePath: path.join(projectRoot, "lvgl_app", "CMakeLists.txt"), archivePath: "lvgl_app/CMakeLists.txt" },
-      { absolutePath: path.join(projectRoot, "lvgl_app", "lv_conf.h"), archivePath: "lvgl_app/lv_conf.h" },
-      { absolutePath: path.join(projectRoot, "lvgl_app", "systemd", "walnut-screen.service"), archivePath: "lvgl_app/systemd/walnut-screen.service" },
-      { absolutePath: path.join(projectRoot, "scripts", "build-lvgl-app.sh"), archivePath: "scripts/build-lvgl-app.sh" },
-    );
-    return files;
   }
 
   async function widgetAppArchiveFiles(appId) {
