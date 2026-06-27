@@ -288,6 +288,8 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   generated benchmark corpus and harness remain deleted.
 - `eval.curated.list` and `eval.curated.scoreShape` are now typed read-only
   MCP/Mastra capabilities and project as `walnutpi.toolResult.eval.v1`.
+  Hono also exposes `/api/eval/curated` and
+  `/api/eval/curated/:caseId/score-shape` as read-only public projections.
   The active Next console includes a quick action for listing curated cases.
   They expose curated case metadata and pending score shapes only; they do not
   execute scoring, restore generated harnesses, or include raw private content.
@@ -430,7 +432,7 @@ local-only or mock verification.
   passes. No platform verification harness or device-profile check was run.
 - After adding first-class `screen.widgetApp.sync` and
   `screen.widgetApp.action` MCP/Mastra capabilities, `bun run check` passes.
-  Local contract probes showed 22 SDK tool catalog entries, OPA allow for
+  Local contract probes showed the pre-eval SDK tool catalog entries, OPA allow for
   `screen_widget_app_sync` under the server-owned local owner/device binding,
   Widget App sync/refresh reaching the dispatcher and failing closed at the
   typed device boundary with no command execution, and

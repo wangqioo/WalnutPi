@@ -5,6 +5,7 @@ import { handleWalnutMcpRequest } from "../platform/mcp/server.ts";
 import { createMcpAuthContext } from "./auth-context.ts";
 import { createWalnutAuth, resolveWalnutSubjectFromRequest } from "../platform/auth/auth.ts";
 import { readWalnutSubjectManagement, upsertWalnutSubjectManagement } from "../platform/auth/subject-management.ts";
+import { createPendingEvalScore, getCuratedEvalCase, listCuratedEvalCases } from "../platform/eval/curated-eval.ts";
 import type { ActionPolicyManifest } from "../action-policy.ts";
 import type { GatewayJson } from "./gateway-interfaces.ts";
 
@@ -102,6 +103,7 @@ export function createProductGatewayApp({
     readJsonRequest,
   });
   registerAuthRoutes(app, { json, config });
+  registerEvalRoutes(app, { json });
   registerScreenRoutes(app, {
     json,
     previewOnly,
@@ -150,6 +152,48 @@ function registerProductRoutes(app: Hono, {
   });
 
   app.all("/api/session", (c) => projectMemoryApi.handleSession(c.req, new URL(c.req.url)));
+}
+
+function registerEvalRoutes(app: Hono, { json }: JsonObject) {
+  app.get("/api/eval/curated", (c) => {
+    const suite = new URL(c.req.url).searchParams.get("suite");
+    const cases = listCuratedEvalCases().filter((evalCase: JsonObject) => !suite || evalCase.suite === suite);
+    return json({
+      ok: true,
+      schema: "walnutpi.curatedEvalCases.public.v1",
+      cases,
+      caseCount: cases.length,
+      generatedBenchmarkHarnessRestored: false,
+      redaction: {
+        rawUserText: false,
+        rawSessionLogs: false,
+        rawDailyNotes: false,
+        rawCommand: false,
+      },
+    });
+  });
+  app.get("/api/eval/curated/:caseId/score-shape", (c) => {
+    const evalCase = getCuratedEvalCase(c.req.param("caseId"));
+    if (!evalCase) return json({ ok: false, schema: "walnutpi.evalScoreShape.public.v1", error: "unknown curated eval case" }, 404);
+    const variantId = new URL(c.req.url).searchParams.get("variantId") || "local-platform";
+    return json({
+      ok: true,
+      schema: "walnutpi.evalScoreShape.public.v1",
+      case: evalCase,
+      score: createPendingEvalScore(evalCase, {
+        variantId,
+        reason: "score shape only; execution must attach redacted Mastra/MCP trace evidence",
+        evidenceRefs: [`curated-eval-case:${evalCase.id}`],
+      }),
+      generatedBenchmarkHarnessRestored: false,
+      redaction: {
+        rawUserText: false,
+        rawSessionLogs: false,
+        rawDailyNotes: false,
+        rawCommand: false,
+      },
+    });
+  });
 }
 
 function registerAuthRoutes(app: Hono, { json, config }: JsonObject) {
