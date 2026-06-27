@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -24,10 +25,14 @@ export function createScreenEvidenceLedger({
   }
 
   function compactCommandResult(result) {
+    const output = String(result?.output || "");
     return {
       ok: Boolean(result?.ok),
       code: result?.code ?? null,
-      output: limitedOutput(String(result?.output || ""), 12_000),
+      outputHash: sha256(output),
+      outputLength: output.length,
+      outputLineCount: output.split(/\r?\n/).filter(Boolean).length,
+      serviceState: screenServiceState(output),
     };
   }
 
@@ -92,7 +97,6 @@ export function createScreenEvidenceLedger({
       deliveryHash: result.deliveryHash || null,
       artifactHash: result.artifactHash || null,
       screenEvidence: result.screenEvidence || result.evidence || null,
-      command: result.command || null,
       commandResults: Object.fromEntries(
         Object.entries(commandResults).map(([name, value]) => [name, compactCommandResult(value)]),
       ),
@@ -262,6 +266,15 @@ export function createScreenEvidenceLedger({
 
 function limitedOutput(value, limit) {
   return value.length > limit ? `${value.slice(0, limit)}\n[output truncated]` : value;
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function screenServiceState(output) {
+  const match = String(output || "").match(/\bwalnut-screen\.service\s+(active|inactive|failed|activating|deactivating|unknown)\b/);
+  return match?.[1] || null;
 }
 
 async function fileExists(filePath) {

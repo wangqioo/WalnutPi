@@ -88,7 +88,6 @@ export function createSshLocalAgentAdapter({
       const artifactCommand = remoteBuildShell(
         `set -e; ROOT=${shellQuote(remoteProjectRoot)}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk '{print $1}'`,
       );
-      const activateCommand = "sudo -n systemctl restart walnut-screen.service";
       const hotReloadCommand = buildActivationCheckCommand();
       const stateCommand = fullEvidence ? "walnut screen state" : null;
       const frameCommand = fullEvidence ? "sudo -n walnut screen frame" : null;
@@ -209,9 +208,12 @@ export function createSshLocalAgentAdapter({
           buildUser: remoteBuildUser || sshUser,
           projectRoot: remoteProjectRoot,
           display: "/dev/fb0",
-          activate: activateCommand,
-          hotReload: runtimeSupportResult.ok ? hotReloadCommand : null,
-          evidence: fullEvidence ? [stateCommand, frameCommand] : ["hot-reload service-active check"],
+          operations: [
+            "runtime.slice.deliver",
+            runtimeSupportResult.ok ? "runtime.hot_reload.activate" : "runtime.upgrade.build",
+            "screen.service.verify",
+            ...(fullEvidence ? ["screen.state.read", "screen.frame.read"] : []),
+          ],
         },
         screenPlaylistHash: playlistHash,
       };
@@ -219,7 +221,7 @@ export function createSshLocalAgentAdapter({
       const frameEvidence = parseFrameEvidence(frameResult);
       if (frameEvidence) {
         frameEvidence.capturedAt = new Date().toISOString();
-        frameEvidence.command = frameCommand;
+        frameEvidence.capability = "screen.frame.read";
       }
 
       const evidence = buildScreenSyncEvidence({
@@ -289,20 +291,16 @@ export function createSshLocalAgentAdapter({
               frameSha256: frameEvidence.sha256,
             }
           : null,
-        command: [
-          `workspace-resources: stream ${screenSlice.files.length} files to ${remoteProjectRoot} as tar.gz`,
-          `evidence-mode: ${fullEvidence ? "full" : "fast"}`,
-          runtimeSupportCommand,
-          remoteBuildCommand,
-          validateCommand,
-          runtimeSupportResult.ok ? hotReloadCommand : activateCommand,
-          stateCommand,
-          frameCommand,
-        ].filter(Boolean).join("\n"),
         commandResults,
         remoteExecution: summarizeRemoteExecution(commandResults),
         code: failure ? 1 : 0,
-        output,
+        output: redactedSyncOutput({
+          output,
+          sha256,
+          fullEvidence,
+          fileCount: screenSlice.files.length,
+          stages: commandResults,
+        }),
         summary: failure
           ? failure.summary
           : runtimeSupportResult.ok
@@ -585,6 +583,43 @@ function summarizeRemoteExecution(commandResults) {
       remoteMs: null,
     },
   };
+}
+
+function redactedSyncOutput({ output, sha256, fullEvidence, fileCount, stages }) {
+  return JSON.stringify({
+    schema: "walnutpi.screenDeliveryOutput.public.v1",
+    summary: "raw remote output is retained only inside the delivery adapter boundary",
+    evidenceMode: fullEvidence ? "full" : "fast",
+    deliveredFiles: fileCount,
+    rawOutput: {
+      sha256: sha256(String(output || "")),
+      length: String(output || "").length,
+      lineCount: String(output || "").split(/\r?\n/).filter(Boolean).length,
+    },
+    stages: Object.fromEntries(
+      Object.entries(stages || {}).map(([name, result]) => [
+        name,
+        publicStageResult(result, sha256),
+      ]),
+    ),
+  }, null, 2);
+}
+
+function publicStageResult(result, sha256) {
+  const output = String(result?.output || "");
+  return {
+    ok: Boolean(result?.ok),
+    code: result?.code ?? null,
+    outputHash: sha256(output),
+    outputLength: output.length,
+    outputLineCount: output.split(/\r?\n/).filter(Boolean).length,
+    serviceState: screenServiceState(output),
+  };
+}
+
+function screenServiceState(output) {
+  const match = String(output || "").match(/\bwalnut-screen\.service\s+(active|inactive|failed|activating|deactivating|unknown)\b/);
+  return match?.[1] || null;
 }
 
 function preflightBlockResult(...results) {

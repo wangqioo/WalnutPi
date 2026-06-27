@@ -60,18 +60,28 @@ export function buildScreenSyncEvidence({
     state: {
       kind: "screen-state",
       capability: stateCommand ? "screen.state.read" : "screen.state.hot_reload_check",
-      output: stateResult.output,
+      output: outputDigest(stateResult.output, sha256),
+      serviceState: screenServiceState(stateResult.output),
       capturedAt: new Date().toISOString(),
     },
     frame: validFrameEvidence(frameEvidence, validSha256)
       ? { ...frameEvidence, url: frameImageUrl }
       : {
           capability: frameCommand ? "screen.frame.read" : "screen.frame.fast_evidence_skipped",
-          output: frameResult.output,
+          output: outputDigest(frameResult.output, sha256),
           capturedAt: new Date().toISOString(),
         },
   };
   return { visual, frameContentEvidence, frameImageUrl, failure, screenEvidence };
+}
+
+function outputDigest(output, sha256) {
+  const text = String(output || "");
+  return {
+    sha256: sha256(text),
+    length: text.length,
+    lineCount: text.split(/\r?\n/).filter(Boolean).length,
+  };
 }
 
 export function parseFrameEvidence(result) {
