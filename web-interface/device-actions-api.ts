@@ -3,25 +3,23 @@ import { createDeviceActionDispatcher } from "./gateway/device-action-dispatcher
 export function createDeviceActionsApi({
   policyManifest,
   policyActions,
-  actionRegistry,
+  actionBindings,
   opaEnforcer,
   walnutRemote,
   runRemote,
   webSessionLedger,
   webMetricsLedger,
   limitedOutput,
-  json,
 }) {
   return createDeviceActionDispatcher({
     policyManifest,
     policyActions,
-    actionRegistry,
+    actionBindings,
     opaEnforcer,
     walnutRemote,
     runRemote,
     webSessionLedger,
     webMetricsLedger,
     limitedOutput,
-    json,
   });
 }

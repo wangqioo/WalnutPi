@@ -7,23 +7,23 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 
 ## Current Cut
 
-- The old custom agent loop, registry, runtime agents, loop-model contract,
-  scenario harness contract, and `agentTurn.v2` projector/validator have been
-  removed from the production codebase.
+- The production agent path is `/api/agent/turn` -> Mastra/MCP -> typed
+  WalnutPi tool results -> `walnutpi.agentPlatformTurn.v1`.
 - `web-interface/router.ts` has been deleted and the Hono gateway seam now lives
   in `web-interface/gateway/mcp-server.ts`.
 - `/api/agent/turn` now routes through `web-interface/agent-platform-turn-route.ts`
-  for request handling, ledger writes, and typed-result projection only. It no
-  longer dispatches unsupported capabilities to the old local dispatcher.
+  for request handling, ledger writes, and typed-result projection only.
+  Unsupported structured capabilities fail at the platform boundary.
 - `web-interface/gateway/tool-dispatcher.ts` no longer exposes an intent
   dispatch entry. It is now the MCP/domain tool dispatcher used by `/mcp`, and
   executable device tools still pass through the OPA policy gate before command
   construction.
-- The old Web action helper naming has been removed from the active wiring.
-  `web-interface/device-actions-api.ts` and
-  `web-interface/gateway/device-action-dispatcher.ts` now name the remaining
-  helper by its current role: internal policy-gated device action execution for
-  MCP tools, not a public old action runtime.
+- `web-interface/device-actions-api.ts` and
+  `web-interface/gateway/device-action-dispatcher.ts` are internal
+  policy-gated device action helpers for MCP tools.
+- `web-interface/action-command-bindings.ts` loads the action catalog and
+  builds command bindings only after the OPA-gated dispatcher has accepted
+  execution.
 - Supported structured capabilities enter
   `web-interface/platform/mastra/agent-turn-workflows.ts`, call `@mastra/mcp`
   against `/mcp`, then project typed tool results into
@@ -75,11 +75,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   matching normalized params, approval token proof, and a fresh OPA allow
   decision are committed. The generic `policy.action.commit` surface still
   blocks direct high-risk Web execution before command construction.
-- The old static HTML console entry routes have been retired. `/`,
-  `/apps.html`, and `/workspace.html` now return `410` from Hono; active
-  product UI work is in the Next/Tailwind console.
-- Legacy TypeScript local probe files and the old `walnut-ai` local probe entry
-  have been removed from the active code path.
+- Static HTML console entry routes `/`, `/apps.html`, and `/workspace.html`
+  return `410` from Hono; active product UI work is in the Next/Tailwind
+  console.
+- TypeScript local probe files and WalnutAI local probe entry points are not in
+  the active code path.
 - Agent-generated Widget Apps are now treated as explicit Widget App Artifacts,
   not default Screen Playlist items. Playlist runtime asset generation ignores
   Widget App provenance; Widget App creation, activation, and sync now use the
@@ -115,9 +115,8 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `web-interface/platform/mastra/storage.ts`. The local control-plane database
   owns Mastra-managed `mastra_*` tables; the platform no longer accepts the
   Mastra in-memory storage warning as a valid state.
-- `web-interface/gateway/mcp-server.ts` exposes a real MCP SDK Streamable HTTP
-  endpoint at `/mcp`. The old JSON-RPC-shaped `/api/gateway/mcp` route has been
-  removed.
+- `web-interface/gateway/mcp-server.ts` exposes the MCP SDK Streamable HTTP
+  endpoint at `/mcp`.
 - The SDK tool surface now exposes the platform slice:
   `screen.readPlaylist`, `diagnostics.recentFailure`, `device.status.read`,
   `device.network.read`, `device.snapshot.read`, `device.i2c.read`,
@@ -170,12 +169,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   before dispatching structured capabilities. Its internal `/mcp` call reuses
   the same server-derived auth context as direct `/mcp` requests instead of
   constructing a hard-coded local-owner subject inside the workflow.
-- `/api/agent/turn` is no longer short-circuited by the old `nossh` preview
-  query parameter. Structured turns still reach Mastra/MCP/OPA so platform
-  wiring failures cannot be disguised as preview skips.
-- The MCP subject resolver now attempts the better-auth session API first and
-  then falls back to the server-derived local-owner subject for the current
-  local control-plane profile. Client headers cannot declare subject or roles.
+- `/api/agent/turn?nossh=1` structured turns still reach Mastra/MCP/OPA so
+  platform wiring failures cannot be disguised as preview skips.
+- The MCP subject resolver attempts the better-auth session API first and then
+  uses the server-derived local-owner subject for the current local
+  control-plane profile. Client headers cannot declare subject or roles.
 - The Hono gateway now mounts better-auth at `/api/auth/*` plus a redacted
   `/api/auth/subject` projection. better-auth uses the control-plane Postgres
   tables `auth_user`, `auth_session`, `auth_account`, and `auth_verification`;
@@ -211,9 +209,7 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   delete/overlay/image flash actions still do not directly execute through Web
   commit. The commit can be recorded, but the dispatcher blocks direct high-risk
   execution before command construction.
-- `web-interface/agent-harness-session-store.ts`,
-  `WALNUT_AGENT_HARNESS_SESSIONS_PATH`, and the public
-  `/api/agent/harness-session` route have been removed.
+- Harness-session storage and route surfaces are not active product paths.
 - Public MCP, Mastra, agent-turn, action, screen-sync, and session projections
   no longer expose raw shell, SSH, or Walnut CLI command strings. Command
   construction remains inside the dispatcher/adapter boundary and raw command
@@ -244,7 +240,7 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 - Active Web session events, agent turn snapshots, and agent turn events now
   persist through Postgres tables `web_session_events`,
   `agent_turn_snapshots`, and `agent_turn_events`. The active ledgers do not
-  write JSONL fallback files; DB-unconfigured reads report empty ledgers and
+  write JSONL persistence files; DB-unconfigured reads report empty ledgers and
   public read APIs expose skipped persistence status, while DB write failures
   are surfaced as persistence failures.
 - Local JSONL and smoke-log residues under `web-interface/` are explicitly
@@ -261,12 +257,12 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `web-interface/platform/memory/curated-retrieval-store.ts` as the active
   control-plane retrieval path. It reads approved durable memory and curated
   `retrieval_documents` rows only. Raw session logs and raw daily notes are
-  excluded by `source_kind`/`status`. The old Web file-backed skills/corpus
-  scanner was removed; `walnut-ai-terminal/skills` and `walnut-ai-terminal/corpus`
+  excluded by `source_kind`/`status`. Active Web retrieval does not scan
+  file-backed skills/corpus; `walnut-ai-terminal/skills` and `walnut-ai-terminal/corpus`
   remain archived/prototype seed material only.
 - `web-interface/platform/memory/retrieval-embedding-index.ts` owns the
-  pgvector indexing seam. The old deterministic local-hash embedding generator
-  has been removed from the active path. Reindex now requires an explicitly
+  pgvector indexing seam. Deterministic local-hash embeddings are not an active
+  path. Reindex now requires an explicitly
   configured OpenAI-compatible retrieval embedding provider and returns an
   honest provider-unconfigured failure when that provider is disabled or
   incomplete. It writes `retrieval_embedding_records` only for
@@ -341,8 +337,7 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   and explicit structured chat turns reach the `walnutpi_ai.chat` MCP tool and
   project final diagnostics as `mastra.mcp.ai.chat`; `/api/agent/turn` no longer
   has a direct chat-agent branch that bypasses the workflow dispatcher.
-- The old monolithic platform verification harness and package script have been
-  removed. Automatic local verification is `bun run check`; platform API and
+- Automatic local verification is `bun run check`; platform API and
   real-device verification are manual operator checks recorded as evidence, not
   skip-able platform wiring probes.
 - Default WalnutPi device access now targets `192.168.44.126` in Web config and
@@ -375,9 +370,8 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
 
 ## Refactor Rule
 
-This is not a compatibility migration. Do not reintroduce compatibility shims
-for the deleted custom loop, registry, runtime agents, old bounded continuation
-loop, old model-backed replan loop, or `agentTurn.v2` production responses.
+This is a destructive replacement. Do not add compatibility shims, parallel
+runtime entries, or alternate production turn projections.
 
 ## Device Rule
 
@@ -390,11 +384,6 @@ local-only or mock verification.
 
 - `bun run check` passes with TypeScript pinned to `5.9.3` and
   `skipLibCheck: true`.
-- Before retiring the harness, the platform path was manually exercised through
-  the former local verification harness with 20 SDK MCP tools including
-  `walnutpi_ai.chat`; structured `ai.chat` reached final diagnostics operation
-  `mastra.mcp.ai.chat` and exposed no raw command field. This was a one-time
-  operator check, not a retained script.
 - Live API/device checks are now expected to be run manually by the operator.
   Current device helper defaults point to `root@192.168.44.126`.
 - Historical evidence below remains useful context, but it is not an active
@@ -408,7 +397,7 @@ local-only or mock verification.
   tool results.
 - Policy pending smoke returned `noCommandExecution` evidence.
 - Screen DSL contract probe covered preview no-write, stale hash refusal, and
-  capture evidence shape without adding a legacy local probe file.
+  capture evidence shape.
 - Device-profile read-only evidence returned WalnutPi framebuffer and capture
   metadata through `scripts/collect-screen-sync-evidence.ps1`.
 - Device-profile `/api/agent/turn` read-only screen flow returned typed
@@ -460,14 +449,14 @@ local-only or mock verification.
   response exposed raw command fields.
 - `bun run next:build` passes for the Next/Tailwind console.
 - After splitting `WallpaperRenderer` and `RuntimeAssetRenderer`, `bun run
-  check` passes. No platform verification harness or device-profile check was
-  run; those checks are manual operator evidence now.
+  check` passes. Platform API and device-profile checks are manual operator
+  evidence.
 - After splitting `TerminalPrintRenderer`, `bun run check` passes. No platform
-  verification harness or device-profile check was run.
+  API or device-profile check was run.
 - After splitting `WidgetAppRenderer`, `bun run check` passes. No platform
-  verification harness or device-profile check was run.
+  API or device-profile check was run.
 - After removing workspace-local Widget App remote execution, `bun run check`
-  passes. No platform verification harness or device-profile check was run.
+  passes. No platform API or device-profile check was run.
 - After adding first-class `screen.widgetApp.sync` and
   `screen.widgetApp.action` MCP/Mastra capabilities, `bun run check` passes.
   Local contract probes showed the pre-eval SDK tool catalog entries, OPA allow for
@@ -577,8 +566,8 @@ local-only or mock verification.
   public turn response. The same server returned `200` from `/api/inngest` with
   `function_count: 6` and `mode: "dev"`.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
-  `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
-  were deleted from the workspace after the Postgres paths became the active
+  `agent-turns.jsonl`, `agent-turn-events.jsonl`, and live-test log files were
+  deleted from the workspace after the Postgres paths became the active
   ledgers.
 - Live Next proxy smoke through `http://127.0.0.1:3000/api/agent/turn` verified
   `device.status.read`, `policy.action.prepare`, and `policy.action.commit`

@@ -16,7 +16,7 @@ import { createAgentEventBus } from "./agent-event-bus.ts";
 import { createAgentTurnEventLedger } from "./agent-turn-event-ledger.ts";
 import { createAgentTurnLedger } from "./agent-turn-ledger.ts";
 import { createAgentPlatformTurnRoute } from "./agent-platform-turn-route.ts";
-import { createActionRegistry } from "./action-registry.ts";
+import { createActionCommandBindings } from "./action-command-bindings.ts";
 import { createProjectMemoryApi } from "./project-memory-api.ts";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.ts";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.ts";
@@ -640,7 +640,7 @@ const screenWorkspaceSyncWorkflow = createScreenWorkspaceSyncWorkflow({
   newBuildId: newScreenBuildId,
 });
 
-const actionRegistry = createActionRegistry({
+const actionCommandBindings = createActionCommandBindings({
   manifestPath: ACTION_POLICY_MANIFEST_PATH,
   shellQuote,
   aiTimeoutSeconds: Number(process.env.WALNUT_AI_TIMEOUT_SECONDS || 15),
@@ -654,14 +654,13 @@ const opaEnforcer = createOpaEnforcer({ policyManifest: ACTION_POLICY_MANIFEST, 
 const deviceActionsApi = createDeviceActionsApi({
   policyManifest: ACTION_POLICY_MANIFEST,
   policyActions: WEB_ACTIONS,
-  actionRegistry,
+  actionBindings: actionCommandBindings,
   opaEnforcer,
   walnutRemote,
   runRemote,
   webSessionLedger,
   webMetricsLedger,
   limitedOutput,
-  json,
 });
 
 async function readJsonRequest(req) {

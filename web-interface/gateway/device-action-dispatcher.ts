@@ -21,7 +21,7 @@ const SIDE_EFFECTS_BY_ACTION_ID = {
 export function createDeviceActionDispatcher({
   policyManifest,
   policyActions,
-  actionRegistry,
+  actionBindings,
   opaEnforcer,
   auditLedger,
   walnutRemote,
@@ -29,17 +29,16 @@ export function createDeviceActionDispatcher({
   webSessionLedger,
   webMetricsLedger,
   limitedOutput,
-  json,
 }: JsonObject) {
   let resolvedActions = null;
   let actionsLoadPromise = null;
 
   async function getActions() {
-    if (!actionRegistry) throw new Error("action registry is required");
+    if (!actionBindings) throw new Error("action command bindings are required");
     if (resolvedActions) return resolvedActions;
     if (!actionsLoadPromise) {
       actionsLoadPromise = (async () => {
-        const result = await actionRegistry.buildAllWebActions();
+        const result = await actionBindings.buildAllDeviceActionBindings();
         resolvedActions = result;
         return result;
       })();
@@ -51,7 +50,7 @@ export function createDeviceActionDispatcher({
     actionPolicyView({ target, manifest }: JsonObject) {
       const src = manifest?.actions || policyActions || {};
       return {
-        schema: "walnutpi.webActionPolicyView.v1",
+        schema: "walnutpi.deviceActionCatalogView.v1",
         target,
         actionPolicyManifest: manifest,
         actions: Object.fromEntries(
@@ -162,7 +161,7 @@ export function createDeviceActionDispatcher({
             ok: false,
             status: "pending",
             ...decisionActionSummary(decision),
-            error: "动作需要显式确认，Web 动作 surface 不直接执行。",
+            error: "动作需要显式确认；通用设备动作执行不会直接运行高风险操作。",
             policyDecision: opaEnforcer.publicDecision(decision),
           },
           status: 409,
@@ -184,12 +183,12 @@ export function createDeviceActionDispatcher({
           turnId,
           span: "total",
           segments,
-          error: "web action missing after policy allow",
+          error: "device action binding missing after policy allow",
         });
         return {
           body: {
             ok: false,
-            error: "动作未配置 Web 执行器。",
+            error: "动作未配置设备执行绑定。",
             policyDecision: opaEnforcer.publicDecision(decision),
           },
           status: 400,
@@ -346,33 +345,6 @@ export function createDeviceActionDispatcher({
       return { body: responseBody, status: 200 };
     },
 
-    async handleAction(req: Request) {
-      const startedAt = Date.now();
-      const traceId = randomUUID();
-      const segments: TimingSegments = {};
-      let body;
-      try {
-        const requestJsonStartedAt = Date.now();
-        body = await req.json();
-        segments.requestJsonMs = elapsedSince(requestJsonStartedAt);
-      } catch (error: any) {
-        await webMetricsLedger.append({
-          kind: "agent.action",
-          operation: "agent.action",
-          ok: false,
-          status: 400,
-          latencyMs: elapsedSince(startedAt),
-          action: "unknown",
-          traceId,
-          span: "total",
-          segments,
-          error: error.message || "invalid json",
-        });
-        return json({ ok: false, error: "请求不是有效 JSON。" }, 400);
-      }
-      const result = await this.runAction(body, segments);
-      return json(result.body, result.status);
-    },
   };
 }
 
