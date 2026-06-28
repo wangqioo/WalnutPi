@@ -14,21 +14,21 @@ type StageResult = Record<string, any> & {
   output: string;
 };
 type StageResults = Record<string, StageResult>;
+type SshScreenDeviceSurface = {
+  buildRuntimeUpgrade(options: { fullEvidence: boolean }): Promise<StageResult>;
+  checkRuntimeSupport(options: { fullEvidence: boolean }): Promise<StageResult>;
+  deliverRuntimeSlice(options: { archive: Buffer; fileCount: number; fullEvidence: boolean }): Promise<StageResult>;
+  deliverWorkspaceUpgradeSlice(options: { archive: Buffer; fileCount: number; fullEvidence: boolean }): Promise<StageResult>;
+  readFrameEvidence(options: { fullEvidence: boolean }): Promise<StageResult>;
+  target(): { buildUser: string | null; projectRoot: string };
+  verifyActivateAndCollectEvidence(options: { fullEvidence: boolean; playlistHash: string }): Promise<StageResult>;
+};
 
 export function createSshLocalAgentAdapter({
   localProjectRoot,
-  remoteProjectRoot,
-  remoteBuildUser,
   sshHost,
   sshUser,
-  runRemote,
-  runRemoteRaw,
-  runRemoteScript,
-  runRemoteRawScript,
-  runRemoteWithInput,
-  runRemoteRawWithInput,
-  shellQuote,
-  remoteBuildShell,
+  deviceSurface,
   sha256,
   stableStringify,
   validSha256,
@@ -39,72 +39,26 @@ export function createSshLocalAgentAdapter({
   if (!runtimeAssetRenderer || typeof runtimeAssetRenderer.renderRuntimeAssets !== "function") {
     throw new Error("SSH local agent screen delivery requires a RuntimeAssetRenderer");
   }
+  if (!deviceSurface || typeof deviceSurface.deliverRuntimeSlice !== "function") {
+    throw new Error("SSH local agent screen delivery requires a typed screen device surface");
+  }
 
   return {
     id: "ssh-local-agent",
     async deliverWorkspacePlaylist({ buildId, playlistEnvelope, evidenceMode = "fast" }) {
       const fullEvidence = evidenceMode === "full";
-      const inputRunner = fullEvidence ? runRemoteWithInput : (runRemoteRawWithInput || runRemoteWithInput);
-      const commandRunner = fullEvidence ? runRemote : (runRemoteRaw || runRemote);
-      const scriptRunner = fullEvidence ? runRemoteScript : (runRemoteRawScript || runRemoteScript);
       const playlistHash = playlistEnvelope.playlistHash;
       const screenSlice = await buildRuntimeDeliverySlice({ playlistEnvelope, runtimeAssetRenderer });
       const archive = await createSliceArchive(screenSlice.files);
-      const remoteSliceCommand = buildRemoteSliceInputCommand({
-        remoteProjectRoot,
-        remoteBuildUser,
+      const syncResult = await deviceSurface.deliverRuntimeSlice({
+        archive,
         fileCount: screenSlice.files.length,
-        includeProjectFiles: false,
+        fullEvidence,
       });
-      const buildCommand = [
-        "set -e",
-        `ROOT=${shellQuote(remoteProjectRoot)}`,
-        'cd "$ROOT"',
-        "scripts/build-lvgl-app.sh",
-      ].join("; ");
-      const runtimeSupportCommand = remoteBuildShell(
-        [
-          "set -e",
-          `ROOT=${shellQuote(remoteProjectRoot)}`,
-          'cd "$ROOT"',
-          "test -x build/lvgl_app/walnut-lvgl-screen",
-          "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-runtime-hot-reload.v1 >/dev/null",
-          "printf 'runtime-supported\\n'",
-        ].join("; "),
-      );
-      const validateCommand = remoteBuildShell(
-        [
-          "set -e",
-          `ROOT=${shellQuote(remoteProjectRoot)}`,
-          'cd "$ROOT"',
-          "test -x build/lvgl_app/walnut-lvgl-screen",
-          "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-runtime-hot-reload.v1 >/dev/null",
-          "test -f screen/runtime/default.txt",
-          `grep -F ${shellQuote(`playlistHash ${playlistHash}`)} screen/runtime/default.txt >/dev/null`,
-          `printf 'playlist-hash=%s\\n' ${shellQuote(playlistHash)}`,
-        ].join("; "),
-      );
-      const remoteBuildCommand = remoteBuildShell(buildCommand);
-      const artifactCommand = remoteBuildShell(
-        `set -e; ROOT=${shellQuote(remoteProjectRoot)}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk '{print $1}'`,
-      );
-      const hotReloadCommand = buildActivationCheckCommand();
-      const stateCommand = fullEvidence ? "walnut screen state" : null;
-      const frameCommand = fullEvidence ? "sudo -n walnut screen frame" : null;
-
-      const remoteSyncScript = buildRemoteSyncScript({
-        validateCommand,
-        artifactCommand,
-        hotReloadCommand,
-        stateCommand,
-        frameCommand,
-      });
-      const hotSyncInputCommand = buildRemoteHotSyncInputCommand({ remoteSliceCommand });
-      const syncResult = await inputRunner(hotSyncInputCommand, archive, 90_000, 100_000);
       const stageResults = parseRemoteSyncStages(syncResult);
       const sliceResult = stageResults["workspace-slice"] || missingStageResult(syncResult, "workspace-slice");
       const runtimeSupportResult = sliceResult.ok
-        ? await commandRunner(runtimeSupportCommand, 30_000)
+        ? await deviceSurface.checkRuntimeSupport({ fullEvidence })
         : skippedStageResult("skipped because workspace resource delivery failed");
       let buildResult = runtimeSupportResult.ok
         ? { ok: true, code: 0, output: "skipped: runtime-capable LVGL binary already exists" }
@@ -116,21 +70,19 @@ export function createSshLocalAgentAdapter({
           runtimeAssetRenderer,
         });
         const fullArchive = await createSliceArchive(fullSlice.files);
-        const fullSliceCommand = buildRemoteSliceInputCommand({
-          remoteProjectRoot,
-          remoteBuildUser,
+        const fullSliceResult = await deviceSurface.deliverWorkspaceUpgradeSlice({
+          archive: fullArchive,
           fileCount: fullSlice.files.length,
-          includeProjectFiles: true,
+          fullEvidence,
         });
-        const fullSliceResult = await inputRunner(fullSliceCommand, fullArchive, 60_000, 20_000);
         if(!fullSliceResult.ok) {
           buildResult = skippedStageResult("skipped because full workspace delivery failed");
         } else {
-          buildResult = await commandRunner(remoteBuildCommand, 300_000);
+          buildResult = await deviceSurface.buildRuntimeUpgrade({ fullEvidence });
         }
       }
       const upgradeSyncResult = sliceResult.ok && buildResult.ok
-        ? await scriptRunner(remoteSyncScript, 120_000, 80_000)
+        ? await deviceSurface.verifyActivateAndCollectEvidence({ playlistHash, fullEvidence })
         : null;
       const upgradeStageResults: StageResults = upgradeSyncResult ? parseRemoteSyncStages(upgradeSyncResult) : {};
       const finalStageResults = upgradeSyncResult ? upgradeStageResults : stageResults;
@@ -168,7 +120,7 @@ export function createSshLocalAgentAdapter({
           }));
       const frameResult = finalStageResults.frame || (
         fullEvidence && sliceResult.ok && buildResult.ok && validateResult.ok && artifactHashValid && activateResult.ok && stateResult.ok
-          ? await commandRunner(frameCommand, 15_000)
+          ? await deviceSurface.readFrameEvidence({ fullEvidence })
           : skippedResult({
               sliceResult,
               validateResult,
@@ -205,8 +157,8 @@ export function createSshLocalAgentAdapter({
         target: {
           host: sshHost,
           user: sshUser,
-          buildUser: remoteBuildUser || sshUser,
-          projectRoot: remoteProjectRoot,
+          buildUser: deviceSurface.target().buildUser || sshUser,
+          projectRoot: deviceSurface.target().projectRoot,
           display: "/dev/fb0",
           operations: [
             "runtime.slice.deliver",
@@ -232,8 +184,8 @@ export function createSshLocalAgentAdapter({
         frameEvidence,
         stateResult,
         frameResult,
-        stateCommand,
-        frameCommand,
+        stateCommand: fullEvidence ? "screen.state.read" : null,
+        frameCommand: fullEvidence ? "screen.frame.read" : null,
         fullEvidence,
         buildId,
         frameUrl,
@@ -493,6 +445,96 @@ function buildRemoteHotSyncInputCommand({ remoteSliceCommand }) {
   ];
   lines.push("exit 0");
   return lines.join("\n");
+}
+
+export function createSshScreenDeviceSurface({
+  remoteProjectRoot,
+  remoteBuildUser,
+  runRemote,
+  runRemoteRaw,
+  runRemoteScript,
+  runRemoteRawScript,
+  runRemoteWithInput,
+  runRemoteRawWithInput,
+  shellQuote,
+  remoteBuildShell,
+}: Record<string, any>): SshScreenDeviceSurface {
+  const runner = (fullEvidence: boolean) => ({
+    input: fullEvidence ? runRemoteWithInput : (runRemoteRawWithInput || runRemoteWithInput),
+    command: fullEvidence ? runRemote : (runRemoteRaw || runRemote),
+    script: fullEvidence ? runRemoteScript : (runRemoteRawScript || runRemoteScript),
+  });
+  return {
+    target() {
+      return {
+        buildUser: remoteBuildUser || null,
+        projectRoot: remoteProjectRoot,
+      };
+    },
+    deliverRuntimeSlice({ archive, fileCount, fullEvidence }) {
+      return runner(fullEvidence).input(buildRemoteHotSyncInputCommand({
+        remoteSliceCommand: buildRemoteSliceInputCommand({
+          remoteProjectRoot,
+          remoteBuildUser,
+          fileCount,
+          includeProjectFiles: false,
+        }),
+      }), archive, 90_000, 100_000);
+    },
+    deliverWorkspaceUpgradeSlice({ archive, fileCount, fullEvidence }) {
+      return runner(fullEvidence).input(buildRemoteSliceInputCommand({
+        remoteProjectRoot,
+        remoteBuildUser,
+        fileCount,
+        includeProjectFiles: true,
+      }), archive, 60_000, 20_000);
+    },
+    checkRuntimeSupport({ fullEvidence }) {
+      return runner(fullEvidence).command(remoteBuildShell(
+        [
+          "set -e",
+          `ROOT=${shellQuote(remoteProjectRoot)}`,
+          'cd "$ROOT"',
+          "test -x build/lvgl_app/walnut-lvgl-screen",
+          "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-runtime-hot-reload.v1 >/dev/null",
+          "printf 'runtime-supported\\n'",
+        ].join("; "),
+      ), 30_000);
+    },
+    buildRuntimeUpgrade({ fullEvidence }) {
+      return runner(fullEvidence).command(remoteBuildShell([
+        "set -e",
+        `ROOT=${shellQuote(remoteProjectRoot)}`,
+        'cd "$ROOT"',
+        "scripts/build-lvgl-app.sh",
+      ].join("; ")), 300_000);
+    },
+    verifyActivateAndCollectEvidence({ playlistHash, fullEvidence }) {
+      return runner(fullEvidence).script(buildRemoteSyncScript({
+        validateCommand: remoteBuildShell(
+          [
+            "set -e",
+            `ROOT=${shellQuote(remoteProjectRoot)}`,
+            'cd "$ROOT"',
+            "test -x build/lvgl_app/walnut-lvgl-screen",
+            "strings build/lvgl_app/walnut-lvgl-screen | grep -F walnutpi.lvgl-runtime-hot-reload.v1 >/dev/null",
+            "test -f screen/runtime/default.txt",
+            `grep -F ${shellQuote(`playlistHash ${playlistHash}`)} screen/runtime/default.txt >/dev/null`,
+            `printf 'playlist-hash=%s\\n' ${shellQuote(playlistHash)}`,
+          ].join("; "),
+        ),
+        artifactCommand: remoteBuildShell(
+          `set -e; ROOT=${shellQuote(remoteProjectRoot)}; cd "$ROOT"; test -x build/lvgl_app/walnut-lvgl-screen; sha256sum build/lvgl_app/walnut-lvgl-screen | awk '{print $1}'`,
+        ),
+        hotReloadCommand: buildActivationCheckCommand(),
+        stateCommand: fullEvidence ? "walnut screen state" : null,
+        frameCommand: fullEvidence ? "sudo -n walnut screen frame" : null,
+      }), 120_000, 80_000);
+    },
+    readFrameEvidence({ fullEvidence }) {
+      return runner(fullEvidence).command(fullEvidence ? "sudo -n walnut screen frame" : "printf 'frame evidence requires full evidence mode\\n'", 15_000);
+    },
+  };
 }
 
 function buildActivationCheckCommand() {

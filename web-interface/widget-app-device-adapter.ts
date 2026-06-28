@@ -31,24 +31,27 @@ export type WidgetAppDeviceAdapter = {
     params?: JsonObject;
   }): Promise<JsonObject>;
 };
+export type WidgetAppDeviceSurface = {
+  deliverWidgetRuntimeSlice(options: { archive: Buffer; fileCount: number }): Promise<RemoteRunResult>;
+  readDeviceStatus(): Promise<RemoteRunResult>;
+  rebootDevice(): Promise<RemoteRunResult>;
+  restartScreenService(): Promise<RemoteRunResult>;
+  readFullScreenEvidence(): Promise<RemoteRunResult>;
+  target(): { buildUser: string | null; host: string; projectRoot: string; user: string };
+  validateWidgetRuntime(options: { runtimeSha256: string }): Promise<RemoteRunResult>;
+  activateWidgetRuntime(): Promise<RemoteRunResult>;
+};
 
 export function createWidgetAppDeviceAdapter({
   screenWorkspaceRoot,
-  remoteProjectRoot,
-  remoteBuildUser,
-  sshHost,
-  sshUser,
-  runRemoteRaw,
-  runRemoteRawWithInput,
+  deviceSurface,
 }: {
   screenWorkspaceRoot: string;
-  remoteProjectRoot: string;
-  remoteBuildUser?: string | null;
-  sshHost: string;
-  sshUser: string;
-  runRemoteRaw: (command: string, timeoutMs?: number, limit?: number) => Promise<RemoteRunResult>;
-  runRemoteRawWithInput: (command: string, input: Buffer, timeoutMs?: number, limit?: number) => Promise<RemoteRunResult>;
+  deviceSurface: WidgetAppDeviceSurface;
 }): WidgetAppDeviceAdapter {
+  if (!deviceSurface || typeof deviceSurface.deliverWidgetRuntimeSlice !== "function") {
+    throw new Error("Widget App device adapter requires a typed device surface");
+  }
   const workspaceRoot = path.resolve(screenWorkspaceRoot);
   const runtimeRoot = path.join(workspaceRoot, "widget-runtime");
 
@@ -72,24 +75,18 @@ export function createWidgetAppDeviceAdapter({
         workspaceRoot,
       });
       const archive = await createSliceArchive(slice.files);
-      const delivery = await runRemoteRawWithInput(
-        buildRuntimeDeliveryCommand({
-          fileCount: slice.files.length,
-          remoteBuildUser,
-          remoteProjectRoot,
-        }),
+      const delivery = await deviceSurface.deliverWidgetRuntimeSlice({
         archive,
-        30_000,
-        20_000,
-      );
+        fileCount: slice.files.length,
+      });
       const validate = delivery.ok
-        ? await runRemoteRaw(buildRuntimeValidationCommand({ remoteProjectRoot, runtimeSha256: slice.runtimeSha256 }), 20_000, 20_000)
+        ? await deviceSurface.validateWidgetRuntime({ runtimeSha256: slice.runtimeSha256 })
         : skippedRemoteResult("skipped because Widget App runtime delivery failed");
       const activate = validate.ok
-        ? await runRemoteRaw(buildRuntimeActivationCommand({ remoteProjectRoot }), 20_000, 20_000)
+        ? await deviceSurface.activateWidgetRuntime()
         : skippedRemoteResult("skipped because Widget App runtime validation failed");
       const evidence = activate.ok && options.evidenceMode === "full"
-        ? await runRemoteRaw("walnut screen state && sudo -n walnut screen frame", 20_000, 30_000)
+        ? await deviceSurface.readFullScreenEvidence()
         : skippedRemoteResult(options.evidenceMode === "full"
           ? "skipped because Widget App activation failed"
           : "skipped because fast evidence mode only checks service activation");
@@ -123,9 +120,9 @@ export function createWidgetAppDeviceAdapter({
           serviceState: parseServiceState(activate.output),
         },
         target: {
-          host: sshHost,
-          user: sshUser,
-          buildUser: remoteBuildUser || sshUser,
+          host: deviceSurface.target().host,
+          user: deviceSurface.target().user,
+          buildUser: deviceSurface.target().buildUser || deviceSurface.target().user,
         },
         stages,
         remoteExecution: summarizeRemoteExecution([delivery, validate, activate, evidence]),
@@ -137,9 +134,9 @@ export function createWidgetAppDeviceAdapter({
     },
     async runAction(options) {
       const actionId = cleanOptionalText(options.actionId);
-      if (actionId === "refresh_device_status") return runRefreshDeviceStatus(runRemoteRaw);
-      if (actionId === "restart_walnut_screen_service") return runRestartWalnutScreenService(runRemoteRaw);
-      if (actionId === "reboot_device") return runRebootDevice(runRemoteRaw);
+      if (actionId === "refresh_device_status") return runRefreshDeviceStatus(deviceSurface);
+      if (actionId === "restart_walnut_screen_service") return runRestartWalnutScreenService(deviceSurface);
+      if (actionId === "reboot_device") return runRebootDevice(deviceSurface);
       return {
         ok: false,
         adapter: "ssh-widget-app-action",
@@ -155,9 +152,77 @@ export function createWidgetAppDeviceAdapter({
   };
 }
 
-async function runRefreshDeviceStatus(runRemoteRaw: (command: string, timeoutMs?: number, limit?: number) => Promise<RemoteRunResult>) {
+export function createSshWidgetAppDeviceSurface({
+  remoteProjectRoot,
+  remoteBuildUser = null,
+  sshHost,
+  sshUser,
+  runRemoteRaw,
+  runRemoteRawWithInput,
+}: {
+  remoteProjectRoot: string;
+  remoteBuildUser?: string | null;
+  sshHost: string;
+  sshUser: string;
+  runRemoteRaw: (command: string, timeoutMs?: number, limit?: number) => Promise<RemoteRunResult>;
+  runRemoteRawWithInput: (command: string, input: Buffer, timeoutMs?: number, limit?: number) => Promise<RemoteRunResult>;
+}): WidgetAppDeviceSurface {
+  return {
+    target() {
+      return {
+        buildUser: remoteBuildUser,
+        host: sshHost,
+        projectRoot: remoteProjectRoot,
+        user: sshUser,
+      };
+    },
+    deliverWidgetRuntimeSlice({ archive, fileCount }) {
+      return runRemoteRawWithInput(
+        buildRuntimeDeliveryCommand({
+          fileCount,
+          remoteBuildUser,
+          remoteProjectRoot,
+        }),
+        archive,
+        30_000,
+        20_000,
+      );
+    },
+    validateWidgetRuntime({ runtimeSha256 }) {
+      return runRemoteRaw(buildRuntimeValidationCommand({ remoteProjectRoot, runtimeSha256 }), 20_000, 20_000);
+    },
+    activateWidgetRuntime() {
+      return runRemoteRaw(buildRuntimeActivationCommand({ remoteProjectRoot }), 20_000, 20_000);
+    },
+    readFullScreenEvidence() {
+      return runRemoteRaw("walnut screen state && sudo -n walnut screen frame", 20_000, 30_000);
+    },
+    readDeviceStatus() {
+      return runRemoteRaw("walnut action run status --json", 20_000, 20_000);
+    },
+    restartScreenService() {
+      return runRemoteRaw([
+        "set -e",
+        "sudo -n systemctl restart walnut-screen.service",
+        "sleep 1",
+        "screen_state=$(systemctl is-active walnut-screen.service)",
+        "printf 'walnut-screen.service %s\\n' \"$screen_state\"",
+        'test "$screen_state" = active',
+      ].join("; "), 30_000, 20_000);
+    },
+    rebootDevice() {
+      return runRemoteRaw([
+        "set -e",
+        "sudo -n reboot",
+        "printf 'reboot-requested\\n'",
+      ].join("; "), 10_000, 8_000);
+    },
+  };
+}
+
+async function runRefreshDeviceStatus(deviceSurface: WidgetAppDeviceSurface) {
   const actionId = "refresh_device_status";
-  const status = await runRemoteRaw(buildRefreshDeviceStatusCommand(), 20_000, 20_000);
+  const status = await deviceSurface.readDeviceStatus();
   const parsedStatus = parseJsonOutput(status.output);
   const publicStatus = publicDeviceStatus(parsedStatus);
   return {
@@ -191,9 +256,9 @@ async function runRefreshDeviceStatus(runRemoteRaw: (command: string, timeoutMs?
   };
 }
 
-async function runRestartWalnutScreenService(runRemoteRaw: (command: string, timeoutMs?: number, limit?: number) => Promise<RemoteRunResult>) {
+async function runRestartWalnutScreenService(deviceSurface: WidgetAppDeviceSurface) {
   const actionId = "restart_walnut_screen_service";
-  const restart = await runRemoteRaw(buildRestartWalnutScreenServiceCommand(), 30_000, 20_000);
+  const restart = await deviceSurface.restartScreenService();
   return {
     ok: Boolean(restart.ok),
     adapter: "ssh-widget-app-action",
@@ -225,9 +290,9 @@ async function runRestartWalnutScreenService(runRemoteRaw: (command: string, tim
   };
 }
 
-async function runRebootDevice(runRemoteRaw: (command: string, timeoutMs?: number, limit?: number) => Promise<RemoteRunResult>) {
+async function runRebootDevice(deviceSurface: WidgetAppDeviceSurface) {
   const actionId = "reboot_device";
-  const reboot = await runRemoteRaw(buildRebootDeviceCommand(), 10_000, 8_000);
+  const reboot = await deviceSurface.rebootDevice();
   return {
     ok: Boolean(reboot.ok),
     adapter: "ssh-widget-app-action",
@@ -256,29 +321,6 @@ async function runRebootDevice(runRemoteRaw: (command: string, timeoutMs?: numbe
       rawCommandExposed: false,
     },
   };
-}
-
-function buildRefreshDeviceStatusCommand() {
-  return "walnut action run status --json";
-}
-
-function buildRestartWalnutScreenServiceCommand() {
-  return [
-    "set -e",
-    "sudo -n systemctl restart walnut-screen.service",
-    "sleep 1",
-    "screen_state=$(systemctl is-active walnut-screen.service)",
-    "printf 'walnut-screen.service %s\\n' \"$screen_state\"",
-    'test "$screen_state" = active',
-  ].join("; ");
-}
-
-function buildRebootDeviceCommand() {
-  return [
-    "set -e",
-    "sudo -n reboot",
-    "printf 'reboot-requested\\n'",
-  ].join("; ");
 }
 
 async function buildWidgetRuntimeSlice({

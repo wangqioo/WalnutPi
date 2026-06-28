@@ -4,14 +4,14 @@ import { existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createScreenEvidenceLedger } from "./screen-evidence-ledger.ts";
-import { createSshLocalAgentAdapter } from "./screen-delivery-adapters/ssh-local-agent.ts";
+import { createSshLocalAgentAdapter, createSshScreenDeviceSurface } from "./screen-delivery-adapters/ssh-local-agent.ts";
 import { createScreenWorkspaceSyncWorkflow } from "./screen-workspace-sync-workflow.ts";
 import { createWebSessionLedger } from "./web-session-ledger.ts";
 import { createWebMetricsLedger } from "./web-metrics-ledger.ts";
 import { createWalnutRemoteAdapter } from "./walnut-remote-adapter.ts";
 import { createScreenWorkspaceStore, workspaceErrorResponse } from "./screen-workspace-store.ts";
 import { actionsForExecutor, loadActionPolicyManifest } from "./action-policy.ts";
-import { createAgentActionsApi } from "./agent-actions-api.ts";
+import { createDeviceActionsApi } from "./device-actions-api.ts";
 import { createAgentEventBus } from "./agent-event-bus.ts";
 import { createAgentTurnEventLedger } from "./agent-turn-event-ledger.ts";
 import { createAgentTurnLedger } from "./agent-turn-ledger.ts";
@@ -20,7 +20,7 @@ import { createActionRegistry } from "./action-registry.ts";
 import { createProjectMemoryApi } from "./project-memory-api.ts";
 import { createScreenDiagnosticsApi } from "./screen-diagnostics-api.ts";
 import { createScreenWorkspaceApi } from "./screen-workspace-api.ts";
-import { createWidgetAppDeviceAdapter } from "./widget-app-device-adapter.ts";
+import { createSshWidgetAppDeviceSurface, createWidgetAppDeviceAdapter } from "./widget-app-device-adapter.ts";
 import { createLvglRuntimePreviewRenderer } from "./lvgl-runtime-preview-renderer.ts";
 import { createScreenCommandRunner } from "./screen-command-runner.ts";
 import { createWalnutMastraAgentApi } from "./mastra-agent-api.ts";
@@ -583,24 +583,35 @@ const widgetAppRenderer = createWidgetAppRenderer({
   appsRoot: path.join(SCREEN_WORKSPACE_ROOT, "apps"),
   runtimeRoot: path.join(SCREEN_WORKSPACE_ROOT, "widget-runtime"),
 });
+const screenDeviceSurface = createSshScreenDeviceSurface({
+  remoteProjectRoot: REMOTE_PROJECT_ROOT,
+  remoteBuildUser: REMOTE_BUILD_USER,
+  runRemote,
+  runRemoteRaw,
+  runRemoteScript,
+  runRemoteRawScript,
+  runRemoteWithInput,
+  runRemoteRawWithInput,
+  shellQuote,
+  remoteBuildShell,
+});
+const widgetAppDeviceSurface = createSshWidgetAppDeviceSurface({
+  remoteProjectRoot: REMOTE_PROJECT_ROOT,
+  remoteBuildUser: REMOTE_BUILD_USER,
+  sshHost: SSH_HOST,
+  sshUser: SSH_USER,
+  runRemoteRaw,
+  runRemoteRawWithInput,
+});
 
 const screenDeliveryAdapters = new Map([
   [
     "ssh-local-agent",
     createSshLocalAgentAdapter({
       localProjectRoot: PROJECT_ROOT,
-      remoteProjectRoot: REMOTE_PROJECT_ROOT,
-      remoteBuildUser: REMOTE_BUILD_USER,
       sshHost: SSH_HOST,
       sshUser: SSH_USER,
-      runRemote,
-      runRemoteRaw,
-      runRemoteScript,
-      runRemoteRawScript,
-      runRemoteWithInput,
-      runRemoteRawWithInput,
-      shellQuote,
-      remoteBuildShell,
+      deviceSurface: screenDeviceSurface,
       sha256,
       stableStringify,
       validSha256,
@@ -640,7 +651,7 @@ const opaBoundary = createOpaPolicyBoundary({
 });
 const opaEnforcer = createOpaEnforcer({ policyManifest: ACTION_POLICY_MANIFEST, opaBoundary });
 
-const agentActionsApi = createAgentActionsApi({
+const deviceActionsApi = createDeviceActionsApi({
   policyManifest: ACTION_POLICY_MANIFEST,
   policyActions: WEB_ACTIONS,
   actionRegistry,
@@ -720,16 +731,11 @@ const screenCommandRunner = createScreenCommandRunner({
 });
 const widgetAppDeviceAdapter = createWidgetAppDeviceAdapter({
   screenWorkspaceRoot: SCREEN_WORKSPACE_ROOT,
-  remoteProjectRoot: REMOTE_PROJECT_ROOT,
-  remoteBuildUser: REMOTE_BUILD_USER,
-  sshHost: SSH_HOST,
-  sshUser: SSH_USER,
-  runRemoteRaw,
-  runRemoteRawWithInput,
+  deviceSurface: widgetAppDeviceSurface,
 });
 
 const toolDispatcher = createToolDispatcher({
-  actionDispatcher: agentActionsApi,
+  actionDispatcher: deviceActionsApi,
   screenCommandRunner,
   widgetAppDeviceAdapter,
   turnLedger: agentTurnLedger,
@@ -780,7 +786,7 @@ const productGateway = createProductGatewayApp({
   previewOnlyJson,
   config: WEB_CONFIG,
   path,
-  agentActionsApi,
+  deviceActionsApi,
   actionPolicyManifest: ACTION_POLICY_MANIFEST,
   projectMemoryApi,
   webMetricsLedger,

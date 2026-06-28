@@ -1,6 +1,6 @@
-import { createActionDispatcher } from "./gateway/action-dispatcher.ts";
+import { createDeviceActionDispatcher } from "./gateway/device-action-dispatcher.ts";
 
-export function createAgentActionsApi({
+export function createDeviceActionsApi({
   policyManifest,
   policyActions,
   actionRegistry,
@@ -12,7 +12,7 @@ export function createAgentActionsApi({
   limitedOutput,
   json,
 }) {
-  return createActionDispatcher({
+  return createDeviceActionDispatcher({
     policyManifest,
     policyActions,
     actionRegistry,
@@ -25,4 +25,3 @@ export function createAgentActionsApi({
     json,
   });
 }
-

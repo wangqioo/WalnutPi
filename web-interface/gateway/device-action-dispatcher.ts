@@ -18,7 +18,7 @@ const SIDE_EFFECTS_BY_ACTION_ID = {
   "package-install": [{ kind: "package-install", target: "device", status: "observed" }],
 };
 
-export function createActionDispatcher({
+export function createDeviceActionDispatcher({
   policyManifest,
   policyActions,
   actionRegistry,

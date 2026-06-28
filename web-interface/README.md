@@ -39,7 +39,7 @@ The Bun server is still one process, but the implementation is split by WalnutPi
 
 ```text
 model-terminal-server.ts        route assembly and shared process wiring
-agent-actions-api.ts            Agent Action API and policy-backed execution
+device-actions-api.ts           internal device action dispatcher helper
 action-policy.ts                Action Policy Manifest validation
 project-memory-api.ts           Session Log, Durable Memory, and Retrieval Corpus views
 screen-diagnostics-api.ts       Sync Record, frame capture, and frame-diff diagnostics

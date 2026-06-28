@@ -29,7 +29,7 @@ export type ProductGatewayAppDeps = {
     SSH_USER: string;
   };
   path: PathLike;
-  agentActionsApi: GatewayService;
+  deviceActionsApi: GatewayService;
   actionPolicyManifest: ActionPolicyManifest;
   projectMemoryApi: GatewayService;
   webMetricsLedger: GatewayService;
@@ -53,7 +53,7 @@ export function createProductGatewayApp({
   previewOnlyJson,
   config,
   path,
-  agentActionsApi,
+  deviceActionsApi,
   actionPolicyManifest,
   projectMemoryApi,
   webMetricsLedger,
@@ -77,7 +77,7 @@ export function createProductGatewayApp({
     json,
     config,
     path,
-    agentActionsApi,
+    deviceActionsApi,
     actionPolicyManifest,
     projectMemoryApi,
     webMetricsLedger,
@@ -125,7 +125,7 @@ function registerProductRoutes(app: Hono, {
   json,
   config,
   path,
-  agentActionsApi,
+  deviceActionsApi,
   actionPolicyManifest,
   projectMemoryApi,
   webMetricsLedger,
@@ -133,7 +133,7 @@ function registerProductRoutes(app: Hono, {
   auditLedger,
 }: JsonObject) {
   app.get("/api/actions", () =>
-    json(agentActionsApi.actionPolicyView({
+    json(deviceActionsApi.actionPolicyView({
       target: `${config.SSH_USER}@${config.SSH_HOST}`,
       manifest: {
         schema: actionPolicyManifest.schema,

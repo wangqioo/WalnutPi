@@ -19,6 +19,11 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   dispatch entry. It is now the MCP/domain tool dispatcher used by `/mcp`, and
   executable device tools still pass through the OPA policy gate before command
   construction.
+- The old Web action helper naming has been removed from the active wiring.
+  `web-interface/device-actions-api.ts` and
+  `web-interface/gateway/device-action-dispatcher.ts` now name the remaining
+  helper by its current role: internal policy-gated device action execution for
+  MCP tools, not a public old action runtime.
 - Supported structured capabilities enter
   `web-interface/platform/mastra/agent-turn-workflows.ts`, call `@mastra/mcp`
   against `/mcp`, then project typed tool results into
@@ -213,13 +218,15 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   no longer expose raw shell, SSH, or Walnut CLI command strings. Command
   construction remains inside the dispatcher/adapter boundary and raw command
   records stay limited to internal diagnostic/audit boundaries.
-- Screen playlist SSH delivery still constructs remote commands inside
-  `web-interface/screen-delivery-adapters/ssh-local-agent.ts`, but it no longer
-  returns the aggregate command string upward. Its public delivery manifest now
-  lists typed operations, frame evidence records `screen.frame.read`, sync
-  output is a redacted digest, and persisted screen sync records store stage
-  output hash/length/line-count/service-state summaries instead of raw remote
-  output.
+- Screen playlist delivery now calls a typed screen device surface from
+  `web-interface/screen-delivery-adapters/ssh-local-agent.ts`:
+  `deliverRuntimeSlice`, `checkRuntimeSupport`, `buildRuntimeUpgrade`,
+  `verifyActivateAndCollectEvidence`, and `readFrameEvidence`. SSH command
+  strings remain inside the SSH surface factory and are not injected into the
+  delivery adapter as arbitrary runners. The public delivery manifest lists
+  typed operations, frame evidence records `screen.frame.read`, sync output is
+  a redacted digest, and persisted screen sync records store stage output
+  hash/length/line-count/service-state summaries instead of raw remote output.
 - Device action tool projections no longer lift dispatcher raw device output
   into Mastra or `/api/agent/turn` results. Public device results expose only
   status/code, policy summary, device-boundary evidence, and raw output
@@ -475,6 +482,12 @@ local-only or mock verification.
   references are reported as typed artifact references rather than raw output,
   public delivery stages expose only output hashes and lengths, and the
   dispatcher projection contains no raw command or raw output fields.
+- After narrowing screen and Widget App SSH delivery adapters to typed device
+  surfaces, `bun run check` passes. The active delivery adapters now receive
+  device-specific methods instead of raw `runRemote*`/`shellQuote` wiring;
+  command strings remain inside the SSH surface factories and public
+  projections continue to expose only operation names, stage hashes, lengths,
+  service state, and evidence refs.
 - After wiring Langfuse/OpenTelemetry startup and turn/tool correlation,
   `bun run check` passes. Local observability probes showed raw command,
   private text, and raw params are dropped by the span-attribute allowlist; the
@@ -598,8 +611,9 @@ device-profile verification, not offline verification.
   boundary, preserve OPA/audit typed results, and do not enable direct Web
   execution for high-risk actions.
 - Extend device-profile verification for the platform `screen.syncPlaylist`
-  path after the redaction change: remote delivery, activation, service state,
-  and frame comparison should still prove through Mastra/MCP/OPA/typed adapter.
+  path after the typed surface split: remote delivery, activation, service
+  state, and frame comparison should still prove through
+  Mastra/MCP/OPA/typed device surface.
 - Add explicit SME review flow for subjective curated cases while preserving
   the shared HTTP/Inngest runner and redacted Langfuse dataset/score boundary.
 - Collect device-profile evidence for the Inngest screen sync and device
