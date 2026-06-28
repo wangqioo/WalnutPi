@@ -274,12 +274,17 @@ source of truth remains `docs/agent-platform-refactor-spec.md`.
   `walnut/retrieval.reindex.requested` runs that workflow, so retrieval reads
   no longer write embeddings as a GET side effect.
 - `web-interface/platform/inngest/client.ts` now also registers long-workflow
-  shells for `walnut/screen.sync.requested`,
+  workers for `walnut/screen.sync.requested`,
   `walnut/device.evidence.requested`, `walnut/eval.curated.requested`,
   `walnut/eval.curated.case.requested`, and the nightly drift cron. Screen sync
-  and device evidence jobs return typed queued references and required platform
-  path evidence; long-running work should continue moving there rather than
-  back into blocking route handlers.
+  and device evidence jobs run platform turns from Inngest steps through the
+  injected `/api/agent/turn` runner instead of returning queued-only shell
+  references. The screen sync worker calls `screen.syncPlaylist`; the device
+  evidence worker calls `device.status.read` and optionally
+  `screen.captureFrame`. Their public workflow results keep only redacted turn
+  status, route, diagnostics allowlist fields, evidence keys, result keys, and
+  side-effect counts. They do not expose raw user text, params, command
+  strings, device output, session logs, or daily notes.
 - Hono now serves the control-plane Inngest endpoint at `/api/inngest` with the
   six registered functions. The curated eval case worker receives the Web
   platform turn runner from the gateway and executes cases through
@@ -549,6 +554,15 @@ local-only or mock verification.
   `/api/inngest` with `function_count: 6` and `mode: "dev"`, proving the Hono
   Inngest endpoint is wired instead of leaving the functions as unserved module
   definitions.
+- After moving screen sync and device evidence Inngest workers onto the
+  injected platform runner, `bun run check` passes. A temporary Web server on
+  port 4193 ran structured `/api/agent/turn` for preview
+  `screen.syncPlaylist`; the turn returned the expected HTTP `400`/`ok:false`
+  preview result while still reaching final diagnostics operation
+  `mastra.mcp.screen.syncPlaylist`, OPA `allow`, `previewNoWrite: true`, and
+  `noRemoteCommandExecution: true`, with no command-like strings found in the
+  public turn response. The same server returned `200` from `/api/inngest` with
+  `function_count: 6` and `mode: "dev"`.
 - The ignored local `web-interface/data/gateway-audit.jsonl`,
   `agent-turns.jsonl`, `agent-turn-events.jsonl`, and old live-test log files
   were deleted from the workspace after the Postgres paths became the active
@@ -588,9 +602,11 @@ device-profile verification, not offline verification.
   and frame comparison should still prove through Mastra/MCP/OPA/typed adapter.
 - Add explicit SME review flow for subjective curated cases while preserving
   the shared HTTP/Inngest runner and redacted Langfuse dataset/score boundary.
-- Replace the remaining queued-only screen sync and device evidence Inngest
-  shells with real workers that still prove Mastra/MCP/OPA/typed adapter
-  boundaries.
+- Collect device-profile evidence for the Inngest screen sync and device
+  evidence workers against the real WalnutPi. The workers now call the
+  platform runner; the remaining gap is real-device execution proof for remote
+  delivery, activation, service state, and frame evidence through that
+  Inngest-owned path.
 - Retrieval embedding provider wiring is intentionally skipped for this round.
   Reindex should continue to return honest provider-unconfigured failure until
   an approved provider is selected.

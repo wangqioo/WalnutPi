@@ -24,11 +24,39 @@ export function createWalnutInngestFunctions({
         event: "walnut/device.evidence.requested",
       },
     },
-    async ({ event }) => {
+    async ({ event, step }) => {
+      if (!runAgentTurn) {
+        return platformRunnerNotConfigured({
+          eventName: event.name,
+          schema: "walnutpi.deviceEvidence.longWorkflow.v1",
+          workflow: "device-evidence",
+        });
+      }
+      const sessionId = String(event.data?.sessionId || `inngest-device-evidence-${Date.now()}`);
+      const statusTurn = await step.run("device-status-platform-turn", () => runAgentTurn({
+        sessionId,
+        text: "device.status.read",
+        capability: "device.status.read",
+      })) as JsonObject;
+      const captureTurn = event.data?.includeScreenCapture === false
+        ? null
+        : await step.run("screen-capture-platform-turn", () => runAgentTurn({
+          sessionId,
+          text: "screen.captureFrame",
+          capability: "screen.captureFrame",
+          buildId: event.data?.buildId || undefined,
+        })) as JsonObject;
       return {
-        ok: true,
+        ok: Boolean(statusTurn.ok) && (captureTurn ? Boolean(captureTurn.ok) : true),
         eventName: event.name,
-        queuedOnly: true,
+        schema: "walnutpi.deviceEvidence.longWorkflow.v1",
+        queuedOnly: false,
+        deviceProfile: "device",
+        requiredPath: ["Inngest", "agent-turn", "Mastra", "MCP", "OPA", "typed device boundary"],
+        status: redactedTurnSummary(statusTurn),
+        capture: captureTurn ? redactedTurnSummary(captureTurn) : null,
+        resultRef: event.data?.resultRef || null,
+        redaction: publicLongWorkflowRedaction(),
       };
     },
   );
@@ -41,17 +69,35 @@ export function createWalnutInngestFunctions({
         event: "walnut/screen.sync.requested",
       },
     },
-    async ({ event }) => {
+    async ({ event, step }) => {
+      if (!runAgentTurn) {
+        return platformRunnerNotConfigured({
+          eventName: event.name,
+          schema: "walnutpi.screenSync.longWorkflow.v1",
+          workflow: "screen-sync",
+        });
+      }
+      const turn = await step.run("screen-sync-platform-turn", () => runAgentTurn({
+        sessionId: String(event.data?.sessionId || `inngest-screen-sync-${Date.now()}`),
+        text: "screen.syncPlaylist",
+        capability: "screen.syncPlaylist",
+        playlistHash: event.data?.playlistHash || undefined,
+        evidenceMode: event.data?.evidenceMode === "full" ? "full" : "fast",
+        mode: event.data?.mode === "preview" || event.data?.previewOnly === true ? "preview" : "remote",
+        previewOnly: event.data?.mode === "preview" || event.data?.previewOnly === true,
+      })) as JsonObject;
       return {
-        ok: true,
+        ok: Boolean(turn.ok),
         eventName: event.name,
-        queuedOnly: true,
+        queuedOnly: false,
         schema: "walnutpi.screenSync.longWorkflow.v1",
         playlistHash: event.data?.playlistHash || null,
         evidenceMode: event.data?.evidenceMode === "full" ? "full" : "fast",
         deviceProfile: "device",
-        requiredPath: ["Mastra", "MCP", "OPA", "Screen Command DSL", "typed delivery adapter"],
+        requiredPath: ["Inngest", "agent-turn", "Mastra", "MCP", "OPA", "Screen Command DSL", "typed delivery adapter"],
+        turn: redactedTurnSummary(turn),
         resultRef: event.data?.resultRef || null,
+        redaction: publicLongWorkflowRedaction(),
       };
     },
   );
@@ -233,4 +279,85 @@ export function createWalnutInngestServeHandler({
     client: walnutInngest,
     functions: createWalnutInngestFunctions({ runAgentTurn }),
   });
+}
+
+function platformRunnerNotConfigured({
+  eventName,
+  schema,
+  workflow,
+}: {
+  eventName: string;
+  schema: string;
+  workflow: string;
+}) {
+  return {
+    ok: false,
+    eventName,
+    schema,
+    workflow,
+    queuedOnly: false,
+    reason: "platform-runner-not-configured",
+    requiredPath: ["Inngest", "agent-turn", "Mastra", "MCP", "OPA"],
+    generatedBenchmarkHarnessRestored: false,
+    redaction: publicLongWorkflowRedaction(),
+  };
+}
+
+function redactedTurnSummary(turn: JsonObject) {
+  const latest = Array.isArray(turn.toolResults) ? turn.toolResults.at(-1) : null;
+  return {
+    schema: turn.schema || null,
+    ok: Boolean(turn.ok),
+    status: turn.status || null,
+    turnId: turn.turnId || null,
+    traceId: turn.traceId || null,
+    route: turn.route ? {
+      schema: turn.route.schema || null,
+      route: turn.route.route || null,
+      action: turn.route.action || null,
+      intent: turn.route.intent || null,
+      source: turn.route.source || null,
+    } : null,
+    latestTool: latest ? {
+      schema: latest.schema || null,
+      ok: Boolean(latest.ok),
+      family: latest.family || null,
+      summaryRedacted: Boolean(latest.summary),
+      diagnostics: publicDiagnostics(latest.diagnostics),
+      evidenceKeys: Object.keys(objectOrEmpty(latest.evidence)).sort(),
+      resultKeys: Object.keys(objectOrEmpty(latest.result)).sort(),
+      sideEffectCount: Array.isArray(latest.sideEffects) ? latest.sideEffects.length : 0,
+    } : null,
+    toolResultCount: Array.isArray(turn.toolResults) ? turn.toolResults.length : 0,
+    sideEffectCount: Array.isArray(turn.sideEffects) ? turn.sideEffects.length : 0,
+  };
+}
+
+function publicDiagnostics(value: any) {
+  const diagnostics = objectOrEmpty(value);
+  return {
+    operation: diagnostics.operation || null,
+    capability: diagnostics.capability || null,
+    mcpToolName: diagnostics.mcpToolName || null,
+    traceId: diagnostics.traceId || null,
+    policyDecisionId: diagnostics.policyDecisionId || null,
+    failedStage: diagnostics.failedStage || null,
+    adapter: diagnostics.adapter || null,
+    reason: diagnostics.reason || null,
+  };
+}
+
+function publicLongWorkflowRedaction() {
+  return {
+    rawUserText: false,
+    rawParams: false,
+    rawCommand: false,
+    rawOutput: false,
+    rawSessionLogs: false,
+    rawDailyNotes: false,
+  };
+}
+
+function objectOrEmpty(value: any): JsonObject {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
